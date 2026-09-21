@@ -5,7 +5,7 @@ set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0 fail=0
-check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL: $name"; fi; }
+check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL: $name"; return 1; fi; }
 q() { node -p "JSON.stringify(require(process.argv[1])$2)" "$1"; }
 clean_env() { env -u CLAUDE_CONFIG_DIR -u OMC_PLUGIN_ROOT -u OMC_STATE_DIR "$@"; }
 run_install() { clean_env HOME="$1" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" >"$1/install.log" 2>&1; }
@@ -32,8 +32,8 @@ check "fresh: CLAUDE.local.md created" [ -f "$H/.claude/CLAUDE.local.md" ]
 check "fresh: settings == base" [ "$(q "$H/.claude/settings.json" '')" = "$(q "$REPO/settings.base.json" '')" ]
 check "fresh: no backup dir" [ ! -e "$H/.claude/.claudzilla-backup" ]
 sl=$(cd /tmp && clean_env HOME="$H" sh -c "$(node -p 'require(process.argv[1]).statusLine.command' "$H/.claude/settings.json")" \
-     <<<'{"cwd":"/tmp","session_id":"t","model":{"display_name":"M"}}' 2>/dev/null)
-check "fresh: statusline shows ctx" grep -q 'ctx' <<<"$sl"
+     <<<'{"cwd":"/tmp","session_id":"t","model":{"display_name":"M"}}' 2>/dev/null | perl -pe 's/\e\[[0-9;]*m//g')  # hud colours letters one by one
+check "fresh: statusline shows ctx" grep -q '^ctx ' <<<"$sl" || printf '%s\n' "$sl" | sed -n 1,8p >&2
 
 # --- existing machine with its own extras ---
 H=$(new_home); S="$H/.claude/settings.json"; mkdir -p "$H/.claude"
@@ -68,5 +68,11 @@ H=$(new_home)
 check "bootstrap: exit 0" [ "$rc" -eq 0 ]
 check "bootstrap: cloned" [ -f "$H/claudzilla/settings.base.json" ]
 check "bootstrap: links point at clone" [ "$(readlink "$H/.claude/CLAUDE.md")" = "$H/claudzilla/claude/CLAUDE.md" ]
+
+# --- home path with a space ---
+H="$(new_home)/sp ace"; mkdir -p "$H"; run_install "$H"
+sl=$(cd /tmp && clean_env HOME="$H" sh -c "$(node -p 'require(process.argv[1]).statusLine.command' "$H/.claude/settings.json")" \
+     <<<'{"cwd":"/tmp","session_id":"t","model":{"display_name":"M"}}' 2>/dev/null | perl -pe 's/\e\[[0-9;]*m//g')  # hud colours letters one by one
+check "space: statusline shows ctx" grep -q '^ctx ' <<<"$sl" || printf '%s\n' "$sl" | sed -n 1,8p >&2
 
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

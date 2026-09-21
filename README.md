@@ -16,7 +16,9 @@ git clone https://github.com/HT0710/claudzilla ~/claudzilla && ~/claudzilla/inst
 
 Then start `claude` and `/login`. Re-running the installer is safe; anything it replaces is moved to `~/.claude/.claudzilla-backup/<timestamp>/`.
 
-Needs `git`, `curl`, `tar`, `perl` and Claude Code. `node` and [`rtk`](https://github.com/rtk-ai/rtk) are installed into `~/.local` if missing (no sudo) — make sure `~/.local/bin` is on your `PATH`.
+Needs `git`, `curl`, `tar`, `perl` and Claude Code. If missing, `node` (official build, checksum-verified; `node` only, no `npm`) and [`rtk`](https://github.com/rtk-ai/rtk) (its upstream installer, latest release) are installed into `~/.local` without sudo — make sure `~/.local/bin` is on your `PATH`.
+
+Only the default config dir `~/.claude` is supported: `CLAUDE.md` imports `@~/.claude/...`, so a different `CLAUDE_CONFIG_DIR` loses those imports.
 
 ## What you get
 
@@ -25,10 +27,14 @@ Needs `git`, `curl`, `tar`, `perl` and Claude Code. `node` and [`rtk`](https://g
 | `CLAUDE.md` | global instructions: brevity, surgical changes, investigate before acting, evidence discipline |
 | `rules/` | git, Python and response-format rules |
 | `RTK.md` + Bash hook | every Bash call goes through `rtk` to cut token usage |
-| plugins | [caveman](https://github.com/JuliusBrussee/caveman) (terse talk), [ponytail](https://github.com/DietrichGebert/ponytail) (minimal code), [superpowers](https://github.com/anthropics/claude-plugins-official) (plan / TDD / debug workflows) |
+| plugins | [caveman](https://github.com/JuliusBrussee/caveman) (terse talk), [ponytail](https://github.com/DietrichGebert/ponytail) (minimal code), [superpowers](https://github.com/obra/superpowers) (plan / TDD / debug workflows) |
 | statusline | model, effort, context / 5h / weekly usage bars, git branch, session (`hud/`) |
 | theme | `custom:mine`, a muted dark palette |
-| settings | `opus[1m]`, medium effort, `dontAsk` permissions, `COLORTERM=truecolor` |
+| settings | `opus[1m]`, medium effort, `COLORTERM=truecolor`, permissions below |
+
+## Permissions — read this
+
+`settings.base.json` sets `permissions.defaultMode: "dontAsk"` and `skipDangerousModePermissionPrompt: true`. In `dontAsk` mode Claude Code **denies** any tool call that isn't pre-approved instead of asking. This setup is meant to be run as `claude --dangerously-skip-permissions`; if you launch plain `claude`, change `defaultMode` (e.g. to `default`) in `~/.claude/settings.json`.
 
 ## How it works
 

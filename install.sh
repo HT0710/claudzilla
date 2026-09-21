@@ -19,7 +19,9 @@ ORIG_PATH="$PATH"
 # Piped from curl: no checkout next to us, so clone one and run from it.
 if [ ! -f "$REPO/settings.base.json" ]; then
   command -v git >/dev/null || { echo "claudzilla: git is required" >&2; exit 1; }
-  if [ -d "$DIR/.git" ]; then git -C "$DIR" pull --ff-only; else git clone --depth 1 "$REPO_URL" "$DIR"; fi
+  if [ -d "$DIR/.git" ]; then git -C "$DIR" pull --ff-only
+  elif [ -e "$DIR" ]; then echo "claudzilla: $DIR exists but is not a git clone - move it or set CLAUDZILLA_DIR" >&2; exit 1
+  else git clone --depth 1 "$REPO_URL" "$DIR"; fi
   exec bash "$DIR/install.sh" "$@"
 fi
 
@@ -68,7 +70,8 @@ deps() {
     case "$(uname -s)" in Linux) os=linux ;; Darwin) os=darwin ;; *) echo "claudzilla: install node yourself" >&2; exit 1 ;; esac
     case "$(uname -m)" in x86_64|amd64) arch=x64 ;; arm64|aarch64) arch=arm64 ;; *) echo "claudzilla: install node yourself" >&2; exit 1 ;; esac
     base="https://nodejs.org/dist/latest-v${NODE_MAJOR}.x"
-    read -r sum file < <(curl -fsSL "$base/SHASUMS256.txt" | grep " node-v[0-9.]*-$os-$arch\.tar\.gz\$")
+    read -r sum file < <(curl -fsSL "$base/SHASUMS256.txt" | grep " node-v[0-9.]*-$os-$arch\.tar\.gz\$") || true
+    [ -n "${file:-}" ] || { echo "claudzilla: no node $NODE_MAJOR build for $os-$arch at $base - install node yourself" >&2; exit 1; }
     tmp="$(mktemp -d)"; curl -fsSL "$base/$file" -o "$tmp/$file"
     got="$( (sha256sum "$tmp/$file" 2>/dev/null || shasum -a 256 "$tmp/$file") | cut -d' ' -f1)"
     [ "$got" = "$sum" ] || { rm -rf "$tmp"; echo "claudzilla: node checksum mismatch" >&2; exit 1; }
@@ -100,7 +103,7 @@ main() {
   merge_settings
   [ "$OFFLINE" = 1 ] || plugins
   [ -d "$BACKUP" ] && echo "replaced files backed up -> $BACKUP"
-  case ":$ORIG_PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "note: add ~/.local/bin to PATH (node/rtk live there)" ;; esac
+  [ "$OFFLINE" = 1 ] || case ":$ORIG_PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "note: add ~/.local/bin to PATH (node/rtk live there)" ;; esac
   echo "claudzilla installed -> $DEST (from $REPO)"
 }
 
