@@ -22,4 +22,44 @@ check "content: CLAUDE.md imports local" grep -qx '@~/.claude/CLAUDE.local.md' "
 check "content: no CodeGraph section" bash -c "! grep -qi codegraph '$REPO/claude/CLAUDE.md'"
 check "content: vendor license" grep -q 'MIT License' "$REPO/claude/hud/omc-vendor/LICENSE"
 
+# --- fresh machine ---
+H=$(new_home); run_install "$H"; rc=$?
+check "fresh: exit 0" [ "$rc" -eq 0 ]
+for f in CLAUDE.md RTK.md rules themes hud .omc/hud-config.json; do
+  check "fresh: $f linked" [ "$(readlink "$H/.claude/$f")" = "$REPO/claude/$f" ]
+done
+check "fresh: CLAUDE.local.md created" [ -f "$H/.claude/CLAUDE.local.md" ]
+check "fresh: settings == base" [ "$(q "$H/.claude/settings.json" '')" = "$(q "$REPO/settings.base.json" '')" ]
+check "fresh: no backup dir" [ ! -e "$H/.claude/.claudzilla-backup" ]
+sl=$(cd /tmp && clean_env HOME="$H" sh -c "$(node -p 'require(process.argv[1]).statusLine.command' "$H/.claude/settings.json")" \
+     <<<'{"cwd":"/tmp","session_id":"t","model":{"display_name":"M"}}' 2>/dev/null)
+check "fresh: statusline shows ctx" grep -q 'ctx' <<<"$sl"
+
+# --- existing machine with its own extras ---
+H=$(new_home); S="$H/.claude/settings.json"; mkdir -p "$H/.claude"
+echo old > "$H/.claude/CLAUDE.md"
+echo 'keep me' > "$H/.claude/CLAUDE.local.md"
+cat > "$S" <<'JSON'
+{"model":"opus","env":{"FOO":"1"},
+ "hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"rtk hook claude"}]},
+                        {"matcher":"Edit","hooks":[{"type":"command","command":"mine"}]}]},
+ "enabledPlugins":{"extra@x":true}}
+JSON
+run_install "$H"
+check "merge: repo scalar wins" [ "$(q "$S" .model)" = '"opus[1m]"' ]
+check "merge: machine env kept" [ "$(q "$S" .env.FOO)" = '"1"' ]
+check "merge: repo env added" [ "$(q "$S" .env.COLORTERM)" = '"truecolor"' ]
+check "merge: machine hook kept" grep -q '"mine"' "$S"
+check "merge: rtk hook not duplicated" [ "$(grep -c 'rtk hook claude' "$S")" -eq 1 ]
+check "merge: machine plugin kept" [ "$(q "$S" '.enabledPlugins["extra@x"]')" = true ]
+check "backup: old CLAUDE.md saved" grep -rqx old "$H/.claude/.claudzilla-backup"
+check "backup: old settings saved" bash -c "ls '$H'/.claude/.claudzilla-backup/*/settings.json >/dev/null"
+check "local: CLAUDE.local.md untouched" grep -qx 'keep me' "$H/.claude/CLAUDE.local.md"
+
+# --- re-run is a no-op ---
+nb=$(ls "$H/.claude/.claudzilla-backup" | wc -l); cp "$S" "$H/s1"; sleep 1
+run_install "$H"
+check "rerun: no new backup" [ "$(ls "$H/.claude/.claudzilla-backup" | wc -l)" -eq "$nb" ]
+check "rerun: settings unchanged" cmp -s "$S" "$H/s1"
+
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
