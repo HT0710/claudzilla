@@ -1,34 +1,8 @@
-# RTK - Rust Token Killer (Codex CLI)
+# RTK - Rust Token Killer
 
-**Usage**: Token-optimized CLI proxy for shell commands.
+PreToolUse hook (`rtk hook claude`) auto-rewrites Bash commands. No manual prefix needed.
 
-## Rule
+Not rewritten: `uv run <tool>` → write `uv run rtk <tool>` (e.g. `uv run rtk pytest -q`).
+`rtk uv run ...` passes through unfiltered; `rtk pytest` outside venv fails (pytest not on PATH).
 
-Always prefix shell commands with `rtk`.
-
-Prefix the **whole pipeline once**, not each stage: `rtk git log | head`, not `rtk git log | rtk head`. Skip `rtk` for shell builtins, heredocs, redirect-only commands, and anything already wrapped by `rtk proxy`.
-
-Examples:
-
-```bash
-rtk git status
-rtk cargo test
-rtk npm run build
-rtk pytest -q
-```
-
-## Meta Commands
-
-```bash
-rtk gain            # Token savings analytics
-rtk gain --history  # Recent command savings history
-rtk proxy <cmd>     # Run raw command without filtering
-```
-
-## Verification
-
-```bash
-rtk --version
-rtk gain
-which rtk
-```
+User meta: `rtk gain`, `rtk discover`.

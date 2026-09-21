@@ -25,7 +25,7 @@ Only the default config dir `~/.claude` is supported: `CLAUDE.md` imports `@~/.c
 | | |
 |---|---|
 | `CLAUDE.md` | global instructions: brevity, surgical changes, investigate before acting, evidence discipline |
-| `rules/` | git, Python and response-format rules |
+| `rules/` | git, Python, response-format, comments and superpowers-tier rules |
 | `RTK.md` + Bash hook | every Bash call goes through `rtk` to cut token usage |
 | plugins | [caveman](https://github.com/JuliusBrussee/caveman) (terse talk), [ponytail](https://github.com/DietrichGebert/ponytail) (minimal code), [superpowers](https://github.com/obra/superpowers) (plan / TDD / debug workflows) |
 | statusline | model, effort, context / 5h / weekly usage bars, git branch, session (`hud/`) |
