@@ -1,0 +1,72 @@
+{
+  "env": {
+    "COLORTERM": "truecolor"
+  },
+  "permissions": {
+    "defaultMode": "dontAsk"
+  },
+  "model": "opus[1m]",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rtk hook claude"
+          }
+        ]
+      }
+    ]
+  },
+  "worktree": {
+    "baseRef": "fresh"
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "H=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hud; export OMC_PLUGIN_ROOT=\"$H/omc-vendor\" OMC_STATE_DIR=\"$HOME/.omc/projects\"; IN=$(cat); export HUD_META=$(printf '%s' \"$IN\" | node -e 'let d=\"\";process.stdin.on(\"data\",c=>d+=c).on(\"end\",()=>{try{const j=JSON.parse(d);process.stdout.write([j.workspace?.current_dir||j.cwd||\"\",j.effort?.level||\"\",j.session_id||\"\"].join(\"\\u001f\"))}catch{}})'); { printf '%s' \"$IN\" | node $H/session-prefix.mjs; printf '%s' \"$IN\" | node $H/omc-hud.mjs; } | perl $H/hud-filter.pl",
+    "refreshInterval": 1
+  },
+  "enabledPlugins": {
+    "caveman@caveman": true,
+    "ponytail@ponytail": true,
+    "superpowers@claude-plugins-official": true
+  },
+  "extraKnownMarketplaces": {
+    "claude-plugins-official": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-official"
+      }
+    },
+    "caveman": {
+      "source": {
+        "source": "github",
+        "repo": "JuliusBrussee/caveman"
+      }
+    },
+    "ponytail": {
+      "source": {
+        "source": "github",
+        "repo": "DietrichGebert/ponytail"
+      }
+    }
+  },
+  "feedbackDrafts": "off",
+  "effortLevel": "medium",
+  "modelSettings": {
+    "claude-opus-5": {
+      "effortLevel": "high"
+    }
+  },
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "custom:mine",
+  "editorMode": "normal",
+  "verbose": false,
+  "preferredNotifChannel": "auto",
+  "autoCompactEnabled": true,
+  "remoteControlAtStartup": false,
+  "agentPushNotifEnabled": true,
+  "useAutoModeDuringPlan": true,
+  "hasCompletedOnboarding": true
+}

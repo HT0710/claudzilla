@@ -1,0 +1,23 @@
+{
+  "name": "Mine",
+  "base": "dark",
+  "overrides": {
+    "userMessageBackground": "#182634",
+    "userMessageBackgroundHover": "#213547",
+    "bashMessageBackgroundColor": "#24303f",
+    "memoryBackgroundColor": "#17323a",
+    "composerSidebarBackground": "#141c26",
+    "promptBorder": "#4a6b8a",
+    "success": "#3fd39b",
+    "error": "#ff5f79",
+    "diffAdded": "#1d3a2a",
+    "diffRemoved": "#3a2030",
+    "selectionBg": "#2c5178",
+    "suggestion": "#93b4e0",
+    "planMode": "#3f8a96",
+    "claude": "#7fb6d9",
+    "claudeShimmer": "#a6d0ea",
+    "warning": "#d9a441",
+    "warningShimmer": "#f0c46b"
+  }
+}

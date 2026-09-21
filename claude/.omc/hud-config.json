@@ -1,0 +1,14 @@
+{
+  "elements": {
+    "cwd": true,
+    "gitBranch": true
+  },
+  "layout": {
+    "main": [
+      "omcLabel", "model", "enterpriseCost", "contextBar", "rateLimits", "customBuckets",
+      "permission", "thinking", "promptTime", "session", "tokens", "ralph", "autopilot",
+      "prd", "skills", "lastSkill", "agents", "background",
+      "callCounts", "lastTool", "sessionSummary"
+    ]
+  }
+}
