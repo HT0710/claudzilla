@@ -62,4 +62,11 @@ run_install "$H"
 check "rerun: no new backup" [ "$(ls "$H/.claude/.claudzilla-backup" | wc -l)" -eq "$nb" ]
 check "rerun: settings unchanged" cmp -s "$S" "$H/s1"
 
+# --- curl | bash bootstrap (clones committed HEAD of $REPO) ---
+H=$(new_home)
+(cd "$H" && clean_env HOME="$H" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_REPO="$REPO" bash < "$REPO/install.sh" >"$H/install.log" 2>&1); rc=$?
+check "bootstrap: exit 0" [ "$rc" -eq 0 ]
+check "bootstrap: cloned" [ -f "$H/claudzilla/settings.base.json" ]
+check "bootstrap: links point at clone" [ "$(readlink "$H/.claude/CLAUDE.md")" = "$H/claudzilla/claude/CLAUDE.md" ]
+
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
