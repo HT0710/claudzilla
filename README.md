@@ -30,17 +30,18 @@ Only the default config dir `~/.claude` is supported: `CLAUDE.md` imports `@~/.c
 | plugins | [caveman](https://github.com/JuliusBrussee/caveman) (terse talk), [ponytail](https://github.com/DietrichGebert/ponytail) (minimal code), [superpowers](https://github.com/obra/superpowers) (plan / TDD / debug workflows) |
 | statusline | model, effort, context / 5h / weekly usage bars, git branch, session (`hud/`) |
 | theme | `custom:mine`, a muted dark palette |
-| settings | `opus[1m]`, medium effort, `COLORTERM=truecolor`, permissions below |
-
-## Permissions — read this
-
-`settings.base.json` sets `permissions.defaultMode: "dontAsk"` and `skipDangerousModePermissionPrompt: true`. In `dontAsk` mode Claude Code **denies** any tool call that isn't pre-approved instead of asking. This setup is meant to be run as `claude --dangerously-skip-permissions`; if you launch plain `claude`, change `defaultMode` (e.g. to `default`) in `~/.claude/settings.json`.
+| settings | `opus[1m]`, medium effort, `COLORTERM=truecolor`, Claude Code's default permission prompts |
 
 ## How it works
 
 - `CLAUDE.md`, `RTK.md`, `rules/`, `themes/`, `hud/` and `.omc/hud-config.json` in `~/.claude` become **symlinks into this repo**. Edit them anywhere and the change shows up in `git status`.
 - `settings.json` is **merged**, not linked, because Claude Code rewrites it. Values from `settings.base.json` win; objects merge key by key; arrays are unioned. Anything a machine adds on its own (extra hooks, env, plugins) survives re-installs.
 - Machine-specific instructions go in `~/.claude/CLAUDE.local.md`, which `CLAUDE.md` imports. It is created empty and never committed.
+- Machine-specific settings go in `~/.claude/settings.overrides.json`. It is merged **last**, so it beats the repo — use it for anything you want to differ from `settings.base.json` on one machine, e.g. no permission prompts:
+
+  ```json
+  { "permissions": { "defaultMode": "dontAsk" } }
+  ```
 
 ## Update
 

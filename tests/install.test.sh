@@ -30,6 +30,8 @@ for f in CLAUDE.md RTK.md rules themes hud .omc/hud-config.json; do
 done
 check "fresh: CLAUDE.local.md created" [ -f "$H/.claude/CLAUDE.local.md" ]
 check "fresh: settings == base" [ "$(q "$H/.claude/settings.json" '')" = "$(q "$REPO/settings.base.json" '')" ]
+check "fresh: permissions ask by default" [ "$(q "$H/.claude/settings.json" .permissions.defaultMode)" = '"default"' ]
+check "fresh: no bypass-prompt skip" [ "$(q "$H/.claude/settings.json" .skipDangerousModePermissionPrompt)" = undefined ]
 check "fresh: no backup dir" [ ! -e "$H/.claude/.claudzilla-backup" ]
 sl=$(cd /tmp && clean_env HOME="$H" sh -c "$(node -p 'require(process.argv[1]).statusLine.command' "$H/.claude/settings.json")" \
      <<<'{"cwd":"/tmp","session_id":"t","model":{"display_name":"M"}}' 2>/dev/null | perl -pe 's/\e\[[0-9;]*m//g')  # hud colours letters one by one
@@ -39,6 +41,7 @@ check "fresh: statusline shows ctx" grep -q '^ctx ' <<<"$sl" || printf '%s\n' "$
 H=$(new_home); S="$H/.claude/settings.json"; mkdir -p "$H/.claude"
 echo old > "$H/.claude/CLAUDE.md"
 echo 'keep me' > "$H/.claude/CLAUDE.local.md"
+echo '{"permissions":{"defaultMode":"dontAsk"},"theme":"dark"}' > "$H/.claude/settings.overrides.json"
 cat > "$S" <<'JSON'
 {"model":"opus","env":{"FOO":"1"},
  "hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"rtk hook claude"}]},
@@ -54,6 +57,8 @@ check "merge: rtk hook not duplicated" [ "$(grep -c 'rtk hook claude' "$S")" -eq
 check "merge: machine plugin kept" [ "$(q "$S" '.enabledPlugins["extra@x"]')" = true ]
 check "backup: old CLAUDE.md saved" grep -rqx old "$H/.claude/.claudzilla-backup"
 check "backup: old settings saved" bash -c "ls '$H'/.claude/.claudzilla-backup/*/settings.json >/dev/null"
+check "override: beats repo value" [ "$(q "$S" .permissions.defaultMode)" = '"dontAsk"' ]
+check "override: beats repo theme" [ "$(q "$S" .theme)" = '"dark"' ]
 check "local: CLAUDE.local.md untouched" grep -qx 'keep me' "$H/.claude/CLAUDE.local.md"
 
 # --- re-run is a no-op ---

@@ -40,10 +40,11 @@ link() {  # $DEST/$1 -> $REPO/claude/$1
 
 # Repo wins on scalars, objects merge key by key, arrays union - so keys a
 # machine adds on its own (extra hooks, env, plugins) survive every re-run.
+# settings.overrides.json (machine-local, never in the repo) wins over both.
 merge_settings() {
   local dst="$DEST/settings.json" tmp="$DEST/.settings.json.claudzilla"
   node -e '
-const fs=require("fs"),[base,dst,out]=process.argv.slice(1);
+const fs=require("fs"),[base,dst,out,over]=process.argv.slice(1);
 const read=p=>fs.existsSync(p)?JSON.parse(fs.readFileSync(p,"utf8")):{};
 const isObj=v=>v&&typeof v=="object"&&!Array.isArray(v);
 const merge=(mine,repo)=>{
@@ -51,8 +52,8 @@ const merge=(mine,repo)=>{
     return [...mine,...repo.filter(v=>!seen.has(JSON.stringify(v)))]}
   if(isObj(mine)&&isObj(repo)){const o={...mine};for(const k in repo)o[k]=k in mine?merge(mine[k],repo[k]):repo[k];return o}
   return repo};
-fs.writeFileSync(out,JSON.stringify(merge(read(dst),read(base)),null,2)+"\n")' \
-    "$REPO/settings.base.json" "$dst" "$tmp"
+fs.writeFileSync(out,JSON.stringify(merge(merge(read(dst),read(base)),read(over)),null,2)+"\n")' \
+    "$REPO/settings.base.json" "$dst" "$tmp" "$DEST/settings.overrides.json"
   if [ -f "$dst" ] && cmp -s "$tmp" "$dst"; then rm -f "$tmp"; return 0; fi
   [ -f "$dst" ] && save settings.json
   mv "$tmp" "$dst"

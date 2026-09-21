@@ -3,7 +3,7 @@
     "COLORTERM": "truecolor"
   },
   "permissions": {
-    "defaultMode": "dontAsk"
+    "defaultMode": "default"
   },
   "model": "opus[1m]",
   "hooks": {
@@ -59,7 +59,6 @@
       "effortLevel": "high"
     }
   },
-  "skipDangerousModePermissionPrompt": true,
   "theme": "custom:mine",
   "editorMode": "normal",
   "verbose": false,
