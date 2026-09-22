@@ -25,12 +25,24 @@ Only the default config dir `~/.claude` is supported: `CLAUDE.md` imports `@~/.c
 | | |
 |---|---|
 | `CLAUDE.md` | global instructions: brevity, surgical changes, investigate before acting, evidence discipline |
-| `rules/` | git, Python, response-format, comments and superpowers-tier rules |
+| `rules/` | always-loaded rules, one file per topic — see [Rules](#rules) |
 | `RTK.md` + Bash hook | every Bash call goes through `rtk` to cut token usage |
 | plugins | [caveman](https://github.com/JuliusBrussee/caveman) (terse talk), [ponytail](https://github.com/DietrichGebert/ponytail) (minimal code), [superpowers](https://github.com/obra/superpowers) (plan / TDD / debug workflows) |
 | statusline | model, effort, context / 5h / weekly usage bars, git branch, session (`hud/`) |
 | theme | `custom:mine`, a muted dark palette |
 | settings | `opus[1m]`, medium effort, `COLORTERM=truecolor`, Claude Code's default permission prompts |
+
+## Rules
+
+Every file in `claude/rules/` is loaded into every session.
+
+| file | what it enforces |
+|---|---|
+| `git.md` | no push/PR/tag unless asked; branch off `main`; Conventional Commits, subject ≤ 50 chars, `Why:` / `Impact:` / `Verify:` body without file lists; pre-PR checks; bold-labelled PR template; no Claude session links |
+| `response-format.md` | scannable replies: TL;DR first, headers, tables, `#`-numbered findings, a single bold recommendation per decision, unicode diagrams checked for alignment, `Next:` line |
+| `comments.md` | no comment by default; comments explain *why* only; one-line docstrings; no change history in code |
+| `python.md` | `uv` + `pyproject.toml` only, `ruff`, `pathlib`, type hints on public functions, stdlib first, plain `pytest` |
+| `superpowers.md` | which superpowers skills run automatically, which are only suggested, which are manual; verification before finishing a branch; specs and plans kept out of git by default |
 
 ## How it works
 
