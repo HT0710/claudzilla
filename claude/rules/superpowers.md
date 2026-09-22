@@ -39,6 +39,12 @@ Shape:
 - Skill asks one question at a time → batch into one `AskUserQuestion` when possible.
 - Skill asks for a long spec/plan → keep response-format.md (TL;DR, tables, no prose).
 
+## Order — sequence, not trigger
+
+- `subagent-driven-development` / `executing-plans` done → `verification-before-completion` → `finishing-a-development-branch`. Skill text says "use finishing" → verification first.
+- Finishing Step 1 (run tests) ≠ verification.
+- Finishing option that pushes / merges / opens PR → re-run verification that turn if anything changed since (commit, rebase, amend).
+
 ## Spec/plan files — local only by default
 
 Specs + plans land in `docs/superpowers/` (`specs/`, `plans/`). Before first write in a repo:
