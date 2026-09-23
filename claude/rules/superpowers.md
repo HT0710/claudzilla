@@ -10,7 +10,7 @@ Names below = `superpowers:<name>` in the Skill tool.
 |---|---|
 | bug, test fail, unexpected behaviour | `systematic-debugging` — §3 analysis runs inside it; still wait for go-ahead before edit |
 | writing non-trivial code (branch, loop, parser, money/security) | `test-driven-development` — trivial one-liner exempt |
-| before saying done / fixed / passing, before push / PR | `verification-before-completion` |
+| before saying done / fixed / passing | `verification-before-completion` — push / PR: see git.md Before push + Order |
 | review feedback received | `receiving-code-review` |
 
 ## Suggest — name in `Recommend:` or `Next:`, invoke on yes
@@ -34,7 +34,7 @@ Shape:
 
 ## Overrides
 
-- git.md wins: no commit / push / PR from any skill unless asked.
+- git.md wins on push / PR. Skill commits = automation (git.md Commits): local, reorganized before push.
 - TDD: keep red-first order; test count per Ponytail (smallest check that fails).
 - Skill asks one question at a time → batch into one `AskUserQuestion` when possible.
 - Skill asks for a long spec/plan → keep response-format.md (TL;DR, tables, no prose).
@@ -43,7 +43,7 @@ Shape:
 
 - `subagent-driven-development` / `executing-plans` done → `verification-before-completion` → `finishing-a-development-branch`. Skill text says "use finishing" → verification first.
 - Finishing Step 1 (run tests) ≠ verification.
-- Finishing option that pushes / merges / opens PR → re-run verification that turn if anything changed since (commit, rebase, amend).
+- Finishing option that pushes / merges / opens PR = user asked. Reorganize (git.md) → re-run verification that turn → push.
 
 ## Spec/plan files — local only by default
 

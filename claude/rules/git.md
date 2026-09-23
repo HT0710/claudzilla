@@ -6,10 +6,15 @@
 - On default branch (`main`/`master`) → branch first, then commit.
 - Never `--force` on shared branch. `--force-with-lease` if truly needed and asked.
 - Never `reset --hard`, `clean -fd`, or discard uncommitted work without explicit go-ahead.
-- Big or risky edit → ask before checkpoint commit, then edit.
+- Manual work, big or risky edit → ask before checkpoint commit.
+- Before push: memory files → reorganize (Commits) → `verification-before-completion` → message per template → push.
 
 ## Commits
 
+- Manual work: hold uncommitted until final; commit right before push. User says "commit" → commit now.
+- Automation (SDD, executing-plans, skill chains): commit freely, local only.
+- Before first push: reorganize into logical commits — show proposed commit list, `reset --soft <base>`, re-commit per change, `git diff <old-head> HEAD` empty.
+- Already pushed: new commits only; amend + `--force-with-lease` only when asked.
 - Conventional Commits: `feat:`, `fix:`, `refactor:`, `chore:`, `docs:`, `test:`.
 - Subject ≤ 50 chars, imperative. Small commit (1 file, obvious diff) → subject only; else body per template below.
 - One logical change per commit. Don't bundle refactor + feature.
