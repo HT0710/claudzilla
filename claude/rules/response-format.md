@@ -50,7 +50,6 @@ Propose options → always end with ONE recommendation.
     `python3 -c 'import sys;[print(i,len(l.rstrip("\n")),[j for j,c in enumerate(l) if c in "│┌┐└┘├┤"]) for i,l in enumerate(sys.stdin)]' <<'EOF'` … `EOF`
     Border columns must match on every line.
 - Flat items → table, not diagram.
-- PR description → ```mermaid (GitHub renders it).
 - 15+ nodes → offer Artifact.
 
 ## Emphasis

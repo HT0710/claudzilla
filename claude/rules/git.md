@@ -62,7 +62,7 @@ Rules:
 ## PR description
 
 Same sections as the commit body, plus `Changes:` and a `Test plan:` checklist. Nothing more.
-`Changes:` = bullet per logical change, one line. `path` only if not obvious. Never per file. Flow across 3+ components → one ```mermaid block allowed.
+`Changes:` = bullet per logical change, one line. `path` only if not obvious. Never per file.
 Title = commit subject shape (`<type>(<scope>)?: <subject>`, scope optional).
 
 Markdown renders in PRs → **bold every section label** (`**Why:**`, `**Changes:**`,
