@@ -8,7 +8,7 @@ Names below = `superpowers:<name>` in the Skill tool.
 
 | trigger | skill |
 |---|---|
-| bug, test fail, unexpected behaviour | `systematic-debugging` — §3 analysis runs inside it; still wait for go-ahead before edit |
+| bug, test fail, unexpected behaviour | `systematic-debugging` — §3 analysis runs inside it; stop after Phase 3 (root cause + fix proposal), Phase 4 on go |
 | writing non-trivial code (branch, loop, parser, money/security) | `test-driven-development` — trivial one-liner exempt |
 | before saying done / fixed / passing | `verification-before-completion` — push / PR: see git.md Before push + Order |
 | review feedback received | `receiving-code-review` |
@@ -20,17 +20,18 @@ Names below = `superpowers:<name>` in the Skill tool.
 | new feature, behaviour change, multi-file | `brainstorming` → `writing-plans` |
 | plan exists, execute it | `executing-plans` / `subagent-driven-development` |
 | 2+ independent tasks | `dispatching-parallel-agents` |
-| isolated feature work | `using-git-worktrees` |
-| work done, before merge | `requesting-code-review` |
-| branch finished | `finishing-a-development-branch` |
+| isolated feature work | `using-git-worktrees` — location `../<repo>-<slug>` (git.md); never `.worktrees/` or a `.gitignore` commit |
+| work done outside SDD / executing-plans, before merge | `requesting-code-review` |
+| branch finished (outside the Order chain) | `finishing-a-development-branch` |
 
 Shape:
 - `Recommend:` line → add `Skill: <name> — <why, 1 line>` when one fits.
 - `Next:` → `say go → I run <name>`.
+- Inside a chain, the skill's own gate (spec approval, execution choice, finishing menu) = the ask; no extra `Next:`.
 
 ## Manual — only when user asks
 
-- `writing-skills`
+- `writing-skills`, `diagnosing-superpowers`
 
 ## Overrides
 
@@ -52,3 +53,4 @@ Specs + plans land in `docs/superpowers/` (`specs/`, `plans/`). Before first wri
 - `git ls-files docs/superpowers` empty → append `docs/superpowers/` to `$(git rev-parse --git-path info/exclude)` if missing. No ask.
 - Non-empty (repo tracks them) → ask: keep tracking, or exclude new ones?
 - User asks to commit specs/plans → skip exclude.
+- Excluded → skill step "commit spec/plan" → skip; report path (local, not committed).

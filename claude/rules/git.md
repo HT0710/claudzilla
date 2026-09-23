@@ -3,7 +3,7 @@
 ## Safety
 
 - Never `push`, PR, or tag unless asked.
-- On default branch (`main`/`master`) → branch first, then commit.
+- On default branch (`main`/`master`) → branch first, then commit. Solo repo whose history commits to default → ask once, then follow.
 - Never `--force` on shared branch. `--force-with-lease` if truly needed and asked.
 - Never `reset --hard`, `clean -fd`, or discard uncommitted work without explicit go-ahead.
 - Manual work, big or risky edit → ask before checkpoint commit.
@@ -41,7 +41,7 @@ Why: <1 line — trigger or root cause. Skip if subject says it.>
 Impact: <who/what is affected — callers, config, data, behaviour. 1-2 lines.>
 
 Verify: <command run, or how checked>
-Refs: <#issue / ticket / commit sha>
+Refs: <#issue / ticket / commit sha>; Depends on: <PR> when merge order matters
 ```
 
 Rules:
@@ -66,7 +66,7 @@ Rules:
 
 ## PR description
 
-Same sections as the commit body, plus `Changes:` and a `Test plan:` checklist. Nothing more.
+Same sections as the commit body (`Test plan:` replaces `Verify:`), plus `Changes:`, a `Test plan:` checklist, and when they apply `Action required:` / `Not covered:`. Nothing more.
 `Changes:` = bullet per logical change, one line. `path` only if not obvious. Never per file.
 Title = commit subject shape (`<type>(<scope>)?: <subject>`, scope optional).
 
@@ -84,6 +84,8 @@ Commit messages stay plain text — `**` shows literally in `git log`.
 - <who/what is affected>
 
 **Action required:** <post-deploy step: re-embed, migration, config. Omit if none>
+
+**Not covered:** <out of scope, side effects. Omit if none>
 
 **Test plan:**
 - [x] <command run / check done>

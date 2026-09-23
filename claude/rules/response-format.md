@@ -9,17 +9,15 @@ Lazy reader scan, no read. Answer first, structure always.
 2. **Example** — show it when words alone slow reader. Code block > description.
 3. **Evidence** — command, `file:line`, or measured number behind every claim. None → mark *unverified*.
 
-Claim that should have evidence but doesn't → say why not (didn't run, no access), never hand-wave.
-
 ## Layout
 
 - **TL;DR** first line — answer, not preamble.
 - `##` / `###` headers to split every distinct chunk. More headers, not fewer.
-- Short answer (≤3 lines) → no headers, TL;DR only.
+- Short answer (≤3 lines) → no headers, no TL;DR label.
 - Max 3 nesting levels. No wall-of-text paragraph.
 - Table when 2+ items share fields (`what | where`, `option | tradeoff`).
-- Actionable table → first column `#`, restarts at 1 per table. Lookup tables: no `#`.
-  - One Findings table. Fixes mirror Findings `#`.
+- Actionable table (rows user may pick, apply or reject: findings, fixes, options) → first column `#`, restarts at 1 per table. Lookup tables: no `#`.
+  - One Findings table. Fixes mirror Findings `#`; finding with no fix → skip that number.
   - Decisions: heading `Decision <n> — <topic>`, options `A, B`; referenced as `<n><letter>` (`1B`). Lone decision → heading `Decision — <topic>`, options `A, B`.
   - Refer by table name: "Finding 2", "Fix 2", "1B".
 - Bullets otherwise. One idea per bullet, one line if possible.
@@ -29,10 +27,12 @@ Claim that should have evidence but doesn't → say why not (didn't run, no acce
 
 Propose options → always end with ONE recommendation.
 
-- **Recommend:** pick, bold, one line.
+- **Recommend:** pick, bold, one line. One pick per decision; list IDs covered: `Recommend: 1B, 2A, fixes 1–3`.
 - **Why:** 1-2 bullets — reason it beats the others, source inline: `(file:line)`, `(cmd → result)`. No source → *unverified*.
 
 ```md
+### Decision — retry
+
 | # | option | tradeoff |
 |---|---|---|
 | A | no retry | fast |

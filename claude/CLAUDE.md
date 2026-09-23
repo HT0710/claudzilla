@@ -12,7 +12,7 @@ otherwise write the same note as a plain comment.
 
 ## Precedence when rules collide
 
-- Trivial or explicitly-direct edit → Ponytail one-liner, act now. Skip §2 plan and §3 investigation.
+- Trivial or explicitly-direct edit → Ponytail one-liner, act now. Skip §2 plan and §3 investigation; still confirm the edit landed. Direct but multi-file or risky → next line wins.
 - Multi-file or risky → §3 first, wait for go-ahead. Brevity trims wording, never steps.
 - Ambiguity that changes the work → ask. Ambiguity with a sane default → take it, name it in one line.
 - Confused → say what's confusing. Never paper over it.
@@ -52,9 +52,9 @@ Non-trivial service/API change → integration or e2e run locally before "works"
 1. **Impact / Scope** — Fixing: what breaks, who's affected. Implementing: the goal, affected areas, constraints, existing patterns to reuse.
 2. **Analysis** — Fixing → **Root Cause**: trace by layer (UI, query, business logic, write path, sync — adapt to the stack) to where the fault originates, then **5 WHY** to the true root, not a symptom. Implementing → **Approach**: how it slots into the current design, trickle-down effects, what could go wrong.
    Before calling something a bug → check it isn't deliberate (comment, commit msg, config, or caller explaining why).
-3. **Solution** — options with tradeoffs when they exist, then ONE recommendation per `response-format.md` Decisions (recommend + why + evidence). Single option if only one is sensible.
+3. **Solution** — options with tradeoffs when they exist, then ONE recommendation per `response-format.md` Decisions (recommend + why with inline source). Single option if only one is sensible.
 
-Then wait for the go-ahead before editing.
+Then wait for the go-ahead before editing. One go-ahead covers the agreed items through verify; new scope → ask again.
 
 ## Evidence & Memory Discipline
 
