@@ -434,7 +434,14 @@ export function clearDualDirWarnings() {
  * @param worktreeRoot - Optional worktree root path
  * @returns A stable project identifier string
  */
+// claudzilla: 2 git calls per lookup, ~12 lookups per render; too slow on WSL /mnt/c
+const projectIdCache = new Map();
 export function getProjectIdentifier(worktreeRoot) {
+    const key = worktreeRoot || process.cwd();
+    if (!projectIdCache.has(key)) projectIdCache.set(key, computeProjectIdentifier(worktreeRoot));
+    return projectIdCache.get(key);
+}
+function computeProjectIdentifier(worktreeRoot) {
     // NOTE: intentionally does NOT apply the submodule→superproject climb. The
     // project identifier is a state *identity* (used for OMC_STATE_DIR centralized
     // dirs, which never live inside the working tree), and a submodule must keep

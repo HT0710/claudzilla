@@ -21,6 +21,7 @@ check "content: CLAUDE.md imports RTK via ~" grep -qx '@~/.claude/RTK.md' "$REPO
 check "content: CLAUDE.md imports local" grep -qx '@~/.claude/CLAUDE.local.md' "$REPO/claude/CLAUDE.md"
 check "content: no CodeGraph section" bash -c "! grep -qi codegraph '$REPO/claude/CLAUDE.md'"
 check "content: vendor license" grep -q 'MIT License' "$REPO/claude/hud/omc-vendor/LICENSE"
+check "content: vendor project-id cache" grep -q projectIdCache "$REPO/claude/hud/omc-vendor/dist/lib/worktree-paths.js"
 
 # --- fresh machine ---
 H=$(new_home); run_install "$H"; rc=$?

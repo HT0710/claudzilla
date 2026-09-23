@@ -75,7 +75,7 @@ Offline; every case installs into a throwaway `HOME`.
 
 ## Third-party
 
-`claude/hud/omc-vendor/` is a trimmed build of [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode)'s HUD — only the files `dist/hud/index.js` imports. MIT, see its `LICENSE`.
+`claude/hud/omc-vendor/` is a trimmed build of [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode)'s HUD — only the files `dist/hud/index.js` imports. Patched: `dist/lib/worktree-paths.js` caches `getProjectIdentifier` (keep on re-vendor). MIT, see its `LICENSE`.
 
 ## License
 
