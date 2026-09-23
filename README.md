@@ -61,6 +61,8 @@ Every file in `claude/rules/` is loaded into every session.
 cd ~/claudzilla && git pull && ./install.sh
 ```
 
+You don't have to check by hand: when `claude` starts and your clone is behind GitHub, a SessionStart hook (`claude/hooks/claudzilla-update.sh`) shows `claudzilla: update available`. Run the command above, or just tell Claude to update claudzilla — it gets the exact command, and only runs it when you ask. The check compares against the last fetch, so startup never waits on the network, and it refreshes that fetch in the background at most once a day.
+
 ## Uninstall
 
 Remove the symlinks in `~/.claude` (`find ~/.claude -maxdepth 2 -lname "$HOME/claudzilla/*" -delete`) and restore what you need from `~/.claude/.claudzilla-backup/`.

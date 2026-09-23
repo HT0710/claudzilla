@@ -18,6 +18,18 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/claudzilla-update.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   },
   "worktree": {

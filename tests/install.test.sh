@@ -26,13 +26,14 @@ check "content: vendor project-id cache" grep -q projectIdCache "$REPO/claude/hu
 # --- fresh machine ---
 H=$(new_home); run_install "$H"; rc=$?
 check "fresh: exit 0" [ "$rc" -eq 0 ]
-for f in CLAUDE.md RTK.md rules themes hud .omc/hud-config.json; do
+for f in CLAUDE.md RTK.md rules themes hud .omc/hud-config.json hooks/claudzilla-update.sh; do
   check "fresh: $f linked" [ "$(readlink "$H/.claude/$f")" = "$REPO/claude/$f" ]
 done
 check "fresh: CLAUDE.local.md created" [ -f "$H/.claude/CLAUDE.local.md" ]
 check "fresh: settings == base" [ "$(q "$H/.claude/settings.json" '')" = "$(q "$REPO/settings.base.json" '')" ]
 check "fresh: permissions ask by default" [ "$(q "$H/.claude/settings.json" .permissions.defaultMode)" = '"default"' ]
 check "fresh: no bypass-prompt skip" [ "$(q "$H/.claude/settings.json" .skipDangerousModePermissionPrompt)" = undefined ]
+check "fresh: update hook in settings" grep -q 'claudzilla-update.sh' "$H/.claude/settings.json"
 check "fresh: no backup dir" [ ! -e "$H/.claude/.claudzilla-backup" ]
 sl=$(cd /tmp && clean_env HOME="$H" sh -c "$(node -p 'require(process.argv[1]).statusLine.command' "$H/.claude/settings.json")" \
      <<<'{"cwd":"/tmp","session_id":"t","model":{"display_name":"M"}}' 2>/dev/null | perl -pe 's/\e\[[0-9;]*m//g')  # hud colours letters one by one
@@ -80,5 +81,25 @@ H="$(new_home)/sp ace"; mkdir -p "$H"; run_install "$H"
 sl=$(cd /tmp && clean_env HOME="$H" sh -c "$(node -p 'require(process.argv[1]).statusLine.command' "$H/.claude/settings.json")" \
      <<<'{"cwd":"/tmp","session_id":"t","model":{"display_name":"M"}}' 2>/dev/null | perl -pe 's/\e\[[0-9;]*m//g')  # hud colours letters one by one
 check "space: statusline shows ctx" grep -q '^ctx ' <<<"$sl" || printf '%s\n' "$sl" | sed -n 1,8p >&2
+
+# --- update notice (SessionStart hook) ---
+g() { git -c user.name=t -c user.email=t@t -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
+U="$TMP/upd"; mkdir -p "$U"; g init --bare "$U/origin.git"; g clone "$U/origin.git" "$U/seed"
+g -C "$U/seed" commit --allow-empty -m one; g -C "$U/seed" push origin main
+g clone "$U/origin.git" "$U/clone"; mkdir -p "$U/clone/claude/hooks" "$U/home/.claude/hooks"
+cp "$REPO/claude/hooks/claudzilla-update.sh" "$U/clone/claude/hooks/"
+ln -s "$U/clone/claude/hooks/claudzilla-update.sh" "$U/home/.claude/hooks/claudzilla-update.sh"
+notice() { clean_env HOME="$U/home" sh "$U/home/.claude/hooks/claudzilla-update.sh"; }
+check "update: silent when current" [ -z "$(notice)" ]
+g -C "$U/seed" commit --allow-empty -m two; g -C "$U/seed" push origin main
+touch -t 200001010000 "$(git -C "$U/clone" rev-parse --absolute-git-dir)/FETCH_HEAD"
+check "update: silent until the fetch lands" [ -z "$(notice)" ]
+for i in 1 2 3 4 5 6 7 8 9 10; do [ -n "$(notice)" ] && break; sleep 0.5; done
+out=$(notice)
+check "update: stale fetch refreshed in background" [ -n "$out" ]
+check "update: user sees 'update available'" node -e 'const j=JSON.parse(process.argv[1]);if(!/update available/.test(j.systemMessage)||/\d+ update/.test(j.systemMessage))process.exit(1)' "$out"
+check "update: Claude gets the update command" node -e 'const h=JSON.parse(process.argv[1]).hookSpecificOutput;if(h.hookEventName!=="SessionStart"||!/pull --ff-only/.test(h.additionalContext)||!/install\.sh/.test(h.additionalContext))process.exit(1)' "$out"
+mkdir -p "$U/nogit"; cp "$REPO/claude/hooks/claudzilla-update.sh" "$U/nogit/"
+check "update: not a git repo is silent" [ -z "$(clean_env HOME="$U/home" sh "$U/nogit/claudzilla-update.sh" 2>&1)" ]
 
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
