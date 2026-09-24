@@ -16,6 +16,7 @@ Lazy reader scan, no read. Answer first, structure always.
 - Short answer (≤3 lines) → no headers, no TL;DR label.
 - Max 3 nesting levels. No wall-of-text paragraph.
 - Table when 2+ items share fields (`what | where`, `option | tradeoff`).
+  - Cell = one line. No `<br>` or HTML — terminal prints it raw. Needs 2+ lines → split row or use bullets under table.
 - Actionable table (rows user may pick, apply or reject: findings, fixes, options) → first column `#`, restarts at 1 per table. Lookup tables: no `#`.
   - One Findings table. Fixes mirror Findings `#`; finding with no fix → skip that number.
   - Decisions: heading `Decision <n> — <topic>`, options `A, B`; referenced as `<n><letter>` (`1B`). Lone decision → heading `Decision — <topic>`, options `A, B`.
