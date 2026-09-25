@@ -10,7 +10,7 @@ DIR="${CLAUDZILLA_DIR:-$HOME/claudzilla}"
 DEST="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 NODE_MAJOR="${NODE_MAJOR:-24}"
 OFFLINE="${CLAUDZILLA_OFFLINE:-0}"   # 1 = skip node/rtk/plugins (tests)
-LINKS="CLAUDE.md RTK.md rules themes hud .omc/hud-config.json hooks/claudzilla-update.sh"
+LINKS="CLAUDE.md RTK.md rules themes hud .omc/hud-config.json hooks/claudzilla-update.sh hooks/rules-guard.mjs hooks/md-display.pl"
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" 2>/dev/null && pwd || pwd)"
 BACKUP="$DEST/.claudzilla-backup/$(date +%Y%m%d-%H%M%S)"

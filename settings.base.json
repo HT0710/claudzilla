@@ -8,6 +8,13 @@
   },
   "model": "opus[1m]",
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/rules-guard.mjs\"" }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash",
@@ -16,6 +23,41 @@
             "type": "command",
             "command": "rtk hook claude"
           }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "if": "Bash(git *)", "command": "node \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/rules-guard.mjs\"" },
+          { "type": "command", "if": "Bash(gh *)", "command": "node \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/rules-guard.mjs\" gh" }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/rules-guard.mjs\"" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Skill",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/rules-guard.mjs\"" }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/rules-guard.mjs\"" }
+        ]
+      }
+    ],
+    "MessageDisplay": [
+      {
+        "hooks": [
+          { "type": "command", "command": "perl \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/md-display.pl\"" }
         ]
       }
     ],

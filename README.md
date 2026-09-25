@@ -27,6 +27,7 @@ Only the default config dir `~/.claude` is supported: `CLAUDE.md` imports `@~/.c
 | `CLAUDE.md` | global instructions: brevity, surgical changes, investigate before acting, evidence discipline |
 | `rules/` | always-loaded rules, one file per topic — see [Rules](#rules) |
 | `RTK.md` + Bash hook | every Bash call goes through `rtk` to cut token usage |
+| `hooks/rules-guard.mjs` | blocks risky git (force push, discarding work, commit on `main`, push/PR before verification); reminds skill triggers; flags format slips on your next prompt. `md-display.pl` shows `<br>` in tables as `·` |
 | plugins | [caveman](https://github.com/JuliusBrussee/caveman) (terse talk), [ponytail](https://github.com/DietrichGebert/ponytail) (minimal code), [superpowers](https://github.com/obra/superpowers) (plan / TDD / debug workflows) |
 | statusline | model, effort, context / 5h / weekly usage bars, git branch, session (`hud/`) |
 | theme | `custom:mine`, a muted dark palette |

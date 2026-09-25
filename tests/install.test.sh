@@ -26,7 +26,7 @@ check "content: vendor project-id cache" grep -q projectIdCache "$REPO/claude/hu
 # --- fresh machine ---
 H=$(new_home); run_install "$H"; rc=$?
 check "fresh: exit 0" [ "$rc" -eq 0 ]
-for f in CLAUDE.md RTK.md rules themes hud .omc/hud-config.json hooks/claudzilla-update.sh; do
+for f in CLAUDE.md RTK.md rules themes hud .omc/hud-config.json hooks/claudzilla-update.sh hooks/rules-guard.mjs hooks/md-display.pl; do
   check "fresh: $f linked" [ "$(readlink "$H/.claude/$f")" = "$REPO/claude/$f" ]
 done
 check "fresh: CLAUDE.local.md created" [ -f "$H/.claude/CLAUDE.local.md" ]
@@ -34,6 +34,10 @@ check "fresh: settings == base" [ "$(q "$H/.claude/settings.json" '')" = "$(q "$
 check "fresh: permissions ask by default" [ "$(q "$H/.claude/settings.json" .permissions.defaultMode)" = '"default"' ]
 check "fresh: no bypass-prompt skip" [ "$(q "$H/.claude/settings.json" .skipDangerousModePermissionPrompt)" = undefined ]
 check "fresh: update hook in settings" grep -q 'claudzilla-update.sh' "$H/.claude/settings.json"
+check "fresh: rules-guard hook in settings" grep -q 'rules-guard.mjs' "$H/.claude/settings.json"
+check "fresh: md-display hook in settings" grep -q 'md-display.pl' "$H/.claude/settings.json"
+check "fresh: git and gh hook commands differ" node -e 'const h=require(process.argv[1]).hooks.PreToolUse.flatMap(e=>e.hooks).filter(x=>x.if);process.exit(new Set(h.map(x=>x.command)).size===2?0:1)' "$H/.claude/settings.json"
+check "fresh: rtk hook kept once" [ "$(grep -c 'rtk hook claude' "$H/.claude/settings.json")" -eq 1 ]
 check "fresh: no backup dir" [ ! -e "$H/.claude/.claudzilla-backup" ]
 sl=$(cd /tmp && clean_env HOME="$H" sh -c "$(node -p 'require(process.argv[1]).statusLine.command' "$H/.claude/settings.json")" \
      <<<'{"cwd":"/tmp","session_id":"t","model":{"display_name":"M"}}' 2>/dev/null | perl -pe 's/\e\[[0-9;]*m//g')  # hud colours letters one by one
