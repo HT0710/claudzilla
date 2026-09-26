@@ -3,7 +3,7 @@
 ## Safety
 
 - Never `push`, PR, or tag unless asked.
-- On default branch (`main`/`master`) → branch first, then commit. Solo repo whose history commits to default → ask once; on yes the user runs `git config claudzilla.allowMain true` (the hook blocks main commits otherwise).
+- On default branch (`main`/`master`) → branch first, then commit. Solo repo whose history commits to default → ask once; on yes the user sets `{"rulesGuard":{"allowMain":true}}` in `.claude/claudzilla.local.json` (the hook blocks main commits otherwise).
 - Never `--force` on shared branch. `--force-with-lease` if truly needed and asked.
 - Never `reset --hard`, `clean -fd`, or discard uncommitted work without explicit go-ahead.
 - Manual work, big or risky edit → ask before checkpoint commit.

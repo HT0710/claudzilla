@@ -45,6 +45,27 @@ Every file in `claude/rules/` is loaded into every session.
 | `python.md` | an existing repo's own tooling and conventions win; new code gets `uv` + `pyproject.toml`, `ruff`, `pathlib`, type hints on public functions, stdlib first, explicit timeouts on network/subprocess calls, plain `pytest` |
 | `superpowers.md` | which superpowers skills run automatically, which are only suggested, which are manual; debugging stops at a proposed fix until you approve it; verification before finishing a branch; worktrees go next to the repo; specs and plans kept out of git by default |
 
+## Config
+
+`hooks/rules-guard.mjs` reads optional JSON files; later wins, objects merge key by key, arrays replace:
+
+1. `~/.claude/claudzilla.json` — this machine
+2. `<repo>/.claude/claudzilla.json` — shared, commit it
+3. `<repo>/.claude/claudzilla.local.json` — yours, git-ignore it
+
+```json
+{"rulesGuard": {
+  "rules": { "pushVerify": "remind", "tldr": "off" },
+  "keywords": { "debug": ["bug", "broken", "crash"] },
+  "commitTypes": ["feat", "fix", "refactor", "chore", "docs", "test", "ci"],
+  "subjectMax": 72,
+  "tldrMinLines": 15,
+  "allowMain": false
+}}
+```
+
+Gates (`pushVerify` `forcePush` `discard` `mainCommit` `commitSubject` `sessionLink` `envStaged` `worktreePath`) take `deny`, `remind` or `off`; triggers (`debugTrigger` `reviewTrigger` `debugGate`) `remind` or `off`; `specExclude` `on` or `off`; format checks (`doneClaim` `tldr` `emoji` `brInTable` `boxAlign`) `flag` or `off`. A bad file or value is skipped and named on your next prompt.
+
 ## How it works
 
 - `CLAUDE.md`, `RTK.md`, `rules/`, `themes/`, `hud/` and `.omc/hud-config.json` in `~/.claude` become **symlinks into this repo**. Edit them anywhere and the change shows up in `git status`.
