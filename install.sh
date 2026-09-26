@@ -40,24 +40,52 @@ link() {  # $DEST/$1 -> $REPO/claude/$1
 
 # Repo wins on scalars, objects merge key by key, arrays union - so keys a
 # machine adds on its own (extra hooks, env, plugins) survive every re-run.
+# Entries are compared with keys sorted: Claude Code rewrites settings.json.
+# .claudzilla-base.json records the last base applied, so entries claudzilla
+# stops shipping get removed; without it, hook entries whose every command
+# runs a claudzilla hook script are. Repeated copies of a base entry collapse.
 # settings.overrides.json (machine-local, never in the repo) wins over both.
 merge_settings() {
-  local dst="$DEST/settings.json" tmp="$DEST/.settings.json.claudzilla"
+  local dst="$DEST/settings.json" tmp="$DEST/.settings.json.claudzilla" rec="$DEST/.claudzilla-base.json"
   node -e '
-const fs=require("fs"),[base,dst,out,over]=process.argv.slice(1);
+const fs=require("fs"),[base,dst,out,over,rec,hookDir]=process.argv.slice(1);
 const read=p=>fs.existsSync(p)?JSON.parse(fs.readFileSync(p,"utf8")):{};
 const isObj=v=>v&&typeof v=="object"&&!Array.isArray(v);
+const canon=v=>JSON.stringify(v,(k,x)=>isObj(x)?Object.fromEntries(Object.keys(x).sort().map(k=>[k,x[k]])):x);
 const merge=(mine,repo)=>{
-  if(Array.isArray(mine)&&Array.isArray(repo)){const seen=new Set(mine.map(v=>JSON.stringify(v)));
-    return [...mine,...repo.filter(v=>!seen.has(JSON.stringify(v)))]}
+  if(Array.isArray(mine)&&Array.isArray(repo)){const ours=new Set(repo.map(canon)),seen=new Set();
+    const kept=mine.filter(v=>{const c=canon(v);if(ours.has(c)&&seen.has(c))return false;seen.add(c);return true});
+    return [...kept,...repo.filter(v=>!seen.has(canon(v)))]}
   if(isObj(mine)&&isObj(repo)){const o={...mine};for(const k in repo)o[k]=k in mine?merge(mine[k],repo[k]):repo[k];return o}
   return repo};
-fs.writeFileSync(out,JSON.stringify(merge(merge(read(dst),read(base)),read(over)),null,2)+"\n")' \
-    "$REPO/settings.base.json" "$dst" "$tmp" "$DEST/settings.overrides.json"
-  if [ -f "$dst" ] && cmp -s "$tmp" "$dst"; then rm -f "$tmp"; return 0; fi
-  [ -f "$dst" ] && save settings.json
-  mv "$tmp" "$dst"
-  echo "settings.json merged"
+const prune=(mine,old,repo)=>{
+  if(Array.isArray(mine)&&Array.isArray(old)){const had=new Set(old.map(canon)),keep=new Set((Array.isArray(repo)?repo:[]).map(canon));
+    return mine.filter(v=>!had.has(canon(v))||keep.has(canon(v)))}
+  if(isObj(mine)&&isObj(old)){const o={...mine},r=isObj(repo)?repo:{};
+    for(const k in old){if(!(k in o))continue;
+      if(!(k in r)&&canon(o[k])===canon(old[k])){delete o[k];continue}
+      o[k]=prune(o[k],old[k],r[k])}
+    return o}
+  return mine};
+const files=fs.existsSync(hookDir)?fs.readdirSync(hookDir):[];
+const ours=e=>{const hs=e&&e.hooks||[];return hs.length>0&&hs.every(h=>typeof(h&&h.command)=="string"&&files.some(f=>h.command.includes("hooks/"+f)))};
+const bootstrap=(mine,repo)=>{
+  if(!isObj(mine.hooks))return mine;
+  const o={...mine,hooks:{...mine.hooks}},rh=isObj(repo.hooks)?repo.hooks:{};
+  for(const e in o.hooks){if(!Array.isArray(o.hooks[e]))continue;const keep=new Set((rh[e]||[]).map(canon));
+    o.hooks[e]=o.hooks[e].filter(x=>keep.has(canon(x))||!ours(x))}
+  return o};
+let old=null;try{old=JSON.parse(fs.readFileSync(rec,"utf8"))}catch{}
+const b=read(base),d=read(dst);
+fs.writeFileSync(out,JSON.stringify(merge(merge(old?prune(d,old,b):bootstrap(d,b),b),read(over)),null,2)+"\n")' \
+    "$REPO/settings.base.json" "$dst" "$tmp" "$DEST/settings.overrides.json" "$rec" "$REPO/claude/hooks"
+  if [ -f "$dst" ] && cmp -s "$tmp" "$dst"; then rm -f "$tmp"
+  else
+    [ -f "$dst" ] && save settings.json
+    mv "$tmp" "$dst"
+    echo "settings.json merged"
+  fi
+  cmp -s "$REPO/settings.base.json" "$rec" || cp "$REPO/settings.base.json" "$rec"
 }
 
 # node runs the statusline + this script's JSON merge; rtk backs the Bash hook.
