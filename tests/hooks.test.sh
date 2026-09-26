@@ -4,7 +4,8 @@
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-export TMPDIR="$TMP" SID=
+export TMPDIR="$TMP" SID= CLAUDE_CONFIG_DIR="$TMP/cfg"
+mkdir -p "$CLAUDE_CONFIG_DIR"
 pass=0 fail=0 n=0
 check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL: $name"; return 1; fi; }
 RG="$REPO/claude/hooks/rules-guard.mjs"
@@ -71,9 +72,9 @@ done
 check "discard: checkout branch allowed" [ -z "$(sh_ 'git checkout main')" ]
 check "discard: restore --staged allowed" [ -z "$(sh_ 'git restore --staged a.txt')" ]
 check "commit: on main -> deny" denied "$(sh_ 'git commit -m "fix: x"')"
-git config claudzilla.allowMain true
+mkdir -p .claude; printf '{"rulesGuard":{"allowMain":true}}' > .claude/claudzilla.local.json
 check "commit: main with allowMain allowed" [ -z "$(sh_ 'git commit -m "fix: x"')" ]
-git config --unset claudzilla.allowMain; git switch -q -c feat/x
+rm -rf .claude; git switch -q -c feat/x
 new_session; hook UserPromptSubmit prompt=go >/dev/null
 check "commit: on branch allowed" [ -z "$(sh_ 'git commit -m "fix: x"')" ]
 check "commit: non-conventional -> deny" denied "$(sh_ 'git commit -m "update stuff"')"
@@ -151,6 +152,76 @@ new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "$good" >/dev/null
 check "stop: aligned boxes ok" [ "$(state .flags.length)" = 0 ]
 stop "$bad" >/dev/null
 check "stop: misaligned box flagged" has "$(state .flags)" "line 3"
+
+# --- config layers ---
+mcfg() { printf '%s' "$1" > "$CLAUDE_CONFIG_DIR/claudzilla.json"; }
+rcfg() { mkdir -p "$1/.claude"; printf '%s' "$3" > "$1/.claude/claudzilla$2.json"; }
+reminded() { ! denied "$1" && has "$1" "Reminder: "; }
+C=$(repo); git -C "$C" switch -q -c feat/c; cd "$C"
+new_session; hook UserPromptSubmit prompt=go >/dev/null
+check "config: no files keeps push gate" denied "$(sh_ 'git push')"
+mcfg '{"rulesGuard":{"rules":{"pushVerify":"off"}}}'
+check "config: machine off disables push gate" [ -z "$(sh_ 'git push')" ]
+rcfg "$C" "" '{"rulesGuard":{"rules":{"pushVerify":"deny"}}}'
+check "config: repo deny beats machine off" denied "$(sh_ 'git push')"
+rcfg "$C" ".local" '{"rulesGuard":{"rules":{"pushVerify":"remind"}}}'
+check "config: local remind beats repo deny" reminded "$(sh_ 'git push')"
+O=$(repo); rcfg "$O" "" '{"rulesGuard":{"rules":{"pushVerify":"off"}}}'
+check "config: cd into other repo uses its config" [ -z "$(sh_ "cd $O && git push")" ]
+rm -f "$C/.claude/"*.json "$CLAUDE_CONFIG_DIR/claudzilla.json"
+git switch -q main
+git config claudzilla.allowMain true
+check "config: git config allowMain ignored" denied "$(sh_ 'git commit -m "fix: x"')"
+git config --unset claudzilla.allowMain
+rcfg "$C" ".local" '{"rulesGuard":{"allowMain":true}}'
+check "config: allowMain in local file" [ -z "$(sh_ 'git commit -m "fix: x"')" ]
+rcfg "$C" "" '{"rulesGuard":{"commitTypes":["feat","fix","refactor","chore","docs","test","ci"],"subjectMax":72}}'
+check "config: extra commit type allowed" [ -z "$(sh_ 'git commit -m "ci: x"')" ]
+check "config: subject under subjectMax allowed" [ -z "$(sh_ "git commit -m \"fix: $(printf 'a%.0s' {1..55})\"")" ]
+check "config: subject over subjectMax denied" denied "$(sh_ "git commit -m \"fix: $(printf 'a%.0s' {1..70})\"")"
+rm -f "$C/.claude/"*.json
+mcfg '{"rulesGuard":{"keywords":{"debug":["kaboom","c++"]}}}'
+new_session; check "config: custom keyword with suffix" has "$(hook UserPromptSubmit prompt='login kaboomed')" "systematic-debugging"
+new_session; check "config: regex chars in keyword escaped" has "$(hook UserPromptSubmit prompt='the c++ build')" "systematic-debugging"
+new_session; check "config: keyword list replaced" [ -z "$(hook UserPromptSubmit prompt='login is broken')" ]
+mcfg '{"rulesGuard":{"rules":{"debugTrigger":"off"}}}'
+new_session; check "config: debugTrigger off" [ -z "$(hook UserPromptSubmit prompt='login is broken')" ]
+mcfg '{"rulesGuard":{"tldrMinLines":40,"rules":{"doneClaim":"off"}}}'
+new_session; hook UserPromptSubmit prompt=q >/dev/null
+hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
+stop "$long" >/dev/null; stop "Fixed it." >/dev/null
+check "config: tldrMinLines and doneClaim off" [ "$(state .flags.length)" = 0 ]
+mcfg '{"rulesGuard":{"rules":{"specExclude":"off"}}}'
+X=$(repo); hook PreToolUse tool_name=Write tool_input.file_path="$X/docs/superpowers/s.md" >/dev/null
+check "config: specExclude off" [ "$(grep -c superpowers "$X/.git/info/exclude")" -eq 0 ]
+mcfg '{"statusline":{"x":1}}'
+new_session; check "config: file without rulesGuard is silent" [ -z "$(hook UserPromptSubmit prompt=hi)" ]
+printf '{bad' > "$CLAUDE_CONFIG_DIR/claudzilla.json"
+new_session; out=$(hook UserPromptSubmit prompt=hi)
+check "config: bad JSON warned" has "$out" "claudzilla config: $CLAUDE_CONFIG_DIR/claudzilla.json ignored: invalid JSON"
+check "config: bad JSON keeps defaults" denied "$(sh_ 'git push')"
+printf 'null' > "$CLAUDE_CONFIG_DIR/claudzilla.json"
+new_session; check "config: JSON null warned" has "$(hook UserPromptSubmit prompt=hi)" "not a JSON object"
+mcfg '{"rulesGuard":{"rules":{"pushVerify":"maybe"},"subjectMax":"x","commitTypes":["c+"]}}'
+new_session; out=$(hook UserPromptSubmit prompt=hi)
+check "config: bad level warned" has "$out" "rulesGuard.rules.pushVerify ignored"
+check "config: bad param warned" has "$out" "rulesGuard.subjectMax ignored"
+check "config: bad commit type warned" has "$out" "rulesGuard.commitTypes ignored"
+check "config: bad level keeps deny" denied "$(sh_ 'git push')"
+mcfg '{"rulesGuard":{"rules":{"toString":"off","__proto__":"off"},"constructor":1,"hasOwnProperty":2}}'
+new_session; check "config: inherited key names ignored" has "$(hook UserPromptSubmit prompt='login is broken')" "systematic-debugging"
+check "config: inherited key names keep gates" denied "$(sh_ 'git push --force')"
+mcfg '{"rulesGuard":{"rules":{"forcePush":"remind"}}}'
+check "config: remind does not hide later deny" denied "$(sh_ 'git push --force; git reset --hard')"
+hook PostToolUse tool_name=Skill tool_input.skill=superpowers:verification-before-completion >/dev/null
+check "config: remind alone still reminds" reminded "$(sh_ 'git push -f')"
+rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"
+new_session; check "config: default keywords skip unrelated suffixes" [ -z "$(hook UserPromptSubmit prompt='exceptional work, add failover, bugfix release')" ]
+new_session; check "config: default keywords keep plural and tense" has "$(hook UserPromptSubmit prompt='tests failed with errors')" "systematic-debugging"
+mcfg '{"rulesGuard":{"rules":{"debugTrigger":"off"}}}'
+N=$(mktemp -d "$TMP/nogit.XXXX"); new_session
+check "config: machine layer outside repo" [ -z "$(cd "$N" && hook UserPromptSubmit prompt='login is broken')" ]
+rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"; cd "$REPO"
 
 # --- MessageDisplay ---
 MD="$REPO/claude/hooks/md-display.pl"

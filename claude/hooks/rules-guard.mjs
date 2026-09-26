@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
+import { getClaudeConfigDir } from "../hud/lib/config-dir.mjs";
 
 const VERIFY = "verification-before-completion";
 const MSG = {
@@ -12,8 +13,76 @@ const MSG = {
   review: "Auto: invoke superpowers:receiving-code-review.",
   debugGate: "Debug turn: systematic-debugging stops at Phase 3 — propose the fix and wait for go unless the user asked for a direct edit.",
 };
-const DEBUG_RE = /\b(bug|error|fail(s|ed|ing|ure)?|broken|crash(es|ed)?|exception|traceback|not working|doesn'?t work)\b/i;
-const REVIEW_RE = /\b(code review|review (comments?|feedback)|reviewer (said|says)|PR comments?)\b/i;
+
+// Config: built-in defaults ← ~/.claude/claudzilla.json ← <repo>/.claude/claudzilla.json ← <repo>/.claude/claudzilla.local.json
+const GATE = ["deny", "remind", "off"];
+const LEVELS = {
+  pushVerify: GATE, forcePush: GATE, discard: GATE, mainCommit: GATE,
+  commitSubject: GATE, sessionLink: GATE, envStaged: GATE, worktreePath: GATE,
+  debugTrigger: ["remind", "off"], reviewTrigger: ["remind", "off"], debugGate: ["remind", "off"],
+  specExclude: ["on", "off"],
+  doneClaim: ["flag", "off"], tldr: ["flag", "off"], emoji: ["flag", "off"], brInTable: ["flag", "off"], boxAlign: ["flag", "off"],
+};
+const DEFAULTS = {
+  rules: Object.fromEntries(Object.entries(LEVELS).map(([id, l]) => [id, l[0]])),
+  keywords: {
+    debug: ["bug", "error", "fail", "broken", "crash", "exception", "traceback", "not working", "doesn't work", "doesnt work"],
+    review: ["code review", "review comment", "review feedback", "reviewer said", "reviewer says", "PR comment"],
+  },
+  commitTypes: ["feat", "fix", "refactor", "chore", "docs", "test"],
+  subjectMax: 50,
+  tldrMinLines: 15,
+  allowMain: false,
+};
+const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const posInt = (v) => Number.isInteger(v) && v >= 1;
+const PARAMS = {
+  commitTypes: [(v) => Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string" && /^[a-z]+$/.test(x)), "expected non-empty array of lowercase words"],
+  subjectMax: [posInt, "expected integer >= 1"],
+  tldrMinLines: [posInt, "expected integer >= 1"],
+  allowMain: [(v) => typeof v === "boolean", "expected true or false"],
+};
+const words = (v) => Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string" && x.trim() !== "");
+
+function applyLayer(cfg, rg, file, warnings) {
+  const bad = (key, why) => warnings.push(`${file}: rulesGuard.${key} ignored: ${why}`);
+  for (const [k, v] of Object.entries(rg)) {
+    if (k === "rules" || k === "keywords") {
+      if (!isObj(v)) { bad(k, "expected an object"); continue; }
+      for (const [id, x] of Object.entries(v)) {
+        if (!Object.hasOwn(cfg[k], id)) continue;
+        if (k === "rules" ? LEVELS[id].includes(x) : words(x)) cfg[k][id] = x;
+        else bad(`${k}.${id}`, k === "rules" ? `expected ${LEVELS[id].join(" or ")}` : "expected non-empty array of strings");
+      }
+    } else if (Object.hasOwn(PARAMS, k)) {
+      if (PARAMS[k][0](v)) cfg[k] = v; else bad(k, PARAMS[k][1]);
+    }
+  }
+}
+
+function loadConfig(dir) {
+  const cfg = structuredClone(DEFAULTS), warnings = [];
+  const files = [join(getClaudeConfigDir(), "claudzilla.json")];
+  const top = dir ? git(dir, "rev-parse", "--show-toplevel") : "";
+  if (top) files.push(join(top, ".claude", "claudzilla.json"), join(top, ".claude", "claudzilla.local.json"));
+  for (const f of files) {
+    let text;
+    try { text = readFileSync(f, "utf8"); } catch { continue; }
+    let j;
+    try { j = JSON.parse(text); } catch { warnings.push(`${f} ignored: invalid JSON`); continue; }
+    if (!isObj(j)) { warnings.push(`${f} ignored: not a JSON object`); continue; }
+    if (j.rulesGuard === undefined) continue;
+    if (!isObj(j.rulesGuard)) { warnings.push(`${f} ignored: rulesGuard is not an object`); continue; }
+    applyLayer(cfg, j.rulesGuard, f, warnings);
+  }
+  return { cfg, warnings };
+}
+
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// Plurals and tenses only, so "fail" doesn't catch "failover".
+const keywordRe = (list) => new RegExp(`\\b(?:${list.map(escRe).join("|")})(?:s|es|ed|ing|ure)?(?!\\w)`, "i");
+// Records {why, level} for each rule that fires and isn't "off".
+const hitter = (cfg, hits) => (id, why) => { if (why && cfg.rules[id] !== "off") hits.push({ why, level: cfg.rules[id] }); };
 
 // Mentions inside `code` or quotes are not claims or triggers.
 const unquote = (text) => text.replace(/`[^`\n]*`|"[^"\n]*"|“[^”\n]*”/g, "");
@@ -42,14 +111,16 @@ function gitOk(cwd, ...args) {
 function onPrompt(d) {
   const prev = load(d.session_id);
   const s = fresh();
-  const lines = [];
+  const { cfg, warnings } = loadConfig(d.cwd ?? process.cwd());
+  const lines = warnings.map((w) => `claudzilla config: ${w}`);
   if (prev.flags.length) lines.push(`Previous reply broke: ${prev.flags.join("; ")}. Apply from this reply on.`);
   const p = String(d.prompt ?? "").trimStart();
   const typed = p.match(/^\/([\w:-]+)/);
   if (typed) s.skills.push(typed[1]);
   else {
-    if (DEBUG_RE.test(unquote(p))) { s.debug = true; lines.push(MSG.debug); }
-    if (REVIEW_RE.test(unquote(p))) lines.push(MSG.review);
+    const bare = unquote(p);
+    if (cfg.rules.debugTrigger === "remind" && keywordRe(cfg.keywords.debug).test(bare)) { s.debug = true; lines.push(MSG.debug); }
+    if (cfg.rules.reviewTrigger === "remind" && keywordRe(cfg.keywords.review).test(bare)) lines.push(MSG.review);
   }
   save(d.session_id, s);
   if (lines.length) out("UserPromptSubmit", { additionalContext: lines.join("\n") });
@@ -63,13 +134,12 @@ function onPostTool(d) {
 }
 
 const SESSION_RE = /claude\.ai\/code\/session|Claude-Session:/;
-const SUBJECT_RE = /^(feat|fix|refactor|chore|docs|test)(\([^)]+\))?: \S/;
 const HEREDOC_RE = /<<-?\s*['"]?(\w+)['"]?([^\n]*)\n([\s\S]*?)\n\s*\1\b/;
 const WHY = {
   verify: "Run superpowers:verification-before-completion this turn before push/PR (superpowers.md:47).",
   force: "Force push not allowed; use --force-with-lease only if the user asked (git.md:7).",
   discard: "Discards work. Ask the user; if approved they run `! <cmd>` (git.md:8).",
-  main: "Branch first: git switch -c <type>/<slug>. Solo repo that commits to main: user runs `git config claudzilla.allowMain true` (git.md:6).",
+  main: "Branch first: git switch -c <type>/<slug>. Solo repo that commits to main: set \"allowMain\": true in .claude/claudzilla.local.json (git.md:6).",
   session: "No Claude session link (git.md:55).",
   env: "`.env` staged; unstage it (git.md:21).",
   worktree: "Worktree goes at ../<repo>-<slug> (git.md:27).",
@@ -98,17 +168,25 @@ function commitSubject(full) {
   return null;
 }
 
-function checkCommit(dir, cmd) {
-  if (SESSION_RE.test(cmd)) return WHY.session;
-  const branch = git(dir, "symbolic-ref", "--short", "HEAD");
-  if (["main", "master"].includes(branch) && git(dir, "config", "--type=bool", "claudzilla.allowMain") !== "true") return WHY.main;
-  const staged = git(dir, "diff", "--cached", "--name-only").split("\n").map((f) => f.split("/").pop());
-  if (staged.some((f) => /^\.env(\..+)?$/.test(f) && !/^\.env\.(example|sample|template)$/.test(f))) return WHY.env;
+function subjectProblem(cmd, cfg) {
   const subj = commitSubject(cmd);
   if (subj == null) return null;
-  if (!SUBJECT_RE.test(subj)) return `Commit subject must be Conventional Commits: feat|fix|refactor|chore|docs|test[(scope)]: … (git.md:18). Got: ${subj}`;
+  const types = cfg.commitTypes.join("|");
+  if (!new RegExp(`^(${types})(\\([^)]+\\))?: \\S`).test(subj)) return `Commit subject must be Conventional Commits: ${types}[(scope)]: … (git.md:18). Got: ${subj}`;
   const len = [...subj].length;
-  return len > 50 ? `Commit subject is ${len} chars; max 50 (git.md:19).` : null;
+  return len > cfg.subjectMax ? `Commit subject is ${len} chars; max ${cfg.subjectMax} (git.md:19).` : null;
+}
+
+function stagedEnv(dir) {
+  const staged = git(dir, "diff", "--cached", "--name-only").split("\n").map((f) => f.split("/").pop());
+  return staged.some((f) => /^\.env(\..+)?$/.test(f) && !/^\.env\.(example|sample|template)$/.test(f));
+}
+
+function checkCommit(dir, cmd, hit, cfg) {
+  hit("sessionLink", SESSION_RE.test(cmd) && WHY.session);
+  hit("mainCommit", !cfg.allowMain && ["main", "master"].includes(git(dir, "symbolic-ref", "--short", "HEAD")) && WHY.main);
+  hit("envStaged", stagedEnv(dir) && WHY.env);
+  hit("commitSubject", subjectProblem(cmd, cfg));
 }
 
 function worktreePath(a) {
@@ -126,42 +204,50 @@ function insideRepo(dir, p) {
   return abs === top || abs.startsWith(top + sep);
 }
 
-function checkGit(t, cwd, cmd, s) {
+function checkGit(t, cwd, cmd, s, hits) {
   let i = 1, dir = cwd;
   while (t[i]?.startsWith("-")) {
     if (t[i] === "-C") { dir = resolve(cwd, t[i + 1] ?? "."); i += 2; } else i += t[i] === "-c" ? 2 : 1;
   }
   const [sub, ...a] = t.slice(i);
+  const { cfg } = loadConfig(dir);
+  const hit = hitter(cfg, hits);
+  const discard = (cond) => hit("discard", cond && WHY.discard);
   switch (sub) {
     case "push":
-      if (a.some((x) => x === "--force" || /^-[a-zA-Z]*f[a-zA-Z]*$/.test(x) || /^\+./.test(x))) return WHY.force;
-      return hasSkill(s, VERIFY) ? null : WHY.verify;
-    case "reset": return a.includes("--hard") ? WHY.discard : null;
-    case "clean": return a.some((x) => x === "--force" || /^-[a-zA-Z]*f/.test(x)) ? WHY.discard : null;
-    case "checkout": return a.some((x) => ["--", ".", "-f", "--force"].includes(x)) ? WHY.discard : null;
-    case "switch": return a.some((x) => ["--discard-changes", "-f", "--force"].includes(x)) ? WHY.discard : null;
+      hit("forcePush", a.some((x) => x === "--force" || /^-[a-zA-Z]*f[a-zA-Z]*$/.test(x) || /^\+./.test(x)) && WHY.force);
+      return hit("pushVerify", !hasSkill(s, VERIFY) && WHY.verify);
+    case "reset": return discard(a.includes("--hard"));
+    case "clean": return discard(a.some((x) => x === "--force" || /^-[a-zA-Z]*f/.test(x)));
+    case "checkout": return discard(a.some((x) => ["--", ".", "-f", "--force"].includes(x)));
+    case "switch": return discard(a.some((x) => ["--discard-changes", "-f", "--force"].includes(x)));
     case "restore":
-      return a.some((x) => x === "--staged" || x === "-S") && !a.some((x) => x === "--worktree" || x === "-W") ? null : WHY.discard;
-    case "stash": return ["drop", "clear"].includes(a[0]) ? WHY.discard : null;
-    case "worktree": return a[0] === "add" && insideRepo(dir, worktreePath(a.slice(1))) ? WHY.worktree : null;
-    case "commit": return checkCommit(dir, cmd);
-    default: return null;
+      return discard(!(a.some((x) => x === "--staged" || x === "-S") && !a.some((x) => x === "--worktree" || x === "-W")));
+    case "stash": return discard(["drop", "clear"].includes(a[0]));
+    case "worktree": return hit("worktreePath", a[0] === "add" && insideRepo(dir, worktreePath(a.slice(1))) && WHY.worktree);
+    case "commit": return checkCommit(dir, cmd, hit, cfg);
   }
 }
 
-function checkGh(t, cmd, s) {
-  if (t[1] !== "pr" || !["create", "edit"].includes(t[2])) return null;
-  if (SESSION_RE.test(cmd)) return WHY.session;
-  return t[2] === "create" && !hasSkill(s, VERIFY) ? WHY.verify : null;
+function checkGh(t, cwd, cmd, s, hits) {
+  if (t[1] !== "pr" || !["create", "edit"].includes(t[2])) return;
+  const hit = hitter(loadConfig(cwd).cfg, hits);
+  hit("sessionLink", SESSION_RE.test(cmd) && WHY.session);
+  hit("pushVerify", t[2] === "create" && !hasSkill(s, VERIFY) && WHY.verify);
 }
 
 function checkBash(cmd, cwd, s) {
+  const hits = [];
   for (const t of segments(cmd)) {
     while (t.length && /^\w+=/.test(t[0])) t.shift();
     if (t[0] === "cd" && t[1]) { cwd = resolve(cwd, t[1]); continue; }
-    const why = t[0] === "git" ? checkGit(t, cwd, cmd, s) : t[0] === "gh" ? checkGh(t, cmd, s) : null;
-    if (why) return deny(why);
+    if (t[0] === "git") checkGit(t, cwd, cmd, s, hits);
+    else if (t[0] === "gh") checkGh(t, cwd, cmd, s, hits);
   }
+  // Any deny wins; a rule set to "remind" never weakens another rule.
+  const blocked = hits.find((h) => h.level === "deny");
+  if (blocked) return deny(blocked.why);
+  if (hits.length) out("PreToolUse", { additionalContext: hits.map((h) => `Reminder: ${h.why}`).join("\n") });
 }
 
 function excludeSpecs(file) {
@@ -179,10 +265,11 @@ function onPreTool(d) {
   const s = load(d.session_id);
   if (d.tool_name === "Bash") return checkBash(String(d.tool_input?.command ?? ""), d.cwd ?? process.cwd(), s);
   if (!["Edit", "Write", "NotebookEdit"].includes(d.tool_name)) return;
+  const { cfg } = loadConfig(d.cwd ?? process.cwd());
   const file = String(d.tool_input?.file_path ?? d.tool_input?.notebook_path ?? "");
-  if (d.tool_name === "Write" && file.includes("/docs/superpowers/")) excludeSpecs(file);
+  if (cfg.rules.specExclude === "on" && d.tool_name === "Write" && file.includes("/docs/superpowers/")) excludeSpecs(file);
   let ctx;
-  if (s.debug && !s.debugNudged) { s.debugNudged = true; ctx = MSG.debugGate; }
+  if (cfg.rules.debugGate === "remind" && s.debug && !s.debugNudged) { s.debugNudged = true; ctx = MSG.debugGate; }
   s.edited = true;
   save(d.session_id, s);
   if (ctx) out("PreToolUse", { additionalContext: ctx });
@@ -223,15 +310,17 @@ function boxError(msg) {
 
 function onStop(d) {
   const s = load(d.session_id);
+  const { cfg } = loadConfig(d.cwd ?? process.cwd());
+  const on = (id) => cfg.rules[id] === "flag";
   const msg = String(d.last_assistant_message ?? "");
   const prose = unquote(msg.replace(/```[\s\S]*?```/g, ""));
   const flags = [];
-  if (s.edited && /\b(done|fixed|passing|all tests pass|works now|verified)\b/i.test(prose) && !hasSkill(s, VERIFY))
+  if (on("doneClaim") && s.edited && /\b(done|fixed|passing|all tests pass|works now|verified)\b/i.test(prose) && !hasSkill(s, VERIFY))
     flags.push("claimed done without verification-before-completion");
-  if (msg.split("\n").length > 15 && /^## /m.test(prose) && !/^\*\*TL;DR\*\*/m.test(prose)) flags.push("missing TL;DR");
-  if (/\p{Emoji_Presentation}/u.test(prose)) flags.push("decorative emoji");
-  if (/^\|.*<br\s*\/?>/im.test(prose)) flags.push("<br> in table cell");
-  const line = boxError(msg);
+  if (on("tldr") && msg.split("\n").length > cfg.tldrMinLines && /^## /m.test(prose) && !/^\*\*TL;DR\*\*/m.test(prose)) flags.push("missing TL;DR");
+  if (on("emoji") && /\p{Emoji_Presentation}/u.test(prose)) flags.push("decorative emoji");
+  if (on("brInTable") && /^\|.*<br\s*\/?>/im.test(prose)) flags.push("<br> in table cell");
+  const line = on("boxAlign") ? boxError(msg) : 0;
   if (line) flags.push(`diagram box edge misaligned at line ${line}`);
   if (!flags.length) return;
   s.flags = [...new Set([...s.flags, ...flags])];
