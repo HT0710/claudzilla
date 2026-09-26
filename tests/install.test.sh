@@ -73,6 +73,53 @@ run_install "$H"
 check "rerun: no new backup" [ "$(ls "$H/.claude/.claudzilla-backup" | wc -l)" -eq "$nb" ]
 check "rerun: settings unchanged" cmp -s "$S" "$H/s1"
 
+# --- key-order-safe merge + prune of stale claudzilla entries ---
+hasCmd() { node -e 'const s=require(process.argv[1]);process.exit(Object.values(s.hooks||{}).flat().some(e=>(e.hooks||[]).some(h=>h.command===process.argv[2]))?0:1)' "$1" "$2"; }
+lacksCmd() { ! hasCmd "$@"; }
+H=$(new_home); S="$H/.claude/settings.json"; R="$H/.claude/.claudzilla-base.json"; mkdir -p "$H/.claude"
+node -e '
+const b=require(process.argv[1]),e=b.hooks.PreToolUse.find(x=>x.hooks.some(h=>h.if==="Bash(git *)"));
+e.hooks=e.hooks.map(({type,command,...r})=>({command,...r,type}));
+b.hooks.PreToolUse.push({matcher:"Edit",hooks:[{type:"command",command:"mine"}]},
+  {matcher:"Bash",hooks:[{type:"command",command:"node \"$HOME/.claude/hooks/rules-guard.mjs\" old"}]});
+require("fs").writeFileSync(process.argv[2],JSON.stringify(b))' "$REPO/settings.base.json" "$S"
+run_install "$H"
+check "order: reordered base entry merged once" [ "$(grep -c 'Bash(git \*)' "$S")" -eq 1 ]
+check "bootstrap: stale claudzilla hook pruned" lacksCmd "$S" 'node "$HOME/.claude/hooks/rules-guard.mjs" old'
+check "bootstrap: machine hook kept" hasCmd "$S" mine
+check "record: written as base" cmp -s "$R" "$REPO/settings.base.json"
+node -e '
+const fs=require("fs"),[r,s]=process.argv.slice(1),old={matcher:"Old",hooks:[{type:"command",command:"old"}]};
+const b=JSON.parse(fs.readFileSync(r,"utf8"));b.hooks.Stop.push(old);b.x=1;b.y=1;fs.writeFileSync(r,JSON.stringify(b));
+const d=JSON.parse(fs.readFileSync(s,"utf8"));d.hooks.Stop.push(old);d.x=1;d.y=2;fs.writeFileSync(s,JSON.stringify(d))' "$R" "$S"
+run_install "$H"
+check "prune: stale entry from record removed" lacksCmd "$S" old
+check "prune: machine hook kept with record" hasCmd "$S" mine
+check "prune: removed key deleted when unchanged" [ "$(q "$S" .x)" = undefined ]
+check "prune: removed key kept when changed" [ "$(q "$S" .y)" = 2 ]
+check "record: rewritten as base" cmp -s "$R" "$REPO/settings.base.json"
+run_install "$H"
+check "prune: rerun is a no-op" bash -c "! grep -q 'settings.json merged' '$H/install.log'"
+node -e '
+const fs=require("fs"),s=process.argv[1],d=JSON.parse(fs.readFileSync(s,"utf8"));
+const e=d.hooks.PreToolUse.find(x=>x.hooks.some(h=>h.if==="Bash(git *)"));
+d.hooks.PreToolUse.push({...e,hooks:e.hooks.map(({type,command,...r})=>({command,...r,type}))});
+fs.writeFileSync(s,JSON.stringify(d))' "$S"
+run_install "$H"
+check "prune: existing duplicate collapsed (record)" [ "$(grep -c 'Bash(git \*)' "$S")" -eq 1 ]
+H2=$(new_home); S2="$H2/.claude/settings.json"; mkdir -p "$H2/.claude"
+node -e '
+const b=require(process.argv[1]),e=b.hooks.PreToolUse.find(x=>x.hooks.some(h=>h.if==="Bash(git *)"));
+b.hooks.PreToolUse.push({...e,hooks:e.hooks.map(({type,command,...r})=>({command,...r,type}))},
+  {matcher:"Glob",hooks:[{type:"command",command:"mytool"},{type:"command",command:"perl ~/.claude/hooks/md-display.pl"}]});
+require("fs").writeFileSync(process.argv[2],JSON.stringify(b))' "$REPO/settings.base.json" "$S2"
+run_install "$H2"
+check "bootstrap: existing duplicate collapsed" [ "$(grep -c 'Bash(git \*)' "$S2")" -eq 1 ]
+check "bootstrap: mixed entry with user command kept" hasCmd "$S2" mytool
+echo '{bad' > "$R"; run_install "$H"; rc=$?
+check "record: unparsable record falls back" [ "$rc" -eq 0 ]
+check "record: unparsable record rewritten" cmp -s "$R" "$REPO/settings.base.json"
+
 # --- curl | bash bootstrap (clones committed HEAD of $REPO) ---
 H=$(new_home)
 (cd "$H" && clean_env HOME="$H" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_REPO="$REPO" bash < "$REPO/install.sh" >"$H/install.log" 2>&1); rc=$?
