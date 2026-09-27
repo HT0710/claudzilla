@@ -122,9 +122,15 @@ check "spec: tracked repo untouched" [ "$(grep -c superpowers "$T/.git/info/excl
 stop() { hook Stop "last_assistant_message=$1"; }
 new_session; hook UserPromptSubmit prompt=go >/dev/null
 hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
-stop "Fixed the parser." >/dev/null
-check "stop: done claim flagged" has "$(state .flags)" "verification"
-out=$(hook UserPromptSubmit prompt=next)
+out=$(stop "Fixed the parser.")
+check "stop: done claim continues now" has "$out" '"hookEventName":"Stop","additionalContext":"Claimed done'
+check "stop: done claim fixed now, not flagged" [ "$(state .flags.length)" = 0 ]
+out=$(stop "Fixed the parser 🚀")
+check "stop: other slips folded into continuation" has "$out" "decorative emoji"
+check "stop: folded slips not flagged" [ "$(state .flags.length)" = 0 ]
+hook Stop "last_assistant_message=Fixed the parser." stop_hook_active=true >/dev/null
+check "stop: done claim on continuation flagged" has "$(state .flags)" "verification"
+out=$(hook UserPromptSubmit prompt=$'<task-notification>\nbug')
 check "flags: injected on next prompt" has "$out" "claimed done without verification"
 check "flags: cleared after inject" [ "$(state .flags.length)" = 0 ]
 hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
@@ -149,8 +155,7 @@ check "stop: quoted <br> ok" [ "$(state .flags.length)" = 0 ]
 hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
 stop 'Peer wrote "Fixed the probe." in its reply.' >/dev/null
 check "stop: quoted done claim ok" [ "$(state .flags.length)" = 0 ]
-stop 'Fixed the parser; see `fixed` flag.' >/dev/null
-check "stop: real claim beside code span still flagged" has "$(state .flags)" "verification"
+check "stop: real claim beside code span still caught" has "$(stop 'Fixed the parser; see `fixed` flag.')" "Claimed done"
 good=$'```text\n┌─ A ─┐  ┌──┐\n│ x   │  │y │\n└─────┘  └──┘\n```'
 bad=$'```text\n┌───┐\n│ x  │\n└───┘\n```'
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "$good" >/dev/null
@@ -196,6 +201,11 @@ new_session; hook UserPromptSubmit prompt=q >/dev/null
 hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
 stop "$long" >/dev/null; stop "Fixed it." >/dev/null
 check "config: tldrMinLines and doneClaim off" [ "$(state .flags.length)" = 0 ]
+mcfg '{"rulesGuard":{"rules":{"doneClaim":"flag"}}}'
+new_session; hook UserPromptSubmit prompt=q >/dev/null
+hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
+check "config: doneClaim flag stays silent" [ -z "$(stop 'Fixed it.')" ]
+check "config: doneClaim flag saves flag" has "$(state .flags)" "verification"
 mcfg '{"rulesGuard":{"rules":{"specExclude":"off"}}}'
 X=$(repo); hook PreToolUse tool_name=Write tool_input.file_path="$X/docs/superpowers/s.md" >/dev/null
 check "config: specExclude off" [ "$(grep -c superpowers "$X/.git/info/exclude")" -eq 0 ]
@@ -246,13 +256,10 @@ check "split: subshell cd honoured" denied "$(sh_ "(cd \"$SP\" && git commit -m 
 new_session; out=$(TMPDIR=/dev/null/x hook UserPromptSubmit prompt='login is broken')
 check "state: reminder survives unwritable state dir" has "$out" "systematic-debugging"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
-stop "Say so if you want it fixed." >/dev/null
-check "claim: mention mid-sentence ignored" [ "$(state .flags.length)" = 0 ]
-stop "The bug is fixed." >/dev/null
-check "claim: 'is fixed' flagged" has "$(state .flags)" "verification"
+check "claim: mention mid-sentence ignored" [ -z "$(stop "Say so if you want it fixed.")" ]
+check "claim: 'is fixed' caught" has "$(stop "The bug is fixed.")" "Claimed done"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
-stop $'Summary:\n- Fixed the parser' >/dev/null
-check "claim: bullet claim flagged" has "$(state .flags)" "verification"
+check "claim: bullet claim caught" has "$(stop $'Summary:\n- Fixed the parser')" "Claimed done"
 loop=$'```text\n┌────┐\n▼    │\nA ──▶ B ─┘\n```'
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "$loop" >/dev/null
 check "diagram: loop-back arrow not a box" [ "$(state .flags.length)" = 0 ]
@@ -264,7 +271,7 @@ rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"; cd "$REPO"
 # --- minors review fixes ---
 new_session; hook UserPromptSubmit prompt=q >/dev/null; hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
 for m in '**TL;DR** — token check fixed.' 'Tests: 120/120 passing.' 'I fixed the parser.' 'Everything works now.' '| 1 | x | fixed |' 'All 3 findings fixed.'; do
-  stop "$m" >/dev/null; check "claim: '$m' flagged" has "$(state .flags)" "verification"
+  check "claim: '$m' caught" has "$(stop "$m")" "Claimed done"
   hook UserPromptSubmit prompt=q >/dev/null; hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
 done
 shift1=$'```text\n┌────┐\n │ A  │\n└────┘\n```'
