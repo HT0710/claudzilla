@@ -28,6 +28,7 @@ Only the default config dir `~/.claude` is supported: `CLAUDE.md` imports `@~/.c
 | `rules/` | always-loaded rules, one file per topic — see [Rules](#rules) |
 | `RTK.md` + Bash hook | every Bash call goes through `rtk` to cut token usage |
 | `hooks/rules-guard.mjs` | blocks risky git (force push, discarding work, commit on `main`, push/PR before verification); reminds skill triggers (not on task notifications or peer-session messages); sends Claude back to verify a "done" claim; flags format slips on your next prompt. `md-display.pl` shows `<br>` in tables as `·` |
+| `skills/pr` | pre-PR checks and the bold-labelled PR template, loaded only when a PR is opened or edited; your own skills in `~/.claude/skills/` stay |
 | plugins | [caveman](https://github.com/JuliusBrussee/caveman) (terse talk), [ponytail](https://github.com/DietrichGebert/ponytail) (minimal code), [superpowers](https://github.com/obra/superpowers) (plan / TDD / debug workflows) |
 | statusline | model, effort, context / 5h / weekly usage bars, git branch, session (`hud/`) |
 | theme | `custom:mine`, a muted dark palette |
@@ -39,7 +40,7 @@ Every file in `claude/rules/` is loaded into every session.
 
 | file | what it enforces |
 |---|---|
-| `git.md` | no push/PR/tag unless asked; branch off `main` (solo repos: ask once); manual work stays uncommitted until push, while skill chains commit locally and get regrouped into logical commits before the first push; Conventional Commits, subject ≤ 50 chars, `Why:` / `Impact:` / `Verify:` body without file lists; pre-PR checks; bold-labelled PR template; no Claude session links |
+| `git.md` | no push/PR/tag unless asked; branch off `main` (solo repos: ask once); manual work stays uncommitted until push, while skill chains commit locally and get regrouped into logical commits before the first push; Conventional Commits, subject ≤ 50 chars, `Why:` / `Impact:` / `Verify:` body without file lists; PR rules via the `pr` skill; no Claude session links |
 | `response-format.md` | scannable replies: TL;DR first, headers, tables, `#`-numbered findings, one-line table cells (no `<br>`), a single bold recommendation per decision, unicode diagrams checked for alignment, `Next:` line |
 | `comments.md` | no comment by default; comments explain *why* only; one-line docstrings; no change history in code |
 | `python.md` | an existing repo's own tooling and conventions win; new code gets `uv` + `pyproject.toml`, `ruff`, `pathlib`, type hints on public functions, stdlib first, explicit timeouts on network/subprocess calls, plain `pytest` |
