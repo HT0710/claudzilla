@@ -67,6 +67,11 @@ check "push: no verification -> deny" denied "$(sh_ 'git push')"
 check "gh pr create: no verification -> deny" denied "$(sh_ 'gh pr create --fill')"
 hook PostToolUse tool_name=Skill tool_input.skill=superpowers:verification-before-completion >/dev/null
 check "push: verified -> allowed" [ -z "$(sh_ 'git push -u origin feat/x')" ]
+out=$(sh_ 'gh pr create --fill')
+check "gh pr create: no pr skill -> deny" denied "$out"
+check "gh pr create: deny names pr skill" has "$out" "invoke the pr skill"
+hook PostToolUse tool_name=Skill tool_input.skill=pr >/dev/null
+check "gh pr create: pr + verified -> allowed" [ -z "$(sh_ 'gh pr create --fill')" ]
 check "push: compound --force -> deny" denied "$(sh_ 'npm test && git push --force')"
 check "push: -f -> deny" denied "$(sh_ 'git push -f')"
 check "push: +refspec -> deny" denied "$(sh_ 'git push origin +main')"
@@ -93,6 +98,17 @@ check "commit: heredoc subject checked" denied "$(sh_ $'git commit -m "$(cat <<\
 check "commit: heredoc body not a push" [ -z "$(sh_ $'git commit -m "$(cat <<\'EOF\'\nfix: ok\n\ngit push later\nEOF\n)"')" ]
 check "commit: session trailer -> deny" denied "$(sh_ $'git commit -m "fix: x\n\nClaude-Session: abc"')"
 check "gh pr edit: session link -> deny" denied "$(sh_ 'gh pr edit 1 --body "see claude.ai/code/session_x"')"
+check "gh pr edit: no pr skill -> deny" denied "$(sh_ 'gh pr edit 1 --title x')"
+hook PostToolUse tool_name=Skill tool_input.skill=pr >/dev/null
+check "gh pr edit: pr skill -> allowed" [ -z "$(sh_ 'gh pr edit 1 --title x')" ]
+new_session; hook UserPromptSubmit prompt=go >/dev/null
+check "gh pr edit: label only, no pr skill -> allowed" [ -z "$(sh_ 'gh pr edit 1 --add-label bug')" ]
+check "gh pr edit: --body-file needs pr skill" denied "$(sh_ 'gh pr edit 1 --body-file m.md')"
+check "gh pr edit: bash -c wrapped -> deny" denied "$(sh_ "bash -c 'gh pr edit 1 -t x'")"
+check "gh pr view: allowed" [ -z "$(sh_ 'gh pr view 1')" ]
+out=$(sh_ 'gh pr create --fill')
+check "gh pr create: deny names verification" has "$out" "verification-before-completion"
+check "gh pr create: deny names pr skill too" has "$out" "invoke the pr skill"
 touch .env .env.example; git add .env.example
 check "commit: .env.example allowed" [ -z "$(sh_ 'git commit -m "fix: x"')" ]
 git add .env
@@ -206,6 +222,9 @@ new_session; hook UserPromptSubmit prompt=q >/dev/null
 hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
 check "config: doneClaim flag stays silent" [ -z "$(stop 'Fixed it.')" ]
 check "config: doneClaim flag saves flag" has "$(state .flags)" "verification"
+mcfg '{"rulesGuard":{"rules":{"prSkill":"off"}}}'
+new_session; hook UserPromptSubmit prompt=go >/dev/null
+check "config: prSkill off" [ -z "$(sh_ 'gh pr edit 1 --title x')" ]
 mcfg '{"rulesGuard":{"rules":{"specExclude":"off"}}}'
 X=$(repo); hook PreToolUse tool_name=Write tool_input.file_path="$X/docs/superpowers/s.md" >/dev/null
 check "config: specExclude off" [ "$(grep -c superpowers "$X/.git/info/exclude")" -eq 0 ]
