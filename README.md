@@ -40,7 +40,7 @@ Every file in `claude/rules/` is loaded into every session.
 | file | what it enforces |
 |---|---|
 | `git.md` | no push/PR/tag unless asked; branch off `main` (solo repos: ask once); manual work stays uncommitted until push, while skill chains commit locally and get regrouped into logical commits before the first push; Conventional Commits, subject ≤ 50 chars, `Why:` / `Impact:` / `Verify:` body without file lists; pre-PR checks; bold-labelled PR template; no Claude session links |
-| `response-format.md` | scannable replies: TL;DR first, headers, tables, `#`-numbered findings, a single bold recommendation per decision, unicode diagrams checked for alignment, `Next:` line |
+| `response-format.md` | scannable replies: TL;DR first, headers, tables, `#`-numbered findings, one-line table cells (no `<br>`), a single bold recommendation per decision, unicode diagrams checked for alignment, `Next:` line |
 | `comments.md` | no comment by default; comments explain *why* only; one-line docstrings; no change history in code |
 | `python.md` | an existing repo's own tooling and conventions win; new code gets `uv` + `pyproject.toml`, `ruff`, `pathlib`, type hints on public functions, stdlib first, explicit timeouts on network/subprocess calls, plain `pytest` |
 | `superpowers.md` | which superpowers skills run automatically, which are only suggested, which are manual; debugging stops at a proposed fix until you approve it; verification before finishing a branch; worktrees go next to the repo; specs and plans kept out of git by default |
