@@ -22,15 +22,25 @@ const fail = (msg) => { process.stderr.write(`rule-review: ${msg}\n`); process.e
 const has = (skills, name) => skills.some((k) => k === name || k.endsWith(`:${name}`));
 const textOf = (c) => (typeof c === "string" ? c : Array.isArray(c) ? c.filter((x) => x.type === "text").map((x) => x.text).join("\n") : "");
 
-// Returns null for non-prompts (tool results, assistant, attachments).
+// kind: "real" opens a turn; "machine" is a prompt the hook sees but the user didn't type;
+// "skip" (skill bodies, command echoes) leaves the last prompt's kind alone. Null = not a prompt.
 function promptOf(o) {
-  if (o.type !== "user") return null;
-  const c = o.message?.content;
-  if (Array.isArray(c) && c.some((x) => x.type === "tool_result")) return null;
-  const text = textOf(c).trimStart();
+  let text, meta = o.isMeta;
+  if (o.type === "attachment" && o.attachment?.type === "queued_command") {
+    // Typed while Claude was busy: stored only as an attachment.
+    if (o.attachment.commandMode === "task-notification") return { kind: "machine" };
+    if (o.attachment.commandMode !== "prompt") return null;
+    text = String(o.attachment.prompt ?? "").trimStart();
+  } else if (o.type === "user") {
+    const c = o.message?.content;
+    if (Array.isArray(c) && c.some((x) => x.type === "tool_result")) return null;
+    text = textOf(c).trimStart();
+  } else return null;
   const typed = text.match(/<command-name>\/([\w:-]+)<\/command-name>/);
-  if (typed) return { real: true, text: "", typed: typed[1] };
-  return { real: !o.isMeta && !MACHINE_PROMPT.test(text) && !NOT_ASKED.test(text), text };
+  if (typed) return { kind: "real", text: "", typed: typed[1] };
+  if (MACHINE_PROMPT.test(text)) return { kind: "machine" };
+  if (meta || NOT_ASKED.test(text)) return { kind: "skip" };
+  return { kind: "real", text };
 }
 
 function scan(root, days) {
@@ -109,7 +119,8 @@ function scan(root, days) {
       try { o = JSON.parse(line); } catch { unparsed++; continue; }
       const p = promptOf(o);
       if (p) {
-        machine = !p.real;
+        if (p.kind === "skip") continue;
+        machine = p.kind === "machine";
         if (machine) continue;
         if (turn) finish(turn);
         turn = null;

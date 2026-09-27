@@ -50,6 +50,7 @@ for (const [kind, a, o = {}] of eval(spec)) {
   if (kind === "text") push({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: a }] } });
   if (kind === "ctx") push({ type: "attachment", attachment: { type: "hook_additional_context", hookEvent: a, content: [o] } });
   if (kind === "stop") push({ type: "system", subtype: "stop_hook_summary", hookAdditionalContext: [a] });
+  if (kind === "queued") push({ type: "attachment", attachment: { type: "queued_command", commandMode: a, prompt: o } });
   if (kind === "raw") lines.push(a);
 }
 fs.writeFileSync(file, lines.join("\n") + "\n");
@@ -100,6 +101,14 @@ check "machine prompt: trigger n/a" [ "$(rule debugTrigger applies)" = 0 ]
 check "machine prompt: false fire" [ "$(rule debugTrigger falseFires)" = 1 ]
 reset_proj; session a '[["user","Another Claude session sent a message:\nbug",{meta:true}],["user","go"]]'; scan
 check "meta prompt: no turn" [ "$(top turns)" = 1 ]
+reset_proj; session a '[["user","go"],["queued","prompt","login is broken"],["skill","superpowers:systematic-debugging"]]'; scan
+check "queued prompt: starts a turn" [ "$(top turns)" = 2 ]
+check "queued prompt: trigger applies" [ "$(rule debugTrigger applies)" = 1 ]
+reset_proj; session a "[[\"user\",\"go\"],[\"queued\",\"task-notification\",\"<task-notification>\\nx\"],[\"user\",\"Base directory for this skill: y\",{meta:true}],[\"queued\",\"prompt\",\"login is broken\"],[\"ctx\",\"UserPromptSubmit\",$J_DEBUG]]"; scan
+check "meta line: machine not stale" [ "$(rule debugTrigger falseFires)" = 0 ]
+check "queued notification: no turn" [ "$(top turns)" = 2 ]
+reset_proj; session a "[[\"user\",\"go\"],[\"user\",\"Another Claude session sent a message:\\nbug\",{meta:true}],[\"ctx\",\"UserPromptSubmit\",$J_DEBUG]]"; scan
+check "meta peer message: still machine" [ "$(rule debugTrigger falseFires)" = 1 ]
 reset_proj; session a "[[\"user\",\"go\"],[\"edit\"],[\"stop\",$J_DONE]]"; scan
 check "stop continue: hook fire" [ "$(rule doneClaim hookFires)" = 1 ]
 reset_proj; session a '[["user","old",{daysAgo:30}],["bash","git push"],["user","new"]]'; scan
