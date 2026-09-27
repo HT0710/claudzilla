@@ -13,6 +13,8 @@ const MSG = {
   review: "Auto: invoke superpowers:receiving-code-review.",
   debugGate: "Debug turn: systematic-debugging stops at Phase 3 — propose the fix and wait for go unless the user asked for a direct edit.",
 };
+// Task notifications and peer-session messages arrive as prompts; their words are not the user's.
+const MACHINE_PROMPT = /^(?:<task-notification>|Another Claude session sent a message:|\[Cross-session)/;
 
 // Config: built-in defaults ← ~/.claude/claudzilla.json ← <repo>/.claude/claudzilla.json ← <repo>/.claude/claudzilla.local.json
 const GATE = ["deny", "remind", "off"];
@@ -119,7 +121,7 @@ function onPrompt(d) {
   const p = String(d.prompt ?? "").trimStart();
   const typed = p.match(/^\/([\w:-]+)/);
   if (typed) s.skills.push(typed[1]);
-  else {
+  else if (!MACHINE_PROMPT.test(p)) {
     const bare = unquote(p);
     if (cfg.rules.debugTrigger === "remind" && keywordRe(cfg.keywords.debug).test(bare)) { s.debug = true; lines.push(MSG.debug); }
     if (cfg.rules.reviewTrigger === "remind" && keywordRe(cfg.keywords.review).test(bare)) lines.push(MSG.review);

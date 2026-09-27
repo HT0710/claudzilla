@@ -42,6 +42,11 @@ check "prompt: review feedback -> receiving-code-review" has "$out" "receiving-c
 new_session; out=$(hook UserPromptSubmit prompt="/superpowers:verification-before-completion the build is broken")
 check "prompt: typed skill recorded" [ "$(state '.skills[0]')" = '"superpowers:verification-before-completion"' ]
 check "prompt: typed skill skips triggers" [ -z "$out" ]
+for p in $'<task-notification>\n<status>failed</status> build broken' \
+  $'Another Claude session sent a message:\n<cross-session-message from="x">login is broken</cross-session-message>' \
+  '[Cross-session idle notice] peer hit an error'; do
+  new_session; check "prompt: machine-sent skips triggers (${p:0:12})" [ -z "$(hook UserPromptSubmit "prompt=$p")" ]
+done
 
 # --- PostToolUse ---
 new_session; hook UserPromptSubmit prompt=hi >/dev/null
