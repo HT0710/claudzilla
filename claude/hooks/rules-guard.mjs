@@ -20,7 +20,7 @@ const MACHINE_PROMPT = /^(?:<task-notification>|Another Claude session sent a me
 // Config: built-in defaults ← ~/.claude/claudzilla.json ← <repo>/.claude/claudzilla.json ← <repo>/.claude/claudzilla.local.json
 const GATE = ["deny", "remind", "off"];
 const LEVELS = {
-  pushVerify: GATE, forcePush: GATE, discard: GATE, mainCommit: GATE,
+  pushVerify: GATE, prSkill: GATE, forcePush: GATE, discard: GATE, mainCommit: GATE,
   commitSubject: GATE, sessionLink: GATE, envStaged: GATE, worktreePath: GATE,
   debugTrigger: ["remind", "off"], reviewTrigger: ["remind", "off"], debugGate: ["remind", "off"],
   specExclude: ["on", "off"],
@@ -142,6 +142,7 @@ const SESSION_RE = /claude\.ai\/code\/session|Claude-Session:/;
 const HEREDOC_RE = /<<-?\s*['"]?(\w+)['"]?([^\n]*)\n([\s\S]*?)\n\s*\1\b/;
 const WHY = {
   verify: "Run superpowers:verification-before-completion this turn before push/PR (superpowers.md:47).",
+  pr: "Opening or editing a PR: invoke the pr skill first (git.md:59).",
   force: "Force push not allowed; use --force-with-lease only if the user asked (git.md:7).",
   discard: "Discards work. Ask the user; if approved they run `! <cmd>` (git.md:8).",
   main: "Branch first: git switch -c <type>/<slug>. Solo repo that commits to main: set \"allowMain\": true in .claude/claudzilla.local.json (git.md:6).",
@@ -279,6 +280,9 @@ function checkGh(t, cwd, cmd, s, hits) {
   const hit = hitter(loadConfig(cwd).cfg, hits);
   hit("sessionLink", SESSION_RE.test(cmd) && WHY.session);
   hit("pushVerify", t[2] === "create" && !hasSkill(s, VERIFY) && WHY.verify);
+  // Label/reviewer/base edits don't touch the description, so the template doesn't apply.
+  const describes = t[2] === "create" || t.slice(3).some((x) => /^(?:--(?:title|body|body-file)(?:=|$)|-[tbF])/.test(x));
+  hit("prSkill", describes && !hasSkill(s, "pr") && WHY.pr);
 }
 
 const SHELLS = new Set(["bash", "sh", "zsh"]);
@@ -303,8 +307,8 @@ function checkBash(cmd, cwd, s) {
     else if (t[0] === "gh") checkGh(t, cwd, cmd, s, hits);
   }
   // Any deny wins; a rule set to "remind" never weakens another rule.
-  const blocked = hits.find((h) => h.level === "deny");
-  if (blocked) return deny(blocked.why);
+  const blocked = hits.filter((h) => h.level === "deny");
+  if (blocked.length) return deny([...new Set(blocked.map((h) => h.why))].join(" "));
   if (hits.length) out("PreToolUse", { additionalContext: hits.map((h) => `Reminder: ${h.why}`).join("\n") });
 }
 
