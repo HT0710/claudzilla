@@ -223,6 +223,63 @@ N=$(mktemp -d "$TMP/nogit.XXXX"); new_session
 check "config: machine layer outside repo" [ -z "$(cd "$N" && hook UserPromptSubmit prompt='login is broken')" ]
 rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"; cd "$REPO"
 
+# --- minors: quote-aware split, branch tracking, checkout <file>, state, claims, diagrams, keywords ---
+M=$(repo); git -C "$M" switch -q -c feat/m; cd "$M"
+new_session; hook UserPromptSubmit prompt=go >/dev/null
+check "split: ; inside quoted message is not a command" [ -z "$(sh_ 'git commit -m "docs: x; git push later"')" ]
+check "split: | inside quoted message is not a command" [ -z "$(sh_ 'git commit -m "fix: a | git stash drop"')" ]
+check "branch: switch main then commit denied" denied "$(sh_ 'git switch main && git commit -m "fix: x"')"
+git switch -q main
+check "branch: switch -c then commit allowed" [ -z "$(sh_ 'git switch -c feat/z && git commit -m "fix: x"')" ]
+echo a > a.txt; git add a.txt; git -c user.name=t -c user.email=t@t commit -qm "chore: a"
+check "checkout: file path denied" denied "$(sh_ 'git checkout a.txt')"
+check "checkout: branch name allowed" [ -z "$(sh_ 'git checkout feat/m')" ]
+SP="$TMP/sp ace"; mkdir -p "$SP"; git -C "$SP" init -q -b main
+cd "$REPO"
+check "split: -C quoted path with space" denied "$(sh_ "git -C \"$SP\" commit -m \"fix: x\"")"
+check "split: subshell cd honoured" denied "$(sh_ "(cd \"$SP\" && git commit -m \"fix: x\")")"
+new_session; out=$(TMPDIR=/dev/null/x hook UserPromptSubmit prompt='login is broken')
+check "state: reminder survives unwritable state dir" has "$out" "systematic-debugging"
+new_session; hook UserPromptSubmit prompt=q >/dev/null; hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
+stop "Say so if you want it fixed." >/dev/null
+check "claim: mention mid-sentence ignored" [ "$(state .flags.length)" = 0 ]
+stop "The bug is fixed." >/dev/null
+check "claim: 'is fixed' flagged" has "$(state .flags)" "verification"
+new_session; hook UserPromptSubmit prompt=q >/dev/null; hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
+stop $'Summary:\n- Fixed the parser' >/dev/null
+check "claim: bullet claim flagged" has "$(state .flags)" "verification"
+loop=$'```text\n┌────┐\n▼    │\nA ──▶ B ─┘\n```'
+new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "$loop" >/dev/null
+check "diagram: loop-back arrow not a box" [ "$(state .flags.length)" = 0 ]
+mcfg '{"rulesGuard":{"keywords":{"debug":[".env","#bug"]}}}'
+new_session; check "keyword: symbol-start keyword matches" has "$(hook UserPromptSubmit prompt='check my .env file')" "systematic-debugging"
+new_session; check "keyword: symbol-start not inside word" [ -z "$(hook UserPromptSubmit prompt='see foo.env there')" ]
+rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"; cd "$REPO"
+
+# --- minors review fixes ---
+new_session; hook UserPromptSubmit prompt=q >/dev/null; hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
+for m in '**TL;DR** — token check fixed.' 'Tests: 120/120 passing.' 'I fixed the parser.' 'Everything works now.' '| 1 | x | fixed |' 'All 3 findings fixed.'; do
+  stop "$m" >/dev/null; check "claim: '$m' flagged" has "$(state .flags)" "verification"
+  hook UserPromptSubmit prompt=q >/dev/null; hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
+done
+shift1=$'```text\n┌────┐\n │ A  │\n└────┘\n```'
+new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "$shift1" >/dev/null
+check "diagram: shifted left edge still flagged" has "$(state .flags)" "misaligned"
+side=$'```text\n┌──┐  ┌──┐\n│a │   │b │\n└──┘  └──┘\n```'
+hook UserPromptSubmit prompt=q >/dev/null; stop "$side" >/dev/null
+check "diagram: side-by-side misaligned second box flagged" has "$(state .flags)" "misaligned"
+cd "$M"; git switch -q main
+check "shell -c: inner reset --hard denied" denied "$(sh_ 'bash -c "git status; git reset --hard"')"
+check "shell -c: inner force push denied" denied "$(sh_ "sh -c 'cd /tmp && git push --force'")"
+check "eval: inner reset denied" denied "$(sh_ 'eval "git reset --hard"')"
+check "branch: switch to missing branch keeps main" denied "$(sh_ 'git switch nope; git commit -m "fix: x"')"
+git switch -q feat/m
+check "checkout: ref + path is a discard" denied "$(sh_ 'git checkout HEAD a.txt')"
+check "checkout: branch + path is a discard, not a switch" has "$(sh_ 'git checkout main a.txt && git commit -m "fix: x"')" "Discards work"
+check "split: line continuation joins words" denied "$(sh_ $'git switch \\\n  main && git commit -m "fix: x"')"
+check "split: line continuation in worktree path" [ -z "$(sh_ $'git worktree add \\\n  ../'"$(basename "$M")"'-x -b feat/q')" ]
+cd "$REPO"
+
 # --- MessageDisplay ---
 MD="$REPO/claude/hooks/md-display.pl"
 md() { node -e 'console.log(JSON.stringify({hook_event_name:"MessageDisplay",delta:process.argv[1]}))' "$1" | perl "$MD"; }
