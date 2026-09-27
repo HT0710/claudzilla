@@ -12,6 +12,7 @@ const MSG = {
   debug: "Auto: invoke superpowers:systematic-debugging; stop after Phase 3, fix on go.",
   review: "Auto: invoke superpowers:receiving-code-review.",
   debugGate: "Debug turn: systematic-debugging stops at Phase 3 — propose the fix and wait for go unless the user asked for a direct edit.",
+  doneClaim: "Claimed done without verification-before-completion. Invoke superpowers:verification-before-completion now and report its evidence.",
 };
 // Task notifications and peer-session messages arrive as prompts; their words are not the user's.
 const MACHINE_PROMPT = /^(?:<task-notification>|Another Claude session sent a message:|\[Cross-session)/;
@@ -23,7 +24,7 @@ const LEVELS = {
   commitSubject: GATE, sessionLink: GATE, envStaged: GATE, worktreePath: GATE,
   debugTrigger: ["remind", "off"], reviewTrigger: ["remind", "off"], debugGate: ["remind", "off"],
   specExclude: ["on", "off"],
-  doneClaim: ["flag", "off"], tldr: ["flag", "off"], emoji: ["flag", "off"], brInTable: ["flag", "off"], boxAlign: ["flag", "off"],
+  doneClaim: ["now", "flag", "off"], tldr: ["flag", "off"], emoji: ["flag", "off"], brInTable: ["flag", "off"], boxAlign: ["flag", "off"],
 };
 const DEFAULTS = {
   rules: Object.fromEntries(Object.entries(LEVELS).map(([id, l]) => [id, l[0]])),
@@ -371,17 +372,22 @@ function boxError(msg) {
 function onStop(d) {
   const s = load(d.session_id);
   const { cfg } = loadConfig(d.cwd ?? process.cwd());
-  const on = (id) => cfg.rules[id] === "flag";
+  const on = (id) => cfg.rules[id] !== "off";
   const msg = String(d.last_assistant_message ?? "");
   const prose = unquote(msg.replace(/```[\s\S]*?```/g, ""));
   const flags = [];
-  if (on("doneClaim") && s.edited && CLAIM_RE.test(prose) && !hasSkill(s, VERIFY))
-    flags.push("claimed done without verification-before-completion");
+  const claim = on("doneClaim") && s.edited && CLAIM_RE.test(prose) && !hasSkill(s, VERIFY);
   if (on("tldr") && msg.split("\n").length > cfg.tldrMinLines && /^## /m.test(prose) && !/^\*\*TL;DR\*\*/m.test(prose)) flags.push("missing TL;DR");
   if (on("emoji") && /\p{Emoji_Presentation}/u.test(prose)) flags.push("decorative emoji");
   if (on("brInTable") && /^\|.*<br\s*\/?>/im.test(prose)) flags.push("<br> in table cell");
   const line = on("boxAlign") ? boxError(msg) : 0;
   if (line) flags.push(`diagram box edge misaligned at line ${line}`);
+  // Continuing already → next-turn flag, so a claim the fix can't clear doesn't loop.
+  if (claim && cfg.rules.doneClaim === "now" && !d.stop_hook_active) {
+    out("Stop", { additionalContext: [MSG.doneClaim, ...(flags.length ? [`Also fix: ${flags.join("; ")}.`] : [])].join(" ") });
+    return;
+  }
+  if (claim) flags.unshift("claimed done without verification-before-completion");
   if (!flags.length) return;
   s.flags = [...new Set([...s.flags, ...flags])];
   save(d.session_id, s);

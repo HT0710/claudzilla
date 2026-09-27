@@ -27,7 +27,7 @@ Only the default config dir `~/.claude` is supported: `CLAUDE.md` imports `@~/.c
 | `CLAUDE.md` | global instructions: brevity, surgical changes, investigate before acting, evidence discipline |
 | `rules/` | always-loaded rules, one file per topic — see [Rules](#rules) |
 | `RTK.md` + Bash hook | every Bash call goes through `rtk` to cut token usage |
-| `hooks/rules-guard.mjs` | blocks risky git (force push, discarding work, commit on `main`, push/PR before verification); reminds skill triggers (not on task notifications or peer-session messages); flags format slips on your next prompt. `md-display.pl` shows `<br>` in tables as `·` |
+| `hooks/rules-guard.mjs` | blocks risky git (force push, discarding work, commit on `main`, push/PR before verification); reminds skill triggers (not on task notifications or peer-session messages); sends Claude back to verify a "done" claim; flags format slips on your next prompt. `md-display.pl` shows `<br>` in tables as `·` |
 | plugins | [caveman](https://github.com/JuliusBrussee/caveman) (terse talk), [ponytail](https://github.com/DietrichGebert/ponytail) (minimal code), [superpowers](https://github.com/obra/superpowers) (plan / TDD / debug workflows) |
 | statusline | model, effort, context / 5h / weekly usage bars, git branch, session (`hud/`) |
 | theme | `custom:mine`, a muted dark palette |
@@ -64,7 +64,7 @@ Every file in `claude/rules/` is loaded into every session.
 }}
 ```
 
-Gates (`pushVerify` `forcePush` `discard` `mainCommit` `commitSubject` `sessionLink` `envStaged` `worktreePath`) take `deny`, `remind` or `off`; triggers (`debugTrigger` `reviewTrigger` `debugGate`) `remind` or `off`; `specExclude` `on` or `off`; format checks (`doneClaim` `tldr` `emoji` `brInTable` `boxAlign`) `flag` or `off`. A bad file or value is skipped and named on your next prompt.
+Gates (`pushVerify` `forcePush` `discard` `mainCommit` `commitSubject` `sessionLink` `envStaged` `worktreePath`) take `deny`, `remind` or `off`; triggers (`debugTrigger` `reviewTrigger` `debugGate`) `remind` or `off`; `specExclude` `on` or `off`; `doneClaim` `now` (verify before the turn ends), `flag` or `off`; format checks (`tldr` `emoji` `brInTable` `boxAlign`) `flag` or `off`. A bad file or value is skipped and named on your next prompt.
 
 ## How it works
 
