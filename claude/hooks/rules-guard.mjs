@@ -80,7 +80,9 @@ function loadConfig(dir) {
 
 const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // Plurals and tenses only, so "fail" doesn't catch "failover".
-const keywordRe = (list) => new RegExp(`\\b(?:${list.map(escRe).join("|")})(?:s|es|ed|ing|ure)?(?!\\w)`, "i");
+// A keyword starting with a symbol (".env") has no \\b before it; require no word char instead.
+const keywordRe = (list) =>
+  new RegExp(`(?:${list.map((k) => (/^\w/.test(k) ? "\\b" : "(?<!\\w)") + escRe(k)).join("|")})(?:s|es|ed|ing|ure)?(?!\\w)`, "i");
 // Records {why, level} for each rule that fires and isn't "off".
 const hitter = (cfg, hits) => (id, why) => { if (why && cfg.rules[id] !== "off") hits.push({ why, level: cfg.rules[id] }); };
 
@@ -122,8 +124,8 @@ function onPrompt(d) {
     if (cfg.rules.debugTrigger === "remind" && keywordRe(cfg.keywords.debug).test(bare)) { s.debug = true; lines.push(MSG.debug); }
     if (cfg.rules.reviewTrigger === "remind" && keywordRe(cfg.keywords.review).test(bare)) lines.push(MSG.review);
   }
-  save(d.session_id, s);
   if (lines.length) out("UserPromptSubmit", { additionalContext: lines.join("\n") });
+  save(d.session_id, s);
 }
 
 function onPostTool(d) {
@@ -145,12 +147,28 @@ const WHY = {
   worktree: "Worktree goes at ../<repo>-<slug> (git.md:27).",
 };
 
-// Heredoc bodies are message text, not commands.
+// Word lists per simple command. Heredoc bodies are message text; quotes group
+// words; ; & | ( ) and newlines split only outside quotes.
 function segments(cmd) {
   const flat = cmd.replace(new RegExp(HEREDOC_RE.source, "g"), "<<$1$2");
-  return flat.split(/\n|;|&&|\|\|?/)
-    .map((x) => x.trim().split(/\s+/).map((t) => t.replace(/^['"]|['"]$/g, "")))
-    .filter((t) => t[0]);
+  const segs = [[]];
+  let word = null, q = null;
+  const end = () => { if (word !== null) segs.at(-1).push(word); word = null; };
+  for (let i = 0; i < flat.length; i++) {
+    const c = flat[i];
+    if (c === "\\" && flat[i + 1] === "\n" && q !== "'") i++;
+    else if (q) {
+      if (c === q) q = null;
+      else if (c === "\\" && q === '"' && i + 1 < flat.length) word += flat[++i];
+      else word += c;
+    } else if (c === "'" || c === '"') { q = c; word ??= ""; }
+    else if (c === "\\" && i + 1 < flat.length) word = (word ?? "") + flat[++i];
+    else if ("\n;&|()".includes(c)) { end(); segs.push([]); }
+    else if (/\s/.test(c)) end();
+    else word = (word ?? "") + c;
+  }
+  end();
+  return segs.filter((t) => t[0]);
 }
 
 function commitSubject(full) {
@@ -182,9 +200,9 @@ function stagedEnv(dir) {
   return staged.some((f) => /^\.env(\..+)?$/.test(f) && !/^\.env\.(example|sample|template)$/.test(f));
 }
 
-function checkCommit(dir, cmd, hit, cfg) {
+function checkCommit(dir, cmd, hit, cfg, branch) {
   hit("sessionLink", SESSION_RE.test(cmd) && WHY.session);
-  hit("mainCommit", !cfg.allowMain && ["main", "master"].includes(git(dir, "symbolic-ref", "--short", "HEAD")) && WHY.main);
+  hit("mainCommit", !cfg.allowMain && ["main", "master"].includes(branch ?? git(dir, "symbolic-ref", "--short", "HEAD")) && WHY.main);
   hit("envStaged", stagedEnv(dir) && WHY.env);
   hit("commitSubject", subjectProblem(cmd, cfg));
 }
@@ -204,15 +222,39 @@ function insideRepo(dir, p) {
   return abs === top || abs.startsWith(top + sep);
 }
 
-function checkGit(t, cwd, cmd, s, hits) {
+const CHECKED = new Set(["push", "reset", "clean", "checkout", "switch", "restore", "stash", "worktree", "commit"]);
+const operand = (a) => a.find((x) => !x.startsWith("-"));
+const after = (a, flags) => { const i = a.findIndex((x) => flags.includes(x)); return i === -1 ? undefined : a[i + 1]; };
+
+// branches: dir → branch a `switch`/`checkout` earlier in the same command moved to.
+function checkGit(t, cwd, cmd, s, hits, branches) {
   let i = 1, dir = cwd;
   while (t[i]?.startsWith("-")) {
     if (t[i] === "-C") { dir = resolve(cwd, t[i + 1] ?? "."); i += 2; } else i += t[i] === "-c" ? 2 : 1;
   }
   const [sub, ...a] = t.slice(i);
+  if (!CHECKED.has(sub)) return;
   const { cfg } = loadConfig(dir);
   const hit = hitter(cfg, hits);
   const discard = (cond) => hit("discard", cond && WHY.discard);
+  const isBranch = (x) => gitOk(dir, "rev-parse", "--verify", "-q", `refs/heads/${x}`);
+  if (sub === "switch") {
+    const to = after(a, ["-c", "-C", "--create", "--force-create"]);
+    const x = operand(a);
+    if (to) branches.set(dir, to);
+    else if (x && isBranch(x)) branches.set(dir, x);
+  }
+  if (sub === "checkout" && !a.includes("--")) {
+    const NEW = ["-b", "-B", "--orphan"];
+    const to = after(a, NEW);
+    const ops = a.filter((x, k) => !x.startsWith("-") && !NEW.includes(a[k - 1]));
+    if (to) branches.set(dir, to);
+    // `checkout <ref> <path>…` restores files from <ref>.
+    else if (ops.length > 1) discard(true);
+    else if (ops[0] && isBranch(ops[0])) branches.set(dir, ops[0]);
+    // Not a ref but an existing path: `git checkout <file>` throws away its edits.
+    else if (ops[0] && ops[0] !== "." && !gitOk(dir, "rev-parse", "--verify", "-q", ops[0]) && existsSync(resolve(dir, ops[0]))) discard(true);
+  }
   switch (sub) {
     case "push":
       hit("forcePush", a.some((x) => x === "--force" || /^-[a-zA-Z]*f[a-zA-Z]*$/.test(x) || /^\+./.test(x)) && WHY.force);
@@ -225,7 +267,7 @@ function checkGit(t, cwd, cmd, s, hits) {
       return discard(!(a.some((x) => x === "--staged" || x === "-S") && !a.some((x) => x === "--worktree" || x === "-W")));
     case "stash": return discard(["drop", "clear"].includes(a[0]));
     case "worktree": return hit("worktreePath", a[0] === "add" && insideRepo(dir, worktreePath(a.slice(1))) && WHY.worktree);
-    case "commit": return checkCommit(dir, cmd, hit, cfg);
+    case "commit": return checkCommit(dir, cmd, hit, cfg, branches.get(dir));
   }
 }
 
@@ -236,12 +278,25 @@ function checkGh(t, cwd, cmd, s, hits) {
   hit("pushVerify", t[2] === "create" && !hasSkill(s, VERIFY) && WHY.verify);
 }
 
-function checkBash(cmd, cwd, s) {
-  const hits = [];
+const SHELLS = new Set(["bash", "sh", "zsh"]);
+// Commands a shell -c string or eval will run are checked like the outer command.
+function expand(cmd, depth = 0) {
+  const all = [];
   for (const t of segments(cmd)) {
     while (t.length && /^\w+=/.test(t[0])) t.shift();
+    const c = t.indexOf("-c");
+    if (depth < 3 && SHELLS.has(t[0]) && c > 0 && t[c + 1] !== undefined) all.push(...expand(t[c + 1], depth + 1));
+    else if (depth < 3 && t[0] === "eval") all.push(...expand(t.slice(1).join(" "), depth + 1));
+    else if (t.length) all.push(t);
+  }
+  return all;
+}
+
+function checkBash(cmd, cwd, s) {
+  const hits = [], branches = new Map();
+  for (const t of expand(cmd)) {
     if (t[0] === "cd" && t[1]) { cwd = resolve(cwd, t[1]); continue; }
-    if (t[0] === "git") checkGit(t, cwd, cmd, s, hits);
+    if (t[0] === "git") checkGit(t, cwd, cmd, s, hits, branches);
     else if (t[0] === "gh") checkGh(t, cwd, cmd, s, hits);
   }
   // Any deny wins; a rule set to "remind" never weakens another rule.
@@ -271,11 +326,13 @@ function onPreTool(d) {
   let ctx;
   if (cfg.rules.debugGate === "remind" && s.debug && !s.debugNudged) { s.debugNudged = true; ctx = MSG.debugGate; }
   s.edited = true;
-  save(d.session_id, s);
   if (ctx) out("PreToolUse", { additionalContext: ctx });
+  save(d.session_id, s);
 }
 
 const EDGE_L = "│├┤┼└", EDGE_R = "│├┤┼┘";
+// "want it fixed", "once fixed", "not done" talk about a fix; they don't claim one.
+const CLAIM_RE = /\b(?<!\b(?:want|get|once|if|until|when|not)\s+(?:it\s+|them\s+)?)(?:done|fixed|passing|all tests pass|works now|verified)\b/i;
 
 // Returns the 1-based message line of the first misaligned box edge in ```text blocks, else 0.
 function boxError(msg) {
@@ -290,7 +347,8 @@ function boxError(msg) {
           const ch = rows[r][1];
           for (let c = ch.indexOf("┌"); c !== -1; c = ch.indexOf("┌", c + 1)) {
             const c2 = ch.indexOf("┐", c + 1);
-            if (c2 === -1) continue;
+            // An arrowhead below it: a connector (loop-back arrow), not a box.
+            if (c2 === -1 || "▼▲".includes(rows[r + 1]?.[1][c] ?? " ")) continue;
             for (let k = r + 1; k < rows.length; k++) {
               const [line, row] = rows[k];
               if (row[c] === "└") { if (row[c2] !== "┘") return line; break; }
@@ -315,7 +373,7 @@ function onStop(d) {
   const msg = String(d.last_assistant_message ?? "");
   const prose = unquote(msg.replace(/```[\s\S]*?```/g, ""));
   const flags = [];
-  if (on("doneClaim") && s.edited && /\b(done|fixed|passing|all tests pass|works now|verified)\b/i.test(prose) && !hasSkill(s, VERIFY))
+  if (on("doneClaim") && s.edited && CLAIM_RE.test(prose) && !hasSkill(s, VERIFY))
     flags.push("claimed done without verification-before-completion");
   if (on("tldr") && msg.split("\n").length > cfg.tldrMinLines && /^## /m.test(prose) && !/^\*\*TL;DR\*\*/m.test(prose)) flags.push("missing TL;DR");
   if (on("emoji") && /\p{Emoji_Presentation}/u.test(prose)) flags.push("decorative emoji");
