@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { getClaudeConfigDir } from "../hud/lib/config-dir.mjs";
 
 const VERIFY = "verification-before-completion";
@@ -13,6 +14,15 @@ const MSG = {
   review: "Auto: invoke superpowers:receiving-code-review.",
   debugGate: "Debug turn: systematic-debugging stops at Phase 3 — propose the fix and wait for go unless the user asked for a direct edit.",
   doneClaim: "Claimed done without verification-before-completion. Invoke superpowers:verification-before-completion now and report its evidence.",
+};
+// Hook texts → rule ids, so rule-review can count fires from transcripts.
+const MSG_RULE = { debug: "debugTrigger", review: "reviewTrigger", debugGate: "debugGate", doneClaim: "doneClaim" };
+const FLAG = {
+  doneClaim: "claimed done without verification-before-completion",
+  tldr: "missing TL;DR",
+  emoji: "decorative emoji",
+  brInTable: "<br> in table cell",
+  boxAlign: "diagram box edge misaligned",
 };
 // Task notifications and peer-session messages arrive as prompts; their words are not the user's.
 const MACHINE_PROMPT = /^(?:<task-notification>|Another Claude session sent a message:|\[Cross-session)/;
@@ -150,6 +160,19 @@ const WHY = {
   env: "`.env` staged; unstage it (git.md:21).",
   worktree: "Worktree goes at ../<repo>-<slug> (git.md:27).",
 };
+const WHY_RULE = { verify: "pushVerify", pr: "prSkill", force: "forcePush", discard: "discard", main: "mainCommit", session: "sessionLink", env: "envStaged", worktree: "worktreePath" };
+function firedRules(text) {
+  const ids = [];
+  for (const [k, id] of Object.entries(WHY_RULE)) if (text.includes(WHY[k])) ids.push(id);
+  for (const [k, id] of Object.entries(MSG_RULE)) if (text.includes(MSG[k])) ids.push(id);
+  if (/Commit subject (?:must be|is \d+ chars)/.test(text)) ids.push("commitSubject");
+  const prev = text.match(/Previous reply broke: (.*)\. Apply from this reply on\./);
+  for (const f of prev ? prev[1].split("; ") : []) {
+    const id = Object.keys(FLAG).find((k) => f.startsWith(FLAG[k]));
+    if (id) ids.push(id);
+  }
+  return ids;
+}
 
 // Word lists per simple command. Heredoc bodies are message text; quotes group
 // words; ; & | ( ) and newlines split only outside quotes.
@@ -230,13 +253,21 @@ const CHECKED = new Set(["push", "reset", "clean", "checkout", "switch", "restor
 const operand = (a) => a.find((x) => !x.startsWith("-"));
 const after = (a, flags) => { const i = a.findIndex((x) => flags.includes(x)); return i === -1 ? undefined : a[i + 1]; };
 
-// branches: dir → branch a `switch`/`checkout` earlier in the same command moved to.
-function checkGit(t, cwd, cmd, s, hits, branches) {
+function gitParse(t, cwd) {
   let i = 1, dir = cwd;
   while (t[i]?.startsWith("-")) {
     if (t[i] === "-C") { dir = resolve(cwd, t[i + 1] ?? "."); i += 2; } else i += t[i] === "-c" ? 2 : 1;
   }
   const [sub, ...a] = t.slice(i);
+  return { dir, sub, a };
+}
+const forceFlag = (a) => a.some((x) => x === "--force" || /^-[a-zA-Z]*f[a-zA-Z]*$/.test(x) || /^\+./.test(x));
+// Label/reviewer/base edits don't touch the description, so the template doesn't apply.
+const prDescribes = (t) => t[2] === "create" || t.slice(3).some((x) => /^(?:--(?:title|body|body-file)(?:=|$)|-[tbF])/.test(x));
+
+// branches: dir → branch a `switch`/`checkout` earlier in the same command moved to.
+function checkGit(t, cwd, cmd, s, hits, branches) {
+  const { dir, sub, a } = gitParse(t, cwd);
   if (!CHECKED.has(sub)) return;
   const { cfg } = loadConfig(dir);
   const hit = hitter(cfg, hits);
@@ -261,7 +292,7 @@ function checkGit(t, cwd, cmd, s, hits, branches) {
   }
   switch (sub) {
     case "push":
-      hit("forcePush", a.some((x) => x === "--force" || /^-[a-zA-Z]*f[a-zA-Z]*$/.test(x) || /^\+./.test(x)) && WHY.force);
+      hit("forcePush", forceFlag(a) && WHY.force);
       return hit("pushVerify", !hasSkill(s, VERIFY) && WHY.verify);
     case "reset": return discard(a.includes("--hard"));
     case "clean": return discard(a.some((x) => x === "--force" || /^-[a-zA-Z]*f/.test(x)));
@@ -280,8 +311,7 @@ function checkGh(t, cwd, cmd, s, hits) {
   const hit = hitter(loadConfig(cwd).cfg, hits);
   hit("sessionLink", SESSION_RE.test(cmd) && WHY.session);
   hit("pushVerify", t[2] === "create" && !hasSkill(s, VERIFY) && WHY.verify);
-  // Label/reviewer/base edits don't touch the description, so the template doesn't apply.
-  const describes = t[2] === "create" || t.slice(3).some((x) => /^(?:--(?:title|body|body-file)(?:=|$)|-[tbF])/.test(x));
+  const describes = prDescribes(t);
   hit("prSkill", describes && !hasSkill(s, "pr") && WHY.pr);
 }
 
@@ -373,25 +403,31 @@ function boxError(msg) {
   return 0;
 }
 
+const proseOf = (msg) => unquote(msg.replace(/```[\s\S]*?```/g, ""));
+function formatFlags(msg, cfg) {
+  const on = (id) => cfg.rules[id] !== "off";
+  const prose = proseOf(msg);
+  const f = [];
+  if (on("tldr") && msg.split("\n").length > cfg.tldrMinLines && /^## /m.test(prose) && !/^\*\*TL;DR\*\*/m.test(prose)) f.push(["tldr", FLAG.tldr]);
+  if (on("emoji") && /\p{Emoji_Presentation}/u.test(prose)) f.push(["emoji", FLAG.emoji]);
+  if (on("brInTable") && /^\|.*<br\s*\/?>/im.test(prose)) f.push(["brInTable", FLAG.brInTable]);
+  const line = on("boxAlign") ? boxError(msg) : 0;
+  if (line) f.push(["boxAlign", `${FLAG.boxAlign} at line ${line}`]);
+  return f;
+}
+
 function onStop(d) {
   const s = load(d.session_id);
   const { cfg } = loadConfig(d.cwd ?? process.cwd());
-  const on = (id) => cfg.rules[id] !== "off";
   const msg = String(d.last_assistant_message ?? "");
-  const prose = unquote(msg.replace(/```[\s\S]*?```/g, ""));
-  const flags = [];
-  const claim = on("doneClaim") && s.edited && CLAIM_RE.test(prose) && !hasSkill(s, VERIFY);
-  if (on("tldr") && msg.split("\n").length > cfg.tldrMinLines && /^## /m.test(prose) && !/^\*\*TL;DR\*\*/m.test(prose)) flags.push("missing TL;DR");
-  if (on("emoji") && /\p{Emoji_Presentation}/u.test(prose)) flags.push("decorative emoji");
-  if (on("brInTable") && /^\|.*<br\s*\/?>/im.test(prose)) flags.push("<br> in table cell");
-  const line = on("boxAlign") ? boxError(msg) : 0;
-  if (line) flags.push(`diagram box edge misaligned at line ${line}`);
+  const flags = formatFlags(msg, cfg).map(([, text]) => text);
+  const claim = cfg.rules.doneClaim !== "off" && s.edited && CLAIM_RE.test(proseOf(msg)) && !hasSkill(s, VERIFY);
   // Continuing already → next-turn flag, so a claim the fix can't clear doesn't loop.
   if (claim && cfg.rules.doneClaim === "now" && !d.stop_hook_active) {
     out("Stop", { additionalContext: [MSG.doneClaim, ...(flags.length ? [`Also fix: ${flags.join("; ")}.`] : [])].join(" ") });
     return;
   }
-  if (claim) flags.unshift("claimed done without verification-before-completion");
+  if (claim) flags.unshift(FLAG.doneClaim);
   if (!flags.length) return;
   s.flags = [...new Set([...s.flags, ...flags])];
   save(d.session_id, s);
@@ -399,10 +435,18 @@ function onStop(d) {
 
 const HANDLERS = { UserPromptSubmit: onPrompt, PreToolUse: onPreTool, PostToolUse: onPostTool, Stop: onStop };
 
-let raw = "";
-process.stdin.setEncoding("utf8");
-for await (const chunk of process.stdin) raw += chunk;
-try {
-  const d = JSON.parse(raw);
-  if (d.session_id) HANDLERS[d.hook_event_name]?.(d);
-} catch { /* fail open */ }
+// Runs as a hook only when executed; rule-review imports the checks.
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  let raw = "";
+  process.stdin.setEncoding("utf8");
+  for await (const chunk of process.stdin) raw += chunk;
+  try {
+    const d = JSON.parse(raw);
+    if (d.session_id) HANDLERS[d.hook_event_name]?.(d);
+  } catch { /* fail open */ }
+}
+
+export {
+  CLAIM_RE, DEFAULTS, FLAG, MACHINE_PROMPT, MSG, SESSION_RE, VERIFY, WHY,
+  commitSubject, expand, firedRules, forceFlag, formatFlags, gitParse, keywordRe, loadConfig, prDescribes, proseOf, subjectProblem, unquote,
+};
