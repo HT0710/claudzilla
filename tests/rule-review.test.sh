@@ -148,5 +148,11 @@ check "share: gh fails -> prefilled url" has_ "$out" "github.com/$SLUG/issues/ne
 rm -rf "$REPORTS"
 check "issue: no saved report -> exit 1" bash -c "! node '$SCAN' --issue 2>/dev/null"
 
+# --- skill file ---
+SK="$REPO/claude/skills/rule-review/SKILL.md"
+check "skill: user-only" grep -qx 'disable-model-invocation: true' "$SK"
+check "skill: name" grep -qx 'name: rule-review' "$SK"
+check "skill: CI runs tests" grep -q 'tests/rule-review.test.sh' "$REPO/.github/workflows/test.yml"
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
