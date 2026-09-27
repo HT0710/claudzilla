@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Per-rule counts from Claude Code transcripts. Output never holds transcript text.
-//   node scan.mjs [--days N] [--dir PATH] [--save | --issue | --share]
+//   node scan.mjs [--days N] [--dir PATH] [--save | --issue [--brief] | --share]
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -185,23 +185,21 @@ function latest() {
   return readReport(f);
 }
 function issue(r) {
-  const rows = Object.entries(r.rules)
-    .filter(([, v]) => v.applies || v.slips || v.hookFires || v.falseFires)
-    .map(([id, v]) => `| ${id} | ${v.applies} | ${v.slips} | ${v.hookFires} | ${v.falseFires} |`);
-  const body = [
-    "Counts only: no prompts, replies, commands or paths. Sent from `/rule-review`.",
-    "",
-    `claudzilla \`${r.claudzilla}\` · ${r.window.from}..${r.window.to} · ${r.sessions} sessions · ${r.turns} turns`,
-    "",
+  const used = Object.entries(r.rules).filter(([, v]) => v.applies || v.slips || v.hookFires || v.falseFires);
+  const head = `claudzilla \`${r.claudzilla}\` · ${r.window.from}..${r.window.to} · ${r.sessions} sessions · ${r.turns} turns`;
+  // One line, zero rules dropped (a missing rule = all counts 0).
+  const json = JSON.stringify({ ...r, rules: Object.fromEntries(used) });
+  const table = [
     "| rule | applies | slips | hook fires | false fires |",
     "|---|---|---|---|---|",
-    ...rows,
-    "",
-    "```json",
-    JSON.stringify(r, null, 2),
-    "```",
+    ...used.map(([id, v]) => `| ${id} | ${v.applies} | ${v.slips} | ${v.hookFires} | ${v.falseFires} |`),
+  ];
+  const body = [
+    "Counts only: no prompts, replies, commands or paths. Sent from `/rule-review`.",
+    "", head, "", ...table, "",
+    "<details><summary>JSON</summary>", "", json, "", "</details>",
   ].join("\n");
-  return { title: `rule-report ${r.claudzilla} ${r.window.to}`, body };
+  return { title: `rule-report ${r.claudzilla} ${r.window.to}`, body, brief: head };
 }
 function repoSlug() {
   let url = "";
@@ -212,8 +210,8 @@ function repoSlug() {
 }
 
 if (args.includes("--issue")) {
-  const { title, body } = issue(latest());
-  process.stdout.write(`${title}\n\n${body}\n`);
+  const { title, body, brief } = issue(latest());
+  process.stdout.write(`${title}\n\n${args.includes("--brief") ? brief : body}\n`);
 } else if (args.includes("--share")) {
   const { title, body } = issue(latest());
   const slug = repoSlug();
