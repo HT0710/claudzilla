@@ -139,7 +139,14 @@ check "save: previous is older report" [ "$(node -p "require('$TMP/s.json').prev
 issue=$(node "$SCAN" --issue)
 check "issue: title line" grep -q '^rule-report ' <<<"$(head -1 <<<"$issue")"
 check "issue: table row" grep -q '^| pushVerify | 1 | 1 |' <<<"$issue"
-check "issue: json block" grep -q '"schema": 1' <<<"$issue"
+check "issue: json on one line" grep -q '^{"schema":1,' <<<"$issue"
+check "issue: json drops zero rules" bash -c "! grep '^{\"schema\"' <<<'$issue' | grep -q envStaged"
+check "issue: json collapsed" grep -q '^<details>' <<<"$issue"
+brief=$(node "$SCAN" --issue --brief)
+check "brief: title line" grep -q '^rule-report ' <<<"$(head -1 <<<"$brief")"
+check "brief: no table rows" bash -c "! grep -q '^| pushVerify' <<<'$brief'"
+check "brief: no json line" bash -c "! grep -q '^{' <<<'$brief'"
+check "brief: summary line" grep -q '^claudzilla ' <<<"$brief"
 reset_proj; session a '[["user","SECRET-TOKEN-123"],["bash","git push SECRET-TOKEN-123"]]'
 node "$SCAN" --dir "$TMP/projects" --save >/dev/null
 check "no text leak: saved + issue" bash -c "! grep -rq SECRET '$REPORTS' && ! node '$SCAN' --issue | grep -q SECRET"
