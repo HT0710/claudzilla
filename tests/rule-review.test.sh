@@ -7,6 +7,7 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 export CLAUDE_CONFIG_DIR="$TMP/cfg"; mkdir -p "$CLAUDE_CONFIG_DIR"
 pass=0 fail=0
 check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL: $name"; return 1; fi; }
+has_() { grep -qF -- "$2" <<<"$1"; }
 RG="$REPO/claude/hooks/rules-guard.mjs"
 # js <expr>: evaluate with rules-guard exports in scope as `m`, print result
 js() { node --input-type=module -e "import * as m from '$RG'; console.log(JSON.stringify(await (async () => $1)()))" </dev/null; }
@@ -116,6 +117,36 @@ check "bad --days: exit 1" bash -c "! node '$SCAN' --dir '$TMP/projects' --days 
 reset_proj; session a '[["user","SECRET-TOKEN-123 login"],["bash","git commit -m \"SECRET-TOKEN-123\""],["text","SECRET-TOKEN-123"]]'; scan
 check "no text leak: report" bash -c "! grep -q SECRET '$TMP/r.json'"
 check "report: only schema fields" [ "$(node -p "Object.keys(require('$TMP/r.json')).join(',')")" = "schema,claudzilla,window,sessions,turns,unparsed,rules" ]
+
+# --- save / issue / share ---
+REPORTS="$CLAUDE_CONFIG_DIR/claudzilla-reports"
+reset_proj; session a '[["user","ship"],["bash","git push"]]'
+node "$SCAN" --dir "$TMP/projects" --save > "$TMP/s.json"
+check "save: first run previous null" [ "$(node -p "require('$TMP/s.json').previous")" = null ]
+check "save: file written" [ "$(ls "$REPORTS" | wc -l | tr -d ' ')" = 1 ]
+echo '{"schema":1,"rules":{"pushVerify":{"applies":9,"slips":9,"hookFires":0,"falseFires":0}}}' > "$REPORTS/2000-01-01.json"
+node "$SCAN" --dir "$TMP/projects" --save > "$TMP/s.json"
+check "save: previous is older report" [ "$(node -p "require('$TMP/s.json').previous.rules.pushVerify.slips")" = 9 ]
+issue=$(node "$SCAN" --issue)
+check "issue: title line" grep -q '^rule-report ' <<<"$(head -1 <<<"$issue")"
+check "issue: table row" grep -q '^| pushVerify | 1 | 1 |' <<<"$issue"
+check "issue: json block" grep -q '"schema": 1' <<<"$issue"
+reset_proj; session a '[["user","SECRET-TOKEN-123"],["bash","git push SECRET-TOKEN-123"]]'
+node "$SCAN" --dir "$TMP/projects" --save >/dev/null
+check "no text leak: saved + issue" bash -c "! grep -rq SECRET '$REPORTS' && ! node '$SCAN' --issue | grep -q SECRET"
+BIN="$TMP/bin"; mkdir -p "$BIN"
+printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "%s/gh-args"\necho https://github.com/o/r/issues/1\n' "$TMP" > "$BIN/gh"; chmod +x "$BIN/gh"
+SLUG=$(git -C "$REPO" remote get-url origin | sed -E 's#.*github\.com[:/]##; s#\.git$##')
+out=$(PATH="$BIN:$PATH" node "$SCAN" --share)
+check "share: gh called with label" grep -qx 'rule-report' "$TMP/gh-args"
+check "share: gh repo from origin" grep -qxF "$SLUG" "$TMP/gh-args"
+check "share: prints issue url" has_ "$out" "issues/1"
+printf '#!/bin/sh\nexit 1\n' > "$BIN/gh"
+out=$(PATH="$BIN:$PATH" node "$SCAN" --share); rc=$?
+check "share: gh fails -> exit 0" [ "$rc" -eq 0 ]
+check "share: gh fails -> prefilled url" has_ "$out" "github.com/$SLUG/issues/new?labels=rule-report"
+rm -rf "$REPORTS"
+check "issue: no saved report -> exit 1" bash -c "! node '$SCAN' --issue 2>/dev/null"
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

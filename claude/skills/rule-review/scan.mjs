@@ -2,7 +2,7 @@
 // Per-rule counts from Claude Code transcripts. Output never holds transcript text.
 //   node scan.mjs [--days N] [--dir PATH] [--save | --issue | --share]
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getClaudeConfigDir } from "../../hud/lib/config-dir.mjs";
@@ -165,4 +165,62 @@ const opt = (name, dflt) => { const i = args.indexOf(name); return i === -1 ? df
 const days = Number(opt("--days", "14"));
 if (!Number.isInteger(days) || days < 1) fail("--days needs a positive integer");
 const root = opt("--dir", join(getClaudeConfigDir(), "projects"));
-process.stdout.write(`${JSON.stringify(scan(root, days), null, 2)}\n`);
+const REPORTS = join(getClaudeConfigDir(), "claudzilla-reports");
+const saved = () => (existsSync(REPORTS) ? readdirSync(REPORTS).filter((f) => /^\d{4}-\d\d-\d\d\.json$/.test(f)).sort() : []);
+const readReport = (f) => JSON.parse(readFileSync(join(REPORTS, f), "utf8"));
+function latest() {
+  const f = saved().at(-1);
+  if (!f) fail("no saved report; run with --save first");
+  return readReport(f);
+}
+function issue(r) {
+  const rows = Object.entries(r.rules)
+    .filter(([, v]) => v.applies || v.slips || v.hookFires || v.falseFires)
+    .map(([id, v]) => `| ${id} | ${v.applies} | ${v.slips} | ${v.hookFires} | ${v.falseFires} |`);
+  const body = [
+    "Counts only: no prompts, replies, commands or paths. Sent from `/rule-review`.",
+    "",
+    `claudzilla \`${r.claudzilla}\` · ${r.window.from}..${r.window.to} · ${r.sessions} sessions · ${r.turns} turns`,
+    "",
+    "| rule | applies | slips | hook fires | false fires |",
+    "|---|---|---|---|---|",
+    ...rows,
+    "",
+    "```json",
+    JSON.stringify(r, null, 2),
+    "```",
+  ].join("\n");
+  return { title: `rule-report ${r.claudzilla} ${r.window.to}`, body };
+}
+function repoSlug() {
+  let url = "";
+  try { url = execFileSync("git", ["-C", REPO, "remote", "get-url", "origin"], { encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { /* no origin */ }
+  const m = url.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+  if (!m) fail(`origin is not a GitHub repo: ${url || "none"}`);
+  return m[1];
+}
+
+if (args.includes("--issue")) {
+  const { title, body } = issue(latest());
+  process.stdout.write(`${title}\n\n${body}\n`);
+} else if (args.includes("--share")) {
+  const { title, body } = issue(latest());
+  const slug = repoSlug();
+  try {
+    process.stdout.write(execFileSync("gh", ["issue", "create", "--repo", slug, "--label", "rule-report", "--title", title, "--body", body], { encoding: "utf8", timeout: 30000, stdio: ["ignore", "pipe", "ignore"] }));
+  } catch {
+    const q = new URLSearchParams({ labels: "rule-report", title, body });
+    process.stdout.write(`gh unavailable or failed; open this link to file the report:\nhttps://github.com/${slug}/issues/new?${q}\n`);
+  }
+} else {
+  const report = scan(root, days);
+  if (args.includes("--save")) {
+    const name = `${report.window.to}.json`;
+    const prev = saved().filter((f) => f < name).at(-1);
+    mkdirSync(REPORTS, { recursive: true });
+    writeFileSync(join(REPORTS, name), `${JSON.stringify(report, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ report, previous: prev ? readReport(prev) : null }, null, 2)}\n`);
+  } else {
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  }
+}
