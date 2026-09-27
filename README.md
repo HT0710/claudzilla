@@ -29,6 +29,7 @@ Only the default config dir `~/.claude` is supported: `CLAUDE.md` imports `@~/.c
 | `RTK.md` + Bash hook | every Bash call goes through `rtk` to cut token usage |
 | `hooks/rules-guard.mjs` | blocks risky git (force push, discarding work, commit on `main`, push/PR before verification, PR before the `pr` skill); reminds skill triggers (not on task notifications or peer-session messages); sends Claude back to verify a "done" claim; flags format slips on your next prompt. `md-display.pl` shows `<br>` in tables as `·` |
 | `skills/pr` | pre-PR checks and the bold-labelled PR template, loaded only when a PR is opened or edited; your own skills in `~/.claude/skills/` stay |
+| `skills/rule-review` | `/rule-review`: counts how often each rule slipped in your recent sessions, saves the report, and can post the counts (no text) as a GitHub issue |
 | plugins | [caveman](https://github.com/JuliusBrussee/caveman) (terse talk), [ponytail](https://github.com/DietrichGebert/ponytail) (minimal code), [superpowers](https://github.com/obra/superpowers) (plan / TDD / debug workflows) |
 | statusline | model, effort, context / 5h / weekly usage bars, git branch, session (`hud/`) |
 | theme | `custom:mine`, a muted dark palette |

@@ -20,3 +20,4 @@ jobs:
           node-version: 24
       - run: bash tests/hooks.test.sh
       - run: bash tests/install.test.sh
+      - run: bash tests/rule-review.test.sh

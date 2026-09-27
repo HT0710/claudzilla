@@ -26,7 +26,7 @@ check "content: vendor project-id cache" grep -q projectIdCache "$REPO/claude/hu
 # --- fresh machine ---
 H=$(new_home); run_install "$H"; rc=$?
 check "fresh: exit 0" [ "$rc" -eq 0 ]
-for f in CLAUDE.md RTK.md rules themes hud .omc/hud-config.json hooks/claudzilla-update.sh hooks/rules-guard.mjs hooks/md-display.pl skills/pr; do
+for f in CLAUDE.md RTK.md rules themes hud .omc/hud-config.json hooks/claudzilla-update.sh hooks/rules-guard.mjs hooks/md-display.pl skills/pr skills/rule-review; do
   check "fresh: $f linked" [ "$(readlink "$H/.claude/$f")" = "$REPO/claude/$f" ]
 done
 H2=$(new_home); mkdir -p "$H2/.claude/skills/mine"; echo x > "$H2/.claude/skills/mine/SKILL.md"; run_install "$H2"
