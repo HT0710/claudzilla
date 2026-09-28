@@ -21,12 +21,12 @@ curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh |
 |---|---|
 | **Instructions** (`CLAUDE.md`) | brevity, surgical changes, investigate before acting, evidence for every claim |
 | **Rules** (`rules/`) | always-loaded rules for git, response format, comments, Python and skill use |
-| **Guard hook** | blocks force-pushes, discarding work and commits on `main`; asks for verification before push or "done" |
+| **Guard hook** | blocks force-pushes, discarding work and commits on `main`; blocks push/PR until verification ran; sends "done" claims back to verify |
 | **Skills** | `pr` (pre-PR checks + description template), `/rule-review` (how often each rule slipped) |
 | **Plugins** | [caveman](https://github.com/JuliusBrussee/caveman), [ponytail](https://github.com/DietrichGebert/ponytail), [superpowers](https://github.com/obra/superpowers) |
 | **Statusline** | cwd, branch, context / 5h / weekly meters, model, effort, active skill |
 | **Token saver** | every Bash call runs through `rtk` |
-| **Theme + settings** | muted dark theme, `opus[1m]`, truecolor |
+| **Theme + settings** | muted dark theme, `opus[1m]`, medium effort, truecolor, normal permission prompts |
 
 ## How it works
 
@@ -35,7 +35,7 @@ curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh |
 settings.base.json     ──merge────▶  ~/.claude/settings.json  your own keys survive re-installs
 ```
 
-- **Linked:** instructions, rules, hooks, skills, theme and statusline. The repo stays the source of truth.
+- **Linked:** instructions, rules, hooks, skills (`pr`, `rule-review`; your own stay), theme and statusline. The repo stays the source of truth.
 - **Merged:** `settings.json` (Claude Code rewrites it). Repo values win, and extras you add on a machine are kept.
 - **Safe to re-run:** anything replaced is backed up to `~/.claude/.claudzilla-backup/<timestamp>/`.
 
@@ -75,7 +75,7 @@ Optional JSON files, applied in this order. Later files win; objects merge and a
 | `specExclude` | `on` `off` |
 | format: `tldr` `emoji` `brInTable` `boxAlign` | `flag` `off` |
 
-A bad file or value is skipped and named on your next prompt.
+A bad file or value is skipped and named on your next prompt; unknown keys are ignored.
 
 </details>
 
@@ -93,7 +93,7 @@ Claude Code tells you at startup when an update is available.
 find ~/.claude -maxdepth 2 -lname "$HOME/claudzilla/*" -delete
 ```
 
-Then restore anything you need from `~/.claude/.claudzilla-backup/`.
+Then remove claudzilla's hooks and `statusLine` from `~/.claude/settings.json` (or restore it from `~/.claude/.claudzilla-backup/`), otherwise they point at deleted scripts.
 
 ## Notes
 
