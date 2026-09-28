@@ -1,6 +1,5 @@
 #!/usr/bin/perl -0777
-# OMC HUD -> E2 layout: identity row, rule, three full-width gradient meters, rule, activity row.
-# The plugin dist is generated, so this parses its output and re-renders rather than patching it.
+# hud-data.mjs key/value lines -> E2 layout: identity row, rule, three full-width gradient meters, rule, activity row.
 use strict; use warnings;
 
 my $raw = do { local $/; <STDIN> };
@@ -15,9 +14,8 @@ my $W = 114;
     $W = $cols - 4 if $cols && $cols =~ /^\d+$/ && $cols > 20;
 }
 
-my ($id)      = $txt =~ /\A(\w+)\n/;
-# the wrapper hands us two fields the OMC text doesn't carry: the session cwd and the effort level
-my ($META_CWD,$EFFORT,$SID) = split /\x1f/, ($ENV{HUD_META} // ''), 3;
+my %f = map { /^([^\t]+)\t(.*)$/ ? ($1, $2) : () } split /\n/, $txt;
+my ($id, $META_CWD, $EFFORT, $SID) = @f{qw(id cwd effort sid)};
 # session name (/rename, or derived like "maxis-24") - the handle peers message us by.
 # Not in the statusline JSON, so look it up in the per-pid session registry.
 my $sname;
@@ -32,19 +30,16 @@ if ($SID) {
         last;
     }
 }
-my ($cwd)     = $txt =~ /^(\S+) \| profile:/m;
-# omc-hud reports its own process cwd for non-git dirs; trust the session JSON when we have it
+my $cwd;
 if (my $e = $META_CWD) { my $h = $ENV{HOME} // ''; $e =~ s/^\Q$h\E(?=\/|$)/~/ if $h; $cwd = $e; }
-my ($profile) = $txt =~ /profile:(\S+)/;
-# branch: OMC's is for its own process cwd, so ask git about the session cwd; blank when not a repo
-my ($branch)  = $txt =~ /\| branch:(\S+)/;
+my $profile = $f{profile};
+# branch + dirty from the session cwd; blank when not a repo
+my ($branch, $dirty);
 my $churn = '';
-my ($dirty)   = $txt =~ /\| branch:\S+ \| ([!?\d ]+?) \|/;
 if ($META_CWD) {
     my $d = $META_CWD; $d =~ s/'/'\\''/g;
     $branch = `git -C '$d' branch --show-current 2>/dev/null` // ''; $branch =~ s/\s+\z//;
     $branch = undef unless length $branch;
-    $dirty  = undef;
     if ($branch) {
         my @st = split /\n/, (`git -C '$d' status --porcelain 2>/dev/null` // '');
         my $m = grep { !/^\?\?/ } @st; my $u = @st - $m;
@@ -54,19 +49,9 @@ if ($META_CWD) {
         $churn = join ' ', ($ins ? "+$ins" : ()), ($del ? "-$del" : ());
     }
 }
-my ($model)   = $txt =~ /Model: ([^|\n]+?)\s*(?:\||$)/m;
-my ($session) = $txt =~ /session:(\S+)/;
-my ($skill)   = $txt =~ /skill:(\S+)/;
-my ($ts)      = $txt =~ /(T:\d+ S:\d+)/;
-my $thinking  = $txt =~ /^thinking\b/m || $txt =~ /\| thinking/;
+my ($model, $session, $skill, $thinking) = @f{qw(model up skill thinking)};
 
-my @m;
-for my $spec (['ctx','ctx'], ['5h','5h'], ['wk','wk']) {
-    my ($key,$label) = @$spec;
-    if ($txt =~ /\Q$key\E:(?:\[[#\-]*\])?(\d+)%\*?(?:\(~?([^)]*)\))?/) {
-        push @m, [$label, $1, defined $2 ? $2 : ''];
-    }
-}
+my @m = map { [$_, $f{$_}, $f{"${_}_note"} // ''] } grep { ($f{$_} // '') =~ /^\d+$/ } qw(ctx 5h wk);
 
 # --- helpers ---------------------------------------------------------------
 sub vis { my $s = shift; $s =~ s/\e\[[0-9;]*m//g; return length $s }
@@ -265,14 +250,13 @@ for my $r (@m) {
 
 push @out, rule(3, sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]]));
 
-# activity: skill, thinking, tool/skill counters; uptime flush right
+# activity: model, skill, thinking; uptime flush right
 {   # same treatment as the identity row, measured on the rendered strings
     my $mo = defined $model ? $model : undef;
     $mo .= "\e[38;2;127;182;217m\e[2m  $EFFORT\e[0m" if defined $mo && $EFFORT;
     my @L = ( [$mo,       sub { "\e[38;2;127;182;217m$_[0]\e[0m" }],
               [$skill,    sub { "\e[38;2;147;180;224m\x{2691} $_[0]\e[0m" }],
-              [$thinking, sub { "\e[38;2;169;143;217m\x{25C7} thinking\e[0m" }],
-              [$ts,       sub { $dim->($_[0]) }] );
+              [$thinking, sub { "\e[38;2;169;143;217m\x{25C7} thinking\e[0m" }] );
     my @R = ( [$sname,    sub { "\e[38;5;109m$_[0]\e[0m" }],
               [$id,       sub { "\e[38;2;79;92;104m$_[0]\e[0m" }],
               [$session,  sub { "\e[38;2;69;97;134mup $_[0]\e[0m" }] );
@@ -282,7 +266,7 @@ push @out, rule(3, sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]]));
                 join($j, map { $_->[1]->($_->[0]) } grep { $_->[0] } @R));
     };
     my $fits = sub { my ($l,$r) = $build->(); return vis($l) + vis($r) + ($r ne '' ? 2 : 0) <= $W };
-    for my $i (3,2,1) { last if $fits->(); $L[$i][0] = undef }   # T:S, thinking, skill
+    for my $i (2,1) { last if $fits->(); $L[$i][0] = undef }     # thinking, skill
     for my $i (1,0) { last if $fits->(); $R[$i][0] = undef }      # session id, then name
     $L[0][0] = undef unless $fits->();                            # model, last resort
     my ($ls,$rs) = $build->();

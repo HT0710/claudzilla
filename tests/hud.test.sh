@@ -66,6 +66,7 @@ check "data: thinking stale" [ -z "$(key thinking "$(data <<<"$full")")" ]
 check "data: garbage stdin exit 0" bash -c "echo nope | node '$HUD/hud-data.mjs' >/dev/null"
 check "data: missing transcript" bash -c "echo '{\"session_id\":\"x\",\"transcript_path\":\"/nope\"}' | node '$HUD/hud-data.mjs' | grep -q '^id	x$'"
 
+check "data: no context_window -> ctx 0" [ "$(key ctx "$(data <<<'{"cwd":"/x"}')")" = 0 ]
 check "data: cwd fallback" [ "$(key cwd "$(data <<<'{"cwd":"/x"}')")" = /x ]
 check "data: tab in value flattened" [ "$(key model "$(data <<<'{"model":{"display_name":"a\tb"}}')")" = "a b" ]
 
@@ -78,6 +79,21 @@ B="$TMP/big.jsonl"
 kv=$(data <<<"{\"transcript_path\":\"$B\"}")
 check "data: big transcript up"    [ "$(key up "$kv")" = 2m ]
 check "data: big transcript skill" [ "$(key skill "$kv")" = big ]
+
+# --- hud-filter.pl ---
+render() { data <<<"$1" | COLUMNS=120 perl "$HUD/hud-filter.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
+out=$(render "$full")
+check "render: ctx row"  grep -q '^ctx .* 42%  *1M$' <<<"$out"
+check "render: 5h row"   grep -q '^5h .* 30%  *2h0m$' <<<"$out"
+check "render: wk row"   grep -q '^wk .* 12%  *2d7h$' <<<"$out"
+check "render: profile"  grep -q 'me@example.test$' <<<"$out"
+check "render: activity" grep -q '^Opus  high  ⚑ pr .*abcdef12  up 90m$' <<<"$out"
+out=$(render "$nolim")
+check "render: no limits -> ctx only" [ "$(grep -cE '^(ctx|5h|wk) ' <<<"$out")" -eq 1 ]
+
+check "render: not a repo -> no branch" bash -c "! head -1 <<<'$(render "$full")' | grep -q '⎇'"
+narrow=$(data <<<"$full" | COLUMNS=60 perl "$HUD/hud-filter.pl" | perl -pe 's/\e\[[0-9;]*m//g')
+check "render: narrow fits 56 cols" [ "$(perl -CS -ne 'chomp; $m = length if length > $m; END { print $m }' <<<"$narrow")" -eq 56 ]
 
 echo "hud: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

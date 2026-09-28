@@ -24,9 +24,10 @@ out.cwd = d.workspace?.current_dir || d.cwd;
 out.effort = d.effort?.level;
 out.model = d.model?.display_name;
 
-out.ctx = pct(d.context_window?.used_percentage);
+// null until the first API reply; keep the row so the statusline height stays put
+out.ctx = pct(d.context_window?.used_percentage) ?? 0;
 const size = d.context_window?.context_window_size;
-if (out.ctx !== undefined && size > 0) {
+if (size > 0) {
   out.ctx_note = size >= 1e6 ? `${+(size / 1e6).toFixed(1)}M` : `${Math.round(size / 1e3)}k`;
 }
 
