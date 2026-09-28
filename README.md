@@ -70,7 +70,7 @@ Gates (`pushVerify` `prSkill` `forcePush` `discard` `mainCommit` `commitSubject`
 
 ## How it works
 
-- `CLAUDE.md`, `RTK.md`, `rules/`, `themes/`, `hud/` and `.omc/hud-config.json` in `~/.claude` become **symlinks into this repo**. Edit them anywhere and the change shows up in `git status`.
+- `CLAUDE.md`, `RTK.md`, `rules/`, `themes/` and `hud/` in `~/.claude` become **symlinks into this repo**. Edit them anywhere and the change shows up in `git status`.
 - `settings.json` is **merged**, not linked, because Claude Code rewrites it. Values from `settings.base.json` win; objects merge key by key; arrays are unioned. Anything a machine adds on its own (extra hooks, env, plugins) survives re-installs. Entries match regardless of key order, and duplicate copies of a claudzilla entry collapse to one. Entries and keys claudzilla shipped before but no longer does are removed unless you changed them; the last applied base is kept in `~/.claude/.claudzilla-base.json`. The first install without that file only cleans hook entries whose every command runs a claudzilla hook script — including one you wrote yourself around those scripts — and an edited copy of a claudzilla entry is kept beside the new one.
 - Machine-specific instructions go in `~/.claude/CLAUDE.local.md`, which `CLAUDE.md` imports. It is created empty and never committed.
 - Machine-specific settings go in `~/.claude/settings.overrides.json`. It is merged **last**, so it beats the repo — use it for anything you want to differ from `settings.base.json` on one machine, e.g. no permission prompts:
@@ -98,10 +98,6 @@ bash tests/install.test.sh
 ```
 
 Offline; every case installs into a throwaway `HOME`.
-
-## Third-party
-
-`claude/hud/omc-vendor/` is a trimmed build of [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode)'s HUD — only the files `dist/hud/index.js` imports. Patched: `dist/lib/worktree-paths.js` caches `getProjectIdentifier` (keep on re-vendor). MIT, see its `LICENSE`.
 
 ## License
 
