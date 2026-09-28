@@ -1,59 +1,60 @@
 # claudzilla
 
-My global [Claude Code](https://claude.com/claude-code) setup: terse replies, lazy code, strict rules, a truecolor statusline — installable on any machine in one command.
+An opinionated global setup for [Claude Code](https://claude.com/claude-code), installable on any machine in one command.
 
-## Install
+- **Terse:** short, scannable answers with the answer first.
+- **Lazy code:** the smallest change that works. Investigate first, then verify before calling anything done.
+- **Guarded:** a hook blocks risky git and keeps work inside the rules.
+- **Visible:** a truecolor statusline shows model, context and usage limits.
+
+## Quick start
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh | bash
 ```
 
-or
+**Requires:** `git`, `curl`, `tar`, `perl` and Claude Code. If `node` or [`rtk`](https://github.com/rtk-ai/rtk) is missing, the installer puts it in `~/.local` without sudo. Make sure `~/.local/bin` is on your `PATH`.
 
-```bash
-git clone https://github.com/HT0710/claudzilla ~/claudzilla && ~/claudzilla/install.sh
+## What's inside
+
+| part | what it does |
+|---|---|
+| **Instructions** (`CLAUDE.md`) | brevity, surgical changes, investigate before acting, evidence for every claim |
+| **Rules** (`rules/`) | always-loaded rules for git, response format, comments, Python and skill use |
+| **Guard hook** | blocks force-pushes, discarding work and commits on `main`; asks for verification before push or "done" |
+| **Skills** | `pr` (pre-PR checks + description template), `/rule-review` (how often each rule slipped) |
+| **Plugins** | [caveman](https://github.com/JuliusBrussee/caveman), [ponytail](https://github.com/DietrichGebert/ponytail), [superpowers](https://github.com/obra/superpowers) |
+| **Statusline** | cwd, branch, context / 5h / weekly meters, model, effort, active skill |
+| **Token saver** | every Bash call runs through `rtk` |
+| **Theme + settings** | muted dark theme, `opus[1m]`, truecolor |
+
+## How it works
+
+```text
+~/claudzilla/claude/*  ──symlink──▶  ~/.claude/*              edit either side, see it in git status
+settings.base.json     ──merge────▶  ~/.claude/settings.json  your own keys survive re-installs
 ```
 
-Then start `claude` and `/login`. Re-running the installer is safe; anything it replaces is moved to `~/.claude/.claudzilla-backup/<timestamp>/`.
+- **Linked:** instructions, rules, hooks, skills, theme and statusline. The repo stays the source of truth.
+- **Merged:** `settings.json` (Claude Code rewrites it). Repo values win, and extras you add on a machine are kept.
+- **Safe to re-run:** anything replaced is backed up to `~/.claude/.claudzilla-backup/<timestamp>/`.
 
-Needs `git`, `curl`, `tar`, `perl` and Claude Code. If missing, `node` (official build, checksum-verified; `node` only, no `npm`) and [`rtk`](https://github.com/rtk-ai/rtk) (its upstream installer, latest release) are installed into `~/.local` without sudo — make sure `~/.local/bin` is on your `PATH`.
+## Customize
 
-Only the default config dir `~/.claude` is supported: `CLAUDE.md` imports `@~/.claude/...`, so a different `CLAUDE_CONFIG_DIR` loses those imports.
-
-## What you get
-
-| | |
+| file | for |
 |---|---|
-| `CLAUDE.md` | global instructions: brevity, surgical changes, investigate before acting, evidence discipline |
-| `rules/` | always-loaded rules, one file per topic — see [Rules](#rules) |
-| `RTK.md` + Bash hook | every Bash call goes through `rtk` to cut token usage |
-| `hooks/rules-guard.mjs` | blocks risky git (force push, discarding work, commit on `main`, push/PR before verification, PR before the `pr` skill); reminds skill triggers (not on task notifications or peer-session messages); sends Claude back to verify a "done" claim; flags format slips on your next prompt. `md-display.pl` shows `<br>` in tables as `·` |
-| `skills/pr` | pre-PR checks and the bold-labelled PR template, loaded only when a PR is opened or edited; your own skills in `~/.claude/skills/` stay |
-| `skills/rule-review` | `/rule-review`: counts how often each rule slipped in your recent sessions, saves the report, and can post the counts (no text) as a GitHub issue |
-| plugins | [caveman](https://github.com/JuliusBrussee/caveman) (terse talk), [ponytail](https://github.com/DietrichGebert/ponytail) (minimal code), [superpowers](https://github.com/obra/superpowers) (plan / TDD / debug workflows) |
-| statusline | model, effort, context / 5h / weekly usage bars, git branch, session (`hud/`) |
-| theme | `custom:mine`, a muted dark palette |
-| settings | `opus[1m]`, medium effort, `COLORTERM=truecolor`, Claude Code's default permission prompts |
+| `~/.claude/CLAUDE.local.md` | instructions for this machine only |
+| `~/.claude/settings.overrides.json` | settings for this machine only, merged last (e.g. `{"permissions":{"defaultMode":"dontAsk"}}`) |
+| `claudzilla.json` | turn guard checks on or off, see below |
 
-## Rules
+<details>
+<summary>Guard hook config</summary>
 
-Every file in `claude/rules/` is loaded into every session.
+Optional JSON files, applied in this order. Later files win; objects merge and arrays replace.
 
-| file | what it enforces |
-|---|---|
-| `git.md` | no push/PR/tag unless asked; branch off `main` (solo repos: ask once); manual work stays uncommitted until push, while skill chains commit locally and get regrouped into logical commits before the first push; Conventional Commits, subject ≤ 50 chars, `Why:` / `Impact:` / `Verify:` body without file lists; PR rules via the `pr` skill; no Claude session links |
-| `response-format.md` | scannable replies: TL;DR first, headers, tables, `#`-numbered findings, one-line table cells (no `<br>`), a single bold recommendation per decision, unicode diagrams checked for alignment, `Next:` line |
-| `comments.md` | no comment by default; comments explain *why* only; one-line docstrings; no change history in code |
-| `python.md` | an existing repo's own tooling and conventions win; new code gets `uv` + `pyproject.toml`, `ruff`, `pathlib`, type hints on public functions, stdlib first, explicit timeouts on network/subprocess calls, plain `pytest` |
-| `superpowers.md` | which superpowers skills run automatically, which are only suggested, which are manual; debugging stops at a proposed fix until you approve it; verification before finishing a branch; worktrees go next to the repo; specs and plans kept out of git by default |
-
-## Config
-
-`hooks/rules-guard.mjs` reads optional JSON files; later wins, objects merge key by key, arrays replace:
-
-1. `~/.claude/claudzilla.json` — this machine
-2. `<repo>/.claude/claudzilla.json` — shared, commit it
-3. `<repo>/.claude/claudzilla.local.json` — yours, git-ignore it
+1. `~/.claude/claudzilla.json`: this machine
+2. `<repo>/.claude/claudzilla.json`: shared, commit it
+3. `<repo>/.claude/claudzilla.local.json`: yours, git-ignore it
 
 ```json
 {"rulesGuard": {
@@ -66,18 +67,17 @@ Every file in `claude/rules/` is loaded into every session.
 }}
 ```
 
-Gates (`pushVerify` `prSkill` `forcePush` `discard` `mainCommit` `commitSubject` `sessionLink` `envStaged` `worktreePath`) take `deny`, `remind` or `off`; triggers (`debugTrigger` `reviewTrigger` `debugGate`) `remind` or `off`; `specExclude` `on` or `off`; `doneClaim` `now` (verify before the turn ends), `flag` or `off`; format checks (`tldr` `emoji` `brInTable` `boxAlign`) `flag` or `off`. A bad file or value is skipped and named on your next prompt.
+| rules | values |
+|---|---|
+| gates: `pushVerify` `prSkill` `forcePush` `discard` `mainCommit` `commitSubject` `sessionLink` `envStaged` `worktreePath` | `deny` `remind` `off` |
+| triggers: `debugTrigger` `reviewTrigger` `debugGate` | `remind` `off` |
+| `doneClaim` | `now` `flag` `off` |
+| `specExclude` | `on` `off` |
+| format: `tldr` `emoji` `brInTable` `boxAlign` | `flag` `off` |
 
-## How it works
+A bad file or value is skipped and named on your next prompt.
 
-- `CLAUDE.md`, `RTK.md`, `rules/`, `themes/` and `hud/` in `~/.claude` become **symlinks into this repo**. Edit them anywhere and the change shows up in `git status`.
-- `settings.json` is **merged**, not linked, because Claude Code rewrites it. Values from `settings.base.json` win; objects merge key by key; arrays are unioned. Anything a machine adds on its own (extra hooks, env, plugins) survives re-installs. Entries match regardless of key order, and duplicate copies of a claudzilla entry collapse to one. Entries and keys claudzilla shipped before but no longer does are removed unless you changed them; the last applied base is kept in `~/.claude/.claudzilla-base.json`. The first install without that file only cleans hook entries whose every command runs a claudzilla hook script — including one you wrote yourself around those scripts — and an edited copy of a claudzilla entry is kept beside the new one.
-- Machine-specific instructions go in `~/.claude/CLAUDE.local.md`, which `CLAUDE.md` imports. It is created empty and never committed.
-- Machine-specific settings go in `~/.claude/settings.overrides.json`. It is merged **last**, so it beats the repo — use it for anything you want to differ from `settings.base.json` on one machine, e.g. no permission prompts:
-
-  ```json
-  { "permissions": { "defaultMode": "dontAsk" } }
-  ```
+</details>
 
 ## Update
 
@@ -85,19 +85,20 @@ Gates (`pushVerify` `prSkill` `forcePush` `discard` `mainCommit` `commitSubject`
 cd ~/claudzilla && git pull && ./install.sh
 ```
 
-You don't have to check by hand: when `claude` starts and your clone is behind GitHub, a SessionStart hook (`claude/hooks/claudzilla-update.sh`) shows `claudzilla: update available`. Run the command above, or just tell Claude to update claudzilla — it gets the exact command, and only runs it when you ask. The check compares against the last fetch, so startup never waits on the network, and it refreshes that fetch in the background at most once a day.
+Claude Code tells you at startup when an update is available.
 
 ## Uninstall
 
-Remove the symlinks in `~/.claude` (`find ~/.claude -maxdepth 2 -lname "$HOME/claudzilla/*" -delete`) and restore what you need from `~/.claude/.claudzilla-backup/`.
-
-## Tests
-
 ```bash
-bash tests/install.test.sh
+find ~/.claude -maxdepth 2 -lname "$HOME/claudzilla/*" -delete
 ```
 
-Offline; every case installs into a throwaway `HOME`.
+Then restore anything you need from `~/.claude/.claudzilla-backup/`.
+
+## Notes
+
+- Only the default `~/.claude` config dir is supported. `CLAUDE.md` imports from `@~/.claude/...`.
+- Tests run offline: `bash tests/install.test.sh` (the other suites are in `tests/`).
 
 ## License
 
