@@ -59,7 +59,7 @@ check "data: 200k note" [ "$(key ctx_note "$kv")" = 200k ]
 past=$(node -e 'const j=JSON.parse(process.argv[1]);j.rate_limits.five_hour.resets_at=1;console.log(JSON.stringify(j))' "$full")
 check "data: past reset -> no note" [ -z "$(key 5h_note "$(data <<<"$past")")" ]
 
-sed -i '$d' "$T"
+perl -i -ne 'print unless eof' "$T"
 echo "{\"timestamp\":\"$(iso 120)\",\"message\":{\"content\":[{\"type\":\"thinking\",\"thinking\":\"\"}]}}" >> "$T"
 check "data: thinking stale" [ -z "$(key thinking "$(data <<<"$full")")" ]
 
