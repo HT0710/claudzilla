@@ -46,6 +46,7 @@ const DEFAULTS = {
   subjectMax: 50,
   tldrMinLines: 15,
   allowMain: false,
+  reviewNudge: true,
 };
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const posInt = (v) => Number.isInteger(v) && v >= 1;
@@ -54,6 +55,7 @@ const PARAMS = {
   subjectMax: [posInt, "expected integer >= 1"],
   tldrMinLines: [posInt, "expected integer >= 1"],
   allowMain: [(v) => typeof v === "boolean", "expected true or false"],
+  reviewNudge: [(v) => typeof v === "boolean", "expected true or false"],
 };
 const words = (v) => Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string" && x.trim() !== "");
 

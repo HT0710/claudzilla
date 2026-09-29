@@ -175,6 +175,58 @@ check "background: no output" [ -z "$out" ]
 check "background: report written" [ "$(ls "$REPORTS" | grep -c '\.json$')" = 1 ]
 check "background: not marked seen" [ ! -e "$SEEN" ]
 
+# --- nudge ---
+today=$(node -p 'new Date().toISOString().slice(0,10)')
+old=$(node -p 'new Date(Date.now() - 10 * 864e5).toISOString().slice(0,10)')
+# report <date> <tldr slips> <pushVerify slips>: fixture report, 14-day window, 3 sessions
+report() {
+  mkdir -p "$REPORTS"
+  printf '{"schema":1,"claudzilla":"t","window":{"from":"2026-09-01","to":"2026-09-15"},"sessions":3,"turns":9,"unparsed":0,"rules":{"tldr":{"applies":9,"slips":%s,"hookFires":0,"falseFires":0},"pushVerify":{"applies":2,"slips":%s,"hookFires":0,"falseFires":0}}}\n' "$2" "$3" > "$REPORTS/$1.json"
+}
+nudge() { printf '%s' "${1:-{\}}" | node "$SCAN" --nudge; }
+# background scan finished = today's report exists
+scanned() { for _ in $(seq 50); do [ -e "$REPORTS/$today.json" ] && return 0; sleep 0.2; done; return 1; }
+mkdir -p "$CLAUDE_CONFIG_DIR/projects"   # default --dir of the background scan
+
+rm -rf "$REPORTS"
+check "nudge: no report -> silent" [ -z "$(nudge)" ]
+check "nudge: no report -> background scan" scanned
+rm -rf "$REPORTS"; report "$today" 5 1
+out=$(nudge)
+check "nudge: line" [ "$out" = '{"systemMessage":"claudzilla: 6 rule slips in 3 sessions (14 days) · most: tldr 5× · /rule-review to see and share"}' ]
+check "nudge: marks seen" [ "$(cat "$SEEN")" = "$today.json" ]
+check "nudge: shown once" [ -z "$(nudge)" ]
+rm -rf "$REPORTS"; report "$today" 0 0
+check "nudge: zero slips -> silent" [ -z "$(nudge)" ]
+rm -rf "$REPORTS"; report "$today" 0 2
+check "nudge: top rule by slips" has_ "$(nudge)" "most: pushVerify 2×"
+rm -rf "$REPORTS"; reset_proj; session a '[["user","ship"],["bash","git push"]]'
+node "$SCAN" --dir "$TMP/projects" --save >/dev/null
+check "nudge: after manual save -> silent" [ -z "$(nudge)" ]
+rm -rf "$REPORTS"; report "$old" 3 0; echo "$old.json" > "$SEEN"
+check "nudge: stale seen report -> silent" [ -z "$(nudge)" ]
+check "nudge: stale report -> background scan" scanned
+rm -rf "$REPORTS"; report "$old" 3 0
+check "nudge: stale unseen report -> shown" has_ "$(nudge)" "3 rule slips"
+scanned   # let the refresh it started finish before the next case
+rm -rf "$REPORTS"; report "$today" 2 0
+echo '{"rulesGuard":{"reviewNudge":false}}' > "$CLAUDE_CONFIG_DIR/claudzilla.json"
+check "nudge: machine opt-out -> silent" [ -z "$(nudge)" ]
+rm -rf "$REPORTS"
+nudge >/dev/null; sleep 1
+check "nudge: opt-out -> no scan" [ ! -e "$REPORTS/$today.json" ]
+echo '{"rulesGuard":{"reviewNudge":"no"}}' > "$CLAUDE_CONFIG_DIR/claudzilla.json"
+report "$today" 2 0
+check "nudge: invalid value -> stays on" has_ "$(nudge)" "systemMessage"
+rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"
+R="$TMP/optout"; mkdir -p "$R/.claude"; git -C "$R" init -q
+echo '{"rulesGuard":{"reviewNudge":false}}' > "$R/.claude/claudzilla.json"
+rm -rf "$REPORTS"; report "$today" 2 0
+check "nudge: repo opt-out via cwd" [ -z "$(nudge "{\"cwd\":\"$R\"}")" ]
+check "nudge: garbage stdin -> exit 0" bash -c "echo nope | node '$SCAN' --nudge >/dev/null"
+rm -rf "$REPORTS"; report "$today" 2 0; echo '{broken' > "$REPORTS/$today.json"
+check "nudge: unreadable report -> exit 0, silent" [ -z "$(nudge)" ]
+
 # --- skill file ---
 SK="$REPO/claude/skills/rule-review/SKILL.md"
 check "skill: user-only" grep -qx 'disable-model-invocation: true' "$SK"
