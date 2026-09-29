@@ -22,7 +22,7 @@ curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh |
 | **Instructions** (`CLAUDE.md`) | brevity, surgical changes, investigate before acting, evidence for every claim |
 | **Rules** (`rules/`) | always-loaded rules for git, response format, comments, Python and skill use |
 | **Guard hook** | blocks force-pushes, discarding work and commits on `main`; blocks push/PR until verification ran; sends "done" claims back to verify |
-| **Skills** | `pr` (pre-PR checks + description template), `/rule-review` (how often each rule slipped) |
+| **Skills** | `pr` (pre-PR checks + description template), `/rule-review` (how often each rule slipped; a weekly summary shows at startup) |
 | **Plugins** | [caveman](https://github.com/JuliusBrussee/caveman), [ponytail](https://github.com/DietrichGebert/ponytail), [superpowers](https://github.com/obra/superpowers) |
 | **Statusline** | cwd, branch, context / 5h / weekly meters, model, effort, active skill |
 | **Token saver** | every Bash call runs through `rtk` |
@@ -63,7 +63,8 @@ Optional JSON files, applied in this order. Later files win; objects merge and a
   "commitTypes": ["feat", "fix", "refactor", "chore", "docs", "test", "ci"],
   "subjectMax": 72,
   "tldrMinLines": 15,
-  "allowMain": false
+  "allowMain": false,
+  "reviewNudge": true
 }}
 ```
 
@@ -73,6 +74,7 @@ Optional JSON files, applied in this order. Later files win; objects merge and a
 | triggers: `debugTrigger` `reviewTrigger` `debugGate` | `remind` `off` |
 | `doneClaim` | `now` `flag` `off` |
 | `specExclude` | `on` `off` |
+| `reviewNudge`: weekly `/rule-review` summary at startup | `true` `false` |
 | format: `tldr` `emoji` `brInTable` `boxAlign` | `flag` `off` |
 
 A bad file or value is skipped and named on your next prompt; unknown keys are ignored.
