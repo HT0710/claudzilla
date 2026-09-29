@@ -20,6 +20,7 @@ check "content: settings.base.json valid" node -e "require('$REPO/settings.base.
 check "content: CLAUDE.md imports RTK via ~" grep -qx '@~/.claude/RTK.md' "$REPO/claude/CLAUDE.md"
 check "content: CLAUDE.md imports local" grep -qx '@~/.claude/CLAUDE.local.md' "$REPO/claude/CLAUDE.md"
 check "content: no CodeGraph section" bash -c "! grep -qi codegraph '$REPO/claude/CLAUDE.md'"
+check "content: reviewNudge not documented under rules" bash -c "! grep -q '^| \`reviewNudge\`' '$REPO/README.md'"
 check "content: no omc" bash -c "! grep -rqi omc '$REPO/claude' '$REPO/settings.base.json' '$REPO/README.md'"
 
 # --- fresh machine ---

@@ -74,8 +74,9 @@ Optional JSON files, applied in this order. Later files win; objects merge and a
 | triggers: `debugTrigger` `reviewTrigger` `debugGate` | `remind` `off` |
 | `doneClaim` | `now` `flag` `off` |
 | `specExclude` | `on` `off` |
-| `reviewNudge`: weekly `/rule-review` summary at startup | `true` `false` |
 | format: `tldr` `emoji` `brInTable` `boxAlign` | `flag` `off` |
+
+`reviewNudge` sits next to `allowMain`, not under `rules`: `false` turns off the weekly `/rule-review` summary at startup.
 
 A bad file or value is skipped and named on your next prompt; unknown keys are ignored.
 
