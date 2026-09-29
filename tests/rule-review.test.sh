@@ -164,6 +164,17 @@ check "share: gh fails -> prefilled url" has_ "$out" "github.com/$SLUG/issues/ne
 rm -rf "$REPORTS"
 check "issue: no saved report -> exit 1" bash -c "! node '$SCAN' --issue 2>/dev/null"
 
+# --- seen marker ---
+SEEN="$REPORTS/.nudged"
+rm -rf "$REPORTS"; reset_proj; session a '[["user","ship"],["bash","git push"]]'
+node "$SCAN" --dir "$TMP/projects" --save >/dev/null
+check "save: marks report seen" [ "$(cat "$SEEN" 2>/dev/null)" = "$(ls "$REPORTS")" ]
+rm -rf "$REPORTS"
+out=$(node "$SCAN" --dir "$TMP/projects" --save --background)
+check "background: no output" [ -z "$out" ]
+check "background: report written" [ "$(ls "$REPORTS" | grep -c '\.json$')" = 1 ]
+check "background: not marked seen" [ ! -e "$SEEN" ]
+
 # --- skill file ---
 SK="$REPO/claude/skills/rule-review/SKILL.md"
 check "skill: user-only" grep -qx 'disable-model-invocation: true' "$SK"
