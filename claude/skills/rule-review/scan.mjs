@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Per-rule counts from Claude Code transcripts. Output never holds transcript text.
-//   node scan.mjs [--days N] [--dir PATH] [--save [--background] | --issue [--brief] | --share]
-import { execFileSync } from "node:child_process";
+//   node scan.mjs [--days N] [--dir PATH] [--save [--background] | --issue [--brief] | --share | --nudge]
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -204,6 +204,41 @@ function issue(r) {
   ].join("\n");
   return { title: `rule-report ${r.claudzilla} ${r.window.to}`, body, brief: head };
 }
+// SessionStart: show an unseen report's summary once; refresh a missing or week-old report
+// in the background so startup never waits on a scan. Never fails the hook.
+async function nudge() {
+  let cwd;
+  try {
+    let raw = "";
+    process.stdin.setEncoding("utf8");
+    for await (const chunk of process.stdin) raw += chunk;
+    cwd = JSON.parse(raw).cwd;
+  } catch { /* no payload: machine config only */ }
+  try {
+    if (loadConfig(cwd).cfg.reviewNudge === false) return;
+  } catch { return; }
+  const name = saved().at(-1);
+  try {
+    let seen = "";
+    try { seen = readFileSync(SEEN, "utf8").trim(); } catch { /* never shown */ }
+    const r = name && name !== seen ? readReport(name) : null;
+    const rules = r ? Object.entries(r.rules) : [];
+    const slips = rules.reduce((n, [, v]) => n + v.slips, 0);
+    if (slips > 0) {
+      const [top, v] = rules.reduce((a, b) => (b[1].slips > a[1].slips ? b : a));
+      const days = Math.round((Date.parse(r.window.to) - Date.parse(r.window.from)) / 864e5);
+      const line = `claudzilla: ${slips} rule slips in ${r.sessions} sessions (${days} days) · most: ${top} ${v.slips}× · /rule-review to see and share`;
+      process.stdout.write(`${JSON.stringify({ systemMessage: line })}\n`);
+      markSeen(name);
+    }
+  } catch { /* unreadable report: say nothing */ }
+  // ponytail: no lock; sessions starting together may each scan, same dated file, add a lock if that costs
+  if (!name || Date.now() - Date.parse(name.slice(0, 10)) > 7 * 864e5) {
+    try {
+      spawn(process.execPath, [fileURLToPath(import.meta.url), "--save", "--background"], { detached: true, stdio: "ignore" }).unref();
+    } catch { /* can't spawn: try next session */ }
+  }
+}
 function repoSlug() {
   let url = "";
   try { url = execFileSync("git", ["-C", REPO, "remote", "get-url", "origin"], { encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { /* no origin */ }
@@ -224,6 +259,8 @@ if (args.includes("--issue")) {
     const q = new URLSearchParams({ labels: "rule-report", title, body });
     process.stdout.write(`gh unavailable or failed; open this link to file the report:\nhttps://github.com/${slug}/issues/new?${q}\n`);
   }
+} else if (args.includes("--nudge")) {
+  await nudge();
 } else {
   const report = scan(root, days);
   if (args.includes("--save")) {
