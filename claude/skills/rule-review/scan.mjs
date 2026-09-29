@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Per-rule counts from Claude Code transcripts. Output never holds transcript text.
-//   node scan.mjs [--days N] [--dir PATH] [--save | --issue [--brief] | --share]
+//   node scan.mjs [--days N] [--dir PATH] [--save [--background] | --issue [--brief] | --share]
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -179,6 +179,9 @@ const root = opt("--dir", join(getClaudeConfigDir(), "projects"));
 const REPORTS = join(getClaudeConfigDir(), "claudzilla-reports");
 const saved = () => (existsSync(REPORTS) ? readdirSync(REPORTS).filter((f) => /^\d{4}-\d\d-\d\d\.json$/.test(f)).sort() : []);
 const readReport = (f) => JSON.parse(readFileSync(join(REPORTS, f), "utf8"));
+// Last report the user has seen (via /rule-review or a nudge).
+const SEEN = join(REPORTS, ".nudged");
+const markSeen = (f) => writeFileSync(SEEN, `${f}\n`);
 function latest() {
   const f = saved().at(-1);
   if (!f) fail("no saved report; run with --save first");
@@ -228,7 +231,10 @@ if (args.includes("--issue")) {
     const prev = saved().filter((f) => f < name).at(-1);
     mkdirSync(REPORTS, { recursive: true });
     writeFileSync(join(REPORTS, name), `${JSON.stringify(report, null, 2)}\n`);
-    process.stdout.write(`${JSON.stringify({ report, previous: prev ? readReport(prev) : null }, null, 2)}\n`);
+    if (!args.includes("--background")) {
+      markSeen(name);
+      process.stdout.write(`${JSON.stringify({ report, previous: prev ? readReport(prev) : null }, null, 2)}\n`);
+    }
   } else {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   }
