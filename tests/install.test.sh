@@ -36,6 +36,11 @@ check "fresh: settings == base" [ "$(q "$H/.claude/settings.json" '')" = "$(q "$
 check "fresh: permissions ask by default" [ "$(q "$H/.claude/settings.json" .permissions.defaultMode)" = '"default"' ]
 check "fresh: no bypass-prompt skip" [ "$(q "$H/.claude/settings.json" .skipDangerousModePermissionPrompt)" = undefined ]
 check "fresh: update hook in settings" grep -q 'claudzilla-update.sh' "$H/.claude/settings.json"
+check "fresh: nudge hook in settings" grep -q 'rule-review/scan.mjs\\" --nudge' "$H/.claude/settings.json"
+nudge_cmd=$(node -p 'require(process.argv[1]).hooks.SessionStart.flatMap(e=>e.hooks).find(h=>h.command.includes("--nudge")).command' "$H/.claude/settings.json" 2>/dev/null)
+mkdir -p "$H/.claude/projects"
+run_nudge() { [ -n "$nudge_cmd" ] && echo '{}' | env -u CLAUDE_CONFIG_DIR HOME="$H" sh -c "$nudge_cmd"; }
+check "fresh: nudge hook runs from install" run_nudge
 check "fresh: rules-guard hook in settings" grep -q 'rules-guard.mjs' "$H/.claude/settings.json"
 check "fresh: md-display hook in settings" grep -q 'md-display.pl' "$H/.claude/settings.json"
 check "fresh: git and gh hook commands differ" node -e 'const h=require(process.argv[1]).hooks.PreToolUse.flatMap(e=>e.hooks).filter(x=>x.if);process.exit(new Set(h.map(x=>x.command)).size===2?0:1)' "$H/.claude/settings.json"
