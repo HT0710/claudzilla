@@ -308,13 +308,45 @@ function checkGit(t, cwd, cmd, s, hits, branches) {
   }
 }
 
-function checkGh(t, cwd, cmd, s, hits) {
-  if (t[1] !== "pr" || !["create", "edit"].includes(t[2])) return;
+const REPO_FLAG = /^(?:-R|--repo(?=$|=))/;
+const PULLS = /^(?:https?:\/\/[^?]*?)?\/?repos\/[^/]+\/[^/]+\/pulls(\/\d+)?\/?(?:\?.*)?$/;
+// gh -R/--repo may sit anywhere, even before the subcommand; `gh api` writes to pulls create or edit a PR too.
+function ghPr(t, cmd) {
+  const a = [];
+  for (let i = 1; i < t.length; i++) {
+    if (!REPO_FLAG.test(t[i])) a.push(t[i]);
+    else if (t[i] === "-R" || t[i] === "--repo") i++;
+  }
+  if (a[0] === "pr") return ["create", "edit"].includes(a[1]) && { op: a[1], describes: prDescribes(["gh", ...a]) };
+  if (a[0] !== "api") return;
+  if (a.includes("graphql")) {
+    if (/\bcreatePullRequest\b/.test(cmd)) return { op: "create", describes: true };
+    return /\bupdatePullRequest\b/.test(cmd) && { op: "edit", describes: true };
+  }
+  const pulls = a.map((x) => PULLS.exec(x)).find(Boolean);
+  if (!pulls) return;
+  let method;
+  for (let i = 1; i < a.length; i++) {
+    const m = a[i].match(/^(?:-X|--method)(?:=?(.+))?$/);
+    if (m) method = (m[1] ?? a[++i] ?? "").toUpperCase();
+  }
+  method ??= a.some((x) => /^(?:-[fF]|--field|--raw-field|--input)/.test(x)) ? "POST" : "GET";
+  if (!pulls[1]) return method === "POST" && { op: "create", describes: true };
+  const describes = a.some((x) => x === "--input" || /(?:^|=|^-[fF])(?:title|body)=/.test(x));
+  return method === "PATCH" && { op: "edit", describes };
+}
+
+function prGates({ op, describes }, cwd, text, s, hits) {
   const hit = hitter(loadConfig(cwd).cfg, hits);
-  hit("sessionLink", SESSION_RE.test(cmd) && WHY.session);
-  hit("pushVerify", t[2] === "create" && !hasSkill(s, VERIFY) && WHY.verify);
-  const describes = prDescribes(t);
-  hit("prSkill", describes && !hasSkill(s, "pr") && WHY.pr);
+  hit("sessionLink", SESSION_RE.test(text) && WHY.session);
+  hit("pushVerify", op === "create" && !hasSkill(s, VERIFY) && WHY.verify);
+  // exact: a plugin's own `x:pr` skill is not ours
+  hit("prSkill", describes && !s.skills.includes("pr") && WHY.pr);
+}
+
+function checkGh(t, cwd, cmd, s, hits) {
+  const pr = ghPr(t, cmd);
+  if (pr) prGates(pr, cwd, cmd, s, hits);
 }
 
 const SHELLS = new Set(["bash", "sh", "zsh"]);
@@ -338,6 +370,10 @@ function checkBash(cmd, cwd, s) {
     if (t[0] === "git") checkGit(t, cwd, cmd, s, hits, branches);
     else if (t[0] === "gh") checkGh(t, cwd, cmd, s, hits);
   }
+  report(hits);
+}
+
+function report(hits) {
   // Any deny wins; a rule set to "remind" never weakens another rule.
   const blocked = hits.filter((h) => h.level === "deny");
   if (blocked.length) return deny([...new Set(blocked.map((h) => h.why))].join(" "));
@@ -358,6 +394,13 @@ function excludeSpecs(file) {
 function onPreTool(d) {
   const s = load(d.session_id);
   if (d.tool_name === "Bash") return checkBash(String(d.tool_input?.command ?? ""), d.cwd ?? process.cwd(), s);
+  const mcp = /^mcp__.+__(create|update)_pull_request$/.exec(d.tool_name ?? "");
+  if (mcp) {
+    const i = d.tool_input ?? {}, hits = [];
+    const pr = mcp[1] === "create" ? { op: "create", describes: true } : { op: "edit", describes: i.title !== undefined || i.body !== undefined };
+    prGates(pr, d.cwd ?? process.cwd(), JSON.stringify(i), s, hits);
+    return report(hits);
+  }
   if (!["Edit", "Write", "NotebookEdit"].includes(d.tool_name)) return;
   const { cfg } = loadConfig(d.cwd ?? process.cwd());
   const file = String(d.tool_input?.file_path ?? d.tool_input?.notebook_path ?? "");
