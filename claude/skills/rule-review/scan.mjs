@@ -2,7 +2,7 @@
 // Per-rule counts from Claude Code transcripts. Output never holds transcript text.
 //   node scan.mjs [--days N] [--dir PATH] [--save [--background] | --issue [--brief] | --share | --nudge]
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getClaudeConfigDir } from "../../hud/lib/config-dir.mjs";
@@ -12,6 +12,8 @@ import {
 } from "../../hooks/rules-guard.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+// Bump when counting changes, so the nudge refreshes instead of showing old counts.
+const SCHEMA = 2;
 const RULES = Object.keys(DEFAULTS.rules);
 const FORMAT = ["tldr", "emoji", "brInTable", "boxAlign"];
 const EDITS = new Set(["Edit", "Write", "NotebookEdit"]);
@@ -47,6 +49,7 @@ function promptOf(o) {
 
 function scan(root, days) {
   if (!existsSync(root)) fail(`no transcripts at ${root}`);
+  if (!statSync(root).isDirectory()) fail(`not a directory: ${root}`);
   const since = Date.now() - days * 864e5;
   const cfg = loadConfig("").cfg;
   const all = { ...cfg, rules: DEFAULTS.rules };
@@ -60,6 +63,17 @@ function scan(root, days) {
     rules[id][key]++;
   };
   let sessions = 0, turns = 0, unparsed = 0;
+  // Repo allows commits on main (its claudzilla config): such a commit is no slip.
+  const allow = new Map();
+  const allowsMain = (cwd) => {
+    if (!cwd) return false;
+    if (!allow.has(cwd)) {
+      let v = false;
+      try { v = loadConfig(cwd).cfg.allowMain === true; } catch { /* unreadable: default */ }
+      allow.set(cwd, v);
+    }
+    return allow.get(cwd);
+  };
 
   // Same PR matching as the hook (ghPr / mcpPr); only the exact `pr` skill counts.
   const countPr = ({ op, describes }, c) => {
@@ -77,21 +91,31 @@ function scan(root, days) {
   };
 
   const finish = (t) => {
+    // A built-in command (/clear, /login) gets no reply: not a request.
+    if (t.typed && !t.answered) return;
+    if (!t.sess.counted) { sessions++; t.sess.counted = true; }
     turns++;
     at = t.ts;
     for (const c of t.cmds) {
       const ran = !c.denied;
       if (c.pr) { countPr(c.pr, c); continue; }
+      // After cd, -C or a switch/checkout in the same command the branch may differ from the
+      // transcript's; unknown, so not counted (an in-repo `cd sub` under-counts, the safe side).
+      let moved = false;
       for (const seg of expand(c.cmd)) {
+        if (seg[0] === "cd" || (seg[0] === "git" && ["switch", "checkout"].includes(gitParse(seg, ".").sub))) moved = true;
         if (seg[0] === "git") {
-          const { sub, a } = gitParse(seg, ".");
+          const { dir, sub, a } = gitParse(seg, ".");
           if (sub === "push") {
             add("pushVerify", "applies"); add("forcePush", "applies");
             if (ran && !has(c.skills, VERIFY)) add("pushVerify", "slips");
             if (ran && forceFlag(a)) add("forcePush", "slips");
           } else if (sub === "commit") {
-            add("mainCommit", "applies"); add("sessionLink", "applies");
-            if (ran && ["main", "master"].includes(c.branch)) add("mainCommit", "slips");
+            add("sessionLink", "applies");
+            if (!moved && dir === "." && !allowsMain(c.cwd)) {
+              add("mainCommit", "applies");
+              if (ran && ["main", "master"].includes(c.branch)) add("mainCommit", "slips");
+            }
             if (ran && SESSION_RE.test(c.cmd)) add("sessionLink", "slips");
             if (commitSubject(c.cmd) != null) {
               add("commitSubject", "applies");
@@ -123,7 +147,8 @@ function scan(root, days) {
   };
 
   const scanFile = (file) => {
-    let turn = null, machine = false, counted = false;
+    let turn = null, machine = false;
+    const sess = { counted: false };
     const cmds = new Map();
     const fired = (text, fromPrompt) => {
       for (const id of firedRules(text)) {
@@ -144,12 +169,12 @@ function scan(root, days) {
         if (turn) finish(turn);
         turn = null;
         if (!(Date.parse(o.timestamp) >= since)) continue;
-        if (!counted) { sessions++; counted = true; }
-        turn = { ts: String(o.timestamp ?? ""), text: p.text, typed: p.typed, skills: p.typed ? [p.typed] : [], cmds: [], edited: false, reply: "", branch: o.gitBranch };
+        turn = { ts: String(o.timestamp ?? ""), text: p.text, typed: p.typed, skills: p.typed ? [p.typed] : [], cmds: [], edited: false, reply: "", branch: o.gitBranch, answered: false, sess };
         continue;
       }
       if (!turn) continue;
       if (o.type === "assistant") {
+        turn.answered = true;
         for (const x of blocks(o.message?.content)) {
           if (x.type === "text" && typeof x.text === "string" && x.text.trim()) turn.reply = x.text;
           if (x.type !== "tool_use") continue;
@@ -158,7 +183,7 @@ function scan(root, days) {
           const pr = mcpPr(x.name, x.input);
           if (x.name === "Bash" || pr) {
             const cmd = pr ? JSON.stringify(x.input ?? {}) : String(x.input?.command ?? "");
-            const c = { cmd, pr, skills: [...turn.skills], branch: o.gitBranch ?? turn.branch, denied: false };
+            const c = { cmd, pr, skills: [...turn.skills], branch: o.gitBranch ?? turn.branch, cwd: o.cwd, denied: false };
             cmds.set(x.id, c);
             turn.cmds.push(c);
           }
@@ -189,7 +214,7 @@ function scan(root, days) {
   const day = (ms) => new Date(ms).toISOString().slice(0, 10);
   let claudzilla = "unknown";
   try { claudzilla = execFileSync("git", ["-C", REPO, "rev-parse", "--short", "HEAD"], { encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { /* not a checkout */ }
-  return { schema: 1, claudzilla, window: { from: day(since), to: day(Date.now()) }, sessions, turns, unparsed, rules };
+  return { schema: SCHEMA, claudzilla, window: { from: day(since), to: day(Date.now()) }, sessions, turns, unparsed, rules };
 }
 
 const args = process.argv.slice(2);
@@ -206,8 +231,9 @@ const markSeen = (f) => writeFileSync(SEEN, `${f}\n`);
 function latest() {
   const f = saved().at(-1);
   if (!f) fail("no saved report; run with --save first");
-  return readReport(f);
+  try { return readReport(f); } catch { return fail(`unreadable report ${join(REPORTS, f)}`); }
 }
+const span = (r) => Date.parse(r?.window?.to) - Date.parse(r?.window?.from);
 function issue(r) {
   const used = Object.entries(r.rules).filter(([, v]) => v.applies || v.slips || v.hookFires || v.falseFires);
   const head = `claudzilla \`${r.claudzilla}\` · ${r.window.from}..${r.window.to} · ${r.sessions} sessions · ${r.turns} turns`;
@@ -238,12 +264,15 @@ async function nudge() {
   try {
     if (loadConfig(cwd).cfg.reviewNudge === false) return;
   } catch { return; }
-  const name = saved().at(-1);
+  let name, r = null;
+  try { name = saved().at(-1); } catch { return; }
+  try { r = name ? readReport(name) : null; } catch { /* unreadable: say nothing */ }
+  // Unreadable, week-old or counted by older rules: refresh quietly, show the new one next session.
+  const stale = !name || !r || Date.now() - Date.parse(name.slice(0, 10)) > 7 * 864e5 || (r && r.schema !== SCHEMA);
   try {
     let seen = "";
     try { seen = readFileSync(SEEN, "utf8").trim(); } catch { /* never shown */ }
-    const r = name && name !== seen ? readReport(name) : null;
-    const rules = r ? Object.entries(r.rules) : [];
+    const rules = r && !stale && name !== seen ? Object.entries(r.rules) : [];
     const slips = rules.reduce((n, [, v]) => n + v.slips, 0);
     if (slips > 0) {
       const [top, v] = rules.reduce((a, b) => (b[1].slips > a[1].slips ? b : a));
@@ -254,7 +283,7 @@ async function nudge() {
     }
   } catch { /* unreadable report: say nothing */ }
   // ponytail: no lock; sessions starting together may each scan, same dated file, add a lock if that costs
-  if (!name || Date.now() - Date.parse(name.slice(0, 10)) > 7 * 864e5) {
+  if (stale) {
     try {
       spawn(process.execPath, [fileURLToPath(import.meta.url), "--save", "--background"], { detached: true, stdio: "ignore" })
         .on("error", () => { /* can't start: try next session */ })
@@ -288,15 +317,24 @@ if (args.includes("--issue")) {
   const report = scan(root, days);
   if (args.includes("--save")) {
     const name = `${report.window.to}.json`;
-    const prev = saved().filter((f) => f < name).at(-1);
-    mkdirSync(REPORTS, { recursive: true });
+    // Compare like with like: the latest earlier report, same schema, same number of days.
+    let previous = null;
+    for (const f of saved().filter((x) => x < name).reverse()) {
+      try { const r = readReport(f); if (r.schema === report.schema && span(r) === span(report)) { previous = r; break; } } catch { /* unreadable: skip */ }
+    }
     // tmp + rename: a reader or a parallel scan never sees half a report; saved() skips .tmp
     const tmp = join(REPORTS, `${name}.${process.pid}.tmp`);
-    writeFileSync(tmp, `${JSON.stringify(report, null, 2)}\n`);
-    renameSync(tmp, join(REPORTS, name));
+    try {
+      mkdirSync(REPORTS, { recursive: true });
+      writeFileSync(tmp, `${JSON.stringify(report, null, 2)}\n`);
+      renameSync(tmp, join(REPORTS, name));
+    } catch {
+      try { unlinkSync(tmp); } catch { /* never written */ }
+      fail(`can't save report to ${REPORTS}`);
+    }
     if (!args.includes("--background")) {
       markSeen(name);
-      process.stdout.write(`${JSON.stringify({ report, previous: prev ? readReport(prev) : null }, null, 2)}\n`);
+      process.stdout.write(`${JSON.stringify({ report, previous }, null, 2)}\n`);
     }
   } else {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);

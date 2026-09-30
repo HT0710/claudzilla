@@ -221,9 +221,10 @@ const WHY = {
 const WHY_RULE = { verify: "pushVerify", pr: "prSkill", force: "forcePush", discard: "discard", main: "mainCommit", session: "sessionLink", env: "envStaged", worktree: "worktreePath" };
 function firedRules(text) {
   const ids = [];
-  // match without the trailing "(file:line)" citation, so fires survive citation edits
-  for (const [k, id] of Object.entries(WHY_RULE)) if (text.includes(WHY[k].replace(/ \([^()]*\)\.$/, ""))) ids.push(id);
-  for (const [k, id] of Object.entries(MSG_RULE)) if (text.includes(MSG[k])) ids.push(id);
+  // First sentence, no "(file:line)" citation: fires survive later wording and citation edits.
+  const head = (t) => t.replace(/ \([^()]*\)\.$/, "").split(/(?<=\.) /)[0];
+  for (const [k, id] of Object.entries(WHY_RULE)) if (text.includes(head(WHY[k]))) ids.push(id);
+  for (const [k, id] of Object.entries(MSG_RULE)) if (text.includes(head(MSG[k]))) ids.push(id);
   if (/Commit subject (?:must be|is \d+ chars)/.test(text)) ids.push("commitSubject");
   const prev = text.match(/Previous reply broke: (.*)\. Apply from this reply on\./);
   for (const f of prev ? prev[1].split("; ") : []) {
