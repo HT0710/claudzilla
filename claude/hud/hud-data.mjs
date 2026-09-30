@@ -93,6 +93,7 @@ if (d.transcript_path) {
 process.stdout.write(
   Object.entries(out)
     .filter(([, v]) => v !== undefined && v !== null && v !== "")
-    .map(([k, v]) => `${k}\t${String(v).replace(/[\t\n]/g, " ")}\n`)
+    // C0/C1 control chars (tabs, newlines, terminal escapes in a skill or model name) never reach the terminal.
+    .map(([k, v]) => `${k}\t${String(v).replace(/[\x00-\x1f\x7f-\x9f]/g, " ")}\n`)
     .join(""),
 );

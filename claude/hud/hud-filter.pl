@@ -1,6 +1,12 @@
 #!/usr/bin/perl -0777
 # hud-data.mjs key/value lines -> E2 layout: identity row, rule, three full-width gradient meters, rule, activity row.
 use strict; use warnings;
+# stdin, stdout, files and `git` output are UTF-8: decode on read, so non-ASCII paths aren't encoded twice.
+# Invalid bytes (a branch name git allows) become U+FFFD, quietly: a statusline has no stderr reader.
+use open qw(:std :encoding(UTF-8));
+no warnings 'utf8';
+# C0/C1 control chars in text the filter reads itself (session name, branch) would reach the terminal.
+sub clean { my $s = shift; $s =~ tr/\x00-\x1f\x7f-\x9f/ / if defined $s; return $s }
 
 my $raw = do { local $/; <STDIN> };
 (my $txt = $raw) =~ s/\e\[[0-9;]*m//g;
@@ -27,18 +33,19 @@ if ($SID) {
         close $fh;
         next unless index($j, $SID) >= 0;
         ($sname) = $j =~ /"name":"([^"]*)"/;
+        $sname = clean($sname);
         last;
     }
 }
 my $cwd;
-if (my $e = $META_CWD) { my $h = $ENV{HOME} // ''; $e =~ s/^\Q$h\E(?=\/|$)/~/ if $h; $cwd = $e; }
+if (my $e = $META_CWD) { my $h = $ENV{HOME} // ''; utf8::decode($h); $e =~ s/^\Q$h\E(?=\/|$)/~/ if $h; $cwd = $e; }
 my $profile = $f{profile};
 # branch + dirty from the session cwd; blank when not a repo
 my ($branch, $dirty);
 my $churn = '';
 if ($META_CWD) {
     my $d = $META_CWD; $d =~ s/'/'\\''/g;
-    $branch = `git -C '$d' branch --show-current 2>/dev/null` // ''; $branch =~ s/\s+\z//;
+    $branch = `git -C '$d' branch --show-current 2>/dev/null` // ''; $branch =~ s/\s+\z//; $branch = clean($branch);
     $branch = undef unless length $branch;
     if ($branch) {
         my @st = split /\n/, (`git -C '$d' status --porcelain 2>/dev/null` // '');
@@ -54,7 +61,8 @@ my ($model, $session, $skill, $thinking) = @f{qw(model up skill thinking)};
 my @m = map { [$_, $f{$_}, $f{"${_}_note"} // ''] } grep { ($f{$_} // '') =~ /^\d+$/ } qw(ctx 5h wk);
 
 # --- helpers ---------------------------------------------------------------
-sub vis { my $s = shift; $s =~ s/\e\[[0-9;]*m//g; return length $s }
+# terminal cells: East Asian wide chars take two
+sub vis { my $s = shift; $s =~ s/\e\[[0-9;]*m//g; return length($s) + (() = $s =~ /[\p{EA=W}\p{EA=F}]/g) }
 sub pad {                       # left, right -> line padded to $W
     my ($l,$r,$fill) = @_; $fill //= ' ';
     my $gap = $W - vis($l) - vis($r); $gap = 1 if $gap < 1;
@@ -104,7 +112,6 @@ my $dim = sub { "\e[2m$_[0]\e[0m" };
 # meter titles: muted lilac - clear of the teal profile and the blue->orange ramp
 my $lbl = sub { "\e[38;2;163;150;210m$_[0]\e[0m" };
 
-binmode STDOUT, ':utf8';
 # per-session phase offset so concurrent sessions animate out of step
 my $OFF = 0; $OFF = ($OFF * 31 + ord) % 3600 for split //, ($id // '');
 
@@ -146,7 +153,7 @@ sub cwd_str {
     for my $i (2,1,0) { last if $fits->(); $opt[$i][0] = undef }   # churn, dirty, branch
     if (!$fits->() && length($path) > 4) {                    # finally trim the path from the left
         my $room = $W - 1;
-        $path = "\x{2026}" . substr($path, -$room + 1) if $room > 2;
+        if ($room > 2) { $path = substr($path, 1) while vis($path) > $room - 1; $path = "\x{2026}$path" }
     }
     my ($l,$r) = $build->();
     push @out, pad($l, $r);
