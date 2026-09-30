@@ -17,6 +17,10 @@ check "content: no home paths" \
 check "content: no emails" \
   bash -c "! grep -rqE '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[a-z]{2,}' '$REPO/claude' '$REPO/settings.base.json' '$REPO/install.sh' '$REPO/README.md'"
 check "content: settings.base.json valid" node -e "require('$REPO/settings.base.json')"
+mcpHooked() { node -e 'const t=process.argv[2],m=require(process.argv[1]).hooks.PreToolUse.map(e=>e.matcher);process.exit(m.some(x=>new RegExp(`^(?:${x})$`).test(t))?0:1)' "$1" "$2"; }
+check "content: GitHub MCP PR tools hooked" mcpHooked "$REPO/settings.base.json" mcp__github__create_pull_request
+notHooked() { ! mcpHooked "$@"; }
+check "content: GitHub MCP reads not hooked" notHooked "$REPO/settings.base.json" mcp__github__get_pull_request
 check "content: CLAUDE.md imports RTK via ~" grep -qx '@~/.claude/RTK.md' "$REPO/claude/CLAUDE.md"
 check "content: CLAUDE.md imports local" grep -qx '@~/.claude/CLAUDE.local.md' "$REPO/claude/CLAUDE.md"
 check "content: no CodeGraph section" bash -c "! grep -qi codegraph '$REPO/claude/CLAUDE.md'"

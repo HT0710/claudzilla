@@ -37,6 +37,12 @@
         "hooks": [
           { "type": "command", "command": "node \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/rules-guard.mjs\"" }
         ]
+      },
+      {
+        "matcher": "mcp__.*__(create|update)_pull_request",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/rules-guard.mjs\"" }
+        ]
       }
     ],
     "PostToolUse": [

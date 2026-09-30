@@ -109,6 +109,29 @@ check "gh pr view: allowed" [ -z "$(sh_ 'gh pr view 1')" ]
 out=$(sh_ 'gh pr create --fill')
 check "gh pr create: deny names verification" has "$out" "verification-before-completion"
 check "gh pr create: deny names pr skill too" has "$out" "invoke the pr skill"
+check "gh -R before pr: create -> deny" denied "$(sh_ 'gh -R o/r pr create --fill')"
+check "gh --repo= before pr: edit -> deny" denied "$(sh_ 'gh --repo=o/r pr edit 1 -t x')"
+check "gh api: POST pulls via fields -> deny" denied "$(sh_ 'gh api repos/o/r/pulls -f title=x -f head=a -f base=main')"
+check "gh api: -X POST pulls --input -> deny" denied "$(sh_ 'gh api -X POST /repos/o/r/pulls --input b.json')"
+check "gh api: GET pulls allowed" [ -z "$(sh_ 'gh api repos/o/r/pulls')" ]
+check "gh api: PATCH pull title -> deny" denied "$(sh_ 'gh api --method PATCH repos/o/r/pulls/1 -f title=x')"
+check "gh api: PATCH pull state only allowed" [ -z "$(sh_ 'gh api repos/o/r/pulls/1 -X PATCH -f state=closed')" ]
+check "gh api: graphql createPullRequest -> deny" denied "$(sh_ "gh api graphql -f query='mutation { createPullRequest(input: {}) { clientMutationId } }'")"
+check "gh pr -R after pr: create -> deny" denied "$(sh_ 'gh pr -R o/r create --fill')"
+check "gh api: full URL POST pulls -> deny" denied "$(sh_ "gh api 'https://api.github.com/repos/o/r/pulls?x=1' -f title=x")"
+check "gh api: graphql updatePullRequest -> deny" denied "$(sh_ "gh api graphql -f query='mutation { updatePullRequest(input: {body: \"x\"}) { clientMutationId } }'")"
+check "gh api: full URL GET pulls allowed" [ -z "$(sh_ "gh api 'https://api.github.com/repos/o/r/pulls?state=open'")" ]
+mcp() { hook PreToolUse "tool_name=mcp__github__$1" "${@:2}"; }
+out=$(mcp create_pull_request tool_input.title=x tool_input.head=a tool_input.base=main)
+check "mcp create PR: no verification -> deny" has "$out" "verification-before-completion"
+check "mcp create PR: no pr skill -> deny" has "$out" "invoke the pr skill"
+check "mcp update PR: session link -> deny" has "$(mcp update_pull_request tool_input.pullNumber=1 'tool_input.body=see claude.ai/code/session_x')" "No Claude session link"
+check "mcp update PR: state only allowed" [ -z "$(mcp update_pull_request tool_input.pullNumber=1 tool_input.state=closed)" ]
+hook PostToolUse tool_name=Skill tool_input.skill=superpowers:verification-before-completion >/dev/null
+hook PostToolUse tool_name=Skill tool_input.skill=x:pr >/dev/null
+check "gh pr create: plugin x:pr is not the pr skill" denied "$(sh_ 'gh pr create --fill')"
+hook PostToolUse tool_name=Skill tool_input.skill=pr >/dev/null
+check "mcp create PR: pr + verified -> allowed" [ -z "$(mcp create_pull_request tool_input.title=x)" ]
 touch .env .env.example; git add .env.example
 check "commit: .env.example allowed" [ -z "$(sh_ 'git commit -m "fix: x"')" ]
 git add .env
