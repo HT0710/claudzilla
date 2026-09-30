@@ -66,7 +66,7 @@ J_VERIFY=$(js 'm.WHY.verify'); J_DEBUG=$(js 'm.MSG.debug'); J_DONE=$(js 'm.MSG.d
 # stamp [json]: every rule reached this machine in 2000, then apply overrides (null = drop the rule)
 SINCE="$CLAUDE_CONFIG_DIR/.claudzilla-rules.json"
 stamp() {
-  OVR="${1:-{\}}" node --input-type=module -e "import { DEFAULTS } from '$RG';
+  OVR=${1:-'{}'} node --input-type=module -e "import { DEFAULTS } from '$RG';
 const s = Object.fromEntries(Object.keys(DEFAULTS.rules).map((id) => [id, '2000-01-01T00:00:00.000Z']));
 for (const [k, v] of Object.entries(JSON.parse(process.env.OVR))) { if (v === null) delete s[k]; else s[k] = v; }
 console.log(JSON.stringify(s));" </dev/null > "$SINCE"
