@@ -2,7 +2,7 @@
 // Enforces claudzilla rules (claude/rules/*.md) at the moment they apply.
 // Fails open: a guardrail, not security.
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,6 +47,7 @@ const DEFAULTS = {
   tldrMinLines: 15,
   allowMain: false,
   reviewNudge: true,
+  compactNudge: 150000,
 };
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const posInt = (v) => Number.isInteger(v) && v >= 1;
@@ -56,6 +57,7 @@ const PARAMS = {
   tldrMinLines: [posInt, "expected integer >= 1"],
   allowMain: [(v) => typeof v === "boolean", "expected true or false"],
   reviewNudge: [(v) => typeof v === "boolean", "expected true or false"],
+  compactNudge: [(v) => Number.isInteger(v) && v >= 0, "expected integer >= 0 (0 = off)"],
 };
 const words = (v) => Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string" && x.trim() !== "");
 
@@ -128,6 +130,48 @@ function gitOk(cwd, ...args) {
   try { execFileSync("git", ["-C", cwd, ...args], { timeout: 2000, stdio: "ignore" }); return true; } catch { return false; }
 }
 
+const TAIL = 1024 * 1024;
+// Tokens in the prompt as of the last main-thread reply (what the statusline's ctx shows); 0 after a compact or if unknown.
+function contextTokens(path) {
+  if (!path) return 0;
+  let fd;
+  try {
+    fd = openSync(String(path), "r");
+    const { size } = fstatSync(fd), start = Math.max(0, size - TAIL), buf = Buffer.alloc(size - start);
+    const lines = buf.toString("utf8", 0, readSync(fd, buf, 0, buf.length, start)).split("\n");
+    const n = (v) => (Number.isFinite(v) && v > 0 ? v : 0);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (!lines[i].includes('"usage"') && !lines[i].includes("compact_boundary")) continue;
+      let o;
+      try { o = JSON.parse(lines[i]); } catch { continue; }
+      if (o?.subtype === "compact_boundary") return 0;
+      const u = o?.message?.usage;
+      if (o?.type !== "assistant" || o.isSidechain || !u) continue;
+      // synthetic replies (API errors, limits) carry all-zero usage
+      const sum = n(u.input_tokens) + n(u.cache_creation_input_tokens) + n(u.cache_read_input_tokens);
+      if (sum) return sum;
+    }
+  } catch { /* no transcript */ } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+  return 0;
+}
+
+// Past the threshold, the main model judges whether to suggest /compact; wording strengthens at 2x and 4x.
+function compactMsg(tokens, t) {
+  if (!t || tokens < t) return;
+  const k = `~${Math.round(tokens / 1e3)}k`;
+  const head = `Context ${k} tokens, re-sent every turn.`;
+  const tail = "Fill each <...>: facts only about finished work, the next step as a condition. Reply doesn't complete a piece of work → don't mention compacting.";
+  if (tokens >= 4 * t) {
+    return `${head} If this reply completes a piece of work or the older context is clearly stale: turn **Next:** into bullets (add **Next:** if missing) and put this as the FIRST bullet: - **recommend:** /compact now; <what finished>; unless <that context is needed>, ${k} tokens per turn is mostly waste. ${tail}`;
+  }
+  const line = tokens >= 2 * t
+    ? `- **suggest:** /compact first; <what finished>; if the next task doesn't need it, each turn re-sends ${k} tokens of mostly unused context`
+    : `- *optional: /compact first; <what finished>; if the next task is unrelated, this skips re-sending ${k} tokens every turn*`;
+  return `${head} If this reply completes a piece of work: turn **Next:** into bullets (add **Next:** if missing) and put this as the last bullet: ${line}. ${tail}`;
+}
+
 function onPrompt(d) {
   const prev = load(d.session_id);
   const s = fresh();
@@ -135,6 +179,8 @@ function onPrompt(d) {
   const lines = warnings.map((w) => `claudzilla config: ${w}`);
   if (prev.flags.length) lines.push(`Previous reply broke: ${prev.flags.join("; ")}. Apply from this reply on.`);
   const p = String(d.prompt ?? "").trimStart();
+  const compact = !MACHINE_PROMPT.test(p) && compactMsg(contextTokens(d.transcript_path), cfg.compactNudge);
+  if (compact) lines.push(compact);
   const typed = p.match(/^\/([\w:-]+)/);
   if (typed) s.skills.push(typed[1]);
   else if (!MACHINE_PROMPT.test(p)) {
