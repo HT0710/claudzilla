@@ -205,7 +205,7 @@ new_session; hook UserPromptSubmit prompt=go >/dev/null
 hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
 out=$(stop "Fixed the parser.")
 check "stop: done claim continues now" has "$out" '"hookEventName":"Stop","additionalContext":"If this reply claims'
-check "stop: done claim says what to do otherwise" has "$out" "Otherwise end the turn"
+check "stop: done claim says what to do otherwise" has "$out" "Otherwise reply only: no claim."
 check "stop: done claim fixed now, not flagged" [ "$(state .flags.length)" = 0 ]
 out=$(stop "Fixed the parser 🚀")
 check "stop: other slips folded into continuation" has "$out" "decorative emoji"
