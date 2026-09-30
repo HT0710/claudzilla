@@ -66,20 +66,27 @@ cn() { new_session; hook UserPromptSubmit prompt=next "transcript_path=$1"; }
 : > "$TX"; usage "$TX" 50000 49000
 check "compact: below threshold silent" [ -z "$(cn "$TX")" ]
 : > "$TX"; usage "$TX" 60000 100000; out=$(cn "$TX")
-check "compact: tier 1 optional" has "$out" '*optional: `/compact` first;'
-check "compact: tier 1 names size" has "$out" "~160k"
+check "compact: tier 1 optional" has "$out" '*optional* —'
+check "compact: tier 1 bold size" has "$out" "**~160k**"
+check "compact: own section before Next" has "$out" "right before **Next:**"
+check "compact: section heading" has "$out" "## Compact"
+check "compact: drafted command block" has "$out" '```text'
+check "compact: drafted instruction" has "$out" "/compact <what the summary must keep"
+check "compact: next step from own Next" has "$out" "your **Next:**"
+check "compact: no Next still counts" has "$out" "at the end when there is no **Next:**"
+check "compact: heading on short replies" has "$out" "even on a short reply"
+check "compact: tier 1 no stale clause" [ "$(grep -c "clearly stale" <<<"$out")" = 0 ]
 : > "$TX"; usage "$TX" 20000 300000
-check "compact: tier 2 suggest" has "$(cn "$TX")" '**suggest:** `/compact` first;'
+check "compact: tier 2 suggest" has "$(cn "$TX")" '**suggest** —'
 : > "$TX"; usage "$TX" 50000 600000; out=$(cn "$TX")
-check "compact: tier 3 recommend" has "$out" '**recommend:** `/compact` now;'
-check "compact: tier 3 goes first" has "$out" "as the FIRST bullet"
-check "compact: Next turned into bullets" has "$out" "turn **Next:** into bullets"
+check "compact: tier 3 recommend" has "$out" '**recommend** —'
+check "compact: tier 3 stale context counts" has "$out" "clearly stale"
 : > "$TX"; usage "$TX" 60000 100000; printf '{"type":"system","subtype":"compact_boundary"}\n' >> "$TX"
 check "compact: after compact boundary silent" [ -z "$(cn "$TX")" ]
 : > "$TX"; usage "$TX" 50000 49000; printf '{"type":"assistant","isSidechain":true,"message":{"usage":{"input_tokens":900000}}}\n' >> "$TX"
 check "compact: sidechain usage ignored" [ -z "$(cn "$TX")" ]
 : > "$TX"; usage "$TX" 60000 100000; printf '{"type":"assistant","message":{"model":"<synthetic>","usage":{"input_tokens":0,"cache_read_input_tokens":0}}}\n' >> "$TX"
-check "compact: synthetic zero-usage reply skipped" has "$(cn "$TX")" '`/compact` first;'
+check "compact: synthetic zero-usage reply skipped" has "$(cn "$TX")" "## Compact"
 : > "$TX"; usage "$TX" 60000 100000; new_session
 check "compact: machine prompt silent" [ -z "$(hook UserPromptSubmit 'prompt=<task-notification>x</task-notification>' "transcript_path=$TX")" ]
 check "compact: no transcript_path silent" [ -z "$(new_session; hook UserPromptSubmit prompt=next)" ]
