@@ -23,6 +23,8 @@ notHooked() { ! mcpHooked "$@"; }
 check "content: GitHub MCP reads not hooked" notHooked "$REPO/settings.base.json" mcp__github__get_pull_request
 check "content: CLAUDE.md imports RTK via ~" grep -qx '@~/.claude/RTK.md' "$REPO/claude/CLAUDE.md"
 check "content: CLAUDE.md imports local" grep -qx '@~/.claude/CLAUDE.local.md' "$REPO/claude/CLAUDE.md"
+check "content: python.md scoped to Python files" bash -c "head -1 '$REPO/claude/rules/python.md' | grep -qx -e '---' && head -3 '$REPO/claude/rules/python.md' | grep -qx 'paths:'"
+check "content: CLAUDE.md covers new Python projects" grep -q "New Python project before that" "$REPO/claude/CLAUDE.md"
 check "content: no CodeGraph section" bash -c "! grep -qi codegraph '$REPO/claude/CLAUDE.md'"
 check "content: reviewNudge not documented under rules" bash -c "! grep -q '^| \`reviewNudge\`' '$REPO/README.md'"
 check "content: no omc" bash -c "! grep -rqi omc '$REPO/claude' '$REPO/settings.base.json' '$REPO/README.md'"

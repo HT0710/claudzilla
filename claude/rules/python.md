@@ -1,3 +1,12 @@
+---
+paths:
+  - "**/*.py"
+  - "**/*.pyi"
+  - "**/*.ipynb"
+  - "**/pyproject.toml"
+  - "**/requirements*.txt"
+---
+
 # Python
 
 Existing repo → its tooling and conventions win (requirements.txt, unittest, no type hints). Rules below = new projects/code. Never migrate unasked.
