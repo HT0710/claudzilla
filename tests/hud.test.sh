@@ -56,8 +56,8 @@ check "data: no limits -> no 5h" [ -z "$(key 5h "$kv")" ]
 check "data: no limits -> no wk" [ -z "$(key wk "$kv")" ]
 used=$(node -e 'const j=JSON.parse(process.argv[1]);j.context_window.current_usage={input_tokens:2,output_tokens:830,cache_creation_input_tokens:2018,cache_read_input_tokens:414892};console.log(JSON.stringify(j))' "$full")
 check "data: ctx_note used" [ "$(key ctx_note "$(data <<<"$used")")" = 417k ]
-# usage <current_usage json>: ctx_note for that shape
-usage() { key ctx_note "$(data <<<"{\"context_window\":{\"used_percentage\":1,\"current_usage\":$1}}")"; }
+# usage <current_usage json>: ctx_note for that shape (printf: bash 3.2 brace-expands here-strings)
+usage() { key ctx_note "$(printf '{"context_window":{"used_percentage":1,"current_usage":%s}}' "$1" | data)"; }
 check "data: empty usage -> no note" [ -z "$(usage '{}')" ]
 check "data: junk usage -> no note" [ -z "$(usage '{"input_tokens":"a","cache_read_input_tokens":{}}')" ]
 check "data: string counts ignored" [ -z "$(usage '{"input_tokens":"300000"}')" ]
