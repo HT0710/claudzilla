@@ -63,6 +63,15 @@ top() { node -p "JSON.stringify(require('$TMP/r.json').$1)"; }
 reset_proj() { rm -rf "$TMP/projects"; mkdir -p "$PROJ"; }
 # JSON string literals, ready to splice into session specs
 J_VERIFY=$(js 'm.WHY.verify'); J_DEBUG=$(js 'm.MSG.debug'); J_DONE=$(js 'm.MSG.doneClaim')
+# stamp [json]: every rule reached this machine in 2000, then apply overrides (null = drop the rule)
+SINCE="$CLAUDE_CONFIG_DIR/.claudzilla-rules.json"
+stamp() {
+  OVR="${1:-{\}}" node --input-type=module -e "import { DEFAULTS } from '$RG';
+const s = Object.fromEntries(Object.keys(DEFAULTS.rules).map((id) => [id, '2000-01-01T00:00:00.000Z']));
+for (const [k, v] of Object.entries(JSON.parse(process.env.OVR))) { if (v === null) delete s[k]; else s[k] = v; }
+console.log(JSON.stringify(s));" </dev/null > "$SINCE"
+}
+stamp
 
 reset_proj; session a '[["user","ship"],["bash","git push"]]'; scan
 check "push without verify: slip" [ "$(rule pushVerify slips)" = 1 ]
@@ -126,6 +135,24 @@ check "bad --days: exit 1" bash -c "! node '$SCAN' --dir '$TMP/projects' --days 
 reset_proj; session a '[["user","SECRET-TOKEN-123 login"],["bash","git commit -m \"SECRET-TOKEN-123\""],["text","SECRET-TOKEN-123"]]'; scan
 check "no text leak: report" bash -c "! grep -q SECRET '$TMP/r.json'"
 check "report: only schema fields" [ "$(node -p "Object.keys(require('$TMP/r.json')).join(',')")" = "schema,claudzilla,window,sessions,turns,unparsed,rules" ]
+
+# --- rule arrival dates ---
+future=$(node -p 'new Date(Date.now() + 864e5).toISOString()')
+reset_proj; session a '[["user","ship"],["bash","git push"]]'
+stamp "{\"pushVerify\":\"$future\"}"; scan
+check "since: rule stamped after session -> no applies" [ "$(rule pushVerify applies)" = 0 ]
+check "since: rule stamped after session -> no slips" [ "$(rule pushVerify slips)" = 0 ]
+check "since: other rules still counted" [ "$(rule forcePush applies)" = 1 ]
+stamp '{"pushVerify":null}'; scan
+check "since: rule missing -> not counted" [ "$(rule pushVerify applies)" = 0 ]
+rm -f "$SINCE"; scan
+check "since: no file -> nothing counted" [ "$(node -p "Object.values(require('$TMP/r.json').rules).every((v) => v.applies === 0 && v.slips === 0)")" = true ]
+echo '[1,2]' > "$SINCE"; scan
+check "since: invalid file -> nothing counted" [ "$(rule pushVerify applies)" = 0 ]
+reset_proj; session a "[[\"user\",\"ship\"],[\"bash\",\"git push\",{denied:$J_VERIFY}]]"
+stamp "{\"pushVerify\":\"$future\"}"; scan
+check "since: fires before stamp still counted" [ "$(rule pushVerify hookFires)" = 1 ]
+stamp
 
 # --- save / issue / share ---
 REPORTS="$CLAUDE_CONFIG_DIR/claudzilla-reports"

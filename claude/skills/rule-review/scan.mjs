@@ -49,11 +49,19 @@ function scan(root, days) {
   const cfg = loadConfig("").cfg;
   const all = { ...cfg, rules: DEFAULTS.rules };
   const rules = Object.fromEntries(RULES.map((id) => [id, { applies: 0, slips: 0, hookFires: 0, falseFires: 0 }]));
-  const add = (id, key) => { rules[id][key]++; };
+  // When each rule reached this machine (install.sh); a turn before that can't slip it.
+  let arrived = {};
+  try { arrived = JSON.parse(readFileSync(join(getClaudeConfigDir(), ".claudzilla-rules.json"), "utf8")) ?? {}; } catch { /* not stamped: count nothing */ }
+  let at = "";
+  const add = (id, key) => {
+    if ((key === "applies" || key === "slips") && !(typeof arrived[id] === "string" && at >= arrived[id])) return;
+    rules[id][key]++;
+  };
   let sessions = 0, turns = 0, unparsed = 0;
 
   const finish = (t) => {
     turns++;
+    at = t.ts;
     for (const c of t.cmds) {
       const ran = !c.denied;
       for (const seg of expand(c.cmd)) {
@@ -126,7 +134,7 @@ function scan(root, days) {
         turn = null;
         if (!(Date.parse(o.timestamp) >= since)) continue;
         if (!counted) { sessions++; counted = true; }
-        turn = { text: p.text, typed: p.typed, skills: p.typed ? [p.typed] : [], cmds: [], edited: false, reply: "", branch: o.gitBranch };
+        turn = { ts: String(o.timestamp ?? ""), text: p.text, typed: p.typed, skills: p.typed ? [p.typed] : [], cmds: [], edited: false, reply: "", branch: o.gitBranch };
         continue;
       }
       if (!turn) continue;
