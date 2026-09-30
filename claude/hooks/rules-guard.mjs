@@ -164,11 +164,11 @@ function compactMsg(tokens, t) {
   const head = `Context ${k} tokens, re-sent every turn.`;
   const tail = "Fill each <...>: facts only about finished work, the next step as a condition. Reply doesn't complete a piece of work → don't mention compacting.";
   if (tokens >= 4 * t) {
-    return `${head} If this reply completes a piece of work or the older context is clearly stale: turn **Next:** into bullets (add **Next:** if missing) and put this as the FIRST bullet: - **recommend:** /compact now; <what finished>; unless <that context is needed>, ${k} tokens per turn is mostly waste. ${tail}`;
+    return `${head} If this reply completes a piece of work or the older context is clearly stale: turn **Next:** into bullets (add **Next:** if missing) and put this as the FIRST bullet: - **recommend:** \`/compact\` now; <what finished>; unless <that context is needed>, ${k} tokens per turn is mostly waste. ${tail}`;
   }
   const line = tokens >= 2 * t
-    ? `- **suggest:** /compact first; <what finished>; if the next task doesn't need it, each turn re-sends ${k} tokens of mostly unused context`
-    : `- *optional: /compact first; <what finished>; if the next task is unrelated, this skips re-sending ${k} tokens every turn*`;
+    ? `- **suggest:** \`/compact\` first; <what finished>; if the next task doesn't need it, each turn re-sends ${k} tokens of mostly unused context`
+    : `- *optional: \`/compact\` first; <what finished>; if the next task is unrelated, this skips re-sending ${k} tokens every turn*`;
   return `${head} If this reply completes a piece of work: turn **Next:** into bullets (add **Next:** if missing) and put this as the last bullet: ${line}. ${tail}`;
 }
 
