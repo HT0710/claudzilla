@@ -164,19 +164,20 @@ function contextTokens(path) {
   return 0;
 }
 
-// Past the threshold, the main model judges whether to suggest /compact; wording strengthens at 2x and 4x.
+// Past the threshold, the main model judges whether to suggest /compact and drafts its instructions; label strengthens at 2x and 4x.
 function compactMsg(tokens, t) {
   if (!t || tokens < t) return;
-  const k = `~${Math.round(tokens / 1e3)}k`;
-  const head = `Context ${k} tokens, re-sent every turn.`;
-  const tail = "Fill each <...>: facts only about finished work, the next step as a condition. Reply doesn't complete a piece of work → don't mention compacting.";
-  if (tokens >= 4 * t) {
-    return `${head} If this reply completes a piece of work or the older context is clearly stale: turn **Next:** into bullets (add **Next:** if missing) and put this as the FIRST bullet: - **recommend:** \`/compact\` now; <what finished>; unless <that context is needed>, ${k} tokens per turn is mostly waste. ${tail}`;
-  }
-  const line = tokens >= 2 * t
-    ? `- **suggest:** \`/compact\` first; <what finished>; if the next task doesn't need it, each turn re-sends ${k} tokens of mostly unused context`
-    : `- *optional: \`/compact\` first; <what finished>; if the next task is unrelated, this skips re-sending ${k} tokens every turn*`;
-  return `${head} If this reply completes a piece of work: turn **Next:** into bullets (add **Next:** if missing) and put this as the last bullet: ${line}. ${tail}`;
+  const k = `**~${Math.round(tokens / 1e3)}k**`;
+  const [label, when] = tokens >= 4 * t
+    ? ["**recommend**", "completes a piece of work or the older context is clearly stale"]
+    : [tokens >= 2 * t ? "**suggest**" : "*optional*", "completes a piece of work"];
+  return `Context ${k} tokens, re-sent every turn. If this reply ${when}, and the next step (from your **Next:**, or nothing pending) won't need that older context: add this section right before **Next:**, or at the end when there is no **Next:**. Add it even on a short reply:
+## Compact
+${label} — ${k} tokens re-sent every turn. <what finished or went stale; why the next step doesn't need the older context>.
+\`\`\`text
+/compact <what the summary must keep for that next step: decisions, open items, paths, constraints; then what to drop. One line.>
+\`\`\`
+Fill each <...> with facts from this session, not guesses. Condition not met → don't mention compacting.`;
 }
 
 function onPrompt(d) {
