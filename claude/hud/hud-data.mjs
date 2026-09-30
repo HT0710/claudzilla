@@ -26,10 +26,11 @@ out.model = d.model?.display_name;
 
 // null until the first API reply; keep the row so the statusline height stays put
 out.ctx = pct(d.context_window?.used_percentage) ?? 0;
-const size = d.context_window?.context_window_size;
-if (size > 0) {
-  out.ctx_note = size >= 1e6 ? `${+(size / 1e6).toFixed(1)}M` : `${Math.round(size / 1e3)}k`;
-}
+// tokens in the prompt right now: what the context meter measures
+const u = d.context_window?.current_usage;
+const count = (v) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
+const used = u ? count(u.input_tokens) + count(u.cache_creation_input_tokens) + count(u.cache_read_input_tokens) : 0;
+if (used > 0) out.ctx_note = used >= 999_500 ? `${+(used / 1e6).toFixed(1)}M` : `${Math.round(used / 1e3)}k`;
 
 function resetIn(v) {
   const n = typeof v === "number" ? v : (typeof v === "string" && v.trim() !== "" ? Number(v) : NaN);
