@@ -88,6 +88,10 @@ B="$TMP/big.jsonl"
 kv=$(data <<<"{\"transcript_path\":\"$B\"}")
 check "data: big transcript up"    [ "$(key up "$kv")" = 2m ]
 check "data: big transcript skill" [ "$(key skill "$kv")" = big ]
+kv=$(data <<<'{"model":{"display_name":"a\u001b]52;c;aGk=\u0007b"}}')
+check "data: control chars dropped" [ "$(key model "$kv")" = "a ]52;c;aGk= b" ]
+kv=$(data <<<'{"model":{"display_name":"a\u009d52;c;aGk=\u009cb"}}')
+check "data: C1 control chars dropped" [ "$(key model "$kv")" = "a 52;c;aGk= b" ]
 
 # --- hud-filter.pl ---
 render() { data <<<"$1" | COLUMNS=120 perl "$HUD/hud-filter.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
@@ -104,6 +108,20 @@ check "render: no limits -> ctx only" [ "$(grep -cE '^(ctx|5h|wk) ' <<<"$out")" 
 check "render: not a repo -> no branch" bash -c "! head -1 <<<'$(render "$full")' | grep -q '⎇'"
 narrow=$(data <<<"$full" | COLUMNS=60 perl "$HUD/hud-filter.pl" | perl -pe 's/\e\[[0-9;]*m//g')
 check "render: narrow fits 56 cols" [ "$(perl -CS -ne 'chomp; $m = length if length > $m; END { print $m }' <<<"$narrow")" -eq 56 ]
+
+# row1 <cwd> [env...]: first rendered row, colours stripped, COLUMNS=60
+row1() { local d=$1; shift; env "$@" CLAUDE_CONFIG_DIR="$C" node "$HUD/hud-data.mjs" <<<"{\"session_id\":\"sid-u\",\"workspace\":{\"current_dir\":\"$d\"}}" | env "$@" CLAUDE_CONFIG_DIR="$C" COLUMNS=60 perl "$HUD/hud-filter.pl" | head -1 | perl -pe 's/\e\[[0-9;]*m//g'; }
+cells() { perl -CS -ne 'chomp; print length($_) + (() = /[\p{EA=W}\p{EA=F}]/g)'; }
+UH="$TMP/josé"; U="$UH/tiếng-việt"; mkdir -p "$U"; git -C "$U" init -q -b "nhánh"
+check "render: non-ASCII path + branch kept" grep -q '~/tiếng-việt.*nhánh' <<<"$(row1 "$U" HOME="$UH")"
+CJK="$TMP/项目文件夹中文路径很长很长很长很长很长"; mkdir -p "$CJK"
+check "render: wide chars fit 56 cells" [ "$(row1 "$CJK" | cells)" -le 56 ]
+BAD="$TMP/bad"; mkdir -p "$BAD"; git -C "$BAD" init -q; git -C "$BAD" checkout -q -b $'bad\xff\xfeX'
+check "render: non-UTF-8 branch still renders" grep -q 'bad' <<<"$(row1 "$BAD" 2>/dev/null)"
+git -C "$BAD" checkout -q -b $'c1\xc2\x9b31mX'
+mkdir -p "$C/sessions"; printf '{"sessionId":"sid-u","name":"n\xc2\x9d52;x"}' > "$C/sessions/1.json"
+check "render: C1 in branch and session name dropped" bash -c 'printf %s "$1" | perl -ne "exit 1 if /\xc2[\x80-\x9f]/"' _ "$(row1 "$BAD" 2>/dev/null)"
+rm -rf "$C/sessions"
 
 echo "hud: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
