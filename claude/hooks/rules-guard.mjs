@@ -202,7 +202,7 @@ function onPostTool(d) {
 const SESSION_RE = /claude\.ai\/code\/session|Claude-Session:/;
 const HEREDOC_RE = /<<-?\s*['"]?(\w+)['"]?([^\n]*)\n([\s\S]*?)\n\s*\1\b/;
 const WHY = {
-  verify: "Run superpowers:verification-before-completion this turn before push/PR (superpowers.md:47).",
+  verify: "Run superpowers:verification-before-completion this turn before push/PR (superpowers.md Order).",
   pr: "Opening or editing a PR: invoke the pr skill first (git.md:59).",
   force: "Force push not allowed; use --force-with-lease only if the user asked (git.md:7).",
   discard: "Discards work. Ask the user; if approved they run `! <cmd>` (git.md:8).",
@@ -214,7 +214,8 @@ const WHY = {
 const WHY_RULE = { verify: "pushVerify", pr: "prSkill", force: "forcePush", discard: "discard", main: "mainCommit", session: "sessionLink", env: "envStaged", worktree: "worktreePath" };
 function firedRules(text) {
   const ids = [];
-  for (const [k, id] of Object.entries(WHY_RULE)) if (text.includes(WHY[k])) ids.push(id);
+  // match without the trailing "(file:line)" citation, so fires survive citation edits
+  for (const [k, id] of Object.entries(WHY_RULE)) if (text.includes(WHY[k].replace(/ \([^()]*\)\.$/, ""))) ids.push(id);
   for (const [k, id] of Object.entries(MSG_RULE)) if (text.includes(MSG[k])) ids.push(id);
   if (/Commit subject (?:must be|is \d+ chars)/.test(text)) ids.push("commitSubject");
   const prev = text.match(/Previous reply broke: (.*)\. Apply from this reply on\./);

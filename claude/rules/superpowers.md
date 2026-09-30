@@ -39,6 +39,7 @@ Shape:
 - TDD: keep red-first order; test count per Ponytail (smallest check that fails).
 - Skill asks one question at a time → batch into one `AskUserQuestion` when possible.
 - Skill asks for a long spec/plan → keep response-format.md (TL;DR, tables, no prose).
+- `code-reviewer.md` reviews (`requesting-code-review`, SDD final review) → fill its template prompt, dispatch to `caveman:cavecrew-reviewer` on opus; template Output Format wins, wording terse. `cavecrew-reviewer` not in agent list → `general-purpose` on opus.
 
 ## Order — sequence, not trigger
 

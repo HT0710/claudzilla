@@ -82,6 +82,8 @@ check "push after verify: no slip" [ "$(rule pushVerify slips)" = 0 ]
 reset_proj; session a "[[\"user\",\"ship\"],[\"bash\",\"git push\",{denied:$J_VERIFY}]]"; scan
 check "denied push: no slip" [ "$(rule pushVerify slips)" = 0 ]
 check "denied push: hook fire" [ "$(rule pushVerify hookFires)" = 1 ]
+reset_proj; session a '[["user","ship"],["bash","git push",{denied:"Run superpowers:verification-before-completion this turn before push/PR (superpowers.md:47)."}]]'; scan
+check "hook fire under older citation still counted" [ "$(rule pushVerify hookFires)" = 1 ]
 reset_proj; session a '[["user","go"],["bash","git push -f"]]'; scan
 check "force push: slip" [ "$(rule forcePush slips)" = 1 ]
 reset_proj; session a '[["user","go"],["bash","git commit -m \"update stuff\""]]'; scan
