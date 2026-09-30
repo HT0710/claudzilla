@@ -64,6 +64,10 @@ A memory index line is a catalogue entry, not the fact — open the file. Before
 
 A memory asserting what code currently does carries `verified: <repo>@<sha>` in its metadata, and its index line states the conclusion, not the topic. Sha behind the remote → re-verify: a confidently wrong "not fixed" or "unpushed" costs more than a missing memory.
 
+## Stack rules
+
+`rules/python.md` loads only after a `.py`, `.ipynb`, `pyproject.toml` or `requirements` file is read. New Python project before that: `uv` + `pyproject.toml` only, `ruff check --fix` + `ruff format`, `pytest`.
+
 ## Machine-local
 
 @~/.claude/CLAUDE.local.md

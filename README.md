@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh |
 | part | what it does |
 |---|---|
 | **Instructions** (`CLAUDE.md`) | brevity, surgical changes, investigate before acting, evidence for every claim |
-| **Rules** (`rules/`) | always-loaded rules for git, response format, comments, Python and skill use |
+| **Rules** (`rules/`) | always-loaded rules for git, response format, comments and skill use; Python rules load only in Python work |
 | **Guard hook** | blocks force-pushes, discarding work and commits on `main`; blocks push/PR until verification ran; sends "done" claims back to verify |
 | **Skills** | `pr` (pre-PR checks + description template), `/rule-review` (how often each rule slipped; a weekly summary shows at startup) |
 | **Plugins** | [caveman](https://github.com/JuliusBrussee/caveman), [ponytail](https://github.com/DietrichGebert/ponytail), [superpowers](https://github.com/obra/superpowers) |
