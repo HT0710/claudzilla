@@ -64,7 +64,8 @@ Optional JSON files, applied in this order. Later files win; objects merge and a
   "subjectMax": 72,
   "tldrMinLines": 15,
   "allowMain": false,
-  "reviewNudge": true
+  "reviewNudge": true,
+  "compactNudge": 150000
 }}
 ```
 
@@ -77,6 +78,8 @@ Optional JSON files, applied in this order. Later files win; objects merge and a
 | format: `tldr` `emoji` `brInTable` `boxAlign` | `flag` `off` |
 
 `reviewNudge` sits next to `allowMain`, not under `rules`: `false` turns off the weekly `/rule-review` summary at startup.
+
+`compactNudge` (tokens, `0` = off): past it, Claude may suggest `/compact` in **Next:** when a piece of work is done; wording strengthens at 2× and 4×.
 
 A bad file or value is skipped and named on your next prompt; unknown keys are ignored.
 
