@@ -210,7 +210,7 @@ report() {
   mkdir -p "$REPORTS"
   printf '{"schema":1,"claudzilla":"t","window":{"from":"2026-09-01","to":"2026-09-15"},"sessions":3,"turns":9,"unparsed":0,"rules":{"tldr":{"applies":9,"slips":%s,"hookFires":0,"falseFires":0},"pushVerify":{"applies":2,"slips":%s,"hookFires":0,"falseFires":0}}}\n' "$2" "$3" > "$REPORTS/$1.json"
 }
-nudge() { printf '%s' "${1:-{\}}" | node "$SCAN" --nudge; }
+nudge() { local p=${1:-'{}'}; printf '%s' "$p" | node "$SCAN" --nudge; }   # bash 3.2 keeps the backslash in "${1:-{\}}"
 # background scan finished = today's report exists
 scanned() { for _ in $(seq 50); do [ -e "$REPORTS/$today.json" ] && return 0; sleep 0.2; done; return 1; }
 mkdir -p "$CLAUDE_CONFIG_DIR/projects"   # default --dir of the background scan
