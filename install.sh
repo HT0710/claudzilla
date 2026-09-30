@@ -150,7 +150,7 @@ main() {
   done
   [ -e "$DEST/CLAUDE.local.md" ] || : > "$DEST/CLAUDE.local.md"
   merge_settings
-  stamp_rules
+  stamp_rules || echo "claudzilla: rule dates not saved - /rule-review skips undated rules until the next install" >&2
   [ "$OFFLINE" = 1 ] || plugins
   [ -d "$BACKUP" ] && echo "replaced files backed up -> $BACKUP"
   [ "$OFFLINE" = 1 ] || case ":$ORIG_PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "note: add ~/.local/bin to PATH (node/rtk live there)" ;; esac
