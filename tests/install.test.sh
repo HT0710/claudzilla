@@ -42,6 +42,13 @@ nudge_cmd=$(node -p 'require(process.argv[1]).hooks.SessionStart.flatMap(e=>e.ho
 mkdir -p "$H/.claude/projects"
 run_nudge() { [ -n "$nudge_cmd" ] && echo '{}' | env -u CLAUDE_CONFIG_DIR HOME="$H" sh -c "$nudge_cmd"; }
 check "fresh: nudge hook runs from install" run_nudge
+RS="$H/.claude/.claudzilla-rules.json"
+rule_ids() { node --input-type=module -e "import { DEFAULTS } from '$REPO/claude/hooks/rules-guard.mjs'; console.log(Object.keys(DEFAULTS.rules).sort().join(','))" </dev/null; }
+check "fresh: every rule stamped" [ "$(node -p "Object.keys(require('$RS')).sort().join(',')" 2>/dev/null)" = "$(rule_ids)" ]
+node -e 'const f=process.argv[1],s=require(f);s.tldr="2001-01-01T00:00:00.000Z";delete s.pushVerify;require("fs").writeFileSync(f,JSON.stringify(s))' "$RS" 2>/dev/null
+run_install "$H"
+check "rerun: rule date kept" [ "$(node -p "require('$RS').tldr" 2>/dev/null)" = 2001-01-01T00:00:00.000Z ]
+check "rerun: missing rule stamped" node -e 'process.exit(/^\d{4}-\d\d-\d\dT.*Z$/.test(require(process.argv[1]).pushVerify) ? 0 : 1)' "$RS"
 check "fresh: rules-guard hook in settings" grep -q 'rules-guard.mjs' "$H/.claude/settings.json"
 check "fresh: md-display hook in settings" grep -q 'md-display.pl' "$H/.claude/settings.json"
 check "fresh: git and gh hook commands differ" node -e 'const h=require(process.argv[1]).hooks.PreToolUse.flatMap(e=>e.hooks).filter(x=>x.if);process.exit(new Set(h.map(x=>x.command)).size===2?0:1)' "$H/.claude/settings.json"
