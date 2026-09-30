@@ -37,6 +37,14 @@ new_session; out=$(hook UserPromptSubmit prompt='peer said "login bug" earlier')
 check "prompt: quoted bug word is silent" [ -z "$out" ]
 new_session; out=$(hook UserPromptSubmit prompt='rename `error` field')
 check "prompt: code-span bug word is silent" [ -z "$out" ]
+for p in "how far can we customize without broken every update" "make sure it never crashes" "this is not a bug"; do
+  new_session; check "prompt: negated bug word is silent (${p:0:14})" [ -z "$(hook UserPromptSubmit "prompt=$p")" ]
+done
+for p in "no it crashes" "no error message, just a blank page" $'it does not compile\n\nerror[E0308]: mismatched types'; do
+  new_session; check "prompt: report after no/not still triggers (${p:0:14})" has "$(hook UserPromptSubmit "prompt=$p")" "systematic-debugging"
+done
+new_session; out=$(hook UserPromptSubmit prompt="it is not working after the update")
+check "prompt: 'not working' still triggers" has "$out" "systematic-debugging"
 new_session; out=$(hook UserPromptSubmit prompt="reviewer said the loop is slow")
 check "prompt: review feedback -> receiving-code-review" has "$out" "receiving-code-review"
 new_session; out=$(hook UserPromptSubmit prompt="/superpowers:verification-before-completion the build is broken")
