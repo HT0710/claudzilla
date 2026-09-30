@@ -40,7 +40,7 @@ check "data: cwd"       [ "$(key cwd "$kv")" = "$TMP" ]
 check "data: model"     [ "$(key model "$kv")" = Opus ]
 check "data: effort"    [ "$(key effort "$kv")" = high ]
 check "data: ctx"       [ "$(key ctx "$kv")" = 42 ]
-check "data: ctx_note"  [ "$(key ctx_note "$kv")" = 1M ]
+check "data: no usage -> no ctx_note" [ -z "$(key ctx_note "$kv")" ]
 check "data: 5h"        [ "$(key 5h "$kv")" = 30 ]
 check "data: 5h_note"   [ "$(key 5h_note "$kv")" = 2h0m ]
 check "data: wk"        [ "$(key wk "$kv")" = 12 ]
@@ -54,7 +54,16 @@ nolim=$(node -e 'const j=JSON.parse(process.argv[1]);delete j.rate_limits;j.cont
 kv=$(data <<<"$nolim")
 check "data: no limits -> no 5h" [ -z "$(key 5h "$kv")" ]
 check "data: no limits -> no wk" [ -z "$(key wk "$kv")" ]
-check "data: 200k note" [ "$(key ctx_note "$kv")" = 200k ]
+used=$(node -e 'const j=JSON.parse(process.argv[1]);j.context_window.current_usage={input_tokens:2,output_tokens:830,cache_creation_input_tokens:2018,cache_read_input_tokens:414892};console.log(JSON.stringify(j))' "$full")
+check "data: ctx_note used" [ "$(key ctx_note "$(data <<<"$used")")" = 417k ]
+# usage <current_usage json>: ctx_note for that shape
+usage() { key ctx_note "$(data <<<"{\"context_window\":{\"used_percentage\":1,\"current_usage\":$1}}")"; }
+check "data: empty usage -> no note" [ -z "$(usage '{}')" ]
+check "data: junk usage -> no note" [ -z "$(usage '{"input_tokens":"a","cache_read_input_tokens":{}}')" ]
+check "data: string counts ignored" [ -z "$(usage '{"input_tokens":"300000"}')" ]
+check "data: negative counts ignored" [ "$(usage '{"input_tokens":-5000,"cache_read_input_tokens":20000}')" = 20k ]
+check "data: non-object usage -> no note" [ -z "$(usage '5')" ]
+check "data: 999.5k rounds to 1M" [ "$(usage '{"input_tokens":999600}')" = 1M ]
 
 past=$(node -e 'const j=JSON.parse(process.argv[1]);j.rate_limits.five_hour.resets_at=1;console.log(JSON.stringify(j))' "$full")
 check "data: past reset -> no note" [ -z "$(key 5h_note "$(data <<<"$past")")" ]
@@ -83,7 +92,8 @@ check "data: big transcript skill" [ "$(key skill "$kv")" = big ]
 # --- hud-filter.pl ---
 render() { data <<<"$1" | COLUMNS=120 perl "$HUD/hud-filter.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
 out=$(render "$full")
-check "render: ctx row"  grep -q '^ctx .* 42%  *1M$' <<<"$out"
+check "render: ctx row"  grep -q '^ctx .* 42% *$' <<<"$out"
+check "render: ctx used" grep -q '^ctx .* 42%  *417k$' <<<"$(render "$used")"
 check "render: 5h row"   grep -q '^5h .* 30%  *2h0m$' <<<"$out"
 check "render: wk row"   grep -q '^wk .* 12%  *2d7h$' <<<"$out"
 check "render: profile"  grep -q 'me@example.test$' <<<"$out"
