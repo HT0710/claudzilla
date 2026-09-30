@@ -25,6 +25,7 @@ check "content: CLAUDE.md imports RTK via ~" grep -qx '@~/.claude/RTK.md' "$REPO
 check "content: CLAUDE.md imports local" grep -qx '@~/.claude/CLAUDE.local.md' "$REPO/claude/CLAUDE.md"
 check "content: python.md scoped to Python files" bash -c "head -1 '$REPO/claude/rules/python.md' | grep -qx -e '---' && head -3 '$REPO/claude/rules/python.md' | grep -qx 'paths:'"
 check "content: CLAUDE.md covers new Python projects" grep -q "New Python project before that" "$REPO/claude/CLAUDE.md"
+check "content: hook cites superpowers.md by section" bash -c "grep -q 'superpowers.md Order' '$REPO/claude/hooks/rules-guard.mjs' && grep -q '^## Order' '$REPO/claude/rules/superpowers.md' && ! grep -q 'superpowers.md:[0-9]' '$REPO/claude/hooks/rules-guard.mjs'"
 check "content: no CodeGraph section" bash -c "! grep -qi codegraph '$REPO/claude/CLAUDE.md'"
 check "content: reviewNudge not documented under rules" bash -c "! grep -q '^| \`reviewNudge\`' '$REPO/README.md'"
 check "content: no omc" bash -c "! grep -rqi omc '$REPO/claude' '$REPO/settings.base.json' '$REPO/README.md'"
