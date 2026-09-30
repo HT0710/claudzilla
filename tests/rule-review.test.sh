@@ -142,6 +142,12 @@ scan --days 60
 check "window: --days widens" [ "$(top turns)" = 2 ]
 reset_proj; session a '[["user","go"],["raw","{not json"]]'; scan
 check "bad line: unparsed" [ "$(top unparsed)" = 1 ]
+reset_proj; session a '[["user","go"],["bash","git push"],["raw","{\"type\":\"assistant\",\"message\":{\"content\":[null]}}"],["raw","{\"type\":\"user\",\"message\":{\"content\":[null]}}"],["raw","{\"type\":\"user\",\"message\":{\"content\":[null,{\"type\":\"text\",\"text\":\"hi\"}]}}"]]'
+check "null content items: scan survives" scan
+check "null content items: turn still counted" [ "$(rule pushVerify slips)" = 1 ]
+reset_proj; session a '[["user","go"],["bash","git push"],["raw","null"],["raw","{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":null}]}}"],["raw","{\"type\":\"attachment\",\"attachment\":{\"type\":\"hook_additional_context\",\"content\":5}}"],["raw","{\"type\":\"system\",\"subtype\":\"stop_hook_summary\",\"hookAdditionalContext\":5}"]]'
+check "odd lines (null, text:null, non-array context): scan survives" scan
+check "odd lines: turn still counted" [ "$(rule pushVerify slips)" = 1 ]
 reset_proj; mkdir -p "$PROJ/sess/subagents"; session a '[["user","go"]]'; cp "$PROJ/a.jsonl" "$PROJ/sess/subagents/x.jsonl"; scan
 check "subagent transcripts skipped" [ "$(top sessions)" = 1 ]
 check "missing dir: exit 1" bash -c "! node '$SCAN' --dir '$TMP/nope' 2>/dev/null"

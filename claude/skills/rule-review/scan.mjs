@@ -20,7 +20,9 @@ const NOT_ASKED = /^(?:<(?:local-command-|bash-)|\[Request interrupted|This sess
 
 const fail = (msg) => { process.stderr.write(`rule-review: ${msg}\n`); process.exit(1); };
 const has = (skills, name) => skills.some((k) => k === name || k.endsWith(`:${name}`));
-const textOf = (c) => (typeof c === "string" ? c : Array.isArray(c) ? c.filter((x) => x.type === "text").map((x) => x.text).join("\n") : "");
+// Content blocks that are objects; transcripts can hold null or odd entries.
+const blocks = (c) => (Array.isArray(c) ? c.filter((x) => x && typeof x === "object") : []);
+const textOf = (c) => (typeof c === "string" ? c : blocks(c).filter((x) => x.type === "text").map((x) => x.text).join("\n"));
 
 // kind: "real" opens a turn; "machine" is a prompt the hook sees but the user didn't type;
 // "skip" (skill bodies, command echoes) leaves the last prompt's kind alone. Null = not a prompt.
@@ -33,7 +35,7 @@ function promptOf(o) {
     text = String(o.attachment.prompt ?? "").trimStart();
   } else if (o.type === "user") {
     const c = o.message?.content;
-    if (Array.isArray(c) && c.some((x) => x.type === "tool_result")) return null;
+    if (blocks(c).some((x) => x.type === "tool_result")) return null;
     text = textOf(c).trimStart();
   } else return null;
   const typed = text.match(/<command-name>\/([\w:-]+)<\/command-name>/);
@@ -133,6 +135,7 @@ function scan(root, days) {
       if (!line.trim()) continue;
       let o;
       try { o = JSON.parse(line); } catch { unparsed++; continue; }
+      if (!o || typeof o !== "object") { unparsed++; continue; }
       const p = promptOf(o);
       if (p) {
         if (p.kind === "skip") continue;
@@ -147,8 +150,8 @@ function scan(root, days) {
       }
       if (!turn) continue;
       if (o.type === "assistant") {
-        for (const x of Array.isArray(o.message?.content) ? o.message.content : []) {
-          if (x.type === "text" && x.text.trim()) turn.reply = x.text;
+        for (const x of blocks(o.message?.content)) {
+          if (x.type === "text" && typeof x.text === "string" && x.text.trim()) turn.reply = x.text;
           if (x.type !== "tool_use") continue;
           if (x.name === "Skill") turn.skills.push(String(x.input?.skill ?? ""));
           if (EDITS.has(x.name)) turn.edited = true;
@@ -161,7 +164,7 @@ function scan(root, days) {
           }
         }
       } else if (o.type === "user") {
-        for (const x of o.message.content) {
+        for (const x of blocks(o.message?.content)) {
           const text = textOf(x.content);
           if (x.type !== "tool_result" || !x.is_error || !/^PreToolUse:\S+ hook error:/.test(text)) continue;
           const c = cmds.get(x.tool_use_id);
@@ -169,9 +172,9 @@ function scan(root, days) {
           fired(text, false);
         }
       } else if (o.type === "attachment" && o.attachment?.type === "hook_additional_context") {
-        for (const text of o.attachment.content ?? []) fired(String(text), o.attachment.hookEvent === "UserPromptSubmit");
+        for (const text of Array.isArray(o.attachment.content) ? o.attachment.content : []) fired(String(text), o.attachment.hookEvent === "UserPromptSubmit");
       } else if (o.type === "system" && o.subtype === "stop_hook_summary") {
-        for (const text of o.hookAdditionalContext ?? []) fired(String(text), false);
+        for (const text of Array.isArray(o.hookAdditionalContext) ? o.hookAdditionalContext : []) fired(String(text), false);
       }
     }
     if (turn) finish(turn);
