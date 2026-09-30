@@ -89,6 +89,21 @@ fs.writeFileSync(out,JSON.stringify(merge(merge(old?prune(d,old,b):bootstrap(d,b
   cmp -s "$REPO/settings.base.json" "$rec" || cp "$REPO/settings.base.json" "$rec"
 }
 
+# When each rule first reached this machine; rule-review counts a rule only from then on.
+# Paths go in env: rules-guard.mjs treats argv[1] as "am I the hook?".
+stamp_rules() {
+  GUARD="$REPO/claude/hooks/rules-guard.mjs" STAMPS="$DEST/.claudzilla-rules.json" node --input-type=module -e '
+import { readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+const { DEFAULTS } = await import(pathToFileURL(process.env.GUARD).href);
+let s = {};
+try { s = JSON.parse(readFileSync(process.env.STAMPS, "utf8")); } catch { /* first run */ }
+if (!s || typeof s !== "object" || Array.isArray(s)) s = {};
+const now = new Date().toISOString(), fresh = Object.keys(DEFAULTS.rules).filter((id) => !(id in s));
+for (const id of fresh) s[id] = now;
+if (fresh.length) writeFileSync(process.env.STAMPS, `${JSON.stringify(s, null, 2)}\n`);' </dev/null
+}
+
 # node runs the statusline + this script's JSON merge; rtk backs the Bash hook.
 # No sudo: official node build (SHA-256 checked) into ~/.local.
 deps() {
@@ -135,6 +150,7 @@ main() {
   done
   [ -e "$DEST/CLAUDE.local.md" ] || : > "$DEST/CLAUDE.local.md"
   merge_settings
+  stamp_rules
   [ "$OFFLINE" = 1 ] || plugins
   [ -d "$BACKUP" ] && echo "replaced files backed up -> $BACKUP"
   [ "$OFFLINE" = 1 ] || case ":$ORIG_PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "note: add ~/.local/bin to PATH (node/rtk live there)" ;; esac
