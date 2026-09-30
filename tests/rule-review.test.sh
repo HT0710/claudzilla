@@ -30,7 +30,7 @@ check "hooks: suite unchanged" bash -c "bash '$REPO/tests/hooks.test.sh' | tail 
 SCAN="$REPO/claude/skills/rule-review/scan.mjs"
 PROJ="$TMP/projects/p"; mkdir -p "$PROJ"
 # session <name> <js array>: write transcript <name>.jsonl from short event specs
-#   ["user", text, {daysAgo, branch, meta}] ["skill", name] ["bash", cmd, {denied, branch}] ["edit"]
+#   ["user", text, {daysAgo, branch, meta}] ["skill", name] ["bash", cmd, {denied, branch}] ["edit"] ["tool", name, input]
 #   ["text", reply] ["ctx", event, text] ["stop", text] ["raw", line]
 session() {
   node - "$PROJ/$1.jsonl" "$2" <<'EOF'
@@ -47,6 +47,7 @@ for (const [kind, a, o = {}] of eval(spec)) {
   if (kind === "skill") result(use("Skill", { skill: a }), "Launching skill");
   if (kind === "bash") { if (o.branch) branch = o.branch; const id = use("Bash", { command: a }); result(id, o.denied ? `PreToolUse:Bash hook error: ${o.denied}` : "ok", !!o.denied); }
   if (kind === "edit") result(use("Edit", { file_path: "/x/a.js" }), "ok");
+  if (kind === "tool") result(use(a, o), "ok");
   if (kind === "text") push({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: a }] } });
   if (kind === "ctx") push({ type: "attachment", attachment: { type: "hook_additional_context", hookEvent: a, content: [o] } });
   if (kind === "stop") push({ type: "system", subtype: "stop_hook_summary", hookAdditionalContext: [a] });
@@ -93,6 +94,20 @@ check "pr without pr skill: slip" [ "$(rule prSkill slips)" = 1 ]
 check "pr: pushVerify applies" [ "$(rule pushVerify applies)" = 1 ]
 reset_proj; session a '[["user","go"],["bash","gh pr edit 1 --add-label x"]]'; scan
 check "label edit: prSkill n/a" [ "$(rule prSkill applies)" = 0 ]
+reset_proj; session a '[["user","go"],["bash","gh -R o/r pr create --fill"]]'; scan
+check "gh -R pr create: pushVerify slip" [ "$(rule pushVerify slips)" = 1 ]
+reset_proj; session a '[["user","go"],["bash","gh api repos/o/r/pulls -f title=x -f head=a -f base=main"]]'; scan
+check "gh api pulls POST: pushVerify slip" [ "$(rule pushVerify slips)" = 1 ]
+check "gh api pulls POST: prSkill slip" [ "$(rule prSkill slips)" = 1 ]
+reset_proj; session a '[["user","go"],["bash","gh api graphql -f query=q1 && gh api graphql -f query=\"mutation{createPullRequest}\""]]'; scan
+check "graphql: one PR among two calls counted once" [ "$(rule pushVerify applies)" = 1 ]
+reset_proj; session a '[["user","go"],["tool","mcp__github__create_pull_request",{title:"x"}]]'; scan
+check "mcp create PR: pushVerify slip" [ "$(rule pushVerify slips)" = 1 ]
+check "mcp create PR: prSkill slip" [ "$(rule prSkill slips)" = 1 ]
+reset_proj; session a '[["user","go"],["skill","superpowers:verification-before-completion"],["skill","pr"],["tool","mcp__github__create_pull_request",{title:"x"}]]'; scan
+check "mcp create PR after skills: no slip" [ "$(rule prSkill slips)$(rule pushVerify slips)" = 00 ]
+reset_proj; session a '[["user","go"],["skill","superpowers:verification-before-completion"],["skill","x:pr"],["bash","gh pr create --fill"]]'; scan
+check "plugin x:pr is not the pr skill" [ "$(rule prSkill slips)" = 1 ]
 reset_proj; session a '[["user","go"],["edit"],["text","Fixed the parser."]]'; scan
 check "done claim: slip" [ "$(rule doneClaim slips)" = 1 ]
 reset_proj; session a '[["user","go"],["edit"],["skill","superpowers:verification-before-completion"],["text","Fixed the parser."]]'; scan

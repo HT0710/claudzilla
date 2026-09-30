@@ -311,7 +311,7 @@ function checkGit(t, cwd, cmd, s, hits, branches) {
 const REPO_FLAG = /^(?:-R|--repo(?=$|=))/;
 const PULLS = /^(?:https?:\/\/[^?]*?)?\/?repos\/[^/]+\/[^/]+\/pulls(\/\d+)?\/?(?:\?.*)?$/;
 // gh -R/--repo may sit anywhere, even before the subcommand; `gh api` writes to pulls create or edit a PR too.
-function ghPr(t, cmd) {
+function ghPr(t) {
   const a = [];
   for (let i = 1; i < t.length; i++) {
     if (!REPO_FLAG.test(t[i])) a.push(t[i]);
@@ -320,8 +320,9 @@ function ghPr(t, cmd) {
   if (a[0] === "pr") return ["create", "edit"].includes(a[1]) && { op: a[1], describes: prDescribes(["gh", ...a]) };
   if (a[0] !== "api") return;
   if (a.includes("graphql")) {
-    if (/\bcreatePullRequest\b/.test(cmd)) return { op: "create", describes: true };
-    return /\bupdatePullRequest\b/.test(cmd) && { op: "edit", describes: true };
+    const q = a.join(" ");
+    if (/\bcreatePullRequest\b/.test(q)) return { op: "create", describes: true };
+    return /\bupdatePullRequest\b/.test(q) && { op: "edit", describes: true };
   }
   const pulls = a.map((x) => PULLS.exec(x)).find(Boolean);
   if (!pulls) return;
@@ -336,6 +337,14 @@ function ghPr(t, cmd) {
   return method === "PATCH" && { op: "edit", describes };
 }
 
+// GitHub MCP create/update_pull_request tool call -> { op, describes }, else undefined.
+function mcpPr(tool, input) {
+  const m = /^mcp__.+__(create|update)_pull_request$/.exec(tool ?? "");
+  if (!m) return;
+  const i = input ?? {};
+  return m[1] === "create" ? { op: "create", describes: true } : { op: "edit", describes: i.title !== undefined || i.body !== undefined };
+}
+
 function prGates({ op, describes }, cwd, text, s, hits) {
   const hit = hitter(loadConfig(cwd).cfg, hits);
   hit("sessionLink", SESSION_RE.test(text) && WHY.session);
@@ -345,7 +354,7 @@ function prGates({ op, describes }, cwd, text, s, hits) {
 }
 
 function checkGh(t, cwd, cmd, s, hits) {
-  const pr = ghPr(t, cmd);
+  const pr = ghPr(t);
   if (pr) prGates(pr, cwd, cmd, s, hits);
 }
 
@@ -394,11 +403,10 @@ function excludeSpecs(file) {
 function onPreTool(d) {
   const s = load(d.session_id);
   if (d.tool_name === "Bash") return checkBash(String(d.tool_input?.command ?? ""), d.cwd ?? process.cwd(), s);
-  const mcp = /^mcp__.+__(create|update)_pull_request$/.exec(d.tool_name ?? "");
-  if (mcp) {
-    const i = d.tool_input ?? {}, hits = [];
-    const pr = mcp[1] === "create" ? { op: "create", describes: true } : { op: "edit", describes: i.title !== undefined || i.body !== undefined };
-    prGates(pr, d.cwd ?? process.cwd(), JSON.stringify(i), s, hits);
+  const pr = mcpPr(d.tool_name, d.tool_input);
+  if (pr) {
+    const hits = [];
+    prGates(pr, d.cwd ?? process.cwd(), JSON.stringify(d.tool_input ?? {}), s, hits);
     return report(hits);
   }
   if (!["Edit", "Write", "NotebookEdit"].includes(d.tool_name)) return;
@@ -493,5 +501,5 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
 
 export {
   CLAIM_RE, DEFAULTS, FLAG, MACHINE_PROMPT, MSG, SESSION_RE, VERIFY, WHY,
-  commitSubject, expand, firedRules, forceFlag, formatFlags, gitParse, keywordRe, loadConfig, prDescribes, proseOf, subjectProblem, unquote,
+  commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, gitParse, keywordRe, loadConfig, mcpPr, prDescribes, proseOf, subjectProblem, unquote,
 };
