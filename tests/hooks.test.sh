@@ -380,6 +380,40 @@ check "split: line continuation joins words" denied "$(sh_ $'git switch \\\n  ma
 check "split: line continuation in worktree path" [ -z "$(sh_ $'git worktree add \\\n  ../'"$(basename "$M")"'-x -b feat/q')" ]
 cd "$REPO"
 
+# --- guard gaps: previous branch, --create=x, repo-wide tracking, hidden commands, graphql file ---
+G=$(repo); git -C "$G" switch -q -c feat/g; mkdir -p "$G/sub"; cd "$G"
+new_session; hook UserPromptSubmit prompt=go >/dev/null
+check "branch: switch - to main then commit denied" denied "$(sh_ 'git switch - && git commit -m "fix: x"')"
+check "branch: checkout - to main then commit denied" denied "$(sh_ 'git checkout - && git commit -m "fix: x"')"
+check "branch: switch in subdir tracked repo-wide" denied "$(sh_ 'cd sub && git switch main && cd .. && git commit -m "fix: x"')"
+git switch -q main
+check "branch: --create=x then commit allowed" [ -z "$(sh_ 'git switch --create=feat/y && git commit -m "fix: x"')" ]
+check "branch: -cx then commit allowed" [ -z "$(sh_ 'git switch -cfeat/y && git commit -m "fix: x"')" ]
+check "branch: checkout -bx then commit allowed" [ -z "$(sh_ 'git checkout -bfeat/y && git commit -m "fix: x"')" ]
+check "branch: checkout --orphan=x then commit allowed" [ -z "$(sh_ 'git checkout --orphan=feat/y && git commit -m "fix: x"')" ]
+git switch -q feat/g
+for c in 'echo `git push`' 'x="$(git push)"' 'if git push; then echo ok; fi' '{ git push; }' '! git push' \
+  'timeout 60 git push' 'env A=1 git push' 'nohup git push' 'command git push' 'time git push' 'sudo git push' 'xargs git push' 'exec git push'; do
+  check "hidden: $c denied" denied "$(sh_ "$c")"
+done
+check "hidden: single-quoted backticks inert" [ -z "$(sh_ "git commit -m 'fix: use \`git push\` later'")" ]
+check "hidden: single-quoted \$() inert" [ -z "$(sh_ "echo 'run \$(git push)'")" ]
+check "hidden: quoted heredoc body inert" [ -z "$(sh_ $'git commit -F - <<\'EOF\'\nfix: x\n\nrun $(git push) later\nEOF')" ]
+echo 'mutation { createPullRequest(input: {}) { clientMutationId } }' > q.graphql
+check "graphql: -F query=@file create gated" denied "$(sh_ 'gh api graphql -F query=@q.graphql')"
+check "graphql: -f query=@file is a literal" [ -z "$(sh_ 'gh api graphql -f query=@q.graphql')" ]
+check "graphql: -F query=@- heredoc gated" denied "$(sh_ $'gh api graphql -F query=@- <<\'EOF\'\nmutation { createPullRequest(input: {}) { clientMutationId } }\nEOF')"
+check "branch: switch main then - returns to feature" [ -z "$(sh_ 'git switch main && git switch - && git commit -m "fix: x"')" ]
+check "branch: switch -c then - returns to feature" [ -z "$(sh_ 'git switch -c feat/t && git switch - && git commit -m "fix: x"')" ]
+check "branch: detach after main not main" [ -z "$(sh_ 'git switch main && git switch --detach && git commit -m "fix: x"')" ]
+check "comment: backticks after # inert" [ -z "$(sh_ $'# run `git push` later\ngit status')" ]
+check "comment: trailing # comment inert" [ -z "$(sh_ 'git commit -m "fix: x" # `git push` next')" ]
+git switch -q main
+check "branch: feature then - back to main denied" denied "$(sh_ 'git switch feat/g && git switch - && git commit -m "fix: x"')"
+check "subst: cd into \$(...) dir fails open" [ -z "$(sh_ 'cd "$(mktemp -d)" && git commit -m "fix: x"')" ]
+git switch -q feat/g
+cd "$REPO"
+
 # --- MessageDisplay ---
 MD="$REPO/claude/hooks/md-display.pl"
 md() { node -e 'console.log(JSON.stringify({hook_event_name:"MessageDisplay",delta:process.argv[1]}))' "$1" | perl "$MD"; }

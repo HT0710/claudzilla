@@ -2,7 +2,7 @@
 // Enforces claudzilla rules (claude/rules/*.md) at the moment they apply.
 // Fails open: a guardrail, not security.
 import { execFileSync } from "node:child_process";
-import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -235,19 +235,43 @@ function firedRules(text) {
 
 // Word lists per simple command. Heredoc bodies are message text; quotes group
 // words; ; & | ( ) and newlines split only outside quotes.
+// Index of the `)` closing the `$(` whose body starts at i, else the string's end.
+function closeParen(s, i) {
+  for (let depth = 1; i < s.length; i++) {
+    if (s[i] === "(") depth++;
+    else if (s[i] === ")" && --depth === 0) return i;
+  }
+  return s.length;
+}
+
 function segments(cmd) {
   const flat = cmd.replace(new RegExp(HEREDOC_RE.source, "g"), "<<$1$2");
   const segs = [[]];
   let word = null, q = null;
   const end = () => { if (word !== null) segs.at(-1).push(word); word = null; };
+  // `…` and $(…) run even inside double quotes; their commands go before the one they sit in.
+  const sub = (i) => {
+    const close = flat[i] === "`" ? flat.indexOf("`", i + 1) : closeParen(flat, i + 2);
+    const stop = close === -1 ? flat.length : close;
+    segs.splice(segs.length - 1, 0, ...segments(flat.slice(i + (flat[i] === "`" ? 1 : 2), stop)));
+    // Output unknown: a path built from it must not resolve to the current dir.
+    word = `${word ?? ""}$(…)`;
+    return stop;
+  };
   for (let i = 0; i < flat.length; i++) {
     const c = flat[i];
+    const opens = c === "`" || (c === "$" && flat[i + 1] === "(");
     if (c === "\\" && flat[i + 1] === "\n" && q !== "'") i++;
     else if (q) {
       if (c === q) q = null;
       else if (c === "\\" && q === '"' && i + 1 < flat.length) word += flat[++i];
+      else if (q === '"' && opens) i = sub(i);
       else word += c;
-    } else if (c === "'" || c === '"') { q = c; word ??= ""; }
+    } else if (c === "#" && word === null) {
+      const nl = flat.indexOf("\n", i);
+      i = (nl === -1 ? flat.length : nl) - 1;
+    } else if (opens) i = sub(i);
+    else if (c === "'" || c === '"') { q = c; word ??= ""; }
     else if (c === "\\" && i + 1 < flat.length) word = (word ?? "") + flat[++i];
     else if ("\n;&|()".includes(c)) { end(); segs.push([]); }
     else if (/\s/.test(c)) end();
@@ -311,6 +335,15 @@ function insideRepo(dir, p) {
 const CHECKED = new Set(["push", "reset", "clean", "checkout", "switch", "restore", "stash", "worktree", "commit"]);
 const operand = (a) => a.find((x) => !x.startsWith("-"));
 const after = (a, flags) => { const i = a.findIndex((x) => flags.includes(x)); return i === -1 ? undefined : a[i + 1]; };
+// New-branch name from `-c x`, `-cx`, `--create x` or `--create=x`.
+function newBranch(a, short, long) {
+  const v = after(a, [short, long]);
+  if (v !== undefined) return v;
+  for (const x of a) {
+    if (short && x.startsWith(short) && x.length > short.length && !x.startsWith("--")) return x.slice(short.length);
+    if (long && x.startsWith(`${long}=`)) return x.slice(long.length + 1);
+  }
+}
 
 function gitParse(t, cwd) {
   let i = 1, dir = cwd;
@@ -324,7 +357,7 @@ const forceFlag = (a) => a.some((x) => x === "--force" || /^-[a-zA-Z]*f[a-zA-Z]*
 // Label/reviewer/base edits don't touch the description, so the template doesn't apply.
 const prDescribes = (t) => t[2] === "create" || t.slice(3).some((x) => /^(?:--(?:title|body|body-file)(?:=|$)|-[tbF])/.test(x));
 
-// branches: dir → branch a `switch`/`checkout` earlier in the same command moved to.
+// branches: repo root → { cur, prev } after `switch`/`checkout` earlier in the same command.
 function checkGit(t, cwd, cmd, s, hits, branches) {
   const { dir, sub, a } = gitParse(t, cwd);
   if (!CHECKED.has(sub)) return;
@@ -332,20 +365,31 @@ function checkGit(t, cwd, cmd, s, hits, branches) {
   const hit = hitter(cfg, hits);
   const discard = (cond) => hit("discard", cond && WHY.discard);
   const isBranch = (x) => gitOk(dir, "rev-parse", "--verify", "-q", `refs/heads/${x}`);
+  const root = () => git(dir, "rev-parse", "--show-toplevel") || dir;
+  const moveTo = (b) => {
+    const r = root();
+    branches.set(r, { cur: b, prev: branches.get(r)?.cur ?? git(dir, "symbolic-ref", "--short", "HEAD") });
+  };
+  // `-` = the branch checked out before this one.
+  const prev = () => a.includes("-") && (branches.get(root())?.prev ?? git(dir, "rev-parse", "--abbrev-ref", "@{-1}"));
   if (sub === "switch") {
-    const to = after(a, ["-c", "-C", "--create", "--force-create"]);
-    const x = operand(a);
-    if (to) branches.set(dir, to);
-    else if (x && isBranch(x)) branches.set(dir, x);
+    const to = newBranch(a, "-c", "--create") ?? newBranch(a, "-C", "--force-create");
+    const x = operand(a) ?? prev();
+    // Detached HEAD is no branch, so not main.
+    if (a.includes("--detach") || a.includes("-d")) moveTo("");
+    else if (to) moveTo(to);
+    else if (x && isBranch(x)) moveTo(x);
   }
   if (sub === "checkout" && !a.includes("--")) {
     const NEW = ["-b", "-B", "--orphan"];
-    const to = after(a, NEW);
+    const to = newBranch(a, "-b") ?? newBranch(a, "-B") ?? newBranch(a, null, "--orphan");
     const ops = a.filter((x, k) => !x.startsWith("-") && !NEW.includes(a[k - 1]));
-    if (to) branches.set(dir, to);
+    const back = !ops.length && prev();
+    if (to) moveTo(to);
+    else if (back && isBranch(back)) moveTo(back);
     // `checkout <ref> <path>…` restores files from <ref>.
     else if (ops.length > 1) discard(true);
-    else if (ops[0] && isBranch(ops[0])) branches.set(dir, ops[0]);
+    else if (ops[0] && isBranch(ops[0])) moveTo(ops[0]);
     // Not a ref but an existing path: `git checkout <file>` throws away its edits.
     else if (ops[0] && ops[0] !== "." && !gitOk(dir, "rev-parse", "--verify", "-q", ops[0]) && existsSync(resolve(dir, ops[0]))) discard(true);
   }
@@ -361,14 +405,26 @@ function checkGit(t, cwd, cmd, s, hits, branches) {
       return discard(!(a.some((x) => x === "--staged" || x === "-S") && !a.some((x) => x === "--worktree" || x === "-W")));
     case "stash": return discard(["drop", "clear"].includes(a[0]));
     case "worktree": return hit("worktreePath", a[0] === "add" && insideRepo(dir, worktreePath(a.slice(1))) && WHY.worktree);
-    case "commit": return checkCommit(dir, cmd, hit, cfg, branches.get(dir));
+    case "commit": return checkCommit(dir, cmd, hit, cfg, branches.get(root())?.cur);
   }
 }
 
 const REPO_FLAG = /^(?:-R|--repo(?=$|=))/;
 const PULLS = /^(?:https?:\/\/[^?]*?)?\/?repos\/[^/]+\/[^/]+\/pulls(\/\d+)?\/?(?:\?.*)?$/;
 // gh -R/--repo may sit anywhere, even before the subcommand; `gh api` writes to pulls create or edit a PR too.
-function ghPr(t) {
+// gh reads `-F query=@file` from disk (`@-`: stdin, here the raw command's heredoc); the mutation lives there.
+// No cwd (the scanner, later): skip, the file may have changed.
+function queryFile(a, cwd, text) {
+  const f = a.map((x, i) => (/^(?:-F|--field)$/.test(a[i - 1] ?? "") || /^(?:-F|--field=)query=@/.test(x)) && x.match(/query=@(.+)$/)?.[1]).find(Boolean);
+  if (!f || !cwd) return "";
+  if (f === "-") return text ?? "";
+  try {
+    const p = resolve(cwd, f), st = statSync(p);
+    // A fifo or device would block or never end.
+    return st.isFile() && st.size < 1e6 ? readFileSync(p, "utf8") : "";
+  } catch { return ""; }
+}
+function ghPr(t, cwd, text) {
   const a = [];
   for (let i = 1; i < t.length; i++) {
     if (!REPO_FLAG.test(t[i])) a.push(t[i]);
@@ -377,7 +433,7 @@ function ghPr(t) {
   if (a[0] === "pr") return ["create", "edit"].includes(a[1]) && { op: a[1], describes: prDescribes(["gh", ...a]) };
   if (a[0] !== "api") return;
   if (a.includes("graphql")) {
-    const q = a.join(" ");
+    const q = `${a.join(" ")} ${queryFile(a, cwd, text)}`;
     if (/\bcreatePullRequest\b/.test(q)) return { op: "create", describes: true };
     return /\bupdatePullRequest\b/.test(q) && { op: "edit", describes: true };
   }
@@ -411,16 +467,21 @@ function prGates({ op, describes }, cwd, text, s, hits) {
 }
 
 function checkGh(t, cwd, cmd, s, hits) {
-  const pr = ghPr(t);
+  const pr = ghPr(t, cwd, cmd);
   if (pr) prGates(pr, cwd, cmd, s, hits);
 }
 
 const SHELLS = new Set(["bash", "sh", "zsh"]);
+const KEYWORDS = new Set(["if", "then", "elif", "else", "while", "until", "do", "!", "{", "time"]);
+// ponytail: wrapper args aren't parsed; the segment is cut at the first command we check, so `sudo echo git push` over-matches.
+const WRAPPERS = new Set(["env", "timeout", "nohup", "command", "exec", "sudo", "doas", "xargs", "nice", "stdbuf"]);
+const RUNS = (x) => x === "git" || x === "gh" || x === "eval" || SHELLS.has(x);
 // Commands a shell -c string or eval will run are checked like the outer command.
 function expand(cmd, depth = 0) {
   const all = [];
   for (const t of segments(cmd)) {
-    while (t.length && /^\w+=/.test(t[0])) t.shift();
+    while (t.length && (KEYWORDS.has(t[0]) || /^\w+=/.test(t[0]))) t.shift();
+    if (WRAPPERS.has(t[0])) { const i = t.findIndex(RUNS); if (i > 0) t.splice(0, i); }
     const c = t.indexOf("-c");
     if (depth < 3 && SHELLS.has(t[0]) && c > 0 && t[c + 1] !== undefined) all.push(...expand(t[c + 1], depth + 1));
     else if (depth < 3 && t[0] === "eval") all.push(...expand(t.slice(1).join(" "), depth + 1));
