@@ -19,7 +19,7 @@ const MSG = {
 const COND = {
   debug: ["If the prompt reports a bug, test fail or unexpected behaviour:", "Otherwise ignore this reminder."],
   debugGate: ["If this turn debugs a reported bug:", "Otherwise ignore this reminder."],
-  doneClaim: ["If this reply claims this turn's work done, fixed or passing:", "Otherwise end the turn with no further text."],
+  doneClaim: ["If this reply claims this turn's work done, fixed or passing:", "Otherwise reply only: no claim."],
 };
 const nudge = (k, post = COND[k][1]) => `${COND[k][0]} ${MSG[k]} ${post}`;
 // Hook texts → rule ids, so rule-review can count fires from transcripts.
