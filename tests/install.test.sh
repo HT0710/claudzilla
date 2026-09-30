@@ -49,6 +49,10 @@ node -e 'const f=process.argv[1],s=require(f);s.tldr="2001-01-01T00:00:00.000Z";
 run_install "$H"
 check "rerun: rule date kept" [ "$(node -p "require('$RS').tldr" 2>/dev/null)" = 2001-01-01T00:00:00.000Z ]
 check "rerun: missing rule stamped" node -e 'process.exit(/^\d{4}-\d\d-\d\dT.*Z$/.test(require(process.argv[1]).pushVerify) ? 0 : 1)' "$RS"
+H3=$(new_home); mkdir -p "$H3/.claude/.claudzilla-rules.json"; run_install "$H3"; rc=$?
+check "stamp fail: install still exits 0" [ "$rc" -eq 0 ]
+check "stamp fail: warns" grep -q 'rule dates not saved' "$H3/install.log"
+check "stamp fail: install finishes" grep -q 'claudzilla installed' "$H3/install.log"
 check "fresh: rules-guard hook in settings" grep -q 'rules-guard.mjs' "$H/.claude/settings.json"
 check "fresh: md-display hook in settings" grep -q 'md-display.pl' "$H/.claude/settings.json"
 check "fresh: git and gh hook commands differ" node -e 'const h=require(process.argv[1]).hooks.PreToolUse.flatMap(e=>e.hooks).filter(x=>x.if);process.exit(new Set(h.map(x=>x.command)).size===2?0:1)' "$H/.claude/settings.json"
