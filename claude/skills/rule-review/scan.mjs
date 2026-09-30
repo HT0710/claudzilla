@@ -2,7 +2,7 @@
 // Per-rule counts from Claude Code transcripts. Output never holds transcript text.
 //   node scan.mjs [--days N] [--dir PATH] [--save [--background] | --issue [--brief] | --share | --nudge]
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getClaudeConfigDir } from "../../hud/lib/config-dir.mjs";
@@ -243,7 +243,9 @@ async function nudge() {
   // ponytail: no lock; sessions starting together may each scan, same dated file, add a lock if that costs
   if (!name || Date.now() - Date.parse(name.slice(0, 10)) > 7 * 864e5) {
     try {
-      spawn(process.execPath, [fileURLToPath(import.meta.url), "--save", "--background"], { detached: true, stdio: "ignore" }).unref();
+      spawn(process.execPath, [fileURLToPath(import.meta.url), "--save", "--background"], { detached: true, stdio: "ignore" })
+        .on("error", () => { /* can't start: try next session */ })
+        .unref();
     } catch { /* can't spawn: try next session */ }
   }
 }
@@ -275,7 +277,10 @@ if (args.includes("--issue")) {
     const name = `${report.window.to}.json`;
     const prev = saved().filter((f) => f < name).at(-1);
     mkdirSync(REPORTS, { recursive: true });
-    writeFileSync(join(REPORTS, name), `${JSON.stringify(report, null, 2)}\n`);
+    // tmp + rename: a reader or a parallel scan never sees half a report; saved() skips .tmp
+    const tmp = join(REPORTS, `${name}.${process.pid}.tmp`);
+    writeFileSync(tmp, `${JSON.stringify(report, null, 2)}\n`);
+    renameSync(tmp, join(REPORTS, name));
     if (!args.includes("--background")) {
       markSeen(name);
       process.stdout.write(`${JSON.stringify({ report, previous: prev ? readReport(prev) : null }, null, 2)}\n`);
