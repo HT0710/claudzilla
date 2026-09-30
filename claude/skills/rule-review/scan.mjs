@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { getClaudeConfigDir } from "../../hud/lib/config-dir.mjs";
 import {
   CLAIM_RE, DEFAULTS, MACHINE_PROMPT, SESSION_RE, VERIFY,
-  commitSubject, expand, firedRules, forceFlag, formatFlags, gitParse, keywordRe, loadConfig, prDescribes, proseOf, subjectProblem, unquote,
+  commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, gitParse, keywordRe, loadConfig, mcpPr, proseOf, subjectProblem, unquote,
 } from "../../hooks/rules-guard.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -59,11 +59,27 @@ function scan(root, days) {
   };
   let sessions = 0, turns = 0, unparsed = 0;
 
+  // Same PR matching as the hook (ghPr / mcpPr); only the exact `pr` skill counts.
+  const countPr = ({ op, describes }, c) => {
+    const ran = !c.denied;
+    add("sessionLink", "applies");
+    if (ran && SESSION_RE.test(c.cmd)) add("sessionLink", "slips");
+    if (op === "create") {
+      add("pushVerify", "applies");
+      if (ran && !has(c.skills, VERIFY)) add("pushVerify", "slips");
+    }
+    if (describes) {
+      add("prSkill", "applies");
+      if (ran && !c.skills.includes("pr")) add("prSkill", "slips");
+    }
+  };
+
   const finish = (t) => {
     turns++;
     at = t.ts;
     for (const c of t.cmds) {
       const ran = !c.denied;
+      if (c.pr) { countPr(c.pr, c); continue; }
       for (const seg of expand(c.cmd)) {
         if (seg[0] === "git") {
           const { sub, a } = gitParse(seg, ".");
@@ -80,17 +96,9 @@ function scan(root, days) {
               if (ran && subjectProblem(c.cmd, cfg)) add("commitSubject", "slips");
             }
           }
-        } else if (seg[0] === "gh" && seg[1] === "pr" && ["create", "edit"].includes(seg[2])) {
-          add("sessionLink", "applies");
-          if (ran && SESSION_RE.test(c.cmd)) add("sessionLink", "slips");
-          if (seg[2] === "create") {
-            add("pushVerify", "applies");
-            if (ran && !has(c.skills, VERIFY)) add("pushVerify", "slips");
-          }
-          if (prDescribes(seg)) {
-            add("prSkill", "applies");
-            if (ran && !has(c.skills, "pr")) add("prSkill", "slips");
-          }
+        } else if (seg[0] === "gh") {
+          const pr = ghPr(seg);
+          if (pr) countPr(pr, c);
         }
       }
     }
@@ -144,8 +152,10 @@ function scan(root, days) {
           if (x.type !== "tool_use") continue;
           if (x.name === "Skill") turn.skills.push(String(x.input?.skill ?? ""));
           if (EDITS.has(x.name)) turn.edited = true;
-          if (x.name === "Bash") {
-            const c = { cmd: String(x.input?.command ?? ""), skills: [...turn.skills], branch: o.gitBranch ?? turn.branch, denied: false };
+          const pr = mcpPr(x.name, x.input);
+          if (x.name === "Bash" || pr) {
+            const cmd = pr ? JSON.stringify(x.input ?? {}) : String(x.input?.command ?? "");
+            const c = { cmd, pr, skills: [...turn.skills], branch: o.gitBranch ?? turn.branch, denied: false };
             cmds.set(x.id, c);
             turn.cmds.push(c);
           }
