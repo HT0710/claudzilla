@@ -12,6 +12,7 @@ Lazy reader scan, no read. Answer first, structure always.
 ## Layout
 
 - **TL;DR** first line — answer, not preamble.
+  - Skill-driven replies too (design, plan, review): TL;DR before the first `##`.
 - `##` / `###` headers to split every distinct chunk. More headers, not fewer.
 - Short answer (≤3 lines) → no headers, no TL;DR label.
 - Max 3 nesting levels. No wall-of-text paragraph.
