@@ -18,6 +18,7 @@ check "firedRules: deny reason" [ "$(js 'm.firedRules("PreToolUse:Bash hook erro
 check "firedRules: joined reasons" [ "$(js 'm.firedRules(m.WHY.verify + " " + m.WHY.pr)')" = '["pushVerify","prSkill"]' ]
 check "firedRules: subject reason" [ "$(js 'm.firedRules("Commit subject is 52 chars; max 50 (git.md:19).")')" = '["commitSubject"]' ]
 check "firedRules: prompt trigger" [ "$(js 'm.firedRules(m.MSG.debug)')" = '["debugTrigger"]' ]
+check "firedRules: conditional nudge" [ "$(js 'm.firedRules(m.nudge("doneClaim"))')" = '["doneClaim"]' ]
 check "firedRules: previous-reply flags" [ "$(js 'm.firedRules("Previous reply broke: missing TL;DR; diagram box edge misaligned at line 3. Apply from this reply on.")')" = '["tldr","boxAlign"]' ]
 check "firedRules: unrelated text" [ "$(js 'm.firedRules("CAVEMAN MODE ACTIVE")')" = '[]' ]
 check "formatFlags: emoji" [ "$(js 'm.formatFlags("Shipped 🚀", {rules: m.DEFAULTS.rules, tldrMinLines: 15}).map(f => f[0])')" = '["emoji"]' ]

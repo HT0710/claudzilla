@@ -15,6 +15,13 @@ const MSG = {
   debugGate: "Debug turn: systematic-debugging stops at Phase 3 — propose the fix and wait for go unless the user asked for a direct edit.",
   doneClaim: "Claimed done without verification-before-completion. Invoke superpowers:verification-before-completion now and report its evidence.",
 };
+// Keyword and claim matches can't read intent; the model judges. MSG stays whole inside so firedRules counts old and new fires.
+const COND = {
+  debug: ["If the prompt reports a bug, test fail or unexpected behaviour:", "Otherwise ignore this reminder."],
+  debugGate: ["If this turn debugs a reported bug:", "Otherwise ignore this reminder."],
+  doneClaim: ["If this reply claims this turn's work done, fixed or passing:", "Otherwise end the turn with no further text."],
+};
+const nudge = (k, post = COND[k][1]) => `${COND[k][0]} ${MSG[k]} ${post}`;
 // Hook texts → rule ids, so rule-review can count fires from transcripts.
 const MSG_RULE = { debug: "debugTrigger", review: "reviewTrigger", debugGate: "debugGate", doneClaim: "doneClaim" };
 const FLAG = {
@@ -108,7 +115,7 @@ const hitter = (cfg, hits) => (id, why) => { if (why && cfg.rules[id] !== "off")
 
 // Mentions inside `code` or quotes are not claims or triggers.
 const unquote = (text) => text.replace(/`[^`\n]*`|"[^"\n]*"|“[^”\n]*”/g, "");
-const fresh = () => ({ skills: [], debug: false, debugNudged: false, edited: false, flags: [] });
+const fresh = () => ({ skills: [], debug: false, debugNudged: false, edited: false, flags: [], judged: "" });
 const statePath = (sid) => join(tmpdir(), "claudzilla-rules", `${String(sid).replace(/[^\w-]/g, "")}.json`);
 function load(sid) {
   try { return { ...fresh(), ...JSON.parse(readFileSync(statePath(sid), "utf8")) }; } catch { return fresh(); }
@@ -185,7 +192,7 @@ function onPrompt(d) {
   if (typed) s.skills.push(typed[1]);
   else if (!MACHINE_PROMPT.test(p)) {
     const bare = unquote(p);
-    if (cfg.rules.debugTrigger === "remind" && keywordRe(cfg.keywords.debug).test(bare)) { s.debug = true; lines.push(MSG.debug); }
+    if (cfg.rules.debugTrigger === "remind" && keywordRe(cfg.keywords.debug).test(bare)) { s.debug = true; lines.push(nudge("debug")); }
     if (cfg.rules.reviewTrigger === "remind" && keywordRe(cfg.keywords.review).test(bare)) lines.push(MSG.review);
   }
   if (lines.length) out("UserPromptSubmit", { additionalContext: lines.join("\n") });
@@ -464,7 +471,7 @@ function onPreTool(d) {
   const file = String(d.tool_input?.file_path ?? d.tool_input?.notebook_path ?? "");
   if (cfg.rules.specExclude === "on" && d.tool_name === "Write" && file.includes("/docs/superpowers/")) excludeSpecs(file);
   let ctx;
-  if (cfg.rules.debugGate === "remind" && s.debug && !s.debugNudged) { s.debugNudged = true; ctx = MSG.debugGate; }
+  if (cfg.rules.debugGate === "remind" && s.debug && !s.debugNudged) { s.debugNudged = true; ctx = nudge("debugGate"); }
   s.edited = true;
   if (ctx) out("PreToolUse", { additionalContext: ctx });
   save(d.session_id, s);
@@ -524,10 +531,14 @@ function onStop(d) {
   const { cfg } = loadConfig(d.cwd ?? process.cwd());
   const msg = String(d.last_assistant_message ?? "");
   const flags = formatFlags(msg, cfg).map(([, text]) => text);
-  const claim = cfg.rules.doneClaim !== "off" && s.edited && CLAIM_RE.test(proseOf(msg)) && !hasSkill(s, VERIFY);
+  // Text the model already judged in a continuation isn't a new claim.
+  const claim = cfg.rules.doneClaim !== "off" && s.edited && msg !== s.judged && CLAIM_RE.test(proseOf(msg)) && !hasSkill(s, VERIFY);
   // Continuing already → next-turn flag, so a claim the fix can't clear doesn't loop.
   if (claim && cfg.rules.doneClaim === "now" && !d.stop_hook_active) {
-    out("Stop", { additionalContext: [MSG.doneClaim, ...(flags.length ? [`Also fix: ${flags.join("; ")}.`] : [])].join(" ") });
+    const ctx = flags.length ? `${nudge("doneClaim", "Otherwise skip verification.")} Also fix: ${flags.join("; ")}.` : nudge("doneClaim");
+    out("Stop", { additionalContext: ctx });
+    s.judged = msg;
+    save(d.session_id, s);
     return;
   }
   if (claim) flags.unshift(FLAG.doneClaim);
@@ -551,5 +562,5 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
 
 export {
   CLAIM_RE, DEFAULTS, FLAG, MACHINE_PROMPT, MSG, SESSION_RE, VERIFY, WHY,
-  commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, gitParse, keywordRe, loadConfig, mcpPr, prDescribes, proseOf, subjectProblem, unquote,
+  commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, gitParse, keywordRe, loadConfig, mcpPr, nudge, prDescribes, proseOf, subjectProblem, unquote,
 };

@@ -31,6 +31,8 @@ state() { node -p "JSON.stringify(require('$STATE/$SID.json')$1)"; }
 new_session; out=$(hook UserPromptSubmit prompt="login is broken")
 check "prompt: bug word -> systematic-debugging" has "$out" "systematic-debugging"
 check "prompt: bug word sets debug" [ "$(state .debug)" = true ]
+check "prompt: debug nudge is conditional" has "$out" "If the prompt reports a bug"
+check "prompt: debug nudge names what to ignore" has "$out" "Otherwise ignore this reminder."
 new_session; out=$(hook UserPromptSubmit prompt="review all rules")
 check "prompt: plain review is silent" [ -z "$out" ]
 new_session; out=$(hook UserPromptSubmit prompt='peer said "login bug" earlier')
@@ -183,7 +185,9 @@ cd "$REPO"
 
 # --- PreToolUse: Edit / Write ---
 new_session; hook UserPromptSubmit prompt="tests fail on CI" >/dev/null
-check "edit: first edit in debug turn nudged" has "$(hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js)" "Phase 3"
+out=$(hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js)
+check "edit: first edit in debug turn nudged" has "$out" "Phase 3"
+check "edit: debug gate is conditional" has "$out" "If this turn debugs a reported bug"
 check "edit: second edit silent" [ -z "$(hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js)" ]
 check "edit: marks turn edited" [ "$(state .edited)" = true ]
 S=$(repo); spec="$S/docs/superpowers/specs/x.md"
@@ -200,11 +204,15 @@ stop() { hook Stop "last_assistant_message=$1"; }
 new_session; hook UserPromptSubmit prompt=go >/dev/null
 hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
 out=$(stop "Fixed the parser.")
-check "stop: done claim continues now" has "$out" '"hookEventName":"Stop","additionalContext":"Claimed done'
+check "stop: done claim continues now" has "$out" '"hookEventName":"Stop","additionalContext":"If this reply claims'
+check "stop: done claim says what to do otherwise" has "$out" "Otherwise end the turn"
 check "stop: done claim fixed now, not flagged" [ "$(state .flags.length)" = 0 ]
 out=$(stop "Fixed the parser 🚀")
 check "stop: other slips folded into continuation" has "$out" "decorative emoji"
+check "stop: slips still fixed when no claim" has "$out" "Otherwise skip verification. Also fix:"
 check "stop: folded slips not flagged" [ "$(state .flags.length)" = 0 ]
+hook Stop "last_assistant_message=Fixed the parser 🚀" stop_hook_active=true >/dev/null
+check "stop: judged text not re-flagged" [ "$(state '.flags.join().includes("verification")')" = false ]
 hook Stop "last_assistant_message=Fixed the parser." stop_hook_active=true >/dev/null
 check "stop: done claim on continuation flagged" has "$(state .flags)" "verification"
 out=$(hook UserPromptSubmit prompt=$'<task-notification>\nbug')
