@@ -52,10 +52,11 @@ check "fresh: nudge hook runs from install" run_nudge
 RS="$H/.claude/.claudzilla-rules.json"
 rule_ids() { node --input-type=module -e "import { DEFAULTS } from '$REPO/claude/hooks/rules-guard.mjs'; console.log(Object.keys(DEFAULTS.rules).sort().join(','))" </dev/null; }
 check "fresh: every rule stamped" [ "$(node -p "Object.keys(require('$RS')).sort().join(',')" 2>/dev/null)" = "$(rule_ids)" ]
-node -e 'const f=process.argv[1],s=require(f);s.tldr="2001-01-01T00:00:00.000Z";delete s.pushVerify;require("fs").writeFileSync(f,JSON.stringify(s))' "$RS" 2>/dev/null
+node -e 'const f=process.argv[1],s=require(f);s.tldr="2001-01-01T00:00:00.000Z";s.emoji=5;delete s.pushVerify;require("fs").writeFileSync(f,JSON.stringify(s))' "$RS" 2>/dev/null
 run_install "$H"
 check "rerun: rule date kept" [ "$(node -p "require('$RS').tldr" 2>/dev/null)" = 2001-01-01T00:00:00.000Z ]
 check "rerun: missing rule stamped" node -e 'process.exit(/^\d{4}-\d\d-\d\dT.*Z$/.test(require(process.argv[1]).pushVerify) ? 0 : 1)' "$RS"
+check "rerun: non-string stamp restamped" node -e 'process.exit(/^\d{4}-\d\d-\d\dT.*Z$/.test(require(process.argv[1]).emoji) ? 0 : 1)' "$RS"
 H3=$(new_home); mkdir -p "$H3/.claude/.claudzilla-rules.json"; run_install "$H3"; rc=$?
 check "stamp fail: install still exits 0" [ "$rc" -eq 0 ]
 check "stamp fail: warns" grep -q 'rule dates not saved' "$H3/install.log"

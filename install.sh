@@ -99,7 +99,7 @@ const { DEFAULTS } = await import(pathToFileURL(process.env.GUARD).href);
 let s = {};
 try { s = JSON.parse(readFileSync(process.env.STAMPS, "utf8")); } catch { /* first run */ }
 if (!s || typeof s !== "object" || Array.isArray(s)) s = {};
-const now = new Date().toISOString(), fresh = Object.keys(DEFAULTS.rules).filter((id) => !(id in s));
+const now = new Date().toISOString(), fresh = Object.keys(DEFAULTS.rules).filter((id) => typeof s[id] !== "string");
 for (const id of fresh) s[id] = now;
 if (fresh.length) writeFileSync(process.env.STAMPS, `${JSON.stringify(s, null, 2)}\n`);' </dev/null
 }
