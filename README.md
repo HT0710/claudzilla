@@ -79,7 +79,7 @@ Optional JSON files, applied in this order. Later files win; objects merge and a
 
 `reviewNudge` sits next to `allowMain`, not under `rules`: `false` turns off the weekly `/rule-review` summary at startup.
 
-`compactNudge` (tokens, `0` = off): past it, when a piece of work is done (or, at 4×, older context is clearly stale) and the next step won't need it, Claude adds a **Compact** section with the reason and a drafted `/compact <instructions>` to copy; wording strengthens at 2× and 4×.
+`compactNudge` (tokens, `0` = off): past it, when a piece of work is done (or, at 4×, older context is clearly stale) and the next step won't need it, Claude adds a **Compact** section with the reason and a drafted `/compact <instructions>` (or `/clear` when nothing carries over) to copy; wording strengthens at 2× and 4×.
 
 A bad file or value is skipped and named on your next prompt; unknown keys are ignored.
 
