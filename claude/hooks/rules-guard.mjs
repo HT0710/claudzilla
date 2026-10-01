@@ -10,20 +10,18 @@ import { fileURLToPath } from "node:url";
 const CONFIG_DIR = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
 const VERIFY = "verification-before-completion";
 const MSG = {
-  debug: "Auto: invoke superpowers:systematic-debugging; stop after Phase 3, fix on go.",
-  review: "Auto: invoke superpowers:receiving-code-review.",
+  debugTrigger: "Auto: invoke superpowers:systematic-debugging; stop after Phase 3, fix on go.",
+  reviewTrigger: "Auto: invoke superpowers:receiving-code-review.",
   debugGate: "Debug turn: systematic-debugging stops at Phase 3 — propose the fix and wait for go unless the user asked for a direct edit.",
   doneClaim: "Claimed done without verification-before-completion. Invoke superpowers:verification-before-completion now and report its evidence.",
 };
 // Keyword and claim matches can't read intent; the model judges. MSG stays whole inside so firedRules counts old and new fires.
 const COND = {
-  debug: ["If the prompt reports a bug, test fail or unexpected behaviour:", "Otherwise ignore this reminder."],
+  debugTrigger: ["If the prompt reports a bug, test fail or unexpected behaviour:", "Otherwise ignore this reminder."],
   debugGate: ["If this turn debugs a reported bug:", "Otherwise ignore this reminder."],
   doneClaim: ["If this reply claims this turn's work done, fixed or passing:", "Otherwise reply only: no claim."],
 };
 const nudge = (k, post = COND[k][1]) => `${COND[k][0]} ${MSG[k]} ${post}`;
-// Hook texts → rule ids, so rule-review can count fires from transcripts.
-const MSG_RULE = { debug: "debugTrigger", review: "reviewTrigger", debugGate: "debugGate", doneClaim: "doneClaim" };
 const FLAG = {
   doneClaim: "claimed done without verification-before-completion",
   tldr: "missing TL;DR",
@@ -200,8 +198,8 @@ function onPrompt(d) {
   if (typed) s.skills.push(typed[1]);
   else if (!MACHINE_PROMPT.test(p)) {
     const bare = unquote(p);
-    if (cfg.rules.debugTrigger === "remind" && keywordRe(cfg.keywords.debug).test(bare)) { s.debug = true; lines.push(nudge("debug")); }
-    if (cfg.rules.reviewTrigger === "remind" && keywordRe(cfg.keywords.review).test(bare)) lines.push(MSG.review);
+    if (cfg.rules.debugTrigger === "remind" && keywordRe(cfg.keywords.debug).test(bare)) { s.debug = true; lines.push(nudge("debugTrigger")); }
+    if (cfg.rules.reviewTrigger === "remind" && keywordRe(cfg.keywords.review).test(bare)) lines.push(MSG.reviewTrigger);
   }
   if (lines.length) out("UserPromptSubmit", { additionalContext: lines.join("\n") });
   save(d.session_id, s);
@@ -219,22 +217,21 @@ function onPostTool(d) {
 const SESSION_RE = /claude\.ai\/code\/session|Claude-Session:/;
 const HEREDOC_RE = /<<-?\s*['"]?(\w+)['"]?([^\n]*)\n([\s\S]*?)\n\s*\1\b/;
 const WHY = {
-  verify: "Run superpowers:verification-before-completion this turn before push/PR (superpowers.md Order). Then run its check (tests, build); only a command run after the skill counts.",
-  pr: "Opening or editing a PR: invoke the pr skill first (git.md:59).",
-  force: "Force push not allowed; use --force-with-lease only if the user asked (git.md:7).",
+  pushVerify: "Run superpowers:verification-before-completion this turn before push/PR (superpowers.md Order). Then run its check (tests, build); only a command run after the skill counts.",
+  prSkill: "Opening or editing a PR: invoke the pr skill first (git.md:59).",
+  forcePush: "Force push not allowed; use --force-with-lease only if the user asked (git.md:7).",
   discard: "Discards work. Ask the user; if approved they run `! <cmd>` (git.md:8).",
-  main: "Branch first: git switch -c <type>/<slug>. Solo repo that commits to main: set \"allowMain\": true in .claude/claudzilla.local.json (git.md:6).",
-  session: "No Claude session link (git.md:55).",
-  env: "`.env` staged; unstage it (git.md:21).",
-  worktree: "Worktree goes at ../<repo>-<slug> (git.md:27).",
+  mainCommit: "Branch first: git switch -c <type>/<slug>. Solo repo that commits to main: set \"allowMain\": true in .claude/claudzilla.local.json (git.md:6).",
+  sessionLink: "No Claude session link (git.md:55).",
+  envStaged: "`.env` staged; unstage it (git.md:21).",
+  worktreePath: "Worktree goes at ../<repo>-<slug> (git.md:27).",
 };
-const WHY_RULE = { verify: "pushVerify", pr: "prSkill", force: "forcePush", discard: "discard", main: "mainCommit", session: "sessionLink", env: "envStaged", worktree: "worktreePath" };
 function firedRules(text) {
   const ids = [];
   // First sentence, no "(file:line)" citation: fires survive later wording and citation edits.
   const head = (t) => t.split(/(?<=\.) /)[0].replace(/ \([^()]*\)\.$/, "");
-  for (const [k, id] of Object.entries(WHY_RULE)) if (text.includes(head(WHY[k]))) ids.push(id);
-  for (const [k, id] of Object.entries(MSG_RULE)) if (text.includes(head(MSG[k]))) ids.push(id);
+  // WHY and MSG are keyed by rule id, so rule-review can count fires from transcripts.
+  for (const [id, t] of Object.entries({ ...WHY, ...MSG })) if (text.includes(head(t))) ids.push(id);
   if (/Commit subject (?:must be|is \d+ chars)/.test(text)) ids.push("commitSubject");
   const prev = text.match(/Previous reply broke: (.*)\. Apply from this reply on\./);
   for (const f of prev ? prev[1].split("; ") : []) {
@@ -322,9 +319,9 @@ function stagedEnv(dir) {
 }
 
 function checkCommit(dir, cmd, hit, cfg, branch) {
-  hit("sessionLink", SESSION_RE.test(cmd) && WHY.session);
-  hit("mainCommit", !cfg.allowMain && ["main", "master"].includes(branch ?? git(dir, "symbolic-ref", "--short", "HEAD")) && WHY.main);
-  hit("envStaged", stagedEnv(dir) && WHY.env);
+  hit("sessionLink", SESSION_RE.test(cmd) && WHY.sessionLink);
+  hit("mainCommit", !cfg.allowMain && ["main", "master"].includes(branch ?? git(dir, "symbolic-ref", "--short", "HEAD")) && WHY.mainCommit);
+  hit("envStaged", stagedEnv(dir) && WHY.envStaged);
   hit("commitSubject", subjectProblem(cmd, cfg));
 }
 
@@ -406,8 +403,8 @@ function checkGit(t, cwd, cmd, s, hits, branches) {
   }
   switch (sub) {
     case "push":
-      hit("forcePush", forceFlag(a) && WHY.force);
-      return hit("pushVerify", !verified(s) && WHY.verify);
+      hit("forcePush", forceFlag(a) && WHY.forcePush);
+      return hit("pushVerify", !verified(s) && WHY.pushVerify);
     case "reset": return discard(a.includes("--hard"));
     case "clean": return discard(a.some((x) => x === "--force" || /^-[a-zA-Z]*f/.test(x)));
     case "checkout": return discard(a.some((x) => ["--", ".", "-f", "--force"].includes(x)));
@@ -415,7 +412,7 @@ function checkGit(t, cwd, cmd, s, hits, branches) {
     case "restore":
       return discard(!(a.some((x) => x === "--staged" || x === "-S") && !a.some((x) => x === "--worktree" || x === "-W")));
     case "stash": return discard(["drop", "clear"].includes(a[0]));
-    case "worktree": return hit("worktreePath", a[0] === "add" && insideRepo(dir, worktreePath(a.slice(1))) && WHY.worktree);
+    case "worktree": return hit("worktreePath", a[0] === "add" && insideRepo(dir, worktreePath(a.slice(1))) && WHY.worktreePath);
     case "commit": return checkCommit(dir, cmd, hit, cfg, branches.get(root())?.cur);
   }
 }
@@ -471,10 +468,10 @@ function mcpPr(tool, input) {
 
 function prGates({ op, describes }, cwd, text, s, hits) {
   const hit = hitter(loadConfig(cwd).cfg, hits);
-  hit("sessionLink", SESSION_RE.test(text) && WHY.session);
-  hit("pushVerify", op === "create" && !verified(s) && WHY.verify);
+  hit("sessionLink", SESSION_RE.test(text) && WHY.sessionLink);
+  hit("pushVerify", op === "create" && !verified(s) && WHY.pushVerify);
   // exact: a plugin's own `x:pr` skill is not ours
-  hit("prSkill", describes && !s.skills.includes("pr") && WHY.pr);
+  hit("prSkill", describes && !s.skills.includes("pr") && WHY.prSkill);
 }
 
 const SHELLS = new Set(["bash", "sh", "zsh"]);

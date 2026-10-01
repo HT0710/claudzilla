@@ -14,10 +14,10 @@ js() { node --input-type=module -e "import * as m from '$RG'; console.log(JSON.s
 
 # --- rules-guard exports ---
 check "import: does not run the hook" [ -z "$(echo '{"session_id":"x","hook_event_name":"UserPromptSubmit","prompt":"login is broken"}' | node --input-type=module -e "import '$RG'")" ]
-check "firedRules: deny reason" [ "$(js 'm.firedRules("PreToolUse:Bash hook error: " + m.WHY.verify)')" = '["pushVerify"]' ]
-check "firedRules: joined reasons" [ "$(js 'm.firedRules(m.WHY.verify + " " + m.WHY.pr)')" = '["pushVerify","prSkill"]' ]
+check "firedRules: deny reason" [ "$(js 'm.firedRules("PreToolUse:Bash hook error: " + m.WHY.pushVerify)')" = '["pushVerify"]' ]
+check "firedRules: joined reasons" [ "$(js 'm.firedRules(m.WHY.pushVerify + " " + m.WHY.prSkill)')" = '["pushVerify","prSkill"]' ]
 check "firedRules: subject reason" [ "$(js 'm.firedRules("Commit subject is 52 chars; max 50 (git.md:19).")')" = '["commitSubject"]' ]
-check "firedRules: prompt trigger" [ "$(js 'm.firedRules(m.MSG.debug)')" = '["debugTrigger"]' ]
+check "firedRules: prompt trigger" [ "$(js 'm.firedRules(m.MSG.debugTrigger)')" = '["debugTrigger"]' ]
 check "firedRules: conditional nudge" [ "$(js 'm.firedRules(m.nudge("doneClaim"))')" = '["doneClaim"]' ]
 check "firedRules: previous-reply flags" [ "$(js 'm.firedRules("Previous reply broke: missing TL;DR; diagram box edge misaligned at line 3. Apply from this reply on.")')" = '["tldr","boxAlign"]' ]
 check "firedRules: unrelated text" [ "$(js 'm.firedRules("CAVEMAN MODE ACTIVE")')" = '[]' ]
@@ -64,7 +64,7 @@ rule() { node -p "require('$TMP/r.json').rules.$1.$2"; }
 top() { node -p "JSON.stringify(require('$TMP/r.json').$1)"; }
 reset_proj() { rm -rf "$TMP/projects"; mkdir -p "$PROJ"; }
 # JSON string literals, ready to splice into session specs
-J_VERIFY=$(js 'm.WHY.verify'); J_DEBUG=$(js 'm.MSG.debug'); J_DONE=$(js 'm.MSG.doneClaim')
+J_VERIFY=$(js 'm.WHY.pushVerify'); J_DEBUG=$(js 'm.MSG.debugTrigger'); J_DONE=$(js 'm.MSG.doneClaim')
 # stamp [json]: every rule reached this machine in 2000, then apply overrides (null = drop the rule)
 SINCE="$CLAUDE_CONFIG_DIR/.claudzilla-rules.json"
 stamp() {
@@ -142,7 +142,7 @@ reset_proj; session a '[["user","go"],["bash","git commit -m \"fix: x\"",{denied
 check "hook fire under older wording still counted" [ "$(rule mainCommit hookFires)" = 1 ]
 reset_proj; session a '[["user","go"],["edit"],["stop","Claimed done without verification-before-completion. Invoke superpowers:verification-before-completion now and report its evidence, or retract the claim."]]'; scan
 check "stop fire under older wording still counted" [ "$(rule doneClaim hookFires)" = 1 ]
-check "firedRules: each hook text maps to one rule" [ "$(js '[...Object.values(m.WHY), ...Object.values(m.MSG), ...["debug", "debugGate", "doneClaim"].map((k) => m.nudge(k))].every((t) => m.firedRules(t).length === 1)')" = true ]
+check "firedRules: each hook text maps to one rule" [ "$(js '[...Object.values(m.WHY), ...Object.values(m.MSG), ...["debugTrigger", "debugGate", "doneClaim"].map((k) => m.nudge(k))].every((t) => m.firedRules(t).length === 1)')" = true ]
 reset_proj; session a '[["user","go"],["bash","cd ../other && git commit -m \"fix: x\"",{branch:"main"}],["bash","git -C ../other commit -m \"fix: y\"",{branch:"main"}]]'; scan
 check "commit after cd / -C: branch unknown, not counted" [ "$(rule mainCommit applies)$(rule mainCommit slips)" = 00 ]
 reset_proj; session a '[["user","go",{branch:"main"}],["bash","git switch -c fix/x && git commit -m \"fix: x\""],["bash","git checkout -b fix/y && git commit -m \"fix: y\""]]'; scan
