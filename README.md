@@ -1,6 +1,6 @@
 # claudzilla
 
-claudzilla makes [Claude Code](https://claude.com/claude-code) answer short, change only what the task needs, check its work before calling it done, and stay away from risky git. One command installs it into `~/.claude`.
+claudzilla sets up [Claude Code](https://claude.com/claude-code) to be terse, careful and guarded. One command installs it into `~/.claude`.
 
 - **Terse:** short, scannable answers with the answer first.
 - **Lazy code:** the smallest change that works. Investigate first, then verify before calling anything done.
