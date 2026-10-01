@@ -17,6 +17,7 @@ Lazy reader scan, no read. Answer first, structure always.
 - Short answer (≤3 lines) → no headers, no TL;DR label.
 - Max 3 nesting levels. No wall-of-text paragraph.
 - Table when 2+ items share fields (`what | where`, `option | tradeoff`).
+  - Fit the width the hook states (`keep each table within W cols`); wider → fewer columns, shorter cells, or bullets.
   - Cell = one line. No `<br>` or HTML — raw in logs and relays; `md-display.pl` patches only `<br>`, only on screen. Needs 2+ lines → split row or use bullets under table.
 - Actionable table (rows user may pick, apply or reject: findings, fixes, options) → first column `#`, restarts at 1 per table. Lookup tables: no `#`.
   - One Findings table. Fixes mirror Findings `#`; finding with no fix → skip that number.

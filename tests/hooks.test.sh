@@ -5,6 +5,7 @@ set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 export TMPDIR="$TMP" SID= CLAUDE_CONFIG_DIR="$TMP/cfg"
+unset COLUMNS   # width tests set it per call
 mkdir -p "$CLAUDE_CONFIG_DIR"
 pass=0 fail=0 n=0
 check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL: $name"; return 1; fi; }
@@ -267,6 +268,31 @@ new_session; hook UserPromptSubmit prompt=q >/dev/null; stop '| a | `x<br>y` |' 
 check "stop: <br> in code span ok" [ "$(state .flags.length)" = 0 ]
 stop '| a | "x<br>y" |' >/dev/null
 check "stop: quoted <br> ok" [ "$(state .flags.length)" = 0 ]
+# rendered width = widest cell per column + 3 per column + 1; budget = COLUMNS - 4
+new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop $'| aaaaaaaaaa | b |\n|---|---|\n| c | dddddddddd |' >/dev/null
+check "stop: table wider than terminal flagged" has "$(state .flags)" "table wider than terminal (27 > 20 cols)"
+new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop $'| **aaaa** | `bbbb` |\n|---|---|' >/dev/null
+check "stop: table within terminal ok (markup not counted)" [ "$(state .flags.length)" = 0 ]
+new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'| aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa | b |' >/dev/null
+check "stop: no COLUMNS, no width flag" [ "$(state .flags.length)" = 0 ]
+new_session; out=$(COLUMNS=100 hook UserPromptSubmit prompt=q)
+check "prompt: terminal width told" has "$out" "Terminal 100 cols: keep each table within 96 cols"
+check "prompt: width told every prompt (survives /compact)" has "$(COLUMNS=100 hook UserPromptSubmit prompt=q)" "Terminal 100 cols"
+check "prompt: no COLUMNS, no width line" [ -z "$(hook UserPromptSubmit prompt=q)" ]
+wide=$'| aaaaaaaaaa | b |\n|---|---|\n| c | dddddddddd |'
+for f in '```' '~~~'; do
+  new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop "$f"$'\n'"$wide"$'\n'"$f" >/dev/null
+  check "stop: table in $f fence not measured" [ "$(state .flags.length)" = 0 ]
+done
+new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop $'| just a long prose line that starts with a pipe |' >/dev/null
+check "stop: pipe line without separator row not a table" [ "$(state .flags.length)" = 0 ]
+new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=30 stop $'| a | b |\n|-----------------|---|\n| c | d | extra extra extra extra |' >/dev/null
+check "stop: separator and extra cells not measured" [ "$(state .flags.length)" = 0 ]
+new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop $'| [link](https://example.com/very/long/path) | b |\n|---|---|' >/dev/null
+check "stop: link URL not counted" [ "$(state .flags.length)" = 0 ]
+new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=28 stop $'| 一二三四五六七八九十 | b |\n|---|---|' >/dev/null
+check "stop: wide chars count 2 cols" has "$(state .flags)" "(30 > 24 cols)"
+new_session; hook UserPromptSubmit prompt=q >/dev/null
 hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
 stop 'Peer wrote "Fixed the probe." in its reply.' >/dev/null
 check "stop: quoted done claim ok" [ "$(state .flags.length)" = 0 ]
@@ -282,6 +308,11 @@ check "stop: misaligned box flagged" has "$(state .flags)" "line 3"
 mcfg() { printf '%s' "$1" > "$CLAUDE_CONFIG_DIR/claudzilla.json"; }
 rcfg() { mkdir -p "$1/.claude"; printf '%s' "$3" > "$1/.claude/claudzilla$2.json"; }
 reminded() { ! denied "$1" && has "$1" "Reminder: "; }
+mcfg '{"rulesGuard":{"rules":{"tableWidth":"off"}}}'
+new_session; check "config: tableWidth off, no width line" [ -z "$(COLUMNS=100 hook UserPromptSubmit prompt=q)" ]
+COLUMNS=24 stop $'| aaaaaaaaaa | bbbbbbbbbbbbbbb |' >/dev/null
+check "config: tableWidth off, no flag" [ "$(state .flags.length)" = 0 ]
+rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"
 C=$(repo); git -C "$C" switch -q -c feat/c; cd "$C"
 new_session; hook UserPromptSubmit prompt=go >/dev/null
 check "config: no files keeps push gate" denied "$(sh_ 'git push')"
