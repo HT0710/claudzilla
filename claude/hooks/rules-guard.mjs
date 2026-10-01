@@ -176,7 +176,7 @@ function compactMsg(tokens, t) {
     : [tokens >= 2 * t ? "suggest" : "optional", "completes a piece of work"];
   return `Context ${k} tokens, re-sent every turn. If this reply ${when}, and the next step (from your **Next:**, or nothing pending) won't need that older context: add this section right before **Next:**, or at the end when there is no **Next:**. Add it even on a short reply:
 ## Compact — ${label}
-- Why: **${k}** tokens re-sent every turn; <what finished or went stale; why the next step doesn't need the older context>.
+- **Why:** \`${k}\` tokens re-sent every turn; <what finished or went stale; why the next step doesn't need the older context>.
 
 \`/compact\` **Keep:** <only what exists nowhere but this conversation: decisions and why, preferences stated, open items, branch or uncommitted state, exact errors under debug; anything in a file → its path>. **Drop:** <finished detail>.
 

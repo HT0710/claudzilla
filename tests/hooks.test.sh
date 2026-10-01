@@ -68,7 +68,7 @@ cn() { new_session; hook UserPromptSubmit prompt=next "transcript_path=$1"; }
 check "compact: below threshold silent" [ -z "$(cn "$TX")" ]
 : > "$TX"; usage "$TX" 60000 100000; out=$(cn "$TX")
 check "compact: tier 1 optional" has "$out" '## Compact — optional'
-check "compact: bold size, plain Why" has "$out" "- Why: **~160k** tokens re-sent every turn"
+check "compact: bold Why, size as code" has "$out" "- **Why:** \`~160k\` tokens re-sent every turn"
 check "compact: own section before Next" has "$out" "right before **Next:**"
 check "compact: section heading" has "$out" "## Compact"
 check "compact: command highlighted, no block" has "$out" '`/compact` **Keep:**'
@@ -79,7 +79,6 @@ check "compact: clear when nothing carries over" has "$out" '`/clear` alone'
 check "compact: Drop bold" has "$out" "**Drop:** <finished detail>"
 check "compact: no fenced block" [ "$(grep -c '```' <<<"$out")" = 0 ]
 check "compact: copy rules outside template line" has "$out" "Rules: whole /compact line on one line; bold only Keep and Drop"
-check "compact: Why label not bold" [ "$(grep -c '\*\*Why' <<<"$out")" = 0 ]
 check "compact: next step from own Next" has "$out" "your **Next:**"
 check "compact: no Next still counts" has "$out" "at the end when there is no **Next:**"
 check "compact: heading on short replies" has "$out" "even on a short reply"
