@@ -257,6 +257,8 @@ check "stop: claim without edits ok" [ "$(state .flags.length)" = 0 ]
 long=$'## A\n'"$(printf 'x\n%.0s' {1..16})"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "$long" >/dev/null
 check "stop: missing TL;DR flagged" has "$(state .flags)" "TL;DR"
+new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "#$long" >/dev/null
+check "stop: missing TL;DR flagged under ### only" has "$(state .flags)" "TL;DR"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'**TL;DR** — x\n'"$long" >/dev/null
 check "stop: TL;DR present ok" [ "$(state .flags.length)" = 0 ]
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "Shipped 🚀" >/dev/null
