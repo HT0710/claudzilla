@@ -1,6 +1,6 @@
 # Response Format — scannable
 
-Lazy reader scan, no read. Answer first, structure always.
+Lazy reader scan, no read. Answer first, structure always. Every reply, coding or not.
 
 ## Order
 
