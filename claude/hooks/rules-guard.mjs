@@ -115,7 +115,7 @@ const hitter = (cfg, hits) => (id, why) => { if (why && cfg.rules[id] !== "off")
 
 // Mentions inside `code` or quotes are not claims or triggers.
 const unquote = (text) => text.replace(/`[^`\n]*`|"[^"\n]*"|“[^”\n]*”/g, "");
-const fresh = () => ({ skills: [], debug: false, debugNudged: false, edited: false, flags: [], judged: "" });
+const fresh = () => ({ skills: [], checked: false, debug: false, debugNudged: false, edited: false, flags: [], judged: "" });
 const statePath = (sid) => join(tmpdir(), "claudzilla-rules", `${String(sid).replace(/[^\w-]/g, "")}.json`);
 function load(sid) {
   try { return { ...fresh(), ...JSON.parse(readFileSync(statePath(sid), "utf8")) }; } catch { return fresh(); }
@@ -125,6 +125,8 @@ function save(sid, s) {
   writeFileSync(statePath(sid), JSON.stringify(s));
 }
 const hasSkill = (s, name) => s.skills.some((k) => k === name || k.endsWith(`:${name}`));
+// Invoking the skill is not verifying: a check command must run after it.
+const verified = (s) => hasSkill(s, VERIFY) && s.checked;
 const out = (event, fields) =>
   process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: event, ...fields } })}\n`);
 const deny = (reason) => out("PreToolUse", { permissionDecision: "deny", permissionDecisionReason: reason });
@@ -204,14 +206,16 @@ function onPrompt(d) {
 function onPostTool(d) {
   if (d.tool_name !== "Skill") return;
   const s = load(d.session_id);
-  s.skills.push(String(d.tool_input?.skill ?? ""));
+  const name = String(d.tool_input?.skill ?? "");
+  s.skills.push(name);
+  if (name === VERIFY || name.endsWith(`:${VERIFY}`)) s.checked = false;
   save(d.session_id, s);
 }
 
 const SESSION_RE = /claude\.ai\/code\/session|Claude-Session:/;
 const HEREDOC_RE = /<<-?\s*['"]?(\w+)['"]?([^\n]*)\n([\s\S]*?)\n\s*\1\b/;
 const WHY = {
-  verify: "Run superpowers:verification-before-completion this turn before push/PR (superpowers.md Order).",
+  verify: "Run superpowers:verification-before-completion this turn before push/PR (superpowers.md Order). Then run its check (tests, build); only a command run after the skill counts.",
   pr: "Opening or editing a PR: invoke the pr skill first (git.md:59).",
   force: "Force push not allowed; use --force-with-lease only if the user asked (git.md:7).",
   discard: "Discards work. Ask the user; if approved they run `! <cmd>` (git.md:8).",
@@ -224,7 +228,7 @@ const WHY_RULE = { verify: "pushVerify", pr: "prSkill", force: "forcePush", disc
 function firedRules(text) {
   const ids = [];
   // First sentence, no "(file:line)" citation: fires survive later wording and citation edits.
-  const head = (t) => t.replace(/ \([^()]*\)\.$/, "").split(/(?<=\.) /)[0];
+  const head = (t) => t.split(/(?<=\.) /)[0].replace(/ \([^()]*\)\.$/, "");
   for (const [k, id] of Object.entries(WHY_RULE)) if (text.includes(head(WHY[k]))) ids.push(id);
   for (const [k, id] of Object.entries(MSG_RULE)) if (text.includes(head(MSG[k]))) ids.push(id);
   if (/Commit subject (?:must be|is \d+ chars)/.test(text)) ids.push("commitSubject");
@@ -399,7 +403,7 @@ function checkGit(t, cwd, cmd, s, hits, branches) {
   switch (sub) {
     case "push":
       hit("forcePush", forceFlag(a) && WHY.force);
-      return hit("pushVerify", !hasSkill(s, VERIFY) && WHY.verify);
+      return hit("pushVerify", !verified(s) && WHY.verify);
     case "reset": return discard(a.includes("--hard"));
     case "clean": return discard(a.some((x) => x === "--force" || /^-[a-zA-Z]*f/.test(x)));
     case "checkout": return discard(a.some((x) => ["--", ".", "-f", "--force"].includes(x)));
@@ -464,7 +468,7 @@ function mcpPr(tool, input) {
 function prGates({ op, describes }, cwd, text, s, hits) {
   const hit = hitter(loadConfig(cwd).cfg, hits);
   hit("sessionLink", SESSION_RE.test(text) && WHY.session);
-  hit("pushVerify", op === "create" && !hasSkill(s, VERIFY) && WHY.verify);
+  hit("pushVerify", op === "create" && !verified(s) && WHY.verify);
   // exact: a plugin's own `x:pr` skill is not ours
   hit("prSkill", describes && !s.skills.includes("pr") && WHY.pr);
 }
@@ -493,13 +497,19 @@ function expand(cmd, depth = 0) {
   return all;
 }
 
+// Text plumbing (a heredoc body, a piped message) and cd run no check.
+const NOT_CHECK = new Set(["cat", "echo", "printf", "cd"]);
 function checkBash(cmd, cwd, s) {
-  const hits = [], branches = new Map();
+  const hits = [], branches = new Map(), was = s.checked;
   for (const t of expand(cmd)) {
     if (t[0] === "cd" && t[1]) { cwd = resolve(cwd, t[1]); continue; }
     if (t[0] === "git") checkGit(t, cwd, cmd, s, hits, branches);
     else if (t[0] === "gh") checkGh(t, cwd, cmd, s, hits);
+    // Any other command counts as the check, even earlier in this same command line.
+    else if (hasSkill(s, VERIFY) && !NOT_CHECK.has(t[0])) s.checked = true;
   }
+  // A denied command never ran, so neither did its check.
+  if (hits.some((h) => h.level === "deny")) s.checked = was;
   report(hits);
 }
 
@@ -523,7 +533,12 @@ function excludeSpecs(file) {
 
 function onPreTool(d) {
   const s = load(d.session_id);
-  if (d.tool_name === "Bash") return checkBash(String(d.tool_input?.command ?? ""), d.cwd ?? process.cwd(), s);
+  if (d.tool_name === "Bash") {
+    const was = s.checked;
+    checkBash(String(d.tool_input?.command ?? ""), d.cwd ?? process.cwd(), s);
+    if (s.checked !== was) save(d.session_id, s);
+    return;
+  }
   const pr = mcpPr(d.tool_name, d.tool_input);
   if (pr) {
     const hits = [];
