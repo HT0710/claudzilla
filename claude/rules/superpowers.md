@@ -41,6 +41,7 @@ Shape:
 - Skill asks for a long spec/plan → keep response-format.md (TL;DR, tables, no prose).
 - `code-reviewer.md` reviews (`requesting-code-review`, SDD final review) → fill its template prompt, dispatch to `caveman:cavecrew-reviewer` on opus; template Output Format wins, wording terse. `cavecrew-reviewer` not in agent list → `general-purpose` on opus.
   - Add a `### Complexity` section before Assessment: over-engineering only, one line each with `ponytail-review` tags (`delete:` `stdlib:` `native:` `yagni:` `shrink:`), ending `net: -<N> lines possible` or `Lean already.` User types `/ponytail-review` → run that skill as-is.
+- Code search across files (where is X, what calls Y, list uses of Z) → `caveman:cavecrew-investigator`, not `Explore` or inline grep/Read loops; one known file → read it. Repo has `.codegraph/` → CodeGraph first. Not in agent list → `Explore`.
 
 ## Order — sequence, not trigger
 
