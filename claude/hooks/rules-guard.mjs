@@ -623,7 +623,7 @@ function formatFlags(msg, cfg, cols = 0) {
   const on = (id) => cfg.rules[id] !== "off";
   const prose = proseOf(msg);
   const f = [];
-  if (on("tldr") && msg.split("\n").length > cfg.tldrMinLines && /^## /m.test(prose) && !/^\*\*TL;DR\*\*/m.test(prose)) f.push(["tldr", FLAG.tldr]);
+  if (on("tldr") && msg.split("\n").length > cfg.tldrMinLines && /^#{2,6} /m.test(prose) && !/^\*\*TL;DR\*\*/m.test(prose)) f.push(["tldr", FLAG.tldr]);
   if (on("emoji") && /\p{Emoji_Presentation}/u.test(prose)) f.push(["emoji", FLAG.emoji]);
   if (on("brInTable") && /^\|.*<br\s*\/?>/im.test(prose)) f.push(["brInTable", FLAG.brInTable]);
   const line = on("boxAlign") ? boxError(msg) : 0;
