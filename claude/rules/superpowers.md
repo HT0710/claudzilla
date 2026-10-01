@@ -2,7 +2,7 @@
 
 Tiers below override `using-superpowers` "invoke on 1% chance".
 Brevity governs output, not whether to invoke.
-Names below = `superpowers:<name>` in the Skill tool.
+Unprefixed names below = `superpowers:<name>` in the Skill tool; others carry their plugin prefix or say built-in.
 
 ## Auto — invoke without asking
 
@@ -12,17 +12,21 @@ Names below = `superpowers:<name>` in the Skill tool.
 | writing non-trivial code (branch, loop, parser, money/security) | `test-driven-development` — trivial one-liner exempt |
 | before saying done / fixed / passing | `verification-before-completion` — push / PR: see git.md Before push + Order |
 | review feedback received | `receiving-code-review` |
+| refactor, restructure or cleanup task | `caveman:safe-refactor` |
+| schema, data, API, config or dependency migration | `caveman:migration` |
+| "what's next", backlog question, repo has `ponytail:` markers | `ponytail:ponytail-debt` — alongside the memory backlog |
 
 ## Suggest — name in `Recommend:` or `Next:`, invoke on yes
 
 | trigger | skill |
 |---|---|
-| new feature, behaviour change, multi-file | `brainstorming` → `writing-plans` |
+| new feature, behaviour change, multi-file (not refactor / migration) | `brainstorming` → `writing-plans` |
 | plan exists, execute it | `executing-plans` / `subagent-driven-development` |
 | 2+ independent tasks | `dispatching-parallel-agents` |
 | isolated feature work | `using-git-worktrees` — location `../<repo>-<slug>` (git.md); never `.worktrees/` or a `.gitignore` commit |
 | work done outside SDD / executing-plans, before merge | `requesting-code-review` |
 | branch finished (outside the Order chain) | `finishing-a-development-branch` |
+| change at a trust boundary (auth, secrets, shell exec, input parsing), before PR | `security-review` (built-in) |
 
 Shape:
 - `Recommend:` line → add `Skill: <name> — <why, 1 line>` when one fits.
@@ -41,7 +45,7 @@ Shape:
 - Skill asks for a long spec/plan → keep response-format.md (TL;DR, tables, no prose).
 - `code-reviewer.md` reviews (`requesting-code-review`, SDD final review) → fill its template prompt, dispatch to `caveman:cavecrew-reviewer` on opus; template Output Format wins, wording terse. `cavecrew-reviewer` not in agent list → `general-purpose` on opus.
   - Add a `### Complexity` section before Assessment: over-engineering only, one line each with `ponytail-review` tags (`delete:` `stdlib:` `native:` `yagni:` `shrink:`), ending `net: -<N> lines possible` or `Lean already.` User types `/ponytail-review` → run that skill as-is.
-- Code search across files (where is X, what calls Y, list uses of Z) → `caveman:cavecrew-investigator`, not `Explore` or inline grep/Read loops; one known file → read it. Repo has `.codegraph/` → CodeGraph first. Not in agent list → `Explore`.
+- Code search needing more than one grep (unknown location, call paths, uses across modules) → `caveman:cavecrew-investigator`, not `Explore` or inline grep/Read loops; one grep or one known file → inline. Repo has `.codegraph/` → CodeGraph first. Not in agent list → `Explore`.
 
 ## Order — sequence, not trigger
 
