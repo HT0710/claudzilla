@@ -40,6 +40,7 @@ Shape:
 - Skill asks one question at a time → batch into one `AskUserQuestion` when possible.
 - Skill asks for a long spec/plan → keep response-format.md (TL;DR, tables, no prose).
 - `code-reviewer.md` reviews (`requesting-code-review`, SDD final review) → fill its template prompt, dispatch to `caveman:cavecrew-reviewer` on opus; template Output Format wins, wording terse. `cavecrew-reviewer` not in agent list → `general-purpose` on opus.
+  - Add a `### Complexity` section before Assessment: over-engineering only, one line each with `ponytail-review` tags (`delete:` `stdlib:` `native:` `yagni:` `shrink:`), ending `net: -<N> lines possible` or `Lean already.` User types `/ponytail-review` → run that skill as-is.
 
 ## Order — sequence, not trigger
 
