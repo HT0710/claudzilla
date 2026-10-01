@@ -3,11 +3,11 @@
 // Fails open: a guardrail, not security.
 import { execFileSync } from "node:child_process";
 import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getClaudeConfigDir } from "../hud/lib/config-dir.mjs";
 
+const CONFIG_DIR = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
 const VERIFY = "verification-before-completion";
 const MSG = {
   debug: "Auto: invoke superpowers:systematic-debugging; stop after Phase 3, fix on go.",
@@ -87,7 +87,7 @@ function applyLayer(cfg, rg, file, warnings) {
 
 function loadConfig(dir) {
   const cfg = structuredClone(DEFAULTS), warnings = [];
-  const files = [join(getClaudeConfigDir(), "claudzilla.json")];
+  const files = [join(CONFIG_DIR, "claudzilla.json")];
   const top = dir ? git(dir, "rev-parse", "--show-toplevel") : "";
   if (top) files.push(join(top, ".claude", "claudzilla.json"), join(top, ".claude", "claudzilla.local.json"));
   for (const f of files) {
@@ -478,11 +478,6 @@ function prGates({ op, describes }, cwd, text, s, hits) {
   hit("prSkill", describes && !s.skills.includes("pr") && WHY.pr);
 }
 
-function checkGh(t, cwd, cmd, s, hits) {
-  const pr = ghPr(t, cwd, cmd);
-  if (pr) prGates(pr, cwd, cmd, s, hits);
-}
-
 const SHELLS = new Set(["bash", "sh", "zsh"]);
 const KEYWORDS = new Set(["if", "then", "elif", "else", "while", "until", "do", "!", "{", "time"]);
 // ponytail: wrapper args aren't parsed; the segment is cut at the first command we check, so `sudo echo git push` over-matches.
@@ -509,7 +504,7 @@ function checkBash(cmd, cwd, s) {
   for (const t of expand(cmd)) {
     if (t[0] === "cd" && t[1]) { cwd = resolve(cwd, t[1]); continue; }
     if (t[0] === "git") checkGit(t, cwd, cmd, s, hits, branches);
-    else if (t[0] === "gh") checkGh(t, cwd, cmd, s, hits);
+    else if (t[0] === "gh") { const pr = ghPr(t, cwd, cmd); if (pr) prGates(pr, cwd, cmd, s, hits); }
     // Any other command counts as the check, even earlier in this same command line.
     else if (hasSkill(s, VERIFY) && !NOT_CHECK.has(t[0])) s.checked = true;
   }
@@ -677,6 +672,6 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
 }
 
 export {
-  CLAIM_RE, DEFAULTS, FLAG, MACHINE_PROMPT, MSG, SESSION_RE, VERIFY, WHY,
-  commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, gitParse, keywordRe, loadConfig, mcpPr, nudge, prDescribes, proseOf, subjectProblem, unquote,
+  CLAIM_RE, CONFIG_DIR, DEFAULTS, MACHINE_PROMPT, MSG, SESSION_RE, VERIFY, WHY,
+  commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, git, gitParse, keywordRe, loadConfig, mcpPr, nudge, prDescribes, proseOf, subjectProblem, unquote,
 };
