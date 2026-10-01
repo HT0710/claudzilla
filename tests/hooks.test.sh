@@ -120,7 +120,22 @@ new_session; hook UserPromptSubmit prompt=ship >/dev/null
 check "push: no verification -> deny" denied "$(sh_ 'git push')"
 check "gh pr create: no verification -> deny" denied "$(sh_ 'gh pr create --fill')"
 hook PostToolUse tool_name=Skill tool_input.skill=superpowers:verification-before-completion >/dev/null
+NOCHECK="only a command run after the skill counts"
+out=$(sh_ 'git push -u origin feat/x')
+check "push: verify skill, no check after -> deny" denied "$out"
+check "push: deny asks for a check after the skill" has "$out" "$NOCHECK"
+check "push: git command is not a check" has "$(sh_ 'git status && git push')" "$NOCHECK"
+check "push: check after push in same command -> deny" denied "$(sh_ 'git push && npm test')"
+check "push: denied command's check not counted" has "$(sh_ 'git push')" "$NOCHECK"
+check "push: cd is not a check" has "$(sh_ 'cd && git push')" "$NOCHECK"
+check "push: heredoc commit message is not a check" has "$(sh_ $'git commit -m "$(cat <<\'EOF\'\nfix: x\nEOF\n)" && git push')" "$NOCHECK"
+check "gh pr create: heredoc body is not a check" has "$(sh_ $'gh pr create --title t --body "$(cat <<\'EOF\'\nbody\nEOF\n)"')" "$NOCHECK"
+check "push: piped text is not a check" has "$(sh_ 'echo x | git push')" "$NOCHECK"
+check "push: check before push in same command -> allowed" [ -z "$(sh_ 'npm test && git push')" ]
 check "push: verified -> allowed" [ -z "$(sh_ 'git push -u origin feat/x')" ]
+hook PostToolUse tool_name=Skill tool_input.skill=superpowers:verification-before-completion >/dev/null
+check "push: re-invoked verify needs a new check" denied "$(sh_ 'git push')"
+sh_ 'npm test' >/dev/null
 out=$(sh_ 'gh pr create --fill')
 check "gh pr create: no pr skill -> deny" denied "$out"
 check "gh pr create: deny names pr skill" has "$out" "invoke the pr skill"
@@ -182,6 +197,7 @@ check "mcp create PR: no pr skill -> deny" has "$out" "invoke the pr skill"
 check "mcp update PR: session link -> deny" has "$(mcp update_pull_request tool_input.pullNumber=1 'tool_input.body=see claude.ai/code/session_x')" "No Claude session link"
 check "mcp update PR: state only allowed" [ -z "$(mcp update_pull_request tool_input.pullNumber=1 tool_input.state=closed)" ]
 hook PostToolUse tool_name=Skill tool_input.skill=superpowers:verification-before-completion >/dev/null
+sh_ 'npm test' >/dev/null
 hook PostToolUse tool_name=Skill tool_input.skill=x:pr >/dev/null
 check "gh pr create: plugin x:pr is not the pr skill" denied "$(sh_ 'gh pr create --fill')"
 hook PostToolUse tool_name=Skill tool_input.skill=pr >/dev/null
@@ -331,6 +347,7 @@ check "config: inherited key names keep gates" denied "$(sh_ 'git push --force')
 mcfg '{"rulesGuard":{"rules":{"forcePush":"remind"}}}'
 check "config: remind does not hide later deny" denied "$(sh_ 'git push --force; git reset --hard')"
 hook PostToolUse tool_name=Skill tool_input.skill=superpowers:verification-before-completion >/dev/null
+sh_ 'npm test' >/dev/null
 check "config: remind alone still reminds" reminded "$(sh_ 'git push -f')"
 rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"
 new_session; check "config: default keywords skip unrelated suffixes" [ -z "$(hook UserPromptSubmit prompt='exceptional work, add failover, bugfix release')" ]
