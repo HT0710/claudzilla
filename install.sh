@@ -11,7 +11,6 @@ DEST="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 NODE_MAJOR="${NODE_MAJOR:-24}"
 OFFLINE="${CLAUDZILLA_OFFLINE:-0}"   # 1 = skip node/rtk/plugins (tests)
 LINKS="CLAUDE.md RTK.md rules themes hud hooks/claudzilla-update.sh hooks/rules-guard.mjs hooks/md-display.pl skills/pr skills/rule-review"
-GONE=".omc/hud-config.json"   # links claudzilla stopped shipping
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" 2>/dev/null && pwd || pwd)"
 BACKUP="$DEST/.claudzilla-backup/$(date +%Y%m%d-%H%M%S)"
@@ -43,13 +42,12 @@ link() {  # $DEST/$1 -> $REPO/claude/$1
 # machine adds on its own (extra hooks, env, plugins) survive every re-run.
 # Entries are compared with keys sorted: Claude Code rewrites settings.json.
 # .claudzilla-base.json records the last base applied, so entries claudzilla
-# stops shipping get removed; without it, hook entries whose every command
-# runs a claudzilla hook script are. Repeated copies of a base entry collapse.
+# stops shipping get removed. Repeated copies of a base entry collapse.
 # settings.overrides.json (machine-local, never in the repo) wins over both.
 merge_settings() {
   local dst="$DEST/settings.json" tmp="$DEST/.settings.json.claudzilla" rec="$DEST/.claudzilla-base.json"
   node -e '
-const fs=require("fs"),[base,dst,out,over,rec,hookDir]=process.argv.slice(1);
+const fs=require("fs"),[base,dst,out,over,rec]=process.argv.slice(1);
 const read=p=>fs.existsSync(p)?JSON.parse(fs.readFileSync(p,"utf8")):{};
 const isObj=v=>v&&typeof v=="object"&&!Array.isArray(v);
 const canon=v=>JSON.stringify(v,(k,x)=>isObj(x)?Object.fromEntries(Object.keys(x).sort().map(k=>[k,x[k]])):x);
@@ -68,18 +66,10 @@ const prune=(mine,old,repo)=>{
       o[k]=prune(o[k],old[k],r[k])}
     return o}
   return mine};
-const files=fs.existsSync(hookDir)?fs.readdirSync(hookDir):[];
-const ours=e=>{const hs=e&&e.hooks||[];return hs.length>0&&hs.every(h=>typeof(h&&h.command)=="string"&&files.some(f=>h.command.includes("hooks/"+f)))};
-const bootstrap=(mine,repo)=>{
-  if(!isObj(mine.hooks))return mine;
-  const o={...mine,hooks:{...mine.hooks}},rh=isObj(repo.hooks)?repo.hooks:{};
-  for(const e in o.hooks){if(!Array.isArray(o.hooks[e]))continue;const keep=new Set((rh[e]||[]).map(canon));
-    o.hooks[e]=o.hooks[e].filter(x=>keep.has(canon(x))||!ours(x))}
-  return o};
 let old=null;try{old=JSON.parse(fs.readFileSync(rec,"utf8"))}catch{}
 const b=read(base),d=read(dst);
-fs.writeFileSync(out,JSON.stringify(merge(merge(old?prune(d,old,b):bootstrap(d,b),b),read(over)),null,2)+"\n")' \
-    "$REPO/settings.base.json" "$dst" "$tmp" "$DEST/settings.overrides.json" "$rec" "$REPO/claude/hooks"
+fs.writeFileSync(out,JSON.stringify(merge(merge(old?prune(d,old,b):d,b),read(over)),null,2)+"\n")' \
+    "$REPO/settings.base.json" "$dst" "$tmp" "$DEST/settings.overrides.json" "$rec"
   if [ -f "$dst" ] && cmp -s "$tmp" "$dst"; then rm -f "$tmp"
   else
     [ -f "$dst" ] && save settings.json
@@ -144,10 +134,6 @@ main() {
   [ "$OFFLINE" = 1 ] || deps
   command -v node >/dev/null || { echo "claudzilla: node is required" >&2; exit 1; }
   for f in $LINKS; do link "$f"; done
-  for f in $GONE; do  # only our own stale links; parent dir too once empty
-    [ "$(readlink "$DEST/$f" 2>/dev/null || true)" = "$REPO/claude/$f" ] || continue
-    rm "$DEST/$f"; rmdir "$(dirname "$DEST/$f")" 2>/dev/null || true
-  done
   [ -e "$DEST/CLAUDE.local.md" ] || : > "$DEST/CLAUDE.local.md"
   merge_settings
   stamp_rules || echo "claudzilla: rule dates not saved - /rule-review skips undated rules until the next install" >&2
