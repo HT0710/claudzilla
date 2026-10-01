@@ -103,14 +103,13 @@ function loadConfig(dir) {
   return { cfg, warnings };
 }
 
-const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // Plurals and tenses only, so "fail" doesn't catch "failover".
 // A keyword starting with a symbol (".env") has no \\b before it; require no word char instead.
 // "without broken", "never crashes", "not a bug": negated mentions aren't reports. Same line only;
 // "no" left out: "no it crashes", "no error shown" are reports.
 const NEGATED = String.raw`(?<!\b(?:without|not|never)[ \t]+(?:(?:a|an|any|the|more)[ \t]+)?)`;
 const keywordRe = (list) =>
-  new RegExp(`${NEGATED}(?:${list.map((k) => (/^\w/.test(k) ? "\\b" : "(?<!\\w)") + escRe(k)).join("|")})(?:s|es|ed|ing|ure)?(?!\\w)`, "i");
+  new RegExp(`${NEGATED}(?:${list.map((k) => (/^\w/.test(k) ? "\\b" : "(?<!\\w)") + RegExp.escape(k)).join("|")})(?:s|es|ed|ing|ure)?(?!\\w)`, "i");
 // Records {why, level} for each rule that fires and isn't "off".
 const hitter = (cfg, hits) => (id, why) => { if (why && cfg.rules[id] !== "off") hits.push({ why, level: cfg.rules[id] }); };
 
