@@ -43,7 +43,7 @@ Propose options → always end with ONE recommendation.
 | B | retry | +1 dep |
 
 **Recommend: A**
-- Why: retry not needed, calls idempotent (`api/client.go:30` — single PUT).
+- **Why:** retry not needed, calls idempotent (`api/client.go:30` — single PUT).
 ```
 
 ## Diagrams
