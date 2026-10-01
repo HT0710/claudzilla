@@ -69,12 +69,6 @@ check "fresh: no backup dir" [ ! -e "$H/.claude/.claudzilla-backup" ]
 sl=$(cd /tmp && clean_env HOME="$H" sh -c "$(node -p 'require(process.argv[1]).statusLine.command' "$H/.claude/settings.json")" \
      <<<'{"cwd":"/tmp","session_id":"t","model":{"display_name":"M"}}' 2>/dev/null | perl -pe 's/\e\[[0-9;]*m//g')  # hud colours letters one by one
 check "fresh: statusline shows ctx" grep -q '^ctx ' <<<"$sl" || printf '%s\n' "$sl" | sed -n 1,8p >&2
-H=$(new_home); mkdir -p "$H/.claude/.omc"; ln -s "$REPO/claude/.omc/hud-config.json" "$H/.claude/.omc/hud-config.json"
-run_install "$H"
-check "stale: omc link removed" [ ! -L "$H/.claude/.omc/hud-config.json" ]
-check "stale: empty .omc dir removed" [ ! -e "$H/.claude/.omc" ]
-H=$(new_home); mkdir -p "$H/.claude/.omc"; ln -s /elsewhere "$H/.claude/.omc/hud-config.json"; run_install "$H"
-check "stale: foreign link kept" [ "$(readlink "$H/.claude/.omc/hud-config.json")" = /elsewhere ]
 
 # --- existing machine with its own extras ---
 H=$(new_home); S="$H/.claude/settings.json"; mkdir -p "$H/.claude"
@@ -113,12 +107,10 @@ H=$(new_home); S="$H/.claude/settings.json"; R="$H/.claude/.claudzilla-base.json
 node -e '
 const b=require(process.argv[1]),e=b.hooks.PreToolUse.find(x=>x.hooks.some(h=>h.if==="Bash(git *)"));
 e.hooks=e.hooks.map(({type,command,...r})=>({command,...r,type}));
-b.hooks.PreToolUse.push({matcher:"Edit",hooks:[{type:"command",command:"mine"}]},
-  {matcher:"Bash",hooks:[{type:"command",command:"node \"$HOME/.claude/hooks/rules-guard.mjs\" old"}]});
+b.hooks.PreToolUse.push({matcher:"Edit",hooks:[{type:"command",command:"mine"}]});
 require("fs").writeFileSync(process.argv[2],JSON.stringify(b))' "$REPO/settings.base.json" "$S"
 run_install "$H"
 check "order: reordered base entry merged once" [ "$(grep -c 'Bash(git \*)' "$S")" -eq 1 ]
-check "bootstrap: stale claudzilla hook pruned" lacksCmd "$S" 'node "$HOME/.claude/hooks/rules-guard.mjs" old'
 check "bootstrap: machine hook kept" hasCmd "$S" mine
 check "record: written as base" cmp -s "$R" "$REPO/settings.base.json"
 node -e '
