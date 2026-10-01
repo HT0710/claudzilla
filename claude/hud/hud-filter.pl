@@ -110,7 +110,6 @@ sub meter_line {
 }
 my $dim = sub { "\e[2m$_[0]\e[0m" };
 # meter titles: muted lilac - clear of the teal profile and the blue->orange ramp
-my $lbl = sub { "\e[38;2;163;150;210m$_[0]\e[0m" };
 
 # per-session phase offset so concurrent sessions animate out of step
 my $OFF = 0; $OFF = ($OFF * 31 + ord) % 3600 for split //, ($id // '');
@@ -259,7 +258,7 @@ push @out, rule(3, sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]]));
 
 # activity: model, skill, thinking; uptime flush right
 {   # same treatment as the identity row, measured on the rendered strings
-    my $mo = defined $model ? $model : undef;
+    my $mo = $model;
     $mo .= "\e[38;2;127;182;217m\e[2m  $EFFORT\e[0m" if defined $mo && $EFFORT;
     my @L = ( [$mo,       sub { "\e[38;2;127;182;217m$_[0]\e[0m" }],
               [$skill,    sub { "\e[38;2;147;180;224m\x{2691} $_[0]\e[0m" }],

@@ -5,10 +5,9 @@ import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getClaudeConfigDir } from "../../hud/lib/config-dir.mjs";
 import {
-  CLAIM_RE, DEFAULTS, MACHINE_PROMPT, SESSION_RE, VERIFY,
-  commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, gitParse, keywordRe, loadConfig, mcpPr, proseOf, subjectProblem, unquote,
+  CLAIM_RE, CONFIG_DIR, DEFAULTS, MACHINE_PROMPT, SESSION_RE, VERIFY,
+  commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, git, gitParse, keywordRe, loadConfig, mcpPr, proseOf, subjectProblem, unquote,
 } from "../../hooks/rules-guard.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -56,7 +55,7 @@ function scan(root, days) {
   const rules = Object.fromEntries(RULES.map((id) => [id, { applies: 0, slips: 0, hookFires: 0, falseFires: 0 }]));
   // When each rule reached this machine (install.sh); a turn before that can't slip it.
   let arrived = {};
-  try { arrived = JSON.parse(readFileSync(join(getClaudeConfigDir(), ".claudzilla-rules.json"), "utf8")) ?? {}; } catch { /* not stamped: count nothing */ }
+  try { arrived = JSON.parse(readFileSync(join(CONFIG_DIR, ".claudzilla-rules.json"), "utf8")) ?? {}; } catch { /* not stamped: count nothing */ }
   let at = "";
   const add = (id, key) => {
     if ((key === "applies" || key === "slips") && !(typeof arrived[id] === "string" && at >= arrived[id])) return;
@@ -67,11 +66,7 @@ function scan(root, days) {
   const allow = new Map();
   const allowsMain = (cwd) => {
     if (!cwd) return false;
-    if (!allow.has(cwd)) {
-      let v = false;
-      try { v = loadConfig(cwd).cfg.allowMain === true; } catch { /* unreadable: default */ }
-      allow.set(cwd, v);
-    }
+    if (!allow.has(cwd)) allow.set(cwd, loadConfig(cwd).cfg.allowMain === true);
     return allow.get(cwd);
   };
 
@@ -212,8 +207,7 @@ function scan(root, days) {
     }
   }
   const day = (ms) => new Date(ms).toISOString().slice(0, 10);
-  let claudzilla = "unknown";
-  try { claudzilla = execFileSync("git", ["-C", REPO, "rev-parse", "--short", "HEAD"], { encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { /* not a checkout */ }
+  const claudzilla = git(REPO, "rev-parse", "--short", "HEAD") || "unknown";
   return { schema: SCHEMA, claudzilla, window: { from: day(since), to: day(Date.now()) }, sessions, turns, unparsed, rules };
 }
 
@@ -221,8 +215,8 @@ const args = process.argv.slice(2);
 const opt = (name, dflt) => { const i = args.indexOf(name); return i === -1 ? dflt : args[i + 1]; };
 const days = Number(opt("--days", "14"));
 if (!Number.isInteger(days) || days < 1) fail("--days needs a positive integer");
-const root = opt("--dir", join(getClaudeConfigDir(), "projects"));
-const REPORTS = join(getClaudeConfigDir(), "claudzilla-reports");
+const root = opt("--dir", join(CONFIG_DIR, "projects"));
+const REPORTS = join(CONFIG_DIR, "claudzilla-reports");
 const saved = () => (existsSync(REPORTS) ? readdirSync(REPORTS).filter((f) => /^\d{4}-\d\d-\d\d\.json$/.test(f)).sort() : []);
 const readReport = (f) => JSON.parse(readFileSync(join(REPORTS, f), "utf8"));
 // Last report the user has seen (via /rule-review or a nudge).
@@ -261,9 +255,7 @@ async function nudge() {
     for await (const chunk of process.stdin) raw += chunk;
     cwd = JSON.parse(raw).cwd;
   } catch { /* no payload: machine config only */ }
-  try {
-    if (loadConfig(cwd).cfg.reviewNudge === false) return;
-  } catch { return; }
+  if (loadConfig(cwd).cfg.reviewNudge === false) return;
   let name, r = null;
   try { name = saved().at(-1); } catch { return; }
   try { r = name ? readReport(name) : null; } catch { /* unreadable: say nothing */ }
@@ -292,8 +284,7 @@ async function nudge() {
   }
 }
 function repoSlug() {
-  let url = "";
-  try { url = execFileSync("git", ["-C", REPO, "remote", "get-url", "origin"], { encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { /* no origin */ }
+  const url = git(REPO, "remote", "get-url", "origin");
   const m = url.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
   if (!m) fail(`origin is not a GitHub repo: ${url || "none"}`);
   return m[1];
