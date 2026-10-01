@@ -68,6 +68,17 @@ sub pad {                       # left, right -> line padded to $W
     my $gap = $W - vis($l) - vis($r); $gap = 1 if $gap < 1;
     return $l . "\e[2m" . ($fill x $gap) . "\e[0m" . $r;
 }
+sub fits { my ($l,$r) = @_; return vis($l) + vis($r) + ($r ne '' ? 2 : 0) <= $W }
+sub paint {                     # [char, r, g, b] cells -> string, colour code only where it changes
+    my ($out,$prev) = ('','');
+    for (@_) {
+        my ($ch,@c) = @$_;
+        my $seq = "\e[38;2;" . join(';', map { int($_ + 0.5) } @c) . "m";
+        $out .= ($seq eq $prev ? '' : $seq) . $ch;
+        $prev = $seq;
+    }
+    return $out . "\e[0m";
+}
 my $WID = 10;   # highlight half-width in cells
 my @A = (0x0e,0x20,0x42); my @B = (0xa8,0xd6,0xff);   # blue ramp, dark -> bright
 my @O = (0xff,0xaa,0x5a);                             # ...then warm over the last 30% of the track
@@ -93,7 +104,7 @@ sub meter_line {
     my $fc = [map { int($_+0.5) } @{ ramp($x) }];
     push @cell, [$_, $fc] for split //, sprintf(' %3d%%  ', $pct);
     push @cell, [$_, [64,71,80]] for split //, sprintf("%*s", $tw, $note);    # note
-    my ($out,$prev) = ('','');
+    my @px;
     for my $i (0 .. $#cell) {
         my ($ch,$c,$w) = @{$cell[$i]};
         $w //= 0.55;                                                          # text glows a touch less than fill
@@ -101,12 +112,9 @@ sub meter_line {
         my $g = 0;
         for my $h (@hs) { my $v = glow($i - $h, $WID, 1.6); $g = $v if $v > $g }
         @c = map { $c[$_] + (255 - $c[$_]) * ($g * $w) } 0..2 if $g > 0;
-        @c = map { int($_ + 0.5) } @c;
-        my $seq = "\e[38;2;$c[0];$c[1];$c[2]m";
-        $out .= ($seq eq $prev ? '' : $seq) . $ch;
-        $prev = $seq;
+        push @px, [$ch, @c];
     }
-    return $out . "\e[0m";
+    return paint(@px);
 }
 my $dim = sub { "\e[2m$_[0]\e[0m" };
 # meter titles: muted lilac - clear of the teal profile and the blue->orange ramp
@@ -146,7 +154,7 @@ sub cwd_str {
         my $r = $p ne '' ? "\e[38;2;95;158;168m$p\e[0m" : '';
         return ($l, $r);
     };
-    my $fits = sub { my ($l,$r) = $build->(); return vis($l) + vis($r) + ($r ne '' ? 2 : 0) <= $W };
+    my $fits = sub { fits($build->()) };
     if (!$fits->()) { $p =~ s/\@.*// }                       # profile: local part only
     if (!$fits->()) { $p = '' }                              # ...then drop it
     for my $i (2,1,0) { last if $fits->(); $opt[$i][0] = undef }   # churn, dirty, branch
@@ -227,7 +235,7 @@ sub rule {
     $label //= '';
     my @hs = map { int($_ + 0.5) } heads($r);    # snap so exactly one cell is the head
     my $start = int(($W - length($label)) / 2);
-    my ($out,$prev) = ('','');
+    my @px;
     for my $i (0 .. $W-1) {
         my $g = 0;
         for my $h (@hs) { my $v = glow($i - $h, $CWID, 2); $g = $v if $v > $g }
@@ -238,13 +246,9 @@ sub rule {
             @b  = $ch eq ' ' ? (13,18,24) : (141,166,194);  # inset clock / date
             $w  = $ch eq ' ' ? 0 : 0.9;
         }
-        my @c = $g > 0 ? (map { $b[$_] + ([255,236,200]->[$_] - $b[$_]) * ($g*$w) } 0..2) : @b;
-        @c = map { int($_ + 0.5) } @c;
-        my $seq = "\e[38;2;$c[0];$c[1];$c[2]m";
-        $out .= ($seq eq $prev ? '' : $seq) . $ch;
-        $prev = $seq;
+        push @px, [$ch, $g > 0 ? (map { $b[$_] + ([255,236,200]->[$_] - $b[$_]) * ($g*$w) } 0..2) : @b];
     }
-    return $out . "\e[0m";
+    return paint(@px);
 }
 my @lt = localtime;
 push @out, rule(-1, sprintf(' %02d:%02d ', @lt[2,1]));
@@ -271,7 +275,7 @@ push @out, rule(3, sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]]));
         return (join($j, map { $_->[1]->($_->[0]) } grep { $_->[0] } @L),
                 join($j, map { $_->[1]->($_->[0]) } grep { $_->[0] } @R));
     };
-    my $fits = sub { my ($l,$r) = $build->(); return vis($l) + vis($r) + ($r ne '' ? 2 : 0) <= $W };
+    my $fits = sub { fits($build->()) };
     for my $i (2,1) { last if $fits->(); $L[$i][0] = undef }     # thinking, skill
     for my $i (1,0) { last if $fits->(); $R[$i][0] = undef }      # session id, then name
     $L[0][0] = undef unless $fits->();                            # model, last resort
