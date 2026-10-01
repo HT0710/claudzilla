@@ -273,7 +273,7 @@ new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop $'| aaaa
 check "stop: table wider than terminal flagged" has "$(state .flags)" "table wider than terminal (27 > 20 cols)"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop $'| **aaaa** | `bbbb` |\n|---|---|' >/dev/null
 check "stop: table within terminal ok (markup not counted)" [ "$(state .flags.length)" = 0 ]
-new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'| aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa | b |' >/dev/null
+new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'| aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa | b |\n|---|---|' >/dev/null
 check "stop: no COLUMNS, no width flag" [ "$(state .flags.length)" = 0 ]
 new_session; out=$(COLUMNS=100 hook UserPromptSubmit prompt=q)
 check "prompt: terminal width told" has "$out" "Terminal 100 cols: keep each table within 96 cols"
@@ -292,6 +292,14 @@ new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop $'| [lin
 check "stop: link URL not counted" [ "$(state .flags.length)" = 0 ]
 new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=28 stop $'| 一二三四五六七八九十 | b |\n|---|---|' >/dev/null
 check "stop: wide chars count 2 cols" has "$(state .flags)" "(30 > 24 cols)"
+new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=28 stop $'| ひらがなひらがなひら | b |\n|---|---|' >/dev/null
+check "stop: kana count 2 cols" has "$(state .flags)" "(30 > 24 cols)"
+new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop $'| *unverified* | b |\n|---|---|' >/dev/null
+check "stop: *italic* markers not counted" [ "$(state .flags.length)" = 0 ]
+new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop $'| 👨‍👩‍👧👨‍👩‍👧👨‍👩‍👧 | b |\n|---|---|' >/dev/null
+check "stop: joined emoji count 2 cols each" bash -c "! grep -q 'table wider' <<<'$(state .flags)'"
+new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop '```'$'\n''```js'$'\n'"$wide"$'\n''```' >/dev/null
+check "stop: fence line with info string does not close" [ "$(state .flags.length)" = 0 ]
 new_session; hook UserPromptSubmit prompt=q >/dev/null
 hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
 stop 'Peer wrote "Fixed the probe." in its reply.' >/dev/null
@@ -310,7 +318,7 @@ rcfg() { mkdir -p "$1/.claude"; printf '%s' "$3" > "$1/.claude/claudzilla$2.json
 reminded() { ! denied "$1" && has "$1" "Reminder: "; }
 mcfg '{"rulesGuard":{"rules":{"tableWidth":"off"}}}'
 new_session; check "config: tableWidth off, no width line" [ -z "$(COLUMNS=100 hook UserPromptSubmit prompt=q)" ]
-COLUMNS=24 stop $'| aaaaaaaaaa | bbbbbbbbbbbbbbb |' >/dev/null
+COLUMNS=24 stop $'| aaaaaaaaaa | bbbbbbbbbbbbbbb |\n|---|---|' >/dev/null
 check "config: tableWidth off, no flag" [ "$(state .flags.length)" = 0 ]
 rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"
 C=$(repo); git -C "$C" switch -q -c feat/c; cd "$C"
