@@ -201,8 +201,8 @@ reset_proj; session a '[["user","ship"],["bash","git push"]]'
 node "$SCAN" --dir "$TMP/projects" --save > "$TMP/s.json"
 check "save: first run previous null" [ "$(node -p "require('$TMP/s.json').previous")" = null ]
 check "save: file written" [ "$(ls "$REPORTS" | wc -l | tr -d ' ')" = 1 ]
-echo '{"schema":2,"window":{"from":"2000-01-01","to":"2000-01-15"},"rules":{"pushVerify":{"applies":9,"slips":9,"hookFires":0,"falseFires":0}}}' > "$REPORTS/2000-01-15.json"
-echo '{"schema":2,"window":{"from":"2000-01-01","to":"2000-01-31"},"rules":{"pushVerify":{"applies":7,"slips":7,"hookFires":0,"falseFires":0}}}' > "$REPORTS/2000-01-31.json"
+echo '{"schema":3,"window":{"from":"2000-01-01","to":"2000-01-15"},"rules":{"pushVerify":{"applies":9,"slips":9,"hookFires":0,"falseFires":0}}}' > "$REPORTS/2000-01-15.json"
+echo '{"schema":3,"window":{"from":"2000-01-01","to":"2000-01-31"},"rules":{"pushVerify":{"applies":7,"slips":7,"hookFires":0,"falseFires":0}}}' > "$REPORTS/2000-01-31.json"
 node "$SCAN" --dir "$TMP/projects" --save > "$TMP/s.json"
 check "save: previous is older report, same window" [ "$(node -p "require('$TMP/s.json').previous.rules.pushVerify.slips")" = 9 ]
 echo '{"schema":1,"window":{"from":"2000-01-02","to":"2000-01-16"},"rules":{"pushVerify":{"applies":5,"slips":5,"hookFires":0,"falseFires":0}}}' > "$REPORTS/2000-01-16.json"
@@ -213,7 +213,7 @@ rm -f "$REPORTS/2000-01-15.json" "$REPORTS/2000-01-31.json"
 issue=$(node "$SCAN" --issue)
 check "issue: title line" grep -q '^rule-report ' <<<"$(head -1 <<<"$issue")"
 check "issue: table row" grep -q '^| pushVerify | 1 | 1 |' <<<"$issue"
-check "issue: json on one line" grep -q '^{"schema":2,' <<<"$issue"
+check "issue: json on one line" grep -q '^{"schema":3,' <<<"$issue"
 check "issue: json drops zero rules" bash -c "! grep '^{\"schema\"' <<<'$issue' | grep -q envStaged"
 check "issue: json collapsed" grep -q '^<details>' <<<"$issue"
 brief=$(node "$SCAN" --issue --brief)
@@ -260,7 +260,7 @@ old=$(node -p 'new Date(Date.now() - 10 * 864e5).toISOString().slice(0,10)')
 # report <date> <tldr slips> <pushVerify slips> [schema]: fixture report, 14-day window, 3 sessions
 report() {
   mkdir -p "$REPORTS"
-  printf '{"schema":%s,"claudzilla":"t","window":{"from":"2026-09-01","to":"2026-09-15"},"sessions":3,"turns":9,"unparsed":0,"rules":{"tldr":{"applies":9,"slips":%s,"hookFires":0,"falseFires":0},"pushVerify":{"applies":2,"slips":%s,"hookFires":0,"falseFires":0}}}\n' "${4:-2}" "$2" "$3" > "$REPORTS/$1.json"
+  printf '{"schema":%s,"claudzilla":"t","window":{"from":"2026-09-01","to":"2026-09-15"},"sessions":3,"turns":9,"unparsed":0,"rules":{"tldr":{"applies":9,"slips":%s,"hookFires":0,"falseFires":0},"pushVerify":{"applies":2,"slips":%s,"hookFires":0,"falseFires":0}}}\n' "${4:-3}" "$2" "$3" > "$REPORTS/$1.json"
 }
 nudge() { local p=${1:-'{}'}; printf '%s' "$p" | node "$SCAN" --nudge; }   # bash 3.2 keeps the backslash in "${1:-{\}}"
 # background scan finished = today's report exists

@@ -12,7 +12,7 @@ import {
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 // Bump when counting changes, so the nudge refreshes instead of showing old counts.
-const SCHEMA = 2;
+const SCHEMA = 3;
 const RULES = Object.keys(DEFAULTS.rules);
 const FORMAT = ["tldr", "emoji", "brInTable", "boxAlign"];
 const EDITS = new Set(["Edit", "Write", "NotebookEdit"]);
