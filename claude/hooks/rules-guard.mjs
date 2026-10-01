@@ -600,9 +600,12 @@ function boxError(msg) {
 // Claude Code passes the terminal width to hooks as COLUMNS; there is no tty to ask.
 const termCols = () => { const c = Number(process.env.COLUMNS); return Number.isInteger(c) && c > 20 ? c : 0; };
 const TABLE_MARGIN = 4;
-// Display width: CJK and emoji take 2 cells; link URLs and **, `, ~~ markup don't render.
-const cellWidth = (c) => Array.from(c.trim().replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\*\*|`|~~/g, "").replace(/\\\|/g, "|"))
-  .reduce((a, ch) => a + (/[\p{Ideographic}\p{Emoji_Presentation}가-힣＀-｠]/u.test(ch) ? 2 : 1), 0);
+// Display width per grapheme: CJK, kana and emoji take 2 cells; link URLs and *, _, **, `, ~~ markup don't render.
+const WIDE = /\p{Emoji_Presentation}|\uFE0F|\p{Ideographic}|\p{Script=Hiragana}|\p{Script=Katakana}|[\u3000-\u303F\uAC00-\uD7A3\uFF00-\uFF60]/u;
+const GRAPHEMES = new Intl.Segmenter();
+const cellWidth = (c) => [...GRAPHEMES.segment(c.trim().replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\*\*|`|~~/g, "")
+  .replace(/(^|[^\w*])([*_])(?=\S)(.+?)(?<=\S)\2(?![\w*])/g, "$1$3").replace(/\\\|/g, "|"))]
+  .reduce((a, { segment }) => a + (WIDE.test(segment) ? 2 : 1), 0);
 // Widest rendered table outside code fences: widest cell per header column (min 3) + 3 per column + 1.
 function tableWidth(msg) {
   let widest = 0, fence = "", rows = [];
@@ -616,7 +619,8 @@ function tableWidth(msg) {
   };
   for (const l of [...msg.split("\n"), ""]) {
     const f = l.match(/^\s*(`{3,}|~{3,})/)?.[1];
-    if (fence) { if (f && f[0] === fence[0] && f.length >= fence.length) fence = ""; continue; }
+    // A closing fence carries no info string.
+    if (fence) { if (f && f[0] === fence[0] && f.length >= fence.length && /^\s*[`~]+\s*$/.test(l)) fence = ""; continue; }
     if (f) { flush(); fence = f; continue; }
     if (/^\s*\|/.test(l)) rows.push(l.trim().replace(/^\||(?<!\\)\|$/g, "").split(/(?<!\\)\|/));
     else flush();
