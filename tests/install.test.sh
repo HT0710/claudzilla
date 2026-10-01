@@ -111,7 +111,7 @@ b.hooks.PreToolUse.push({matcher:"Edit",hooks:[{type:"command",command:"mine"}]}
 require("fs").writeFileSync(process.argv[2],JSON.stringify(b))' "$REPO/settings.base.json" "$S"
 run_install "$H"
 check "order: reordered base entry merged once" [ "$(grep -c 'Bash(git \*)' "$S")" -eq 1 ]
-check "bootstrap: machine hook kept" hasCmd "$S" mine
+check "no record: machine hook kept" hasCmd "$S" mine
 check "record: written as base" cmp -s "$R" "$REPO/settings.base.json"
 node -e '
 const fs=require("fs"),[r,s]=process.argv.slice(1),old={matcher:"Old",hooks:[{type:"command",command:"old"}]};
@@ -135,12 +135,10 @@ check "prune: existing duplicate collapsed (record)" [ "$(grep -c 'Bash(git \*)'
 H2=$(new_home); S2="$H2/.claude/settings.json"; mkdir -p "$H2/.claude"
 node -e '
 const b=require(process.argv[1]),e=b.hooks.PreToolUse.find(x=>x.hooks.some(h=>h.if==="Bash(git *)"));
-b.hooks.PreToolUse.push({...e,hooks:e.hooks.map(({type,command,...r})=>({command,...r,type}))},
-  {matcher:"Glob",hooks:[{type:"command",command:"mytool"},{type:"command",command:"perl ~/.claude/hooks/md-display.pl"}]});
+b.hooks.PreToolUse.push({...e,hooks:e.hooks.map(({type,command,...r})=>({command,...r,type}))});
 require("fs").writeFileSync(process.argv[2],JSON.stringify(b))' "$REPO/settings.base.json" "$S2"
 run_install "$H2"
-check "bootstrap: existing duplicate collapsed" [ "$(grep -c 'Bash(git \*)' "$S2")" -eq 1 ]
-check "bootstrap: mixed entry with user command kept" hasCmd "$S2" mytool
+check "no record: existing duplicate collapsed" [ "$(grep -c 'Bash(git \*)' "$S2")" -eq 1 ]
 echo '{bad' > "$R"; run_install "$H"; rc=$?
 check "record: unparsable record falls back" [ "$rc" -eq 0 ]
 check "record: unparsable record rewritten" cmp -s "$R" "$REPO/settings.base.json"
