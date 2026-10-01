@@ -75,9 +75,11 @@ Optional JSON files, applied in this order. Later files win; objects merge and a
 | triggers: `debugTrigger` `reviewTrigger` `debugGate` | `remind` `off` |
 | `doneClaim` | `now` `flag` `off` |
 | `specExclude` | `on` `off` |
-| format: `tldr` `emoji` `brInTable` `boxAlign` | `flag` `off` |
+| format: `tldr` `emoji` `brInTable` `boxAlign` `tableWidth` | `flag` `off` |
 
 `reviewNudge` sits next to `allowMain`, not under `rules`: `false` turns off the weekly `/rule-review` summary at startup.
+
+`tableWidth`: each prompt tells Claude the terminal width (`COLUMNS`, which Claude Code passes to hooks), and a reply whose table renders wider gets flagged.
 
 `compactNudge` (tokens, `0` = off): past it, when a piece of work is done (or, at 4×, older context is clearly stale) and the next step won't need it, Claude adds a **Compact** section with the reason and a drafted `/compact <instructions>` (or `/clear` when nothing carries over) to copy; wording strengthens at 2× and 4×.
 

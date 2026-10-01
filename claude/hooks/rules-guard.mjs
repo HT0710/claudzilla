@@ -30,6 +30,7 @@ const FLAG = {
   emoji: "decorative emoji",
   brInTable: "<br> in table cell",
   boxAlign: "diagram box edge misaligned",
+  tableWidth: "table wider than terminal",
 };
 // Task notifications and peer-session messages arrive as prompts; their words are not the user's.
 const MACHINE_PROMPT = /^(?:<task-notification>|Another Claude session sent a message:|\[Cross-session)/;
@@ -41,7 +42,7 @@ const LEVELS = {
   commitSubject: GATE, sessionLink: GATE, envStaged: GATE, worktreePath: GATE,
   debugTrigger: ["remind", "off"], reviewTrigger: ["remind", "off"], debugGate: ["remind", "off"],
   specExclude: ["on", "off"],
-  doneClaim: ["now", "flag", "off"], tldr: ["flag", "off"], emoji: ["flag", "off"], brInTable: ["flag", "off"], boxAlign: ["flag", "off"],
+  doneClaim: ["now", "flag", "off"], tldr: ["flag", "off"], emoji: ["flag", "off"], brInTable: ["flag", "off"], boxAlign: ["flag", "off"], tableWidth: ["flag", "off"],
 };
 const DEFAULTS = {
   rules: Object.fromEntries(Object.entries(LEVELS).map(([id, l]) => [id, l[0]])),
@@ -192,6 +193,10 @@ function onPrompt(d) {
   const p = String(d.prompt ?? "").trimStart();
   const compact = !MACHINE_PROMPT.test(p) && compactMsg(contextTokens(d.transcript_path), cfg.compactNudge);
   if (compact) lines.push(compact);
+  // Every prompt: a one-time line would not survive /compact, and resizes need no tracking.
+  const cols = termCols();
+  if (cfg.rules.tableWidth !== "off" && cols)
+    lines.push(`Terminal ${cols} cols: keep each table within ${cols - TABLE_MARGIN} cols; wider → fewer columns, shorter cells, or bullets.`);
   const typed = p.match(/^\/([\w:-]+)/);
   if (typed) s.skills.push(typed[1]);
   else if (!MACHINE_PROMPT.test(p)) {
@@ -592,8 +597,34 @@ function boxError(msg) {
   return 0;
 }
 
+// Claude Code passes the terminal width to hooks as COLUMNS; there is no tty to ask.
+const termCols = () => { const c = Number(process.env.COLUMNS); return Number.isInteger(c) && c > 20 ? c : 0; };
+const TABLE_MARGIN = 4;
+// Display width: CJK and emoji take 2 cells; link URLs and **, `, ~~ markup don't render.
+const cellWidth = (c) => Array.from(c.trim().replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\*\*|`|~~/g, "").replace(/\\\|/g, "|"))
+  .reduce((a, ch) => a + (/[\p{Ideographic}\p{Emoji_Presentation}가-힣＀-｠]/u.test(ch) ? 2 : 1), 0);
+// Widest rendered table outside code fences: widest cell per header column (min 3) + 3 per column + 1.
+function tableWidth(msg) {
+  let widest = 0, fence = "", rows = [];
+  const flush = () => {
+    if (rows.length > 1 && rows[1].every((c) => /^\s*:?-+:?\s*$/.test(c))) {
+      const cols = rows[0].map(() => 3);
+      for (const r of [rows[0], ...rows.slice(2)]) cols.forEach((w, i) => { cols[i] = Math.max(w, cellWidth(r[i] ?? "")); });
+      widest = Math.max(widest, cols.reduce((a, w) => a + w + 3, 1));
+    }
+    rows = [];
+  };
+  for (const l of [...msg.split("\n"), ""]) {
+    const f = l.match(/^\s*(`{3,}|~{3,})/)?.[1];
+    if (fence) { if (f && f[0] === fence[0] && f.length >= fence.length) fence = ""; continue; }
+    if (f) { flush(); fence = f; continue; }
+    if (/^\s*\|/.test(l)) rows.push(l.trim().replace(/^\||(?<!\\)\|$/g, "").split(/(?<!\\)\|/));
+    else flush();
+  }
+  return widest;
+}
 const proseOf = (msg) => unquote(msg.replace(/```[\s\S]*?```/g, ""));
-function formatFlags(msg, cfg) {
+function formatFlags(msg, cfg, cols = 0) {
   const on = (id) => cfg.rules[id] !== "off";
   const prose = proseOf(msg);
   const f = [];
@@ -602,6 +633,8 @@ function formatFlags(msg, cfg) {
   if (on("brInTable") && /^\|.*<br\s*\/?>/im.test(prose)) f.push(["brInTable", FLAG.brInTable]);
   const line = on("boxAlign") ? boxError(msg) : 0;
   if (line) f.push(["boxAlign", `${FLAG.boxAlign} at line ${line}`]);
+  const w = on("tableWidth") && cols ? tableWidth(msg) : 0;
+  if (w && w > cols - TABLE_MARGIN) f.push(["tableWidth", `${FLAG.tableWidth} (${w} > ${cols - TABLE_MARGIN} cols)`]);
   return f;
 }
 
@@ -609,7 +642,7 @@ function onStop(d) {
   const s = load(d.session_id);
   const { cfg } = loadConfig(d.cwd ?? process.cwd());
   const msg = String(d.last_assistant_message ?? "");
-  const flags = formatFlags(msg, cfg).map(([, text]) => text);
+  const flags = formatFlags(msg, cfg, termCols()).map(([, text]) => text);
   // Text the model already judged in a continuation isn't a new claim.
   const claim = cfg.rules.doneClaim !== "off" && s.edited && msg !== s.judged && CLAIM_RE.test(proseOf(msg)) && !hasSkill(s, VERIFY);
   // Continuing already → next-turn flag, so a claim the fix can't clear doesn't loop.
