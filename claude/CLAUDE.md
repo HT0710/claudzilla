@@ -52,7 +52,7 @@ Non-trivial service/API change → integration or e2e run locally before "works"
 
 1. **Impact / Scope** — Fixing: what breaks, who's affected. Implementing: the goal, affected areas, constraints, existing patterns to reuse.
 2. **Analysis** — Fixing → **Root Cause**: trace by layer (UI, query, business logic, write path, sync — adapt to the stack) to where the fault originates, then **5 WHY** to the true root, not a symptom. Implementing → **Approach**: how it slots into the current design, trickle-down effects, what could go wrong.
-   Both: list hard constraints (contract, spec, physics) vs inherited assumptions — challenge the assumptions; name any feedback loop the change touches (retry, cache, hook, metric).
+   Both: list hard constraints (contract, spec, physics) vs inherited assumptions; mark each assumption checked (`file:line` / command) or unverified. Name feedback loops the change touches (retry, cache, hook, metric); none → say none.
    Before calling something a bug → check it isn't deliberate (comment, commit msg, config, or caller explaining why).
 3. **Solution** — options with tradeoffs when they exist, then ONE recommendation per `response-format.md` Decisions (recommend + why with inline source). Single option if only one is sensible.
 
