@@ -10,23 +10,24 @@ my $in = <STDIN> // '';
 my ($mid) = $in =~ /"message_id"\s*:\s*"([\w-]+)"/;
 my $dir = ($ENV{TMPDIR} || '/tmp') . '/claudzilla-rules';
 my $sf = $mid && "$dir/md-$mid";
-exit 0 unless $in =~ /<br|TL;DR|---|```|~~~/ || ($sf && -e $sf);
+exit 0 unless $in =~ /<br|TL;DR|---|```|~~~/i || ($sf && -e $sf);
 my $d = eval { decode_json($in) } or exit 0;
 my $t = $d->{delta} // '';
 
-# Per-message state across batches: o = frame open, c = closer drawn, f = in code fence, p = separator due after line end.
+# Per-message state across batches: o = frame open, c = closer drawn, f/t = in ``` / ~~~ fence, p = separator due after line end.
 my %s;
 if ($sf && open my $fh, '<', $sf) { %s = map { $_ => 1 } split //, <$fh> // ''; }
 my $w = ($ENV{COLUMNS} // 0) > 20 ? $ENV{COLUMNS} - 4 : 76;
 my ($heavy, $sep, $group) = ('━' x $w, '─' x int($w / 2), '┈' x int($w / 4));
 
 my $o = '';
-# ponytail: markers match only at a line start inside one batch; a batch split inside `**Next:**` skips that line. Carry the partial line in state if misses show up.
+# ponytail: each batch is read as starting a line, so a batch split mid-line can miss a marker (`**Next:**`) or misread `---`/fences;
+# fence length is ignored and a setext `---` underline shows as a group line. Carry the partial line in state if misses show up.
 for (split /^/m, $t) {
-  if (/^\s*(```|~~~)/) { $s{f} = !$s{f}; }
-  elsif ($s{f}) { }
+  if (/^\s*(```|~~~)/) { my $k = $1 eq '```' ? 'f' : 't'; $s{$k} = !$s{$k} if $s{$k} || !($s{f} || $s{t}); }
+  elsif ($s{f} || $s{t}) { }
   elsif (/^\|/) { s{<br\s*/?>}{ · }gi; }
-  elsif (/^\*\*TL;DR\*\*/ && !$s{o}) { $_ = "$heavy\n\n$_"; @s{qw(o p)} = (1, 1); }
+  elsif (/^\*\*TL;DR\*\*/ && $sf && !$s{o}) { $_ = "$heavy\n\n$_"; @s{qw(o p)} = (1, 1); }
   elsif (/^\*\*(Picks|Next):\*\*/ && $s{o} && !$s{c}) { $_ = "\n$sep\n\n$_"; $s{c} = 1; }
   elsif (/^\s*-{3,}\s*$/) { $_ = "\n$group\n\n"; }
   if ($s{p} && /\n\z/) { $_ .= "\n$sep\n\n"; $s{p} = 0; }
@@ -35,7 +36,7 @@ for (split /^/m, $t) {
 $o .= ($o =~ /\n\z/ ? "\n" : "\n\n") . "$heavy\n" if $d->{final} && $s{o};
 
 if ($sf) {
-  my $keep = join '', grep { $s{$_} } qw(o c f p);
+  my $keep = join '', grep { $s{$_} } qw(o c f t p);
   if ($d->{final} || !$keep) { unlink $sf; }
   else { mkdir $dir; if (open my $fh, '>', $sf) { print $fh $keep; } }
 }

@@ -518,6 +518,11 @@ out=$(mdm e 1 $'t\n## H\n')
 check "frame: separator after split TL;DR line ends" sub "$out" $'t\n\n'"$S"
 out=$(mdm f 0 $'**TL;DR** x\n'; mdm f 1 $'**Picks:** 1A\n**Next:** go\n')
 check "frame: one separator above Picks, none above Next" [ "$(grep -o "$S" <<<"$out" | wc -l)" -eq 2 ]
+check "md: upper-case <BR> in table row replaced" sub "$(mdm g 1 $'| a<BR>b |\n')" 'a · b'
+mdm h 0 $'```\n~~~\n' >/dev/null
+check "frame: tilde line inside backtick fence does not close it" [ -z "$(mdm h 0 $'---\n')" ]
+check "frame: matching fence closes it" sub "$(mdm h 1 $'```\n---\n')" "$G"
+check "frame: no message_id, no frame" [ -z "$(md $'**TL;DR** x\n')" ]
 check "frame: state removed after final" bash -c "! ls '$TMP'/claudzilla-rules/md-* 2>/dev/null"
 
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
