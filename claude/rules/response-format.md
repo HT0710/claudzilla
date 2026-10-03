@@ -14,7 +14,7 @@ Lazy reader scan, no read. Answer first, structure always. Every reply, coding o
 - **TL;DR** first line — answer, not preamble.
   - Skill-driven replies too (design, plan, review): TL;DR before the first heading.
 - `##` / `###` headers to split every distinct chunk. More headers, not fewer.
-- 4+ `##` sections → `---` between groups of related sections, blank line before it. Fewer → none.
+- `---` where content group changes, groups in order: found (evidence, cause, findings) → choose (decisions, options, drafts) → do (plan, checks, state). Group by content, not count: 6 decisions = one group. One group → none. Blank line before it.
 - Short answer (≤3 lines) → no headers, no TL;DR label.
 - Max 3 nesting levels. No wall-of-text paragraph.
 - Table when 2+ items share fields (`what | where`, `option | tradeoff`).
