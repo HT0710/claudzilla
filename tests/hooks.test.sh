@@ -493,5 +493,31 @@ check "md: <br> in table row replaced" has "$out" 'b · c'
 check "md: <br> outside table kept" has "$out" 'text<br>'
 check "md: plain batch silent" [ -z "$(md $'hello\n')" ]
 check "md: bad json silent" bash -c "[ -z \"\$(echo '<br' | perl '$MD')\" ]"
+# mdm <message_id> <final 0|1> <delta>: displayContent only; COLUMNS=24 → frame 20, separator 10, group break 5
+mdm() {
+  node -e 'const [id, f, d] = process.argv.slice(1); console.log(JSON.stringify({ hook_event_name: "MessageDisplay", message_id: id, final: f === "1", delta: d }))' "$@" |
+    COLUMNS=24 perl "$MD" | node -e 'let s = ""; process.stdin.on("data", (c) => s += c).on("end", () => process.stdout.write(s ? JSON.parse(s).hookSpecificOutput.displayContent : ""))'
+}
+# grep -F splits a multi-line pattern into lines; match the whole string
+sub() { [[ $1 == *"$2"* ]]; }
+H=$(printf '━%.0s' {1..20}) S=$(printf '─%.0s' {1..10}) G=$(printf '┈%.0s' {1..5})
+out=$(mdm a 0 $'**TL;DR** x\n\n## H\n')
+check "frame: heavy line above TL;DR" sub "$out" "$H"$'\n\n**TL;DR** x'
+check "frame: separator below TL;DR" sub "$out" $'x\n\n'"$S"
+out=$(mdm a 1 $'**Next:** go\n')
+check "frame: separator above Next" sub "$out" "$S"$'\n\n**Next:** go'
+check "frame: heavy line closes final batch" sub "$out" $'go\n\n'"$H"
+check "frame: no TL;DR, no frame" [ -z "$(mdm b 1 $'**Next:** go\n')" ]
+out=$(mdm c 1 $'text\n\n---\n\nmore\n')
+check "frame: --- shown as quarter dotted line" bash -c "grep -qF -- '$G' <<<\"\$1\" && ! grep -qx -- '---' <<<\"\$1\"" _ "$out"
+mdm d 0 $'```\n' >/dev/null
+check "frame: fenced ---, TL;DR across batches untouched" [ -z "$(mdm d 1 $'---\n**TL;DR** y\n```\n')" ]
+out=$(mdm e 0 '**TL;DR** par')
+check "frame: split TL;DR line, no separator yet" bash -c "! grep -qF -- '$S' <<<\"\$1\"" _ "$out"
+out=$(mdm e 1 $'t\n## H\n')
+check "frame: separator after split TL;DR line ends" sub "$out" $'t\n\n'"$S"
+out=$(mdm f 0 $'**TL;DR** x\n'; mdm f 1 $'**Picks:** 1A\n**Next:** go\n')
+check "frame: one separator above Picks, none above Next" [ "$(grep -o "$S" <<<"$out" | wc -l)" = 2 ]
+check "frame: state removed after final" bash -c "! ls '$TMP'/claudzilla-rules/md-* 2>/dev/null"
 
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
