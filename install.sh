@@ -127,7 +127,7 @@ plugins() {
   claude plugin marketplace update >/dev/null 2>&1 || true
   # install skips plugins already present; update moves them to the latest version.
   for p in $(node -e 'for(const[k,v]of Object.entries(require(process.argv[1]).enabledPlugins||{}))if(v)console.log(k)' "$REPO/settings.base.json"); do
-    claude plugin install "$p" && claude plugin update "$p" >/dev/null || echo "  ! $p failed - retry: claude plugin update $p" >&2
+    claude plugin install "$p" && claude plugin update "$p" >/dev/null || echo "  ! $p failed - retry: claude plugin install $p && claude plugin update $p" >&2
   done
 }
 
