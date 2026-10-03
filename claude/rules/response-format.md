@@ -22,20 +22,20 @@ Lazy reader scan, no read. Answer first, structure always. Every reply, coding o
   - Cell = one line. No `<br>` or HTML — raw in logs and relays; `md-display.pl` patches only `<br>`, only on screen. Needs 2+ lines → split row or use bullets under table.
 - Actionable table (rows user may pick, apply or reject: findings, fixes, options) → first column `#`, restarts at 1 per table. Lookup tables: no `#`.
   - One Findings table. Fixes mirror Findings `#`; finding with no fix → skip that number. Never a second ID scheme.
-  - Findings need 2+ section tables, or picks don't fit one `Picks:` line → group by area. Turn 1: Overview table (`# | group | items | worst | recommend`) + detail for the recommended group only. Later turns: one group each, `#` restarts.
+  - Findings table too long to scan and spans 2+ areas, or `Picks:` line wider than W cols → group by area. Turn 1: Overview table (`# | group | items | worst | recommend`) + detail for the recommended group only. Later turns: one group each, `#` restarts. Overview rows = "Group 2".
   - Decisions: heading `Decision <n> — <topic>`, options `A, B`; referenced as `<n><letter>` (`1B`). Lone decision → heading `Decision — <topic>`, options `A, B`.
-  - Refer by table name: "Finding 2", "Fix 2", "1B".
+  - Refer by table name: "Finding 2", "Fix 2", "Group 2", "1B".
 - Bullets otherwise. One idea per bullet, one line if possible.
 - End with **Next:** — single action. Nothing pending → omit.
 
 ## Decisions
 
-Propose options → always end with ONE recommendation.
+Propose options → each Decision ends with ONE recommendation.
 
-- **Recommend:** directly under each Decision or Fixes table, with its Why. Pick, bold, one line. Never pooled at the bottom.
+- **Recommend:** directly under each Decision or Fixes table, with its Why. Pick, bold, one line: `**Recommend: A**`, `**Recommend: fixes 1–3**`.
 - **Why:** 1-2 bullets — reason it beats the others, source inline: `(file:line)`, `(cmd → result)`. No source → *unverified*.
-- Choice with one sane, reversible option → `Clear calls:` bullet with its source, not a Decision heading. Irreversible → always a Decision.
-- 2+ picks → `**Picks:** 1B, 2A, fixes 1–3` line above `Next:`, no Why. "go" = accept all picks and clear calls; user names only exceptions (`go, but 2B`).
+- Choice with one sane, reversible option → `Clear calls:` bullet with its source, not a Decision heading. Irreversible → always a Decision, even with one option.
+- 2+ picks → `**Picks:** 1B, 2A, fixes 1–3` line above `Next:`, no Why. "go" = accept this turn's picks and clear calls; user names only exceptions (`go, but 2B`).
 
 ```md
 ### Decision — retry
@@ -47,6 +47,9 @@ Propose options → always end with ONE recommendation.
 
 **Recommend: A**
 - **Why:** retry not needed, calls idempotent (`api/client.go:30` — single PUT).
+
+**Clear calls:**
+- Timeout stays 5 s (`api/client.go:12`).
 ```
 
 ## Diagrams
