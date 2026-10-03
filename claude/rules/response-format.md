@@ -21,7 +21,8 @@ Lazy reader scan, no read. Answer first, structure always. Every reply, coding o
   - Fit the width the hook states (`keep each table within W cols`); wider → fewer columns, shorter cells, or bullets.
   - Cell = one line. No `<br>` or HTML — raw in logs and relays; `md-display.pl` patches only `<br>`, only on screen. Needs 2+ lines → split row or use bullets under table.
 - Actionable table (rows user may pick, apply or reject: findings, fixes, options) → first column `#`, restarts at 1 per table. Lookup tables: no `#`.
-  - One Findings table. Fixes mirror Findings `#`; finding with no fix → skip that number.
+  - One Findings table. Fixes mirror Findings `#`; finding with no fix → skip that number. Never a second ID scheme.
+  - Findings need 2+ section tables, or picks don't fit one `Picks:` line → group by area. Turn 1: Overview table (`# | group | items | worst | recommend`) + detail for the recommended group only. Later turns: one group each, `#` restarts.
   - Decisions: heading `Decision <n> — <topic>`, options `A, B`; referenced as `<n><letter>` (`1B`). Lone decision → heading `Decision — <topic>`, options `A, B`.
   - Refer by table name: "Finding 2", "Fix 2", "1B".
 - Bullets otherwise. One idea per bullet, one line if possible.
@@ -31,8 +32,10 @@ Lazy reader scan, no read. Answer first, structure always. Every reply, coding o
 
 Propose options → always end with ONE recommendation.
 
-- **Recommend:** pick, bold, one line. One pick per decision; list IDs covered: `Recommend: 1B, 2A, fixes 1–3`.
+- **Recommend:** directly under each Decision or Fixes table, with its Why. Pick, bold, one line. Never pooled at the bottom.
 - **Why:** 1-2 bullets — reason it beats the others, source inline: `(file:line)`, `(cmd → result)`. No source → *unverified*.
+- Choice with one sane, reversible option → `Clear calls:` bullet with its source, not a Decision heading. Irreversible → always a Decision.
+- 2+ picks → `**Picks:** 1B, 2A, fixes 1–3` line above `Next:`, no Why. "go" = accept all picks and clear calls; user names only exceptions (`go, but 2B`).
 
 ```md
 ### Decision — retry
