@@ -517,7 +517,7 @@ check "frame: split TL;DR line, no separator yet" bash -c "! grep -qF -- '$S' <<
 out=$(mdm e 1 $'t\n## H\n')
 check "frame: separator after split TL;DR line ends" sub "$out" $'t\n\n'"$S"
 out=$(mdm f 0 $'**TL;DR** x\n'; mdm f 1 $'**Picks:** 1A\n**Next:** go\n')
-check "frame: one separator above Picks, none above Next" [ "$(grep -o "$S" <<<"$out" | wc -l)" = 2 ]
+check "frame: one separator above Picks, none above Next" [ "$(grep -o "$S" <<<"$out" | wc -l)" -eq 2 ]
 check "frame: state removed after final" bash -c "! ls '$TMP'/claudzilla-rules/md-* 2>/dev/null"
 
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
