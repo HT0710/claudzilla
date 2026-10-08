@@ -7,9 +7,12 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0 fail=0
 check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL: $name"; return 1; fi; }
 q() { node -p "JSON.stringify(require(process.argv[1])$2)" "$1"; }
-clean_env() { env -u CLAUDE_CONFIG_DIR "$@"; }
+clean_env() { env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME "$@"; }   # never reach a real Windows side
 run_install() { clean_env HOME="$1" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" >"$1/install.log" 2>&1; }
 new_home() { mktemp -d "$TMP/home.XXXX"; }
+notty() { perl -MPOSIX -e 'if (fork) { wait; exit $? >> 8 } POSIX::setsid(); exec @ARGV' "$@"; }   # run with no controlling terminal
+export CLAUDZILLA_FONT_URL="file://$TMP/nofont"   # never hit the network; font cases override
+export CLAUDZILLA_FONT=yes   # answer the font prompt; declined case overrides
 
 # --- content ---
 check "content: no home paths" \
@@ -191,5 +194,85 @@ check "wsl: rc without trailing newline keeps last line" [ "$(cat "$T/.bashrc")"
 R=$(new_home); echo 'alias x=y' > "$R/.bashrc"; chmod 444 "$R/.bashrc"; wsl_install "$R"; rc=$?
 check "wsl: read-only rc does not abort install" [ "$rc" -eq 0 ]
 check "wsl: read-only rc gets a manual hint" grep -q "export COLORTERM=truecolor' yourself" "$R/install.log"
+
+# --- font ---
+FD=".local/share/fonts"; STYLES=("Regular" "Bold" "Italic" "Bold Italic")
+seed_fonts() { mkdir -p "$1/$FD"; for s in "${STYLES[@]}"; do echo x > "$1/$FD/MesloLGS NF $s.ttf"; done; }
+mkdir -p "$TMP/badfont"; for s in "${STYLES[@]}"; do echo tampered > "$TMP/badfont/MesloLGS NF $s.ttf"; done
+F=$(new_home); clean_env HOME="$F" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT_URL="file://$TMP/badfont" bash "$REPO/install.sh" >"$F/install.log" 2>&1; rc=$?
+check "font: checksum mismatch does not abort" [ "$rc" -eq 0 ]
+check "font: tampered file not installed" bash -c "! ls '$F/$FD' '$F/Library/Fonts' 2>/dev/null | grep -q ttf"
+check "font: mismatch warned" grep -q 'MesloLGS NF.*checksum' "$F/install.log"
+U2=$(new_home); run_install "$U2"; rc=$?
+check "font: unreachable exits 0" [ "$rc" -eq 0 ]
+check "font: unreachable warned" grep -q 'font: download failed' "$U2/install.log"
+mkdir -p "$TMP/linux" "$TMP/darwin"; printf '#!/bin/sh\necho Linux\n' > "$TMP/linux/uname"; printf '#!/bin/sh\necho Darwin\n' > "$TMP/darwin/uname"; chmod +x "$TMP/linux/uname" "$TMP/darwin/uname"
+P=$(new_home); seed_fonts "$P"; clean_env HOME="$P" CLAUDZILLA_OFFLINE=1 PATH="$TMP/linux:$PATH" bash "$REPO/install.sh" >"$P/install.log" 2>&1
+check "font: present fonts not re-downloaded" bash -c "! grep -q 'font:' '$P/install.log'"
+D=$(new_home); clean_env HOME="$D" CLAUDZILLA_OFFLINE=1 PATH="$TMP/darwin:$PATH" bash "$REPO/install.sh" >"$D/install.log" 2>&1
+check "font: macOS targets ~/Library/Fonts" grep -q 'Library/Fonts' "$D/install.log"
+
+# WSL: stub the Windows side
+WB="$TMP/winbin"; mkdir -p "$WB"; cp "$TMP/linux/uname" "$WB/"
+cat > "$WB/cmd.exe" <<'S'
+#!/bin/sh
+printf 'C:\\Users\\u\\AppData\\Local\r\n'
+S
+cat > "$WB/wslpath" <<'S'
+#!/bin/sh
+case $1 in -u) echo "$WINLA" ;; -w) printf 'C:\\fonts\\%s\n' "$(basename "$2")" ;; esac
+S
+cat > "$WB/reg.exe" <<'S'
+#!/bin/sh
+printf '%s\n' "$*" >> "$REGLOG"
+S
+chmod +x "$WB"/*
+WTREL="Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json"
+wsl_font() {  # $1 home, $2 WT settings content ('' = none)
+  local la="$1/win"; mkdir -p "$la/$(dirname "$WTREL")"; [ -n "$2" ] && printf '%s' "$2" > "$la/$WTREL"
+  seed_fonts "$1"
+  clean_env HOME="$1" WSL_DISTRO_NAME=Ubuntu WINLA="$la" REGLOG="$1/reg.log" PATH="$WB:$PATH" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" >"$1/install.log" 2>&1
+}
+X=$(new_home); wsl_font "$X" '{"profiles":{"defaults":{},"list":[]}}'; rc=$?
+check "wsl font: exit 0" [ "$rc" -eq 0 ]
+check "wsl font: copied to Windows fonts" [ "$(ls "$X/win/Microsoft/Windows/Fonts" | grep -c 'MesloLGS NF')" = 4 ]
+check "wsl font: registered per user" bash -c "grep -c 'HKCU.*Fonts.*/v MesloLGS NF Bold Italic (TrueType).*C:.fonts.MesloLGS NF Bold Italic.ttf' '$X/reg.log' | grep -qx 1 && [ \$(wc -l < '$X/reg.log') -eq 4 ]"
+check "wsl font: Windows Terminal face set" [ "$(q "$X/win/$WTREL" .profiles.defaults.font.face)" = '"MesloLGS NF"' ]
+check "wsl font: Windows Terminal settings backed up" bash -c "find '$X/.claude/.claudzilla-backup' -path '*windows-terminal/*/settings.json' | grep -q ."
+: > "$X/reg.log"; wsl_font "$X" ''
+check "wsl font: re-run re-registers (repairs)" [ "$(wc -l < "$X/reg.log" | tr -d ' ')" = 4 ]
+check "wsl font: re-run is quiet" bash -c "! grep -q 'font:' '$X/install.log'"
+check "wsl font: re-run copies nothing new" [ "$(ls "$X/win/Microsoft/Windows/Fonts" | wc -l | tr -d ' ')" = 4 ]
+Y=$(new_home); wsl_font "$Y" '{"profiles":{"defaults":{"font":{"face":"Fira Code"}}}}'
+check "wsl font: user's own face kept" [ "$(q "$Y/win/$WTREL" .profiles.defaults.font.face)" = '"Fira Code"' ]
+check "wsl font: own face gets a hint" grep -q 'MesloLGS NF' "$Y/install.log"
+Z=$(new_home); wsl_font "$Z" $'{\n  // comment\n  "profiles": {}\n}'
+check "wsl font: JSONC left untouched" grep -q '// comment' "$Z/win/$WTREL"
+check "wsl font: JSONC gets a hint" grep -q 'set .*MesloLGS NF' "$Z/install.log"
+
+printf '#!/bin/sh\nexit 1\n' > "$WB/cmd.exe"
+V=$(new_home); wsl_font "$V" ''; rc=$?
+check "wsl font: Windows unreachable exits 0" [ "$rc" -eq 0 ]
+check "wsl font: Windows unreachable warned" grep -q 'Windows not reachable' "$V/install.log"
+
+# declined: basic HUD symbols, never asked again
+K=$(new_home); clean_env HOME="$K" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT=no bash "$REPO/install.sh" >"$K/install.log" 2>&1; rc=$?
+check "font declined: exit 0" [ "$rc" -eq 0 ]
+check "font declined: basic-glyph marker" [ -f "$K/.claude/.claudzilla-basic-glyphs" ]
+check "font declined: no download" bash -c "! grep -q 'download failed' '$K/install.log'"
+check "font declined: says how to undo" grep -q 'CLAUDZILLA_FONT=yes' "$K/install.log"
+notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_FONT HOME="$K" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" >"$K/install.log" 2>&1 </dev/null
+check "font declined: not asked again" bash -c "! grep -q 'font:' '$K/install.log'"
+clean_env HOME="$K" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT=yes bash "$REPO/install.sh" >"$K/install.log" 2>&1
+check "font declined: yes later clears marker" [ ! -e "$K/.claude/.claudzilla-basic-glyphs" ]
+
+# no terminal (Claude's Bash tool): don't guess, hand the question to Claude
+Q=$(new_home); notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_FONT HOME="$Q" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" >"$Q/install.log" 2>&1 </dev/null; rc=$?
+check "font no tty: exit 0" [ "$rc" -eq 0 ]
+check "font no tty: nothing downloaded" bash -c "! grep -q 'download failed' '$Q/install.log'"
+check "font no tty: not recorded as declined" [ ! -e "$Q/.claude/.claudzilla-basic-glyphs" ]
+check "font no tty: tells Claude to ask via AskUserQuestion" grep -q "AskUserQuestion.*CLAUDZILLA_FONT=yes $REPO/install.sh" "$Q/install.log"
+O=$(new_home); clean_env HOME="$O" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT=off bash "$REPO/install.sh" >/dev/null 2>&1
+check "font: CLAUDZILLA_FONT=off declines" [ -f "$O/.claude/.claudzilla-basic-glyphs" ]
 
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
