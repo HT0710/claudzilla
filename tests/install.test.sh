@@ -166,7 +166,9 @@ g -C "$U/seed" commit --allow-empty -m one; g -C "$U/seed" push origin main
 g clone "$U/origin.git" "$U/clone"; mkdir -p "$U/clone/claude/hooks" "$U/home/.claude/hooks"
 cp "$REPO/claude/hooks/claudzilla-update.sh" "$U/clone/claude/hooks/"
 ln -s "$U/clone/claude/hooks/claudzilla-update.sh" "$U/home/.claude/hooks/claudzilla-update.sh"
+cp "$REPO/claude/hooks/rules-guard.mjs" "$U/clone/claude/hooks/"
 notice() { clean_env HOME="$U/home" sh "$U/home/.claude/hooks/claudzilla-update.sh"; }
+echo '{"rulesGuard":{"autoUpdate":false}}' > "$U/home/.claude/claudzilla.json"
 check "update: silent when current" [ -z "$(notice)" ]
 g -C "$U/seed" commit --allow-empty -m two; g -C "$U/seed" push origin main
 touch -t 200001010000 "$(git -C "$U/clone" rev-parse --absolute-git-dir)/FETCH_HEAD"
@@ -178,6 +180,27 @@ check "update: user sees 'update available'" node -e 'const j=JSON.parse(process
 check "update: Claude gets the update command" node -e 'const h=JSON.parse(process.argv[1]).hookSpecificOutput;if(h.hookEventName!=="SessionStart"||!/pull --ff-only/.test(h.additionalContext)||!/install\.sh/.test(h.additionalContext))process.exit(1)' "$out"
 mkdir -p "$U/nogit"; cp "$REPO/claude/hooks/claudzilla-update.sh" "$U/nogit/"
 check "update: not a git repo is silent" [ -z "$(clean_env HOME="$U/home" sh "$U/nogit/claudzilla-update.sh" 2>&1)" ]
+# autoUpdate on (default): background pull + install.sh, result shown next session
+res="$(git -C "$U/clone" rev-parse --absolute-git-dir)/claudzilla-update.result"
+waitres() { for i in $(seq 20); do [ -f "$res" ] && break; sleep 0.5; done; }
+rm "$U/home/.claude/claudzilla.json"
+printf 'echo ran > "$HOME/ran"\n' > "$U/clone/install.sh"
+out=$(notice); waitres
+check "auto: user told it updates in background" grep -q 'updating in background' <<<"$out"
+check "auto: pulled to upstream" [ "$(git -C "$U/clone" rev-parse HEAD)" = "$(git -C "$U/seed" rev-parse HEAD)" ]
+check "auto: install.sh ran" [ -f "$U/home/ran" ]
+check "auto: next session reports update" grep -q 'updated to [0-9a-f]* two' <<<"$(notice)"
+check "auto: report shown once" [ -z "$(notice)" ]
+printf 'x\n' > "$U/seed/f"; g -C "$U/seed" add f; g -C "$U/seed" commit -m three; g -C "$U/seed" push origin main
+g -C "$U/clone" pull --ff-only; echo local >> "$U/clone/f"
+g -C "$U/seed" commit --allow-empty -m four; g -C "$U/seed" push origin main
+g -C "$U/clone" fetch
+out=$(notice); sleep 1
+check "auto: local changes skip update" [ "$(git -C "$U/clone" log -1 --format=%s)" = three ]
+check "auto: local changes keep notice" grep -q 'update available.*local changes' <<<"$out"
+g -C "$U/clone" checkout f; printf 'exit 3\n' > "$U/clone/install.sh"
+notice >/dev/null; waitres
+check "auto: failed install reported" grep -q 'auto-update failed - see .*claudzilla-update.log' <<<"$(notice)"
 
 # --- truecolor on WSL ---
 W=$(new_home); echo 'alias x=y' > "$W/.bashrc"; echo 'export COLORTERM=24bit' > "$W/.zshrc"

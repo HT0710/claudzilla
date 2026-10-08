@@ -68,6 +68,7 @@ Optional JSON files, applied in this order. Later files win; objects merge and a
   "tldrMinLines": 15,
   "allowMain": false,
   "reviewNudge": true,
+  "autoUpdate": true,
   "compactNudge": 150000
 }}
 ```
@@ -81,6 +82,8 @@ Optional JSON files, applied in this order. Later files win; objects merge and a
 | format: `tldr` `emoji` `brInTable` `boxAlign` `tableWidth` | `flag` `off` |
 
 `reviewNudge` sits next to `allowMain`, not under `rules`: `false` turns off the weekly `/rule-review` summary at startup.
+
+`autoUpdate` (machine file only): at startup a background job pulls the clone and re-runs `install.sh`; the next session says it updated (or failed, with the log). Skipped when the clone has local changes. `false` = notice only.
 
 `tableWidth`: each prompt tells Claude the terminal width (`COLUMNS`, which Claude Code passes to hooks), and a reply whose table renders wider gets flagged.
 
@@ -96,7 +99,7 @@ A bad file or value is skipped and named on your next prompt; unknown keys are i
 cd ~/claudzilla && git pull && ./install.sh
 ```
 
-Claude Code tells you at startup when an update is available.
+Updates install themselves in the background (see `autoUpdate`). With it off, or local changes in the clone, Claude Code tells you at startup when an update is available.
 
 ## Uninstall
 
