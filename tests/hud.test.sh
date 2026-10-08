@@ -114,6 +114,12 @@ row1() { local d=$1; shift; env "$@" CLAUDE_CONFIG_DIR="$C" node "$HUD/hud-data.
 cells() { perl -CS -ne 'chomp; print length($_) + (() = /[\p{EA=W}\p{EA=F}]/g)'; }
 UH="$TMP/josé"; U="$UH/tiếng-việt"; mkdir -p "$U"; git -C "$U" init -q -b "nhánh"
 check "render: non-ASCII path + branch kept" grep -q '~/tiếng-việt.*nhánh' <<<"$(row1 "$U" HOME="$UH")"
+touch "$C/.claudzilla-basic-glyphs"
+basic=$(CLAUDE_CONFIG_DIR="$C" render "$full")
+check "render basic: meter uses ■□" bash -c "grep -q '^ctx ■' <<<'$basic' && ! grep -q '[▰▱]' <<<'$basic'"
+check "render basic: skill uses ▸" grep -q '^Opus  high  ▸ pr ' <<<"$basic"
+check "render basic: branch uses ›" bash -c "grep -q '› nhánh' <<<'$(row1 "$U" HOME="$UH")'"
+rm "$C/.claudzilla-basic-glyphs"
 CJK="$TMP/项目文件夹中文路径很长很长很长很长很长"; mkdir -p "$CJK"
 check "render: wide chars fit 56 cells" [ "$(row1 "$CJK" | cells)" -le 56 ]
 BAD="$TMP/bad"; mkdir -p "$BAD"; git -C "$BAD" init -q; git -C "$BAD" checkout -q -b $'bad\xff\xfeX'
