@@ -144,6 +144,79 @@ truecolor() {
   done
 }
 
+# MesloLGS NF draws every glyph the HUD uses except U+2387 (font fallback covers it).
+# Pinned to a commit, each file sha256-checked.
+FONT_URL="${CLAUDZILLA_FONT_URL:-https://raw.githubusercontent.com/romkatv/powerlevel10k-media/145eb9fbc2f42ee408dacd9b22d8e6e0e553f83d}"
+FONT_FACE="MesloLGS NF"
+
+font() {
+  local dir sum style f tmp got new=0 ans="${CLAUDZILLA_FONT:-}" basic="$DEST/.claudzilla-basic-glyphs"
+  case "$(uname -s)" in Darwin) dir="$HOME/Library/Fonts" ;; *) dir="$HOME/.local/share/fonts" ;; esac
+  # Ask once: a "no" is remembered by the marker, which also switches the HUD to basic symbols.
+  [ -z "$ans" ] && [ -e "$basic" ] && return 0
+  if [ -z "$ans" ] && [ ! -f "$dir/$FONT_FACE Regular.ttf" ]; then
+    if ! { : </dev/tty; } 2>/dev/null; then   # no terminal, e.g. Claude ran the install: let Claude ask in a dialog
+      echo "font: $FONT_FACE not installed - no terminal to ask. Claude: ask the user with AskUserQuestion (install the recommended font, or use basic statusline symbols), then run: CLAUDZILLA_FONT=yes $REPO/install.sh (or CLAUDZILLA_FONT=no)"
+      return 0
+    fi
+    printf 'claudzilla: install font %s so the statusline draws its symbols (recommended)? [Y/n] ' "$FONT_FACE"
+    read -r ans </dev/tty || true; ans="${ans:-y}"
+  fi
+  case "$ans" in [nN]*|0|false|off)
+    : > "$basic"; echo "font: skipped - statusline uses basic symbols (re-run with CLAUDZILLA_FONT=yes to install)"; return 0 ;;
+  esac
+  rm -f "$basic"
+  mkdir -p "$dir" || { echo "font: cannot create $dir" >&2; return 0; }
+  while IFS='|' read -r sum style; do
+    f="$dir/$FONT_FACE $style.ttf"
+    [ -f "$f" ] && continue
+    tmp="$(mktemp "$dir/.font.XXXXXX")"   # same filesystem: mv is atomic
+    if ! curl -fsSL "$FONT_URL/${FONT_FACE// /%20}%20${style// /%20}.ttf" -o "$tmp" 2>/dev/null; then
+      rm -f "$tmp"; echo "font: download failed - $FONT_FACE not in $dir" >&2; return 0
+    fi
+    got="$( (sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp") | cut -d' ' -f1)" || true
+    if [ "$got" != "$sum" ]; then rm -f "$tmp"; echo "font: $FONT_FACE $style checksum mismatch - skipped" >&2; return 0; fi
+    mv "$tmp" "$f" || { rm -f "$tmp"; echo "font: cannot write $f" >&2; return 0; }; new=1
+  done <<'EOF'
+d97946186e97f8d7c0139e8983abf40a1d2d086924f2c5dbf1c29bd8f2c6e57d|Regular
+b6c0199cf7c7483c8343ea020658925e6de0aeb318b89908152fcb4d19226003|Bold
+6f357bcbe2597704e157a915625928bca38364a89c22a4ac36e7a116dcd392ef|Italic
+56b4131adecec052c4b324efb818dd326d586dbc316fc68f98f1cae2eb8d1220|Bold Italic
+EOF
+  [ "$new" = 0 ] || ! command -v fc-cache >/dev/null || fc-cache -f "$dir" >/dev/null 2>&1 || true
+  if [ -n "${WSL_DISTRO_NAME:-}" ]; then font_windows "$dir"
+  elif [ "$new" = 1 ]; then echo "font: $FONT_FACE -> $dir - set it as your terminal font where the terminal runs"; fi
+}
+
+# WSL: Windows draws the terminal, so the font goes on the Windows side too (per user, no admin).
+font_windows() {  # $1: dir holding the .ttf files
+  local la win f n wt set=0 copied=0
+  la="$(cmd.exe /c 'echo %LOCALAPPDATA%' 2>/dev/null | tr -d '\r')" && [ -n "$la" ] && la="$(wslpath -u "$la")" && [ -d "$la" ] ||
+    { echo "font: Windows not reachable - install $FONT_FACE on Windows and set it as your terminal font" >&2; return 0; }
+  win="$la/Microsoft/Windows/Fonts"; mkdir -p "$win" || { echo "font: cannot create $win" >&2; return 0; }
+  for f in "$1/$FONT_FACE"*.ttf; do
+    n="$(basename "$f")"
+    # reg add is idempotent: re-run repairs an earlier failed registration
+    { [ -f "$win/$n" ] || { cp "$f" "$win/" && copied=1; }; } && reg.exe add 'HKCU\Software\Microsoft\Windows NT\CurrentVersion\Fonts' /v "${n%.ttf} (TrueType)" /t REG_SZ /d "$(wslpath -w "$win/$n")" /f >/dev/null 2>&1 ||
+      echo "font: could not register $n on Windows" >&2
+  done
+  # Windows Terminal: set the default face only when the user hasn't picked one. Exit 0 set, 3 already ours, else leave alone.
+  for wt in "$la"/Packages/Microsoft.WindowsTerminal*_8wekyb3d8bbwe/LocalState/settings.json "$la/Microsoft/Windows Terminal/settings.json"; do
+    [ -f "$wt" ] || continue
+    if node -e '
+const fs=require("fs"),path=require("path"),[p,bak,face]=process.argv.slice(1);
+let j;try{j=JSON.parse(fs.readFileSync(p,"utf8"))}catch{process.exit(2)}
+const pr=j.profiles??={};if(typeof pr!="object"||Array.isArray(pr))process.exit(2);
+const d=pr.defaults??={},cur=d.font?.face??d.fontFace;
+if(cur)process.exit(cur===face?3:2);
+try{fs.mkdirSync(path.dirname(bak),{recursive:true});fs.copyFileSync(p,bak);
+(d.font??={}).face=face;fs.writeFileSync(p,JSON.stringify(j,null,4)+"\n")}catch{process.exit(2)}' "$wt" "$BACKUP/windows-terminal/${wt#"$la"/}" "$FONT_FACE"
+    then set=1; echo "font: Windows Terminal font -> $FONT_FACE (restart it; sign out and in if the font is missing)"
+    elif [ $? = 3 ]; then set=1; fi
+  done
+  [ "$set" = 1 ] || [ "$copied" = 0 ] || echo "font: set your terminal font to $FONT_FACE"
+}
+
 main() {
   mkdir -p "$DEST"
   [ "$OFFLINE" = 1 ] || deps
@@ -152,6 +225,7 @@ main() {
   [ -e "$DEST/CLAUDE.local.md" ] || : > "$DEST/CLAUDE.local.md"
   merge_settings
   truecolor
+  font
   stamp_rules || echo "claudzilla: rule dates not saved - /rule-review skips undated rules until the next install" >&2
   [ "$OFFLINE" = 1 ] || plugins
   [ -d "$BACKUP" ] && echo "replaced files backed up -> $BACKUP"

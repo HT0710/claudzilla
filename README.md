@@ -13,7 +13,7 @@ claudzilla sets up [Claude Code](https://claude.com/claude-code) to be terse, ca
 curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh | bash
 ```
 
-**Requires:** `git`, `curl`, `tar`, `perl` and Claude Code. If `node` or [`rtk`](https://github.com/rtk-ai/rtk) is missing, the installer puts it in `~/.local` without sudo. Make sure `~/.local/bin` is on your `PATH`.
+**Requires:** `git`, `curl`, `tar`, `perl` and Claude Code. If `node` or [`rtk`](https://github.com/rtk-ai/rtk) is missing, the installer puts it in `~/.local` without sudo. Make sure `~/.local/bin` is on your `PATH`. Native Windows (cmd / PowerShell) is not supported; use WSL.
 
 ## What's inside
 
@@ -39,6 +39,7 @@ settings.base.json     ──merge────▶  ~/.claude/settings.json  your
 - **Linked:** instructions, rules, hooks, skills (`pr`, `rule-review`; your own stay), theme and statusline. The repo stays the source of truth.
 - **Merged:** `settings.json` (Claude Code rewrites it). Repo values win, and extras you add on a machine are kept.
 - **WSL:** adds `export COLORTERM=truecolor` to existing `~/.bashrc` / `~/.zshrc` that don't set COLORTERM, else the theme falls back to 256 colours.
+- **Font:** asks (in the terminal, or as a Claude question when Claude runs the install) to install MesloLGS NF (draws the statusline symbols) to `~/.local/share/fonts` or `~/Library/Fonts`. On WSL it also installs it on Windows and sets it in Windows Terminal unless you picked a font. Elsewhere, set it as your terminal font. Say no and the statusline uses basic symbols; `CLAUDZILLA_FONT=yes` or `no` answers without asking.
 - **Safe to re-run:** anything replaced is backed up to `~/.claude/.claudzilla-backup/<timestamp>/`.
 
 ## Customize
