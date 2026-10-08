@@ -200,7 +200,18 @@ check "auto: local changes skip update" [ "$(git -C "$U/clone" log -1 --format=%
 check "auto: local changes keep notice" grep -q 'update available.*local changes' <<<"$out"
 g -C "$U/clone" checkout f; printf 'exit 3\n' > "$U/clone/install.sh"
 notice >/dev/null; waitres
-check "auto: failed install reported" grep -q 'auto-update failed - see .*claudzilla-update.log' <<<"$(notice)"
+check "auto: failed install reported with remedy" grep -q 'auto-update failed - see .*claudzilla-update.log; then run: cd .* && ./install.sh' <<<"$(notice)"
+printf 'echo ran > "$HOME/ran"\n' > "$U/clone/install.sh"
+g -C "$U/clone" commit --allow-empty -m mine
+g -C "$U/seed" commit --allow-empty -m five; g -C "$U/seed" push origin main; g -C "$U/clone" fetch
+out=$(notice); sleep 1
+check "auto: local commit skips update" [ "$(git -C "$U/clone" log -1 --format=%s)" = mine ]
+check "auto: local commit keeps notice" grep -q 'local changes' <<<"$out"
+g -C "$U/clone" reset -q --hard origin/main
+printf 'up\n' > "$U/seed/u"; g -C "$U/seed" add u; g -C "$U/seed" commit -m six; g -C "$U/seed" push origin main
+g -C "$U/clone" fetch; printf 'mine\n' > "$U/clone/u"
+notice >/dev/null; waitres
+check "auto: failure still behind is reported" grep -q 'auto-update failed.*updating in background' <<<"$(notice)"
 
 # --- truecolor on WSL ---
 W=$(new_home); echo 'alias x=y' > "$W/.bashrc"; echo 'export COLORTERM=24bit' > "$W/.zshrc"
