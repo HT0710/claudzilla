@@ -20,6 +20,12 @@ my $W = 114;
     $W = $cols - 4 if $cols && $cols =~ /^\d+$/ && $cols > 20;
 }
 
+# install.sh leaves this marker when the user declines MesloLGS NF: fall back to symbols every mono font has
+my ($G_ON, $G_OFF, $G_BRANCH, $G_SKILL) =
+    -e (($ENV{CLAUDE_CONFIG_DIR} // "$ENV{HOME}/.claude") . '/.claudzilla-basic-glyphs')
+    ? ("\x{25A0}", "\x{25A1}", "\x{203A}", "\x{25B8}")
+    : ("\x{25B0}", "\x{25B1}", "\x{2387}", "\x{2691}");
+
 my %f = map { /^([^\t]+)\t(.*)$/ ? ($1, $2) : () } split /\n/, $txt;
 my ($id, $META_CWD, $EFFORT, $SID) = @f{qw(id cwd effort sid)};
 # session name (/rename, or derived like "maxis-24") - the handle peers message us by.
@@ -96,7 +102,7 @@ sub meter_line {
     push @cell, [$_, [163,150,210]] for split //, sprintf('%-3s ', $label);   # title
     for my $i (0 .. $n-1) {                                                   # bar
         my $on = $i < $f;
-        push @cell, [$on ? "\x{25B0}" : "\x{25B1}",
+        push @cell, [$on ? $G_ON : $G_OFF,
                      $on ? [map { int($_+0.5) } @{ ramp(($n > 1 ? $i/($n-1) : 1) ** 0.85) }] : [30,42,58],
                      $on ? 0.65 : 0.30];
     }
@@ -145,7 +151,7 @@ sub cwd_str {
 {   # narrow panes: shed the least important pieces, then trim the path itself
     my $path = $cwd // '~';
     my $p    = $profile // '';
-    my @opt = ( [$branch, sub { $dim->('  ') . "\e[38;2;93;150;120m\x{2387} $_[0]\e[0m" }],
+    my @opt = ( [$branch, sub { $dim->('  ') . "\e[38;2;93;150;120m$G_BRANCH $_[0]\e[0m" }],
                 [$dirty,  sub { $dim->(' ')  . "\e[38;2;140;120;80m$_[0]\e[0m"  }],
                 [$churn,  sub { $dim->('  ') . "\e[38;2;110;140;110m$_[0]\e[0m" }] );
     my $build = sub {
@@ -265,7 +271,7 @@ push @out, rule(3, sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]]));
     my $mo = $model;
     $mo .= "\e[38;2;127;182;217m\e[2m  $EFFORT\e[0m" if defined $mo && $EFFORT;
     my @L = ( [$mo,       sub { "\e[38;2;127;182;217m$_[0]\e[0m" }],
-              [$skill,    sub { "\e[38;2;147;180;224m\x{2691} $_[0]\e[0m" }],
+              [$skill,    sub { "\e[38;2;147;180;224m$G_SKILL $_[0]\e[0m" }],
               [$thinking, sub { "\e[38;2;169;143;217m\x{25C7} thinking\e[0m" }] );
     my @R = ( [$sname,    sub { "\e[38;5;109m$_[0]\e[0m" }],
               [$id,       sub { "\e[38;2;79;92;104m$_[0]\e[0m" }],
