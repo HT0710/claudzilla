@@ -38,6 +38,7 @@ settings.base.json     ──merge────▶  ~/.claude/settings.json  your
 
 - **Linked:** instructions, rules, hooks, skills (`pr`, `rule-review`; your own stay), theme and statusline. The repo stays the source of truth.
 - **Merged:** `settings.json` (Claude Code rewrites it). Repo values win, and extras you add on a machine are kept.
+- **WSL:** adds `export COLORTERM=truecolor` to existing `~/.bashrc` / `~/.zshrc` that don't set COLORTERM, else the theme falls back to 256 colours.
 - **Safe to re-run:** anything replaced is backed up to `~/.claude/.claudzilla-backup/<timestamp>/`.
 
 ## Customize

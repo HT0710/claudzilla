@@ -176,4 +176,20 @@ check "update: Claude gets the update command" node -e 'const h=JSON.parse(proce
 mkdir -p "$U/nogit"; cp "$REPO/claude/hooks/claudzilla-update.sh" "$U/nogit/"
 check "update: not a git repo is silent" [ -z "$(clean_env HOME="$U/home" sh "$U/nogit/claudzilla-update.sh" 2>&1)" ]
 
+# --- truecolor on WSL ---
+W=$(new_home); echo 'alias x=y' > "$W/.bashrc"; echo 'export COLORTERM=24bit' > "$W/.zshrc"
+wsl_install() { clean_env HOME="$1" WSL_DISTRO_NAME=Ubuntu CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" >"$1/install.log" 2>&1; }
+wsl_install "$W"; wsl_install "$W"
+check "wsl: bashrc gets COLORTERM once" [ "$(grep -c '^export COLORTERM=truecolor$' "$W/.bashrc")" = 1 ]
+check "wsl: rc with COLORTERM untouched" [ "$(cat "$W/.zshrc")" = 'export COLORTERM=24bit' ]
+N=$(new_home); echo 'alias x=y' > "$N/.bashrc"; clean_env -u WSL_DISTRO_NAME HOME="$N" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" >/dev/null 2>&1
+check "non-wsl: bashrc untouched" [ "$(cat "$N/.bashrc")" = 'alias x=y' ]
+M=$(new_home); wsl_install "$M"
+check "wsl: missing rc not created" [ ! -e "$M/.bashrc" ] && [ ! -e "$M/.zshrc" ]
+T=$(new_home); printf 'alias x=y' > "$T/.bashrc"; wsl_install "$T"
+check "wsl: rc without trailing newline keeps last line" [ "$(cat "$T/.bashrc")" = $'alias x=y\nexport COLORTERM=truecolor' ]
+R=$(new_home); echo 'alias x=y' > "$R/.bashrc"; chmod 444 "$R/.bashrc"; wsl_install "$R"; rc=$?
+check "wsl: read-only rc does not abort install" [ "$rc" -eq 0 ]
+check "wsl: read-only rc gets a manual hint" grep -q "export COLORTERM=truecolor' yourself" "$R/install.log"
+
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
