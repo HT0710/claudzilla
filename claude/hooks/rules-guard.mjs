@@ -53,6 +53,7 @@ const DEFAULTS = {
   tldrMinLines: 15,
   allowMain: false,
   reviewNudge: true,
+  autoUpdate: true,
   compactNudge: 150000,
 };
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -63,6 +64,7 @@ const PARAMS = {
   tldrMinLines: [posInt, "expected integer >= 1"],
   allowMain: [(v) => typeof v === "boolean", "expected true or false"],
   reviewNudge: [(v) => typeof v === "boolean", "expected true or false"],
+  autoUpdate: [(v) => typeof v === "boolean", "expected true or false"],
   compactNudge: [(v) => Number.isInteger(v) && v >= 0, "expected integer >= 0 (0 = off)"],
 };
 const words = (v) => Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string" && x.trim() !== "");
