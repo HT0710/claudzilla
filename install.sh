@@ -131,6 +131,19 @@ plugins() {
   done
 }
 
+# Claude Code picks colour depth before settings.json env applies, and WSL
+# terminals don't export COLORTERM - so the theme falls back to 256 colours.
+truecolor() {
+  [ -n "${WSL_DISTRO_NAME:-}" ] || return 0
+  local rc; for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    [ -f "$rc" ] && ! grep -q COLORTERM "$rc" || continue
+    if [ -w "$rc" ]; then
+      [ -z "$(tail -c1 "$rc")" ] || echo >> "$rc"
+      echo 'export COLORTERM=truecolor' >> "$rc"; echo "COLORTERM=truecolor -> $rc (open a new shell)"
+    else echo "claudzilla: $rc is read-only - add 'export COLORTERM=truecolor' yourself" >&2; fi
+  done
+}
+
 main() {
   mkdir -p "$DEST"
   [ "$OFFLINE" = 1 ] || deps
@@ -138,6 +151,7 @@ main() {
   for f in $LINKS; do link "$f"; done
   [ -e "$DEST/CLAUDE.local.md" ] || : > "$DEST/CLAUDE.local.md"
   merge_settings
+  truecolor
   stamp_rules || echo "claudzilla: rule dates not saved - /rule-review skips undated rules until the next install" >&2
   [ "$OFFLINE" = 1 ] || plugins
   [ -d "$BACKUP" ] && echo "replaced files backed up -> $BACKUP"
