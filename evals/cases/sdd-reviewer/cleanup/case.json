@@ -1,4 +1,4 @@
 {
   "agent": "general-purpose",
-  "allowed_tools": ["Read", "Grep", "Glob", "Bash(git diff:*)", "Bash(git show:*)", "Bash(git log:*)", "Bash(node --test:*)"]
+  "allowed_tools": ["Read", "Grep", "Glob", "Bash(git:*)", "Bash(node --test:*)"]
 }

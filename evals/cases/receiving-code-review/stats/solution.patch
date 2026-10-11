@@ -10,3 +10,15 @@
    const n = sorted.length;
    const mean = sorted.reduce((s, x) => s + x, 0) / n;
    const median = n % 2 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2;
+--- a/test/stats.test.mjs
++++ b/test/stats.test.mjs
+@@ -13,3 +13,9 @@
+ test("mean is rounded to two decimals", () => {
+   assert.equal(summary([1, 2, 2]).mean, 1.67);
+ });
++
++test("summary leaves the input unsorted", () => {
++  const xs = [3, 1, 2];
++  summary(xs);
++  assert.deepEqual(xs, [3, 1, 2]);
++});
