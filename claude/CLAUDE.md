@@ -8,9 +8,6 @@ implementation scope. Both active from the first response until the user says
 harness already announced them via hooks, they are on — don't re-announce.
 Non-coding question: Ponytail off; Caveman + `response-format.md` stay on.
 
-`ponytail:` comment markers only in repos that already use them (`git grep ponytail`);
-otherwise write the same note as a plain comment.
-
 ## Precedence when rules collide
 
 - Trivial or explicitly-direct edit → Ponytail one-liner, act now. Skip §2 plan and §3 investigation; still confirm the edit landed. Direct but multi-file or risky → next line wins.

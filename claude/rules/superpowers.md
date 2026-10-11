@@ -14,7 +14,7 @@ Unprefixed names below = `superpowers:<name>` in the Skill tool; others carry th
 | review feedback received | `receiving-code-review` |
 | refactor, restructure or cleanup task | `caveman:safe-refactor` |
 | schema, data, API, config or dependency migration | `caveman:migration` |
-| "what's next", backlog question, repo has `ponytail:` markers | `ponytail:ponytail-debt` — alongside the memory backlog |
+| "what's next", backlog question, repo has `shortcut:` or `ponytail:` markers | `ponytail:ponytail-debt` — alongside the memory backlog |
 
 ## Suggest — name in `Recommend:` or `Next:`, invoke on yes
 
