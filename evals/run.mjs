@@ -16,6 +16,10 @@ const AGENT_CELLS = ["haiku", "sonnet", "opus"]
   .flatMap((model) => EFFORTS.map((effort) => ({ model, effort })))
   .concat({ model: "opus", effort: "max" });
 const READ_ONLY = ["Read", "Grep", "Glob"];
+// claudzilla's RTK hook rewrites `git …` to `rtk git …` before the permission check (measured), so mirror each Bash rule
+// and re-allow the read-only commands it rewrites; `echo` covers the common `cmd; echo "exit=$?"`.
+const RTK_SAFE = ["Bash(echo:*)", ...["ls", "read", "grep", "wc", "tree", "diff"].map((x) => `Bash(rtk ${x}:*)`)];
+const withRtk = (t) => [...t, ...t.filter((x) => x.startsWith("Bash(")).map((x) => `Bash(rtk ${x.slice(5)}`), ...RTK_SAFE];
 
 function parseArgs(argv) {
   const a = { cases: "*/*", runs: 1, out: join(EVALS, "results", "latest"), only: null, root: join(EVALS, "cases"), smoke: false };
@@ -43,7 +47,7 @@ function loadCases(root, pattern) {
     const c = JSON.parse(readFileSync(join(dir, "case.json"), "utf8"));
     out.push({
       id, dir, role: c.role ?? role, agent: c.agent ?? null, skill: c.skill ?? null,
-      tools: (c.allowed_tools ?? READ_ONLY).join(","), matrix: c.matrix ?? (c.agent ? AGENT_CELLS : SKILL_CELLS),
+      tools: withRtk(c.allowed_tools ?? READ_ONLY).join(","), matrix: c.matrix ?? (c.agent ? AGENT_CELLS : SKILL_CELLS),
       followups: c.followups ?? [], timeout: (c.timeout_seconds ?? 900) * 1000,
       prompt: readFileSync(join(dir, "prompt.md"), "utf8").trim(),
     });

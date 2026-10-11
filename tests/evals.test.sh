@@ -69,6 +69,8 @@ check "run: one call per turn per cell" [ "$(calls)" = 4 ]
 check "run: first turn carries model, effort, dontAsk, tools" grep -q -- '--model haiku --effort low --permission-mode dontAsk --allowedTools Read,Bash(bash test.sh)' "$FAKE_LOG"
 check "run: followup resumes with flags re-passed" bash -c 'sed -n 2p "$1" | grep -q -- "--model haiku --effort low.*--resume fake-"' _ "$FAKE_LOG"
 check "run: second cell flags" grep -q -- '--model sonnet --effort high' "$FAKE_LOG"
+check "run: Bash rules mirrored for the rtk hook" grep -q -- 'Bash(rtk bash test.sh)' "$FAKE_LOG"
+check "run: echo and rtk read-only forms allowed" grep -q -- 'Bash(echo:\*).*Bash(rtk read:\*)' "$FAKE_LOG"
 check "run: graded pass" [ "$(field "$TMP/o1/rows.jsonl" status)" = "pass pass" ]
 check "run: cost summed over turns" [ "$(field "$TMP/o1/rows.jsonl" cost)" = "1 1" ]
 check "run: workdirs removed" [ -z "$(ls -A "$TMP/tmp")" ]
