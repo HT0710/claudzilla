@@ -105,5 +105,40 @@ printf 't/two sonnet high\n' > "$TMP/only.txt"
 run --cases 't/*' --only "$TMP/only.txt" --out "$TMP/o7" >/dev/null
 check "run: --only runs listed cells only" [ "$(field "$TMP/o7/rows.jsonl" model)" = sonnet ]
 
+# --- report: selection rule on canned rows (best opus max 100%; four cells at 90-91%)
+R="$TMP/rep"; mkdir -p "$R"
+row() { printf '{"case":"r/%s","role":"r","agent":null,"model":"%s","effort":"%s","status":"%s","cost":%s,"turns":%s,"ms":1000,"outTokens":100,"claude":"9.9.9"}\n' "$@"; }
+{
+  for i in 1 2 3 4 5; do row A opus max pass 5 4; row B opus max pass 5 4; done
+  for i in 1 2 3 4 5; do row A opus high pass 2 4; done; for i in 1 2 3 4; do row B opus high pass 2 4; done; row B opus high fail 2 4
+  for i in 1 2 3 4 5; do row A sonnet high pass 1 3; done; for i in 1 2 3 4; do row B sonnet high pass 1 3; done; row B sonnet high fail 1 3
+  for i in 1 2 3 4 5; do row A haiku high pass 1 2; done; for i in 1 2 3 4; do row B haiku high pass 1 2; done; row B haiku high fail 1 2
+  for i in 1 2 3 4 5 6 7 8 9 10; do row A haiku medium pass 0.1 2; done; row B haiku medium fail 0.1 2
+  row A haiku low pass 0.01 1; row B haiku low fail 0.01 1
+  row A opus max invalid 5 4; row B haiku medium errored 0.1 2
+  row A sonnet low invalid 1 1; row B sonnet low invalid 1 1
+} > "$R/rows.jsonl"
+node "$EV/report.mjs" "$R/rows.jsonl" >/dev/null
+pk() { node -p "const p=require('$R/picks.json');$1"; }
+check "report: cheapest within tolerance, tie broken by turns" [ "$(pk 'p.roles.r.model+" "+p.roles.r.effort')" = "haiku high" ]
+check "report: a case that never passes disqualifies (haiku medium)" [ "$(pk 'p.roles.r.cost')" = 1 ]
+check "report: best is top pass rate, invalid/errored ignored" [ "$(pk 'p.roles.r.best')" = "opus max" ]
+check "report: main effort from skill roles" [ "$(pk 'p.main.effort')" = high ]
+check "report: markdown marks winner" grep -q 'haiku high \*\*winner\*\*' "$R/report.md"
+check "report: invalid and errored counted per cell" bash -c 'grep -q "^| opus max (best) | 10 | 100% .* | 1 | 0 |$" "$1" && grep -q "^| haiku medium | 11 | .* | 0 | 1 |$" "$1"' _ "$R/report.md"
+check "report: cell with only invalid runs still listed" grep -q '^| sonnet low | 0 | - | .* | 2 | 0 |$' "$R/report.md"
+# stage-B cells (5 runs) outrank a lucky single-run stage-A screen (review #1)
+Q="$TMP/repq"; mkdir -p "$Q"
+rowq() { printf '{"case":"q/%s","role":"q","agent":null,"model":"%s","effort":"%s","status":"%s","cost":1,"turns":1,"ms":1,"run":%s}\n' "$@"; }
+{
+  for n in 1 2 3 4 5; do for c in X Y Z; do s=fail; [ "$n" -le 3 ] && s=pass; rowq $c opus max $s $n; done; done
+  rowq X haiku low pass 1; rowq Y haiku low pass 1; rowq Z haiku low fail 1
+} > "$Q/rows.jsonl"
+node "$EV/report.mjs" "$Q/rows.jsonl" >/dev/null
+check "report: best taken among stage-B cells only" [ "$(node -p "require('$Q/picks.json').roles.q.best")" = "opus max" ]
+node "$EV/report.mjs" "$R/rows.jsonl" --stage-b > "$R/b.txt"
+check "report: stage B lists cells within tolerance per case" [ "$(wc -l < "$R/b.txt" | tr -d ' ')" = 10 ]
+check "report: stage B skips out-of-tolerance cell" bash -c '! grep -q "haiku low" "$1"' _ "$R/b.txt"
+
 echo "evals: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
