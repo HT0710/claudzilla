@@ -24,6 +24,7 @@ curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh |
 | **Guard hook** | blocks force-pushes, discarding work and commits on `main`; blocks push/PR until verification ran; sends "done" claims back to verify |
 | **Display hook** | on screen only: frames a reply that has a TL;DR, with lines below the TL;DR, above Next and at each `---`; shows `<br>` in tables as ` · ` |
 | **Skills** | `pr` (pre-PR checks + description template), `/rule-review` (how often each rule slipped; a weekly summary shows at startup; on your yes, shares the counts, no text, as a claudzilla issue) |
+| **Panel** | `/panel` opens a side pane listing this chat's prompts: click one to jump to it, `↻` reuses it, `⟲ rewind` opens `/rewind` ([details](plugins/panel/README.md)) |
 | **Plugins** | [caveman](https://github.com/JuliusBrussee/caveman), [ponytail](https://github.com/DietrichGebert/ponytail), [superpowers](https://github.com/obra/superpowers) |
 | **Statusline** | cwd, branch, context / 5h / weekly meters, model, effort, active skill |
 | **Token saver** | every Bash call runs through `rtk` |
@@ -38,6 +39,7 @@ settings.base.json     ──merge────▶  ~/.claude/settings.json  your
 
 - **Linked:** instructions, rules, hooks, skills (`pr`, `rule-review`; your own stay), theme and statusline. The repo stays the source of truth.
 - **Merged:** `settings.json` (Claude Code rewrites it). Repo values win, and extras you add on a machine are kept.
+- **Plugin:** `panel` installs from this clone as a local marketplace, so it loads in place and updates with the repo.
 - **WSL:** adds `export COLORTERM=truecolor` to existing `~/.bashrc` / `~/.zshrc` that don't set COLORTERM, else the theme falls back to 256 colours.
 - **Font:** asks (in the terminal, or as a Claude question when Claude runs the install) to install MesloLGS NF (draws the statusline symbols) to `~/.local/share/fonts` or `~/Library/Fonts`. On WSL it also installs it on Windows and sets it in Windows Terminal unless you picked a font. Elsewhere, set it as your terminal font. Say no and the statusline uses basic symbols; `CLAUDZILLA_FONT=yes` or `no` answers without asking.
 - **Safe to re-run:** anything replaced is backed up to `~/.claude/.claudzilla-backup/<timestamp>/`.
@@ -49,6 +51,7 @@ settings.base.json     ──merge────▶  ~/.claude/settings.json  your
 | `~/.claude/CLAUDE.local.md` | instructions for this machine only |
 | `~/.claude/settings.overrides.json` | settings for this machine only, merged last (e.g. `{"permissions":{"defaultMode":"dontAsk"}}`) |
 | `claudzilla.json` | turn guard checks on or off, see below |
+| `~/.claude/keybindings.json` | a key for the panel, e.g. alt+h: `{"bindings":[{"context":"Chat","bindings":{"alt+h":"command:panel"}}]}` |
 
 <details>
 <summary>Guard hook config</summary>
@@ -105,6 +108,7 @@ Updates install themselves in the background (see `autoUpdate`). With it off, or
 
 ```bash
 find ~/.claude -maxdepth 2 -lname "$HOME/claudzilla/*" -delete
+claude plugin marketplace remove claudzilla
 ```
 
 Then remove claudzilla's hooks and `statusLine` from `~/.claude/settings.json` (or restore it from `~/.claude/.claudzilla-backup/`), otherwise they point at deleted scripts. Its own state files can go too:

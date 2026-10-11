@@ -124,6 +124,8 @@ plugins() {
   for m in $(node -e 'for(const m of Object.values(require(process.argv[1]).extraKnownMarketplaces||{}))console.log(m.source.repo||m.source.url)' "$REPO/settings.base.json"); do
     claude plugin marketplace add "$m" >/dev/null 2>&1 && echo "marketplace: $m" || true
   done
+  # claudzilla's own plugins load in place from this clone, so a pull updates them; no version bump.
+  claude plugin marketplace add "$REPO" >/dev/null 2>&1 && echo "marketplace: $REPO" || true
   claude plugin marketplace update >/dev/null 2>&1 || true
   # install skips plugins already present; update moves them to the latest version.
   for p in $(node -e 'for(const[k,v]of Object.entries(require(process.argv[1]).enabledPlugins||{}))if(v)console.log(k)' "$REPO/settings.base.json"); do
