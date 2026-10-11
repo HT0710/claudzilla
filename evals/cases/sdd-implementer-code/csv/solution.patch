@@ -1,0 +1,60 @@
+--- a/src/csv.mjs
++++ b/src/csv.mjs
+@@ -2,3 +2,35 @@
+ export function formatCsvLine(fields) {
+   return fields.map((f) => (/[",\n]/.test(f) ? `"${f.replace(/"/g, '""')}"` : f)).join(",");
+ }
++
++// Splits one CSV line into fields: `"`-quoted fields may hold `,` and `""` (one `"`); nothing is trimmed.
++export function parseCsvLine(line) {
++  const fields = [];
++  let i = 0;
++  for (;;) {
++    if (line[i] === '"') {
++      let field = "";
++      i++;
++      for (;;) {
++        if (i >= line.length) throw new SyntaxError("unterminated quoted field");
++        if (line[i] === '"') {
++          if (line[i + 1] !== '"') break;
++          field += '"';
++          i += 2;
++        } else field += line[i++];
++      }
++      i++;
++      if (i < line.length && line[i] !== ",") throw new SyntaxError(`unexpected character after closing quote at ${i}`);
++      fields.push(field);
++    } else {
++      const comma = line.indexOf(",", i);
++      const end = comma === -1 ? line.length : comma;
++      const field = line.slice(i, end);
++      if (field.includes('"')) throw new SyntaxError(`quote inside unquoted field at ${i}`);
++      fields.push(field);
++      i = end;
++    }
++    if (i >= line.length) return fields;
++    i++;
++  }
++}
+--- a/test/csv.test.mjs
++++ b/test/csv.test.mjs
+@@ -1,8 +1,18 @@
+ import { test } from "node:test";
+ import assert from "node:assert/strict";
+-import { formatCsvLine } from "../src/csv.mjs";
++import { formatCsvLine, parseCsvLine } from "../src/csv.mjs";
+ 
+ test("formatCsvLine quotes only when needed", () => {
+   assert.equal(formatCsvLine(["a", "b c", ""]), "a,b c,");
+   assert.equal(formatCsvLine(["a,b", 'say "hi"']), '"a,b","say ""hi"""');
+ });
++
++test("parseCsvLine splits plain and quoted fields", () => {
++  assert.deepEqual(parseCsvLine("a,,c"), ["a", "", "c"]);
++  assert.deepEqual(parseCsvLine('"a,b","say ""hi"""'), ["a,b", 'say "hi"']);
++  assert.deepEqual(parseCsvLine("a,"), ["a", ""]);
++});
++
++test("parseCsvLine rejects malformed quoting", () => {
++  for (const s of ['"open', 'a,"b"c', 'a"b']) assert.throws(() => parseCsvLine(s), SyntaxError);
++});
