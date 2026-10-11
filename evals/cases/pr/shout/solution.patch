@@ -1,0 +1,15 @@
+--- a/.gh.log
++++ b/.gh.log
+@@ -0,0 +1 @@
++{"args":["pr","create","--title","feat: add shout command","--body","**Why:** users want loud output.\n\n**Changes:**\n- `shout` command\n\n**Test plan:**\n- [x] `node --test`\n- [x] `node src/cli.mjs shout hello world`"],"bodyFile":null}
+--- a/src/cli.mjs
++++ b/src/cli.mjs
+@@ -4,7 +4,7 @@
+ 
+ const [cmd, ...rest] = process.argv.slice(2);
+ if (cmd === "greet") console.log(greet(rest[0]));
+-else if (cmd === "shout") console.log(shout(rest[0]));
++else if (cmd === "shout") console.log(shout(rest.join(" ")));
+ else {
+   console.error(`unknown command: ${cmd}`);
+   process.exit(2);
