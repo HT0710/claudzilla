@@ -301,15 +301,24 @@ clean_env HOME="$K" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT=yes bash "$REPO/install
 check "font declined: yes later clears marker" [ ! -e "$K/.claude/.claudzilla-basic-glyphs" ]
 
 # no terminal (Claude's Bash tool): don't guess, hand the question to Claude
-Q=$(new_home); notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_FONT HOME="$Q" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" >"$Q/install.log" 2>&1 </dev/null; rc=$?
+# fc-list stubs: the host's own fonts must not decide these cases
+mkdir -p "$TMP/nofc" "$TMP/fc"; printf '#!/bin/sh\n' > "$TMP/nofc/fc-list"; printf '#!/bin/sh\necho "MesloLGS Nerd Font Mono"\n' > "$TMP/fc/fc-list"; chmod +x "$TMP/nofc/fc-list" "$TMP/fc/fc-list"
+Q=$(new_home); notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_FONT HOME="$Q" CLAUDZILLA_OFFLINE=1 PATH="$TMP/nofc:$PATH" bash "$REPO/install.sh" >"$Q/install.log" 2>&1 </dev/null; rc=$?
 check "font no tty: exit 0" [ "$rc" -eq 0 ]
 check "font no tty: nothing downloaded" bash -c "! grep -q 'download failed' '$Q/install.log'"
 check "font no tty: not recorded as declined" [ ! -e "$Q/.claude/.claudzilla-basic-glyphs" ]
 check "font no tty: tells Claude to ask via AskUserQuestion" grep -q "AskUserQuestion.*CLAUDZILLA_FONT=yes $REPO/install.sh" "$Q/install.log"
 # installed another way (Nerd Fonts release name): don't ask
 N=$(new_home); mkdir -p "$N/$FD"; echo x > "$N/$FD/MesloLGSNerdFont-Regular.ttf"
-notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_FONT HOME="$N" CLAUDZILLA_OFFLINE=1 PATH="$TMP/linux:$PATH" bash "$REPO/install.sh" >"$N/install.log" 2>&1 </dev/null
+notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_FONT HOME="$N" CLAUDZILLA_OFFLINE=1 PATH="$TMP/nofc:$TMP/linux:$PATH" bash "$REPO/install.sh" >"$N/install.log" 2>&1 </dev/null
 check "font: installed another way, not asked" bash -c "! grep -q 'font:' '$N/install.log'"
+FC=$(new_home); notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_FONT HOME="$FC" CLAUDZILLA_OFFLINE=1 PATH="$TMP/fc:$TMP/linux:$PATH" bash "$REPO/install.sh" >"$FC/install.log" 2>&1 </dev/null
+check "font: fontconfig has it, not asked" bash -c "! grep -q 'font:' '$FC/install.log'"
+M=$(new_home); mkdir -p "$M/$FD"; echo x > "$M/$FD/MesloLGS-Regular.ttf"
+notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_FONT HOME="$M" CLAUDZILLA_OFFLINE=1 PATH="$TMP/nofc:$TMP/linux:$PATH" bash "$REPO/install.sh" >"$M/install.log" 2>&1 </dev/null
+check "font: plain Meslo (no Nerd glyphs) still asked" grep -q 'AskUserQuestion' "$M/install.log"
+W=$(new_home); notty env -u CLAUDE_CONFIG_DIR -u CLAUDZILLA_FONT HOME="$W" WSL_DISTRO_NAME=Ubuntu CLAUDZILLA_OFFLINE=1 PATH="$TMP/fc:$WB:$PATH" bash "$REPO/install.sh" >"$W/install.log" 2>&1 </dev/null
+check "wsl font: Linux-side font still asked (Windows needs it)" grep -q 'AskUserQuestion' "$W/install.log"
 O=$(new_home); clean_env HOME="$O" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT=off bash "$REPO/install.sh" >/dev/null 2>&1
 check "font: CLAUDZILLA_FONT=off declines" [ -f "$O/.claude/.claudzilla-basic-glyphs" ]
 

@@ -158,8 +158,11 @@ font() {
   [ -z "$ans" ] && [ -e "$basic" ] && return 0
   if [ -z "$ans" ] && [ ! -f "$dir/$FONT_FACE Regular.ttf" ]; then
     # Installed another way (distro package, Nerd Fonts release, brew): nothing to do.
-    case "$(fc-list : family 2>/dev/null)" in *'MesloLGS N'*) return 0 ;; esac
-    for f in "$dir"/MesloLGS* /Library/Fonts/MesloLGS*; do [ -e "$f" ] && return 0; done
+    # Not on WSL: there the font must still reach Windows, which draws the terminal.
+    if [ -z "${WSL_DISTRO_NAME:-}" ]; then
+      case "$(fc-list : family 2>/dev/null)" in *'MesloLGS N'*) return 0 ;; esac
+      for f in "$dir"/MesloLGS{\ NF,NerdFont}* /Library/Fonts/MesloLGS{\ NF,NerdFont}*; do [ -e "$f" ] && return 0; done
+    fi
     if ! { : </dev/tty; } 2>/dev/null; then   # no terminal, e.g. Claude ran the install: let Claude ask in a dialog
       echo "font: $FONT_FACE not installed - no terminal to ask. Claude: ask the user with AskUserQuestion (install the recommended font, or use basic statusline symbols), then run: CLAUDZILLA_FONT=yes $REPO/install.sh (or CLAUDZILLA_FONT=no)"
       return 0
