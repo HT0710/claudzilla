@@ -1,0 +1,2 @@
+{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"Reviewing HEAD."}]}}
+{"type":"assistant","message":{"id":"m2","content":[{"type":"text","text":"src/page.mjs:9: 🔴 bug: `pageCount` returns one page too many when `items.length % size === 0` (10 items, size 5 → 3). Use `Math.ceil(items.length / size)`.\ntotals: 1🔴"}]}}

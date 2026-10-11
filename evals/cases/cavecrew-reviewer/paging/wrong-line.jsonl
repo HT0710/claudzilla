@@ -1,0 +1,1 @@
+{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"src/page.mjs:3: 🔴 bug: `start` negative for n < 1.\ntotals: 1🔴"}]}}
