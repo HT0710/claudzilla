@@ -8,7 +8,7 @@ description: Use before opening or editing a pull request (gh pr create / gh pr 
 ## Before opening a PR
 
 - New file → read one sibling of the same kind first; match its imports, test style, docstrings.
-- A pattern, marker or convention you add → `git grep` it on main. Zero hits → don't ship it.
+- A pattern, marker or convention you add → `git grep` it on main. Zero hits → don't ship it (`comments.md` markers exempt).
 - A "repo convention" claim → name the file that shows it, or don't make it.
 - Run every command the PR or docstrings document, exactly as written. Red for an unrelated
   reason → fix the command or file it; never just footnote it.
