@@ -1,0 +1,58 @@
+--- a/src/posts.mjs
++++ b/src/posts.mjs
+@@ -1,10 +1,4 @@
++import { slugify } from "./slug.mjs";
++
+ // Canonical post path: postUrl("Hello, World!", 7) → "/posts/7-hello-world".
+-export function postUrl(title, id) {
+-  const slug = title
+-    .normalize("NFKD")
+-    .replace(/[̀-ͯ]/g, "")
+-    .toLowerCase()
+-    .replace(/[^a-z0-9]+/g, "-")
+-    .replace(/^-+|-+$/g, "");
+-  return `/posts/${id}-${slug}`;
+-}
++export const postUrl = (title, id) => `/posts/${id}-${slugify(title)}`;
+--- a/src/slug.mjs
++++ b/src/slug.mjs
+@@ -0,0 +1,9 @@
++// Lowercase ASCII slug: accents stripped, runs of characters outside [a-z0-9] plus `keep` become "-".
++export function slugify(text, keep = "") {
++  return text
++    .normalize("NFKD")
++    .replace(/[̀-ͯ]/g, "")
++    .toLowerCase()
++    .replace(new RegExp(`[^a-z0-9${keep}]+`, "g"), "-")
++    .replace(/^-+|-+$/g, "");
++}
+--- a/src/tags.mjs
++++ b/src/tags.mjs
+@@ -1,9 +1,4 @@
++import { slugify } from "./slug.mjs";
++
+ // Lookup key for a tag; underscores survive so "snake_case" tags stay distinct.
+-export function tagKey(tag) {
+-  return tag
+-    .normalize("NFKD")
+-    .replace(/[̀-ͯ]/g, "")
+-    .toLowerCase()
+-    .replace(/[^a-z0-9_]+/g, "-")
+-    .replace(/^-+|-+$/g, "");
+-}
++export const tagKey = (tag) => slugify(tag, "_");
+--- a/src/users.mjs
++++ b/src/users.mjs
+@@ -1,9 +1,4 @@
++import { slugify } from "./slug.mjs";
++
+ // URL-safe handle for a display name: "Zoë Smith" → "zoe-smith".
+-export function userHandle(name) {
+-  return name
+-    .normalize("NFKD")
+-    .replace(/[̀-ͯ]/g, "")
+-    .toLowerCase()
+-    .replace(/[^a-z0-9]+/g, "-")
+-    .replace(/^-+|-+$/g, "");
+-}
++export const userHandle = (name) => slugify(name);
