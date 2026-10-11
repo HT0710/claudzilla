@@ -4,10 +4,11 @@
 import { spawnSync } from "node:child_process";
 import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const EVALS = dirname(fileURLToPath(import.meta.url));
+const REPO = dirname(EVALS);
 const EFFORTS = ["low", "medium", "high", "xhigh"];
 // Inline skills cannot switch model (measured), so skill roles only ever run on the main model.
 const SKILL_CELLS = [...EFFORTS, "max"].map((effort) => ({ model: "opus", effort }));
@@ -83,19 +84,30 @@ function claudeArgs(c, cell) {
 }
 
 function runP(c, cell, wd) {
-  const t = { cost: 0, outTokens: 0, turns: 0, ms: 0, models: new Set() };
+  const t = { cost: 0, outTokens: 0, turns: 0, ms: 0, denials: 0, models: new Set() };
+  // Cases ship CLI stubs (e.g. a fake `gh`) in <workdir>/bin.
+  const env = { ...process.env, PATH: `${join(wd, "bin")}${delimiter}${process.env.PATH}` };
   let sid = null;
   for (const prompt of [c.prompt, ...c.followups]) {
     const args = ["-p", prompt, ...claudeArgs(c, cell), "--output-format", "json", ...(sid ? ["--resume", sid] : [])];
-    const r = spawnSync("claude", args, { cwd: wd, encoding: "utf8", timeout: c.timeout, stdio: ["ignore", "pipe", "pipe"] });
+    const r = spawnSync("claude", args, { cwd: wd, env, encoding: "utf8", timeout: c.timeout, stdio: ["ignore", "pipe", "pipe"] });
     let j;
     try { j = JSON.parse(r.stdout); } catch { return { status: "errored", error: String(r.error || r.stderr || "no output").slice(0, 300) }; }
     if (j.is_error && j.subtype !== "error_max_turns") return { status: "errored", error: String(j.result ?? j.subtype).slice(0, 300) };
     sid = j.session_id;
     t.cost += j.total_cost_usd ?? 0; t.turns += j.num_turns ?? 0; t.ms += j.duration_ms ?? 0;
+    t.denials += j.permission_denials?.length ?? 0;
     for (const [m, u] of Object.entries(j.modelUsage ?? {})) { t.models.add(m); t.outTokens += u.outputTokens ?? 0; }
   }
   return { status: "ran", session: sid, transcript: findTranscript(sid), ...t, models: [...t.models] };
+}
+
+// setup.sh builds what a plain fixture copy cannot: git history, remotes, CLI stubs.
+function setup(c, wd) {
+  const f = join(c.dir, "setup.sh");
+  if (!existsSync(f)) return;
+  const r = spawnSync("bash", [f], { cwd: wd, stdio: "ignore", timeout: 60000, env: { ...process.env, CASE_DIR: c.dir, REPO } });
+  if (r.status !== 0) throw new Error(`${c.id}: setup.sh failed`);
 }
 
 function grade(c, wd, res) {
@@ -126,7 +138,8 @@ function main(argv) {
         if (done.has(key(row))) continue;
         const wd = mkdtempSync(join(tmpdir(), "eval-"));
         try {
-          cpSync(join(c.dir, "fixture"), wd, { recursive: true });
+          if (existsSync(join(c.dir, "fixture"))) cpSync(join(c.dir, "fixture"), wd, { recursive: true });
+          setup(c, wd);
           const res = runP(c, cell, wd);
           Object.assign(row, res, { status: res.status === "ran" ? grade(c, wd, res) : res.status });
         } finally {
