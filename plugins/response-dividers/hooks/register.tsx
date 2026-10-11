@@ -33,6 +33,8 @@ export function split(text: string): Part[] {
 export const register: Register = on => {
   // A hook's text is fixed when printed; drawn here, the lines follow a resize or a docked pane.
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+    // A summary block split up would repeat the engine's ` · summary` mark per chunk.
+    if (e.props.isSummary) return next(e)
     const parts = split(e.props.text)
     if (!parts.some(p => 'rule' in p)) return next(e)
     const { Box, Text } = $.ui.resolve(e)

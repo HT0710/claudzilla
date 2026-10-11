@@ -27,6 +27,21 @@ test("chunks after the bullet's keep its indent", async ($, on) => {
   expect(await padOf(/^\*\*TL;DR\*\* x$/)).toBeUndefined()
 })
 
+test("a block without the bullet takes no indent and the lines its room", async ($, on) => {
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  const ui = await $.ui.mount({ plugin: 'response-dividers', surface: 'terminal', component: 'AssistantMessage', requestId: 'm4',
+    props: { ...props, isFirstOfReply: false }, viewport: { columns: 44, rows: 20 } })
+  expect((await ui.findAll({ type: 'Text', text: /^━+$/ })).map(t => t.text.length)).toEqual([42, 42])
+  expect((await ui.findAll({ type: 'Box' })).some(b => b.props.paddingLeft === 2)).toBe(false)
+})
+
+test('a summary block is the engine drawing, so its mark shows once', async ($, on) => {
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  const ui = await $.ui.mount({ plugin: 'response-dividers', surface: 'terminal', component: 'AssistantMessage', requestId: 'm5',
+    props: { ...props, isSummary: true }, viewport: { columns: 44, rows: 20 } })
+  expect(await ui.find({ type: 'Text', text })).toBeDefined()
+})
+
 test('a reply with no frame lines is the engine drawing', async ($, on) => {
   on('ui.render', { component: 'AssistantMessage' }, () => ({ type: 'Text' as const, children: ['engine'] }))
   const ui = await $.ui.mount({ plugin: 'response-dividers', surface: 'terminal', component: 'AssistantMessage', requestId: 'm2',
