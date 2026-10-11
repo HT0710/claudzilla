@@ -306,6 +306,10 @@ check "font no tty: exit 0" [ "$rc" -eq 0 ]
 check "font no tty: nothing downloaded" bash -c "! grep -q 'download failed' '$Q/install.log'"
 check "font no tty: not recorded as declined" [ ! -e "$Q/.claude/.claudzilla-basic-glyphs" ]
 check "font no tty: tells Claude to ask via AskUserQuestion" grep -q "AskUserQuestion.*CLAUDZILLA_FONT=yes $REPO/install.sh" "$Q/install.log"
+# installed another way (Nerd Fonts release name): don't ask
+N=$(new_home); mkdir -p "$N/$FD"; echo x > "$N/$FD/MesloLGSNerdFont-Regular.ttf"
+notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_FONT HOME="$N" CLAUDZILLA_OFFLINE=1 PATH="$TMP/linux:$PATH" bash "$REPO/install.sh" >"$N/install.log" 2>&1 </dev/null
+check "font: installed another way, not asked" bash -c "! grep -q 'font:' '$N/install.log'"
 O=$(new_home); clean_env HOME="$O" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT=off bash "$REPO/install.sh" >/dev/null 2>&1
 check "font: CLAUDZILLA_FONT=off declines" [ -f "$O/.claude/.claudzilla-basic-glyphs" ]
 
