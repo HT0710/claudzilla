@@ -1,0 +1,15 @@
+{
+  "systematic-debugging": "opus xhigh",
+  "test-driven-development": "opus high",
+  "verification-before-completion": "opus medium",
+  "receiving-code-review": "opus high",
+  "safe-refactor": "opus high",
+  "migration": "opus xhigh",
+  "pr": "opus medium",
+  "cavecrew-reviewer": "opus xhigh",
+  "sdd-reviewer": "sonnet high",
+  "investigator": "haiku high",
+  "sdd-implementer-code": "haiku medium",
+  "sdd-implementer-prose": "sonnet medium",
+  "plan": "opus xhigh"
+}
