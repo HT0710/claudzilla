@@ -2,7 +2,7 @@
 
 Draws the lines claudzilla's `md-display.pl` puts in a reply (the heavy frame, the thin separator, the dotted group break) at the chat's current width. Lines a hook prints keep the width they were printed at and wrap once the chat narrows, as when the panel docks or the terminal shrinks; drawn here, they follow every resize.
 
-Without `md-display.pl` a reply has no such lines and this draws nothing.
+It redraws any whole line of `━`, `─` or `┈` outside a code fence, so a line the model writes itself is resized too. Without `md-display.pl` replies rarely hold such lines and it draws nothing.
 
 ## Install
 
