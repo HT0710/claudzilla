@@ -22,3 +22,4 @@ jobs:
       - run: bash tests/install.test.sh
       - run: bash tests/rule-review.test.sh
       - run: bash tests/hud.test.sh
+      - run: bash tests/evals.test.sh
