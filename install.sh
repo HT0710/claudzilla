@@ -122,12 +122,12 @@ plugins() {
   command -v claude >/dev/null || { echo "plugins skipped: install Claude Code, then re-run install.sh" >&2; return 0; }
   local m p
   for m in $(node -e 'for(const m of Object.values(require(process.argv[1]).extraKnownMarketplaces||{}))console.log((m.source.repo||m.source.url)+(m.source.ref?"#"+m.source.ref:""))' "$REPO/settings.base.json"); do
-    claude plugin marketplace add "$m" >/dev/null 2>&1 && echo "marketplace: $m" || true
+    claude plugin marketplace add "$m" >/dev/null 2>&1 && echo "marketplace: $m" || echo "  ! $m failed - retry: claude plugin marketplace add $m" >&2
   done
   # claudzilla's own plugins load in place from this clone, so a pull updates them; no version bump.
   claude plugin marketplace add "$REPO" >/dev/null 2>&1 && echo "marketplace: $REPO" || true
   claude plugin marketplace update >/dev/null 2>&1 || true
-  # install skips plugins already present; update moves them to the latest version.
+  # install skips plugins already present; update moves them to the version the marketplace offers (the `ref` tag when pinned).
   for p in $(node -e 'for(const[k,v]of Object.entries(require(process.argv[1]).enabledPlugins||{}))if(v)console.log(k)' "$REPO/settings.base.json"); do
     claude plugin install "$p" && claude plugin update "$p" >/dev/null || echo "  ! $p failed - retry: claude plugin install $p && claude plugin update $p" >&2
   done
