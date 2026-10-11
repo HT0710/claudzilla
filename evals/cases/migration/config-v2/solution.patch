@@ -1,0 +1,47 @@
+--- a/config.json
++++ b/config.json
+@@ -1,5 +1,5 @@
+ {
+-  "version": 1,
+-  "db": "postgres://app:s3cret@db.local:5432/shop",
+-  "timeout": 30
++  "version": 2,
++  "db": { "host": "db.local", "port": 5432, "name": "shop", "user": "app" },
++  "timeoutMs": 30000
+ }
+--- a/data/users.json
++++ b/data/users.json
+@@ -1,5 +1,5 @@
+ [
+-  { "name": "Ann Lee", "email": "ANN@X.IO" },
+-  { "name": "Bo", "email": "bo@y.io" },
+-  { "name": "Mary Ann Cole", "email": "Mary@Z.io" }
++  { "first": "Ann", "last": "Lee", "email": "ann@x.io" },
++  { "first": "Bo", "last": "", "email": "bo@y.io" },
++  { "first": "Mary", "last": "Ann Cole", "email": "mary@z.io" }
+ ]
+--- a/rollback.sh
++++ b/rollback.sh
+@@ -0,0 +1,6 @@
++#!/usr/bin/env bash
++# Restores the v1 files saved in .v1/ before the v2 migration.
++set -e
++cd "$(dirname "$0")"
++cp .v1/config.json config.json
++cp .v1/users.json data/users.json
+--- a/.v1/config.json
++++ b/.v1/config.json
+@@ -0,0 +1,5 @@
++{
++  "version": 1,
++  "db": "postgres://app:s3cret@db.local:5432/shop",
++  "timeout": 30
++}
+--- a/.v1/users.json
++++ b/.v1/users.json
+@@ -0,0 +1,5 @@
++[
++  { "name": "Ann Lee", "email": "ANN@X.IO" },
++  { "name": "Bo", "email": "bo@y.io" },
++  { "name": "Mary Ann Cole", "email": "Mary@Z.io" }
++]

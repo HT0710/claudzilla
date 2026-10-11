@@ -1,0 +1,5 @@
+{
+  "skill": "caveman:migration",
+  "allowed_tools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash(node:*)", "Bash(bash:*)", "Bash(cp:*)", "Bash(mkdir:*)", "Bash(cmp:*)", "Bash(diff:*)"],
+  "followups": ["go"]
+}

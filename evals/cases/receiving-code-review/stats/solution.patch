@@ -1,0 +1,12 @@
+--- a/src/stats.mjs
++++ b/src/stats.mjs
+@@ -1,6 +1,8 @@
+ // Summary statistics for a list of numbers.
+ export function summary(xs) {
+-  const sorted = xs.sort((a, b) => a - b);
++  if (xs.length === 0) throw new RangeError("summary of an empty list");
++  if (!xs.every(Number.isFinite)) throw new TypeError("summary needs finite numbers");
++  const sorted = [...xs].sort((a, b) => a - b);
+   const n = sorted.length;
+   const mean = sorted.reduce((s, x) => s + x, 0) / n;
+   const median = n % 2 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2;

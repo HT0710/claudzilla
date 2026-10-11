@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "db": "postgres://app:s3cret@db.local:5432/shop",
+  "timeout": 30
+}
