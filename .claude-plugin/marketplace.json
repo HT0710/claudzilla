@@ -1,0 +1,6 @@
+{
+  "name": "claudzilla",
+  "description": "Plugins that ship with claudzilla",
+  "owner": { "name": "HT0710", "url": "https://github.com/HT0710" },
+  "plugins": [{ "name": "panel", "source": "./plugins/panel" }]
+}
