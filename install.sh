@@ -121,7 +121,7 @@ deps() {
 plugins() {
   command -v claude >/dev/null || { echo "plugins skipped: install Claude Code, then re-run install.sh" >&2; return 0; }
   local m p
-  for m in $(node -e 'for(const m of Object.values(require(process.argv[1]).extraKnownMarketplaces||{}))console.log(m.source.repo||m.source.url)' "$REPO/settings.base.json"); do
+  for m in $(node -e 'for(const m of Object.values(require(process.argv[1]).extraKnownMarketplaces||{}))console.log((m.source.repo||m.source.url)+(m.source.ref?"#"+m.source.ref:""))' "$REPO/settings.base.json"); do
     claude plugin marketplace add "$m" >/dev/null 2>&1 && echo "marketplace: $m" || true
   done
   # claudzilla's own plugins load in place from this clone, so a pull updates them; no version bump.
