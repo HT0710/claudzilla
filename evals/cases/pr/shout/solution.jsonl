@@ -1,0 +1,6 @@
+{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","name":"Skill","input":{"skill":"pr"}}]}}
+{"type":"assistant","message":{"id":"m2","content":[{"type":"tool_use","name":"Bash","input":{"command":"node --test"}}]}}
+{"type":"assistant","message":{"id":"m3","content":[{"type":"tool_use","name":"Bash","input":{"command":"node src/cli.mjs shout hello world"}}]}}
+{"type":"assistant","message":{"id":"m4","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/tmp/eval-x/src/cli.mjs"}}]}}
+{"type":"assistant","message":{"id":"m5","content":[{"type":"tool_use","name":"Bash","input":{"command":"git commit -am \"fix: shout joins all words\""}}]}}
+{"type":"assistant","message":{"id":"m6","content":[{"type":"tool_use","name":"Bash","input":{"command":"gh pr create --title \"feat: add shout command\" --body \"...\""}}]}}

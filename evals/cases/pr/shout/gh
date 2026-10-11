@@ -1,0 +1,16 @@
+#!/usr/bin/env node
+// Fake gh: appends each call (argv + any --body-file contents) to <workdir>/.gh.log as JSON.
+const fs = require("fs");
+const path = require("path");
+
+const args = process.argv.slice(2);
+const at = args.findIndex((a) => a === "--body-file" || a === "-F");
+const file = at >= 0 ? args[at + 1] : args.find((a) => a.startsWith("--body-file="))?.slice(12);
+const bodyFile = file ? fs.readFileSync(file === "-" ? 0 : file, "utf8") : null;
+fs.appendFileSync(path.join(__dirname, "..", ".gh.log"), `${JSON.stringify({ args, bodyFile })}\n`);
+const [group, sub] = args;
+if (group === "pr" && sub === "create") console.log("https://github.com/example/greet/pull/1");
+else if (group === "pr" && sub === "view") {
+  console.error("no pull requests found for branch \"feat/shout\"");
+  process.exit(1);
+}

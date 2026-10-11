@@ -1,0 +1,5 @@
+{
+  "skill": "pr",
+  "allowed_tools": ["Read", "Grep", "Glob", "Edit", "Bash(git:*)", "Bash(gh:*)", "Bash(node:*)"],
+  "followups": ["go"]
+}
