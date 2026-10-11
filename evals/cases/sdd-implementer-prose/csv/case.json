@@ -1,0 +1,4 @@
+{
+  "agent": "general-purpose",
+  "allowed_tools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash(node:*)", "Bash(git:*)"]
+}
