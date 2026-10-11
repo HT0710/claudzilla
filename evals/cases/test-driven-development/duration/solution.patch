@@ -1,0 +1,28 @@
+--- a/src/duration.mjs
++++ b/src/duration.mjs
+@@ -1,4 +1,8 @@
+ // Parses "1h30m"-style durations into seconds; see SPEC.md.
++const RE = /^(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?$/;
++
+ export function parseDuration(text) {
+-  throw new Error("not implemented");
++  const m = RE.exec(text.trim());
++  if (!m || (m[1] ?? m[2] ?? m[3]) === undefined) throw new RangeError(`invalid duration: ${JSON.stringify(text)}`);
++  return Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0);
+ }
+--- a/test/duration.test.mjs
++++ b/test/duration.test.mjs
+@@ -0,0 +1,13 @@
++import { test } from "node:test";
++import assert from "node:assert/strict";
++import { parseDuration } from "../src/duration.mjs";
++
++test("parses ordered parts", () => {
++  assert.equal(parseDuration("1h30m"), 5400);
++  assert.equal(parseDuration("1h 30m 15s"), 5415);
++  assert.equal(parseDuration("0s"), 0);
++});
++
++test("rejects malformed text", () => {
++  for (const s of ["", "90", "30m1h", "1.5h"]) assert.throws(() => parseDuration(s), RangeError);
++});

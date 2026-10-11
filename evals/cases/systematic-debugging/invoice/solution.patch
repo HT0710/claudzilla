@@ -1,0 +1,8 @@
+--- a/src/money.mjs
++++ b/src/money.mjs
+@@ -1,4 +1,4 @@
+ // Parses a decimal amount like "12.5" into integer cents.
+ export function toCents(amount) {
+-  return Math.floor(parseFloat(amount) * 100);
++  return Math.round(parseFloat(amount) * 100);
+ }

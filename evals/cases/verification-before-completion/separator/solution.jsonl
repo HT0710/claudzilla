@@ -1,0 +1,4 @@
+{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/tmp/eval-x/src/slug.mjs"}}]}}
+{"type":"assistant","message":{"id":"m2","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/tmp/eval-x/test/slug.test.mjs"}}]}}
+{"type":"assistant","message":{"id":"m3","content":[{"type":"tool_use","name":"Bash","input":{"command":"node --test 2>&1 | tail -5"}}]}}
+{"type":"assistant","message":{"id":"m4","content":[{"type":"text","text":"Done. `node --test`: 2 pass, 0 fail. `cacheKey` still uses `-`."}]}}

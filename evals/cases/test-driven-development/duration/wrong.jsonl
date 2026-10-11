@@ -1,0 +1,2 @@
+{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/tmp/eval-x/src/duration.mjs"}}]}}
+{"type":"assistant","message":{"id":"m2","content":[{"type":"tool_use","name":"Write","input":{"file_path":"/tmp/eval-x/test/duration.test.mjs"}}]}}

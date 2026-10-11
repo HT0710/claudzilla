@@ -1,0 +1,20 @@
+--- a/src/slug.mjs
++++ b/src/slug.mjs
+@@ -1,6 +1,6 @@
+ export const SEP = "-";
+ 
+-// Lowercase words joined by SEP: "Hello World" → "hello-world".
++// Lowercase words joined by "_": "Hello World" → "hello_world".
+ export function slug(text) {
+-  return text.trim().toLowerCase().split(/\s+/).join(SEP);
++  return text.trim().toLowerCase().split(/\s+/).join("_");
+ }
+--- a/test/slug.test.mjs
++++ b/test/slug.test.mjs
+@@ -3,5 +3,5 @@
+ import { slug } from "../src/slug.mjs";
+ 
+ test("slug joins lowercase words", () => {
+-  assert.equal(slug("  Hello  World "), "hello-world");
++  assert.equal(slug("  Hello  World "), "hello_world");
+ });

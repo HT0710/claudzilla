@@ -1,0 +1,4 @@
+{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","name":"Bash","input":{"command":"node --test"}}]}}
+{"type":"assistant","message":{"id":"m2","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/tmp/eval-x/src/slug.mjs"}}]}}
+{"type":"assistant","message":{"id":"m3","content":[{"type":"tool_use","name":"Bash","input":{"command":"node --test test/slug.test.mjs"}}]}}
+{"type":"assistant","message":{"id":"m4","content":[{"type":"text","text":"Done."}]}}
