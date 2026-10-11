@@ -1,0 +1,5 @@
+{
+  "skill": "superpowers:systematic-debugging",
+  "allowed_tools": ["Read", "Grep", "Glob", "Edit", "Bash(node:*)"],
+  "followups": ["go"]
+}

@@ -1,0 +1,5 @@
+{
+  "skill": "superpowers:test-driven-development",
+  "allowed_tools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash(node:*)", "Bash(mkdir:*)"],
+  "followups": ["go"]
+}

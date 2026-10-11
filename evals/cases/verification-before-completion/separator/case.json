@@ -1,0 +1,5 @@
+{
+  "skill": "superpowers:verification-before-completion",
+  "allowed_tools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash(node:*)"],
+  "followups": ["go"]
+}
