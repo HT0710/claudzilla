@@ -10,12 +10,12 @@
 +  if (!m || (m[1] ?? m[2] ?? m[3]) === undefined) throw new RangeError(`invalid duration: ${JSON.stringify(text)}`);
 +  return Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0);
  }
---- a/test/duration.test.mjs
-+++ b/test/duration.test.mjs
+--- a/src/duration.test.mjs
++++ b/src/duration.test.mjs
 @@ -0,0 +1,13 @@
 +import { test } from "node:test";
 +import assert from "node:assert/strict";
-+import { parseDuration } from "../src/duration.mjs";
++import { parseDuration } from "./duration.mjs";
 +
 +test("parses ordered parts", () => {
 +  assert.equal(parseDuration("1h30m"), 5400);

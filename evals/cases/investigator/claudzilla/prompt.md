@@ -1,4 +1,4 @@
-Answer each with `path:line`:
+Using only the code in this folder, answer each with `path:line`:
 
 1. Where does the PreToolUse hook decide that a `git commit` on the default branch gets flagged?
 2. Which `install.sh` function merges `settings.base.json` into the user's `settings.json`?
