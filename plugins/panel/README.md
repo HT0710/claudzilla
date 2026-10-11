@@ -28,6 +28,8 @@ claudzilla's `install.sh` installs it. Without claudzilla:
 }
 ```
 
+On macOS `alt` is Option; your terminal must send it as Meta — see [Option key shortcuts](https://code.claude.com/docs/en/terminal-config#enable-option-key-shortcuts-on-macos).
+
 ## Needs
 
 Tested with Claude Code 2.1.296; mod events and methods can change between releases.
