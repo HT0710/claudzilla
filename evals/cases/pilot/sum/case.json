@@ -1,0 +1,5 @@
+{
+  "role": "pilot",
+  "allowed_tools": ["Read", "Edit", "Bash(bash test.sh)", "Bash(bash sum.sh:*)"],
+  "followups": ["go"]
+}

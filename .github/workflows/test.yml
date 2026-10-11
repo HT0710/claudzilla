@@ -22,6 +22,7 @@ jobs:
           - tests/guide.test.sh
           - tests/visuals.test.sh
           - tests/release.test.sh
+          - tests/evals.test.sh
           - plugins/ballot
           - plugins/byline
           - plugins/folio
