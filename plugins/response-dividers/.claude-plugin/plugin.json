@@ -1,0 +1,5 @@
+{
+  "name": "response-dividers",
+  "description": "Draws the reply's frame and divider lines at the chat's live width, so they never wrap",
+  "author": { "name": "HT0710", "url": "https://github.com/HT0710" }
+}

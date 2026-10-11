@@ -99,7 +99,8 @@
     "caveman@caveman": true,
     "ponytail@ponytail": true,
     "superpowers@claude-plugins-official": true,
-    "panel@claudzilla": true
+    "panel@claudzilla": true,
+    "response-dividers@claudzilla": true
   },
   "extraKnownMarketplaces": {
     "claude-plugins-official": {

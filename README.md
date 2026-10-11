@@ -22,7 +22,7 @@ curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh |
 | **Instructions** (`CLAUDE.md`) | brevity, surgical changes, investigate before acting, evidence for every claim |
 | **Rules** (`rules/`) | always-loaded rules for git, response format, comments and skill use; Python rules load only in Python work |
 | **Guard hook** | blocks force-pushes, discarding work and commits on `main`; blocks push/PR until verification ran; sends "done" claims back to verify |
-| **Display hook** | on screen only: frames a reply that has a TL;DR, with lines below the TL;DR, above Next and at each `---`; shows `<br>` in tables as ` · ` |
+| **Display hook** | on screen only: frames a reply that has a TL;DR, with lines below the TL;DR, above Next and at each `---`, which the response-dividers plugin keeps fitted to the chat's width ([details](plugins/response-dividers/README.md)); shows `<br>` in tables as ` · ` |
 | **Skills** | `pr` (pre-PR checks + description template), `/rule-review` (how often each rule slipped; a weekly summary shows at startup; on your yes, shares the counts, no text, as a claudzilla issue) |
 | **Panel** | `/panel` opens a side pane listing this chat's prompts: click one to jump to it, `↻` reuses it, `⟲ rewind` opens `/rewind` ([details](plugins/panel/README.md)) |
 | **Plugins** | [caveman](https://github.com/JuliusBrussee/caveman), [ponytail](https://github.com/DietrichGebert/ponytail), [superpowers](https://github.com/obra/superpowers) |
