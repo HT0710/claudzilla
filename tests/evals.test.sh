@@ -8,15 +8,23 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0 fail=0
 check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL: $name"; return 1; fi; }
 
-# --- graders: bare fixture fails, fixture + solution.patch passes
+# --- graders: bare fixture fails; fixture + solution.patch (+ solution.jsonl transcript) passes; wrong*.jsonl transcripts fail
 graded=0
 for d in "$EV"/cases/*/*/; do
-  [ -f "$d/solution.patch" ] || continue
-  n=${d%/}; n=${n#"$EV"/cases/}; graded=$((graded+1))
-  w="$TMP/grade/$n"; mkdir -p "$w"; cp -R "$d/fixture/." "$w/"
+  [ -f "$d/solution.patch" ] || [ -f "$d/solution.jsonl" ] || continue
+  d=${d%/}; n=${d#"$EV"/cases/}; graded=$((graded+1))
+  w="$TMP/grade/$n"; mkdir -p "$w"
+  [ -d "$d/fixture" ] && cp -R "$d/fixture/." "$w/"
+  [ -f "$d/setup.sh" ] && check "setup.sh runs: $n" bash -c 'cd "$1" && CASE_DIR="$2" REPO="$3" bash "$2/setup.sh" >/dev/null 2>&1' _ "$w" "$d" "$REPO"
+  sol=""; [ -f "$d/solution.jsonl" ] && sol="$d/solution.jsonl"
   check "grader rejects bare fixture: $n" bash -c '! WORKDIR="$1" TRANSCRIPT= bash "$2/grade.sh" >/dev/null 2>&1' _ "$w" "$d"
-  (cd "$w" && patch -s -p1 < "$d/solution.patch")
-  check "grader accepts solution: $n" bash -c 'WORKDIR="$1" TRANSCRIPT= bash "$2/grade.sh" >/dev/null 2>&1' _ "$w" "$d"
+  [ -f "$d/solution.patch" ] && (cd "$w" && patch -s -p1 < "$d/solution.patch")
+  for x in "$d"/wrong*.jsonl; do
+    [ -f "$x" ] || continue
+    check "grader rejects ${x##*/}: $n" bash -c '! WORKDIR="$1" TRANSCRIPT="$3" bash "$2/grade.sh" >/dev/null 2>&1' _ "$w" "$d" "$x"
+  done
+  # Last: some graders mutate the workdir (migration runs rollback.sh).
+  check "grader accepts solution: $n" bash -c 'WORKDIR="$1" TRANSCRIPT="$3" bash "$2/grade.sh" >/dev/null 2>&1' _ "$w" "$d" "$sol"
 done
 check "graders: at least one synthetic case" [ "$graded" -gt 0 ]
 
@@ -25,7 +33,7 @@ mkdir -p "$TMP/bin" "$TMP/cfg" "$TMP/tmp"
 cat > "$TMP/bin/claude" <<'EOF'
 #!/usr/bin/env bash
 [ "$1" = --version ] && { echo "9.9.9 (fake)"; exit 0; }
-{ printf '%s' "$*" | tr '\n' ' '; echo; } >> "$FAKE_LOG"
+{ printf '%s' "$*" | tr '\n' ' '; echo " PATH-HEAD=${PATH%%:*}"; } >> "$FAKE_LOG"
 case "${FAKE_MODE:-ok}" in
   error) echo '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"rate limited"}'; exit 1 ;;
   hang) exec sleep 5 ;;
@@ -39,7 +47,7 @@ done
 mkdir -p "$CLAUDE_CONFIG_DIR/projects/fake"
 skill=""; [ -n "${FAKE_SKILL:-}" ] && skill=",{\"type\":\"tool_use\",\"name\":\"Skill\",\"input\":{\"skill\":\"$FAKE_SKILL\"}}"
 echo "{\"type\":\"assistant\",\"message\":{\"id\":\"m$$\",\"model\":\"claude-$model\",\"usage\":{\"output_tokens\":7},\"content\":[{\"type\":\"text\",\"text\":\"ok\"}$skill]}}" >> "$CLAUDE_CONFIG_DIR/projects/fake/$sid.jsonl"
-echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$sid\",\"total_cost_usd\":0.5,\"num_turns\":2,\"duration_ms\":1000,\"modelUsage\":{\"claude-$model\":{\"outputTokens\":7}}}"
+echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$sid\",\"total_cost_usd\":0.5,\"num_turns\":2,\"duration_ms\":1000,\"permission_denials\":[{\"tool_name\":\"Bash\"}],\"modelUsage\":{\"claude-$model\":{\"outputTokens\":7}}}"
 EOF
 chmod +x "$TMP/bin/claude"
 export PATH="$TMP/bin:$PATH" CLAUDE_CONFIG_DIR="$TMP/cfg" TMPDIR="$TMP/tmp" FAKE_LOG="$TMP/calls.log"
@@ -64,6 +72,7 @@ check "run: second cell flags" grep -q -- '--model sonnet --effort high' "$FAKE_
 check "run: graded pass" [ "$(field "$TMP/o1/rows.jsonl" status)" = "pass pass" ]
 check "run: cost summed over turns" [ "$(field "$TMP/o1/rows.jsonl" cost)" = "1 1" ]
 check "run: workdirs removed" [ -z "$(ls -A "$TMP/tmp")" ]
+check "run: permission denials summed over turns" [ "$(field "$TMP/o1/rows.jsonl" denials)" = "2 2" ]
 
 # --- fail, resume, torn line
 : > "$FAKE_LOG"
@@ -78,6 +87,12 @@ run --cases 't/skill' --out "$TMP/o3" >/dev/null
 FAKE_SKILL=superpowers:systematic-debugging FAKE_PATCH="$SOL" run --cases 't/skill' --out "$TMP/o4" >/dev/null
 check "run: skill not fired → invalid" [ "$(field "$TMP/o3/rows.jsonl" status)" = invalid ]
 check "run: skill fired → graded" [ "$(field "$TMP/o4/rows.jsonl" status)" = pass ]
+
+# --- tx.mjs: transcript facts for graders (fake transcript from the skill run above)
+tx=$(grep -l '"Skill"' "$CLAUDE_CONFIG_DIR"/projects/fake/*.jsonl | head -1)
+check "tx: last assistant text" [ "$(node "$EV/tx.mjs" text "$tx")" = ok ]
+check "tx: one line per tool call" [ "$(node "$EV/tx.mjs" tools "$tx")" = "$(printf 'Skill\tsuperpowers:systematic-debugging')" ]
+check "tx: no transcript reads as empty" [ -z "$(node "$EV/tx.mjs" text "")" ]
 
 # --- errored: stop after two in a row, re-queued on re-run, hung child
 FAKE_MODE=error run --cases 't/two' --out "$TMP/o5" >/dev/null 2>&1; rc=$?
@@ -99,6 +114,20 @@ mkdir -p "$TMP/cases/pilot"; cp -R "$EV/cases/pilot/sum" "$TMP/cases/pilot/x"
 printf '%s\n' '{"role":"pilot","timeout_seconds":1}' > "$TMP/cases/pilot/x/case.json"
 run --smoke --out "$TMP/o10" >/dev/null 2>&1
 check "run: smoke = one headless haiku-low run per pilot case" [ "$(field "$TMP/o10/rows.jsonl" effort)" = low ]
+
+# --- setup.sh: runs in the workdir with CASE_DIR and REPO; workdir bin/ leads PATH; failure aborts
+mk setup '{"role":"t","matrix":[{"model":"opus","effort":"low"}]}'
+mv "$TMP/cases/t/setup/fixture" "$TMP/cases/t/setup/src"
+printf '%s\n' '[ -d "$REPO/evals" ] && cp -R "$CASE_DIR/src/." . && patch -s -p1 < "$CASE_DIR/solution.patch"' > "$TMP/cases/t/setup/setup.sh"
+mk badsetup '{"role":"t","matrix":[{"model":"opus","effort":"low"}]}'
+echo 'exit 1' > "$TMP/cases/t/badsetup/setup.sh"
+: > "$FAKE_LOG"
+run --cases 't/setup' --out "$TMP/o11" >/dev/null
+check "run: setup.sh builds the workdir (no fixture dir)" [ "$(field "$TMP/o11/rows.jsonl" status)" = pass ]
+check "run: workdir bin/ leads PATH" grep -q 'PATH-HEAD=.*/eval-[^/ ]*/bin$' "$FAKE_LOG"
+run --cases 't/badsetup' --out "$TMP/o12" >/dev/null 2>&1; rc=$?
+check "run: failing setup.sh aborts with no row" bash -c '[ "$1" != 0 ] && [ ! -s "$2" ]' _ "$rc" "$TMP/o12/rows.jsonl"
+check "run: workdirs removed after setup failure" [ -z "$(ls -A "$TMP/tmp")" ]
 
 # --- --only limits cells
 printf 't/two sonnet high\n' > "$TMP/only.txt"
