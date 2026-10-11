@@ -1,4 +1,4 @@
 {
   "agent": "caveman:cavecrew-reviewer",
-  "allowed_tools": ["Read", "Grep", "Glob", "Bash(git diff:*)", "Bash(git show:*)", "Bash(git log:*)"]
+  "allowed_tools": ["Read", "Grep", "Glob", "Bash(git:*)"]
 }
