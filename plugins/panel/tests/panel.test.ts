@@ -973,3 +973,17 @@ test('a new session drops all but the newest 50 sessions of mid-turn notes', asy
   // Keys come back in the order they were first set: the oldest sessions go.
   expect(deleted).toEqual(Array.from({ length: 10 }, (_, i) => `midTurn:s${i}`))
 })
+
+test('/panel runs at once, even while Claude is working', async ($, on) => {
+  const registered: { name: string; immediate?: true }[] = []
+  on('store.keys', () => ({ value: [] }))
+  on('command.register', (_, e) => {
+    registered.push(e)
+    return { value: { command: e.name } }
+  })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+
+  await $.session.start({ cwd: '/proj', surface: null, isInteractive: false })
+
+  expect(registered.find(command => command.name === 'panel')?.immediate).toBe(true)
+})

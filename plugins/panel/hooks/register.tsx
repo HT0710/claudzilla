@@ -378,7 +378,8 @@ export const litPrompt = (prompts: Prompt[], times: number[], pinned?: { timesta
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'panel', description: 'Toggle the side panel' })
+    // immediate: alt+h mid-turn opens the pane now, not once the turn ends; it prints nothing.
+    await $.command.register({ name: 'panel', description: 'Toggle the side panel', immediate: true })
     // Keys come back in the order first set: the oldest sessions' notes go.
     const notes = (await $.store.keys().catch(() => [])).filter(key => key.startsWith('midTurn:'))
     await Promise.all(notes.slice(0, -MID_TURN_SESSIONS).map(key => $.store.delete(key).catch(() => undefined)))
