@@ -7,4 +7,4 @@ All languages. Code comments + docstrings. README/CHANGELOG → repo's own style
 - Docstring / doc comment: one-line what. Params/returns only when not obvious from signature.
 - No history: no "added in v2", "was X, now Y", "fixed bug where...". Git holds that. Version requirements OK. Issue link explaining why = OK.
 - No prose explanation. Fragment or single sentence.
-- Markers (`ponytail:`, `TODO:`) allowed; name limit + upgrade path.
+- Markers (`shortcut:`, `TODO:`) allowed; name limit + upgrade path.
