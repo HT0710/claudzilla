@@ -1,0 +1,1 @@
+{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"## Plan\n1. Add a counter per IP in a Map.\n2. Return 429 when over 100 requests a minute.\n3. Reset counters every minute."}]}}

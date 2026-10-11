@@ -1,0 +1,1 @@
+{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"| # | where |\n|---|---|\n| 1 | `claude/hooks/rules-guard.mjs:325` |\n| 2 | `install.sh:47` |\n| 3 | `claude/hooks/claudzilla-update.sh:14` |"}]}}
