@@ -1,0 +1,6 @@
+{
+  "name": "panel",
+  "description": "Side pane listing this chat's prompts: click one to jump to it, ↻ to reuse it, ⟲ to rewind",
+  "author": { "name": "HT0710", "url": "https://github.com/HT0710" },
+  "types": "./types/index.d.ts"
+}
