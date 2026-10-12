@@ -116,3 +116,4 @@ Only an exact `true` turns a feature on. Any other value leaves it off. claudzil
 - Only the default `~/.claude` config dir is supported. `CLAUDE.md` imports from `@~/.claude/...`.
 - `/rule-review` counts a rule only from when it reached your machine (`~/.claude/.claudzilla-rules.json`, written by the installer). The `writing` row is the exception: it counts the whole window, so a report from before `writing.md` arrived serves as its baseline. Compare against it only once a full window has passed since the rule arrived.
 - Tests run offline: `bash tests/install.test.sh` (the other suites are in `tests/`).
+- `evals/` is dev-only and not installed: it measures which model and effort each workflow role needs, with real Claude sessions ([`evals/README.md`](evals/README.md)).
