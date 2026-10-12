@@ -243,6 +243,22 @@ check "report: best taken among stage-B cells only" [ "$(node -p "require('$Q/pi
 node "$EV/report.mjs" "$R/rows.jsonl" --stage-b > "$R/b.txt"
 check "report: stage B lists cells within tolerance per case" [ "$(wc -l < "$R/b.txt" | tr -d ' ')" = 10 ]
 check "report: stage B skips out-of-tolerance cell" bash -c '! grep -q "haiku low" "$1"' _ "$R/b.txt"
+# rule 4: a winner judged > 0.10 below best falls to the next cheapest qualifying cell judged near best
+R4="$TMP/rep4"; mkdir -p "$R4"; cp "$R/rows.jsonl" "$R4/"
+row X sonnet max replayed 1 1 >> "$R4/rows.jsonl"
+srow() { printf '{"case":"r/x","role":"r","model":"%s","effort":"%s","run":%s,"score":%s}\n' "$@"; }
+{ srow haiku high 1 0.5; srow opus high 1 0.85; srow opus max 1 0.9; srow opus max 2 0.9; } > "$R4/scores.jsonl"
+node "$EV/report.mjs" "$R4/rows.jsonl" >/dev/null
+check "report: rule 4 moves a flagged winner to the next cheapest cell judged near best" [ "$(node -p "const r=require('$R4/picks.json').roles.r;r.model+' '+r.effort+' '+r.flagged+' '+r.judge")" = "opus high haiku high 0.85" ]
+check "report: judge column and flag in the markdown" bash -c 'grep -q "^| opus high \*\*winner\*\* | .* | 0.85 | 0 | 0 |$" "$1" && grep -q "flagged haiku high" "$1"' _ "$R4/report.md"
+check "report: replayed rows are not listed as skipped" bash -c '! grep -q "^| sonnet max " "$1"' _ "$R4/report.md"
+# stage C: agent roles replay at the winner, one effort below it, and the best cell
+C="$TMP/repc"; mkdir -p "$C" "$TMP/rpl/c/x1" "$TMP/rpl/c/x2" "$TMP/rpl/r/x1"
+rowc() { printf '{"case":"c/A","role":"c","agent":"general-purpose","model":"%s","effort":"%s","status":"pass","cost":%s,"turns":1,"ms":1}\n' "$@"; }
+{ rowc opus max 5; rowc haiku high 1; } > "$C/rows.jsonl"
+node "$EV/report.mjs" "$C/rows.jsonl" --stage-c --replays "$TMP/rpl" | sort > "$C/c.txt"
+check "report: stage C = replays x winner, one effort below, best" [ "$(tr '\n' ' ' < "$C/c.txt")" = "c/x1 haiku high c/x1 haiku medium c/x1 opus max c/x2 haiku high c/x2 haiku medium c/x2 opus max " ]
+check "report: stage C skips skill roles" [ -z "$(node "$EV/report.mjs" "$R/rows.jsonl" --stage-c --replays "$TMP/rpl")" ]
 
 echo "evals: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
