@@ -246,8 +246,8 @@ const readGit = ($: EngineInterface) =>
     $.process.run(['git', 'rev-list', '--count', 'HEAD']).catch(() => undefined),
   ])
 // Kept until a tool call or a prompt may have changed the repo, or the tab is picked again: a chat
-// scroll or a drag redraws the pane many times a second.
-let gitRead: { key: string; runs: ReturnType<typeof readGit> } | undefined
+// scroll or a drag redraws the pane many times a second. `signal`: the draw that started the runs.
+let gitRead: { key: string; signal: AbortSignal; runs: ReturnType<typeof readGit> } | undefined
 // Counts UTF-16 units, not cells: a wide glyph (CJK, emoji) can still overflow by one.
 const fit = (text: string, room: number) => (text.length > room ? `${text.slice(0, room - 1)}…` : text)
 
@@ -590,7 +590,7 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => ordered(async () => {
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => ordered(async () => {
     const elements = $.ui.resolve(e)
     const { Box, Button, Text } = elements
     const Client = 'Client' in elements ? elements.Client : undefined
@@ -716,8 +716,15 @@ export const register: Register = on => {
       )
     } else if (current === 'Git') {
       const key = `${await read($, submitted)}:${await read($, toolCalls)}`
-      if (gitRead?.key !== key) gitRead = { key, runs: readGit($) }
-      const [status, log, diff, unpushed, count] = await gitRead.runs
+      if (gitRead?.key !== key) gitRead = { key, signal: next.signal, runs: readGit($) }
+      let runs = await gitRead.runs
+      // A draw dropped mid-read (a newer one began, the pane closed) takes the git runs still going down
+      // with it: any of them unanswered, the draw on screen reads again.
+      if (runs.some(run => !run) && gitRead.signal.aborted && !next.signal.aborted) {
+        gitRead = { key, signal: next.signal, runs: readGit($) }
+        runs = await gitRead.runs
+      }
+      const [status, log, diff, unpushed, count] = runs
       const local = unpushed?.exitCode === 0 ? new Set(unpushed.stdout.split('\n').filter(Boolean)) : undefined
       const total = count?.exitCode === 0 ? count.stdout.trim() : ''
       // As the HUD statusline's churn: unstaged lines added and removed, "+144 -6".
@@ -743,12 +750,22 @@ export const register: Register = on => {
       const commitsRows = Math.max(1, files.length ? free - changesRows : free + 2)
       const changed = `${files.length} changed`
       body = !head ? (
-        // The rows under the tabs and their rule.
-        emptyNote(
-          e.props.scroll.bodyRows - 2,
-          'Not a git repository',
-          <Text color={HUD.faint}>Branch, changes and commits</Text>,
-          <Text color={HUD.faint}>show here inside a repo.</Text>,
+        // The rows under the tabs and their rule. No answer at all: git is not on PATH, or the surface
+        // runs no command.
+        status ? (
+          emptyNote(
+            e.props.scroll.bodyRows - 2,
+            'Not a git repository',
+            <Text color={HUD.faint}>Branch, changes and commits</Text>,
+            <Text color={HUD.faint}>show here inside a repo.</Text>,
+          )
+        ) : (
+          emptyNote(
+            e.props.scroll.bodyRows - 2,
+            "Git can't run here",
+            <Text color={HUD.faint}>It needs git on PATH,</Text>,
+            <Text color={HUD.faint}>in a terminal session.</Text>,
+          )
         )
       ) : (
         <Box flexDirection="column">
