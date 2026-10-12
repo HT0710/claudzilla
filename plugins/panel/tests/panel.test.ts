@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { dayLabel, gone, inView, keepNewest, litPrompt, nearestCommandId, nearestId, needles, pinHolds, readStamps, stampPattern } from '../hooks/register'
+import { dayLabel, gone, inView, keepNewest, litPrompt, nearestCommandId, nearestId, needles, ordered, pinHolds, readStamps, stampPattern } from '../hooks/register'
 
 // A process.run result with `stdout`.
 const ran = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -29,6 +29,24 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ key: 'rewind' })).toBeDefined()
   })
 }
+
+test('a slow pane draw finishes before a newer fast one', async () => {
+  let open = () => {}
+  const gate = new Promise<void>(resolve => (open = resolve))
+  const finished: string[] = []
+
+  const older = ordered(async () => {
+    await gate
+    return 'older'
+  }).then(name => finished.push(name))
+  const newer = ordered(async () => 'newer').then(name => finished.push(name))
+  // The newer draw has settled by now when nothing holds it back.
+  for (let i = 0; i < 10; i++) await Promise.resolve()
+  open()
+  await Promise.all([older, newer])
+
+  expect(finished).toEqual(['older', 'newer'])
+})
 
 test('divider keeps half the side margin', async ($, on) => {
   on('clock.now', () => ({ value: 0 }))
