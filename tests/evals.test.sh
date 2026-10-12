@@ -140,6 +140,42 @@ check "run: replay rows are replayed, not graded" [ "$(field "$TMP/o13/rows.json
 check "run: judge flag copied to the row" [ "$(field "$TMP/o13/rows.jsonl" judge)" = true ]
 check "run: {{WORKDIR}} becomes the workdir" bash -c 'grep -q "Review /.*/eval-[^/ ]* now\." "$1" && ! grep -q "{{WORKDIR}}" "$1"' _ "$FAKE_LOG"
 
+# --- replays.mjs: recorded Agent calls (fake transcripts of a 3-commit repo) → local replay cases
+G="$TMP/grepo"; mkdir -p "$G"; git -C "$G" init -q -b main
+for n in 1 2 3; do echo "$n" > "$G/f$n"; git -C "$G" add -A; git -C "$G" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm "chore: c$n"; done
+c1=$(git -C "$G" rev-parse HEAD~2) c2=$(git -C "$G" rev-parse HEAD~1) c3=$(git -C "$G" rev-parse HEAD)
+s1=${c1:0:7} s2=${c2:0:7} s3=${c3:0:7}
+mkdir -p "$G/docs"; echo plan > "$G/docs/plan.md"   # untracked, like the local-only docs/superpowers plans
+TP="$CLAUDE_CONFIG_DIR/projects/$(printf %s "$G" | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$TP"
+agentcall() { node -e 'console.log(JSON.stringify({type:"assistant",timestamp:process.argv[1],message:{content:[{type:"tool_use",name:"Agent",input:{subagent_type:process.argv[2],prompt:process.argv[3]}}]}}))' "$@"; }
+{
+  agentcall 2026-01-01 caveman:cavecrew-reviewer "Review \`git diff main..HEAD\` in $G (commit $s2)."
+  agentcall 2026-01-02 caveman:cavecrew-reviewer "Review \`git diff main..HEAD\` in $G (commit $s2). Read-only."
+  agentcall 2026-01-03 general-purpose "Review BASE_SHA $s1 HEAD_SHA $s3 in $G-wt against $G/docs/plan.md."
+  agentcall 2026-01-04 general-purpose "Implement task 2 in $G from $s3."
+  agentcall 2026-01-05 caveman:cavecrew-reviewer "Review $s3 in $G with $G/.superpowers/sdd/p/review.diff."
+  agentcall 2026-01-06 caveman:cavecrew-reviewer "Review the latest commit in $G."
+  agentcall 2026-01-07 caveman:cavecrew-reviewer "Review \`git diff $s2..$s3\` in $G."
+  agentcall 2026-01-08 caveman:cavecrew-reviewer "Review \`git diff main..HEAD\` in $G (commits $s2, $s3)."
+} > "$TP/s.jsonl"
+RP="$TMP/replays"
+node "$EV/replays.mjs" --repo "$G" --out "$RP" > "$TMP/ref.txt"
+D1="$RP/cavecrew-reviewer/$s1-$s2" D2="$RP/sdd-reviewer/$s1-$s3"
+want=$(printf '%s\n' "cavecrew-reviewer/$s1-$s2" "cavecrew-reviewer/$s1-$s3" "cavecrew-reviewer/$s2-$s3" "sdd-reviewer/$s1-$s3" | sort)
+check "replays: one case per reviewed range (commit, BASE/HEAD, X..Y, branch commits), reviews only" [ "$(cd "$RP" 2>/dev/null && ls -d */* | sort)" = "$want" ]
+check "replays: prints opus max reference cells" [ "$(sed 's/ opus max$//' "$TMP/ref.txt" | sort)" = "$want" ]
+node "$EV/replays.mjs" --repo "$G" --out "$TMP/replays1" --per-role 1 >/dev/null
+check "replays: --per-role keeps the newest calls" [ "$(cd "$TMP/replays1" && ls -d */* | tr '\n' ' ')" = "cavecrew-reviewer/$s1-$s3 sdd-reviewer/$s1-$s3 " ]
+check "replays: newest of duplicate calls kept" grep -q 'Read-only\.' "$D1/prompt.md"
+check "replays: checkout paths become {{WORKDIR}}" bash -c 'grep -q "in {{WORKDIR}} against {{WORKDIR}}/docs/plan.md" "$1" && ! grep -q "$2" "$1"' _ "$D2/prompt.md" "$G"
+check "replays: local-only file copied for setup" [ -f "$D2/extra/docs/plan.md" ]
+check "replays: case is a judged replay of the recorded agent" node -e 'const c=require(process.argv[1]);process.exit(c.agent==="general-purpose"&&c.source==="replay"&&c.judge===true?0:1)' "$D2/case.json"
+mkdir -p "$TMP/rw"; (cd "$TMP/rw" && CASE_DIR="$D2" bash "$D2/setup.sh" >/dev/null 2>&1)
+check "replays: setup puts main at the base, HEAD at the tip, no origin" bash -c '[ "$(git -C "$1" rev-parse main HEAD | tr "\n" " ")" = "$2 $3 " ] && [ -z "$(git -C "$1" remote)" ] && [ -f "$1/docs/plan.md" ]' _ "$TMP/rw" "$c1" "$c3"
+printf '%s\n' "cavecrew-reviewer/$s1-$s2 haiku low" > "$TMP/c.txt"
+node "$EV/run.mjs" --root "$RP" --only "$TMP/c.txt" --out "$TMP/o14" >/dev/null 2>&1
+check "run: generated replay runs from its setup.sh" [ "$(field "$TMP/o14/rows.jsonl" status)" = replayed ]
+
 # --- --only limits cells
 printf 't/two sonnet high\n' > "$TMP/only.txt"
 run --cases 't/*' --only "$TMP/only.txt" --out "$TMP/o7" >/dev/null
