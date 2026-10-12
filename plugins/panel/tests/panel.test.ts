@@ -19,6 +19,7 @@ const props = {
 
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`${surface}: only History shows while Activity and Git are deferred`, async ($, on) => {
+    on('clock.now', () => ({ value: 0 }))
     on('env.get', () => ({ value: '/home/me' }))
     on('session.id', () => ({ value: 'chat-1' }))
     on('fs.read', () => ({ value: '' }))
@@ -30,6 +31,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 }
 
 test('divider keeps half the side margin', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('fs.read', () => ({ value: '' }))
@@ -38,6 +40,7 @@ test('divider keeps half the side margin', async ($, on) => {
 })
 
 test("History tab lists this chat's prompts, newest first, wherever the shell cd'd", async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
   const history = [
     JSON.stringify({ display: 'older\nprompt', timestamp: 1, project: '/proj', sessionId: 'chat-1' }),
     JSON.stringify({ display: 'other chat, same folder', timestamp: 2, project: '/proj', sessionId: 'chat-0' }),
@@ -60,6 +63,7 @@ test("History tab lists this chat's prompts, newest first, wherever the shell cd
 })
 
 test('History reads the prompt history under CLAUDE_CONFIG_DIR when it is set', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
   const history = JSON.stringify({ display: 'from the moved folder', timestamp: 1, sessionId: 'chat-1' })
   on('env.get', (_, e) => ({ value: e.name === 'CLAUDE_CONFIG_DIR' ? '/cfg' : '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
@@ -71,6 +75,7 @@ test('History reads the prompt history under CLAUDE_CONFIG_DIR when it is set', 
 })
 
 test('History still lists prompts once the prompt history is too big to read whole', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
   const line = JSON.stringify({ display: 'found by grep', timestamp: 1, sessionId: 'chat-1' })
   on('env.get', (_, e) => ({ value: e.name === 'HOME' ? '/home/me' : undefined }))
   on('session.id', () => ({ value: 'chat-1' }))
@@ -87,6 +92,7 @@ test('History still lists prompts once the prompt history is too big to read who
 })
 
 test('↻ puts the prompt, line breaks kept, back in the prompt box', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
   const filled: string[] = []
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
@@ -161,6 +167,7 @@ test('a repeated prompt resolves to the transcript copy sent nearest its time', 
 })
 
 test('the rewind button opens the /rewind picker', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
   const ran: string[] = []
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
@@ -185,6 +192,7 @@ test('day labels: today, then the date', () => {
 })
 
 test('a day divider opens each day, once', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
   const day = 24 * 60 * 60 * 1000
   const history = [Date.now() - 3 * day, Date.now() - 3 * day + 1000, Date.now()]
     .map((timestamp, i) => JSON.stringify({ display: `p${i}`, timestamp, sessionId: 'chat-1' }))
@@ -295,6 +303,7 @@ test('gone runs: a prompt opening with a path is a prompt, not a slash command',
 })
 
 test('the History tab draws Rewound above a rewound run, Compacted where the model lost the chat', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
   const history = ['old', 'kept', 'undone', 'latest']
     .map((display, i) => JSON.stringify({ display, timestamp: Date.now() - 4 + i, sessionId: 'chat-1' }))
     .join('\n')
@@ -333,6 +342,7 @@ test('gone runs: a paste matches though the chat wraps it in tags', () => {
 })
 
 test('a paste kept as a placeholder shows its text and matches the chat', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
   const history = [
     JSON.stringify({ display: 'kept', timestamp: Date.now() - 3, sessionId: 'chat-1' }),
     JSON.stringify({
@@ -394,6 +404,7 @@ test('the search text finds a paste prompt: cut at the placeholder, a lone paste
 })
 
 test('a prompt sent mid-turn, remembered in the store, is not marked rewound', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
   const history = ['kept', 'sent mid-turn', 'latest']
     .map((display, i) => JSON.stringify({ display, timestamp: Date.now() - 3 + i, sessionId: 'chat-1' }))
     .join('\n')
@@ -418,6 +429,7 @@ test('a prompt sent mid-turn, remembered in the store, is not marked rewound', a
 })
 
 test('/quit, /exit, /rewind, /panel, /resume and /clear are left out', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
   const history = ['/quit', 'kept', '/rewind', '/panel', '/resume', '/clear', '/exit', '/exited-not']
     .map((display, i) => JSON.stringify({ display, timestamp: i, sessionId: 'chat-1' }))
     .join('\n')
@@ -452,6 +464,7 @@ test('a prompt sent with an image resolves to its row, text block beside the ima
 })
 
 test('a slash row stays dim until its output line is drawn in the chat', async ($, on) => {
+  const clock = mock.clock(on)
   const history = ['kept', '/model']
     .map((display, i) => JSON.stringify({ display, timestamp: Date.now() - 2 + i, sessionId: 'chat-1' }))
     .join('\n')
@@ -469,11 +482,14 @@ test('a slash row stays dim until its output line is drawn in the chat', async (
 
   const output = { command: 'model', args: '', text: 'Set model.', isErrored: false }
   await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'CommandOutput', props: output, requestId: 'cmd-1' })
+  // The list redraws within 100 ms of the row drawing.
+  await clock.advance(100)
 
   expect(await color()).toBe('claude')
 })
 
 test('a slash row is live once the chat holds its command row, drawn or not', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
   const history = ['kept', '/compact keep']
     .map((display, i) => JSON.stringify({ display, timestamp: Date.now() - 2 + i, sessionId: 'chat-1' }))
     .join('\n')
@@ -492,6 +508,7 @@ test('a slash row is live once the chat holds its command row, drawn or not', as
 })
 
 test('a stored mid-turn note the chat lost to a compaction is not held live', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
   const history = ['old', 'note', 'new']
     .map((display, i) => JSON.stringify({ display, timestamp: Date.now() - 3 + i, sessionId: 'chat-1' }))
     .join('\n')
@@ -514,6 +531,7 @@ test('a stored mid-turn note the chat lost to a compaction is not held live', as
 })
 
 test('jumping to a prompt gone from the chat says so without searching', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
   const toasts: string[] = []
   const history = ['old', 'new']
     .map((display, i) => JSON.stringify({ display, timestamp: Date.now() - 2 + i, sessionId: 'chat-1' }))
@@ -535,6 +553,7 @@ test('jumping to a prompt gone from the chat says so without searching', async (
 })
 
 test('a mid-turn prompt stays dim until its row is drawn in the chat', async ($, on) => {
+  const clock = mock.clock(on)
   const history = ['kept', 'sent mid-turn']
     .map((display, i) => JSON.stringify({ display, timestamp: Date.now() - 2 + i, sessionId: 'chat-1' }))
     .join('\n')
@@ -553,6 +572,7 @@ test('a mid-turn prompt stays dim until its row is drawn in the chat', async ($,
 
   const row = { text: 'sent mid-turn', origin: { kind: 'composer' as const }, isExpanded: false }
   await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'UserMessage', props: row, requestId: 'msg-1' })
+  await clock.advance(100)
 
   expect(await color()).toBe('claude')
 })
@@ -575,6 +595,7 @@ test('a slash command resolves to the output line of the run nearest its time', 
 })
 
 test('a prompt sent mid-turn that landed as a normal message is not held dim', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
   const history = ['kept', 'landed normally']
     .map((display, i) => JSON.stringify({ display, timestamp: Date.now() - 2 + i, sessionId: 'chat-1' }))
     .join('\n')
@@ -599,6 +620,7 @@ test('a prompt sent mid-turn that landed as a normal message is not held dim', a
 })
 
 test('the count says 100+ when the chat holds more prompts than the list shows', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
   const history = Array.from({ length: 101 }, (_, i) => JSON.stringify({ display: `p${i}`, timestamp: i, sessionId: 'chat-1' }))
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
@@ -612,6 +634,7 @@ test('the count says 100+ when the chat holds more prompts than the list shows',
 })
 
 test('one prompt is counted without the plural s', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('fs.read', () => ({ value: JSON.stringify({ display: 'only', timestamp: 1, sessionId: 'chat-1' }) }))
@@ -663,7 +686,7 @@ test('History lights the prompt whose turn is on screen, not the newest', async 
     .map((display, i) => JSON.stringify({ display, timestamp: start + i * 10_000, sessionId: 'chat-1' }))
     .join('\n')
   const runs: (readonly string[])[] = []
-  on('clock.now', () => ({ value: 1_000_000 }))
+  const clock = mock.clock(on, { now: 1_000_000 })
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('session.root', () => ({ value: '/proj' }))
@@ -689,7 +712,85 @@ test('History lights the prompt whose turn is on screen, not the newest', async 
 
   // Scrolled away, nothing on screen is known: the newest lights again.
   await row.redraw({ ...reply, onScreen: null })
+  await clock.advance(100)
   expect(await color('c')).toBe('claude')
+})
+
+test('History rereads at most once a second while the chat scrolls', async ($, on) => {
+  const history = JSON.stringify({ display: 'a', timestamp: 1, sessionId: 'chat-1' })
+  let greps = 0
+  const clock = mock.clock(on, { now: 2_000_000 })
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('process.run', (_, e) => {
+    if (isHistoryGrep(e.argv)) greps++
+    return ran(isHistoryGrep(e.argv) ? history : '')
+  })
+  // Stands for the engine's own drawing of the row.
+  on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['reply'] }))
+  const reply = { text: 'a reply', origin: { kind: 'composer' as const }, isExpanded: false }
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const before = greps
+  // A row coming on screen redraws the pane.
+  const row = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'UserMessage', requestId: 'row-1',
+    props: { ...reply, onScreen: { first: 0, last: 2, of: 3 } } })
+  await clock.advance(100)
+  expect(greps).toBe(before)
+
+  await clock.advance(1_000)
+  await row.redraw({ ...reply, onScreen: { first: 1, last: 3, of: 3 } })
+  await clock.advance(100)
+  expect(greps).toBe(before + 1)
+  await row.redraw({ ...reply, onScreen: null })
+})
+
+test('chat moves redraw the panel once, 100 ms later', async ($, on) => {
+  const start = Date.now() - 60_000
+  const history = ['a', 'b', 'c']
+    .map((display, i) => JSON.stringify({ display, timestamp: start + i * 10_000, sessionId: 'chat-1' }))
+    .join('\n')
+  const clock = mock.clock(on, { now: 1_000_000 })
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('session.root', () => ({ value: '/proj' }))
+  on('fs.read', () => ({ value: history }))
+  on('session.messages', (_, e) => ({ value: e.as === 'api' ? [] : ['a', 'b', 'c'].map(text => ({ role: 'user' as const, text, toolUses: [] })) }))
+  on('process.run', (_, e) =>
+    ran(isHistoryGrep(e.argv) ? history : `"uuid":"b-row","timestamp":"${new Date(start + 15_000).toISOString()}"\n`),
+  )
+  // Stands for the engine's own drawing of the row.
+  on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['reply'] }))
+  const reply = { text: 'a reply', origin: { kind: 'composer' as const }, isExpanded: false }
+  const row = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'UserMessage', requestId: 'b-row',
+    props: { ...reply, onScreen: { first: 0, last: 2, of: 3 } } })
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const color = async (text: string) => (await ui.find({ type: 'Text', text: new RegExp(`^${text}\\s*$`) }))?.props.color
+  expect(await color('b')).toBe('claude')
+
+  // Two moves inside 100 ms: nothing redraws until the one redraw for both.
+  await row.redraw({ ...reply, onScreen: { first: 1, last: 2, of: 3 } })
+  await row.redraw({ ...reply, onScreen: null })
+  expect(await color('b')).toBe('claude')
+  await clock.advance(100)
+  expect(await color('c')).toBe('claude')
+})
+
+test('History shows a prompt as soon as it is sent, inside the second', async ($, on) => {
+  let history = JSON.stringify({ display: 'first', timestamp: 1, sessionId: 'chat-1' })
+  on('clock.now', () => ({ value: 0 }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('process.run', (_, e) => ran(isHistoryGrep(e.argv) ? history : ''))
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  expect((await ui.find({ key: 'jump:0' }))?.text).toContain('first')
+  history += `\n${JSON.stringify({ display: 'second', timestamp: 2, sessionId: 'chat-1' })}`
+  await $.prompt.submit({ text: 'second', wait: false, origin: { kind: 'composer' } })
+  await ui.drawn()
+
+  expect((await ui.find({ key: 'jump:0' }))?.text).toContain('second')
 })
 
 test('after a long jump, rows left on the old screen no longer stretch the lit range', async ($, on) => {
@@ -774,15 +875,15 @@ const inViewSetup = (on: Parameters<TestBody>[1], stamped: (start: number) => Re
   const history = ['a', 'b', 'c']
     .map((display, i) => JSON.stringify({ display, timestamp: start + i * 10_000, sessionId: 'chat-1' }))
     .join('\n')
-  const clock = { now: 1_000_000, runs: [] as (readonly string[])[] }
-  on('clock.now', () => ({ value: clock.now }))
+  const clock = mock.clock(on, { now: 1_000_000 })
+  const runs: (readonly string[])[] = []
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('session.root', () => ({ value: '/proj' }))
   on('fs.read', () => ({ value: history }))
   on('session.messages', (_, e) => ({ value: e.as === 'api' ? [] : ['a', 'b', 'c'].map(text => ({ role: 'user' as const, text, toolUses: [] })) }))
   on('process.run', (_, e) => {
-    clock.runs.push(e.argv)
+    runs.push(e.argv)
     if (isHistoryGrep(e.argv)) return ran(history)
     const stdout = Object.entries(stamped(start))
       .filter(([id]) => e.argv.join(' ').includes(id))
@@ -793,7 +894,8 @@ const inViewSetup = (on: Parameters<TestBody>[1], stamped: (start: number) => Re
   // Stand for the engine's own drawing of the rows.
   on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['reply'] }))
   on('ui.render', { component: 'ToolGroup' }, () => ({ type: 'Text' as const, children: ['tools'] }))
-  return clock
+  // `advance` moves the clock, firing the History redraw a move leaves pending.
+  return { runs, advance: (ms: number) => clock.advance(ms) }
 }
 const reply = { text: 'a reply', origin: { kind: 'composer' as const }, isExpanded: false }
 
@@ -821,9 +923,11 @@ test('a row still on screen counts when it redraws without moving', async ($, on
       props: { ...reply, onScreen: { first, last: 9, of: 10 } } })
   const mid = await mount('c-mid', 0)
   const top = await mount('b-top', 3)
-  clock.now += 5_000
+  await clock.advance(5_000)
   // A scroll tick: only the top row moves; the middle one redraws as it was.
   await top.redraw({ ...reply, onScreen: { first: 4, last: 9, of: 10 } })
+  // The redraw it sets off makes the middle row say where it is again.
+  await clock.advance(100)
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
   const color = async (text: string) => (await ui.find({ type: 'Text', text: new RegExp(`^${text}\\s*$`) }))?.props.color
 
@@ -838,13 +942,37 @@ test('a row is looked up in the chat file once, not on every redraw', async ($, 
     props: { ...reply, onScreen: { first: 0, last: 2, of: 3 } } })
   await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
   const renders = setup.runs.filter(isHistoryGrep).length
-  setup.now += 5_000
+  await setup.advance(5_000)
   // A real move: the pane redraws.
   await row.redraw({ ...reply, onScreen: { first: 1, last: 2, of: 3 } })
+  await setup.advance(100)
 
   expect(setup.runs.filter(isHistoryGrep).length).toBeGreaterThan(renders)
   expect(setup.runs.filter(argv => argv.join(' ').includes('b-once')).length).toBe(1)
   await row.redraw({ ...reply, onScreen: null })
+})
+
+test('a row the chat file does not hold yet is looked for at most once a second', async ($, on) => {
+  // Mid-turn: the reply streaming in is on screen before the chat file holds it.
+  const setup = inViewSetup(on, start => ({ 'b-row': start + 15_000 }))
+  const mount = (requestId: string, first: number) =>
+    $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'UserMessage', requestId,
+      props: { ...reply, onScreen: { first, last: 9, of: 10 } } })
+  const streaming = await mount('not-yet', 0)
+  const row = await mount('b-row', 3)
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const looks = () => setup.runs.filter(argv => argv.join(' ').includes('not-yet')).length
+  const first = looks()
+
+  await row.redraw({ ...reply, onScreen: { first: 4, last: 9, of: 10 } })
+  await setup.advance(100)
+  expect(looks()).toBe(first)
+
+  await setup.advance(1_000)
+  await row.redraw({ ...reply, onScreen: { first: 3, last: 9, of: 10 } })
+  await setup.advance(100)
+  expect(looks()).toBe(first + 1)
+  for (const one of [streaming, row]) await one.redraw({ ...reply, onScreen: null })
 })
 
 test('a row growing below the screen, as a reply streams in, redraws nothing', async ($, on) => {
@@ -853,8 +981,9 @@ test('a row growing below the screen, as a reply streams in, redraws nothing', a
     props: { ...reply, onScreen: { first: 0, last: 9, of: 10 } } })
   await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
   const renders = setup.runs.filter(isHistoryGrep).length
-  setup.now += 5_000
+  await setup.advance(5_000)
   await row.redraw({ ...reply, onScreen: { first: 0, last: 9, of: 30 } })
+  await setup.advance(100)
 
   expect(setup.runs.filter(isHistoryGrep).length).toBe(renders)
   await row.redraw({ ...reply, onScreen: null })
@@ -940,6 +1069,7 @@ test('gone runs: a capped chat read leaves prompts older than it live and unmark
 })
 
 test('a prompt older than the newest 4096 chat entries is not drawn as gone', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
   const history = ['old', 'new']
     .map((display, i) => JSON.stringify({ display, timestamp: Date.now() - 2 + i, sessionId: 'chat-1' }))
     .join('\n')

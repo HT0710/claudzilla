@@ -179,6 +179,34 @@ export const gone = (
     i === at ? { ...row, marker: 'Compacted' } : marker === 'Rewound' ? { ...row, marker } : row,
   )
 }
+// The History tab's reads, and which prompts they leave live.
+const readHistory = async ($: EngineInterface) => {
+  const all = await pastPrompts($)
+  const prompts = all.slice(0, MAX_PROMPTS)
+  // A failed read marks nothing (see gone) instead of blanking the tab.
+  const queued = await midTurn($)
+  const chatRead = await $.session.messages().catch(() => [])
+  const sent = chatRead
+    .filter(message => message.role === 'user' && !message.toolResults?.length && message.text)
+    .map(message => message.text)
+  // A mid-turn prompt is never a chat message, nor most slash commands (/compact is): reachable
+  // once drawn. One sent as a turn ended landed as a normal message instead.
+  const landed = new Set(sent.map(flat))
+  const drawnOnly = new Set(queued.map(flat).filter(text => !landed.has(text)))
+  const commands = new Set(sent.flatMap(text => typedCommand(text) ?? []))
+  // What the model is sent: the last compaction's summary in place of what it replaced.
+  // Each text block alone, as reminders ride in the same message.
+  const modelRead = await $.session.messages({ as: 'api' }).catch(() => [])
+  const model = modelRead
+    .filter(message => message.role === 'user')
+    .flatMap(message => message.content.flatMap(block => (typeof block.text === 'string' ? [block.text] : [])))
+  const capped = { chat: chatRead.length >= READ_MAX, model: modelRead.length >= READ_MAX }
+  return { all, prompts, drawnOnly, commands, rows: gone(prompts, sent, model, queued, capped) }
+}
+// Kept for up to READ_TTL, or until a prompt is sent: a chat scroll redraws the pane many times a
+// second, and every read grows with the chat.
+const READ_TTL = 1000
+let historyRead: { key: string; at: number; reads: ReturnType<typeof readHistory> } | undefined
 // Counts UTF-16 units, not cells: a wide glyph (CJK, emoji) can still overflow by one.
 const fit = (text: string, room: number) => (text.length > room ? `${text.slice(0, room - 1)}…` : text)
 
@@ -280,12 +308,24 @@ export const nearestCommandId = (text: string, prompt: Prompt) => {
 // Transcript row ids by prompt text, learned as rows draw (a render hook may not write $.state).
 // Empty after a reload until rows redraw; a repeated prompt maps to the row drawn last.
 const rowIds = new Map<string, string>()
+// Redraws within 100 ms, once however many rows moved or drew meanwhile. It redraws every chat row
+// this plugin hooks too, which is what makes the rows that did not move say where they are again
+// (see FRESH).
+let redrawing = false
+const redrawSoon = ($: EngineInterface) => {
+  if (redrawing) return
+  redrawing = true
+  $.clock.after(100, () => {
+    redrawing = false
+    $.ui.invalidate('ui.render')
+  })
+}
 // Rows the panel shows dim until they draw, as only a drawn row can be jumped to: drawing one
-// redraws the panel, once, since the redraw draws these rows again too.
+// redraws the panel.
 const awaited = new Set<string>()
 const learn = ($: EngineInterface, key: string, requestId: string) => {
   rowIds.set(key, requestId)
-  if (awaited.delete(key)) $.ui.invalidate('ui.render')
+  if (awaited.delete(key)) redrawSoon($)
 }
 
 // Chat rows on screen, by id: where on screen, what the chat file knows them by (a tool group by its
@@ -314,12 +354,11 @@ export const pinHolds = (pinned: { after: number } | undefined, at: number) => !
 
 // Only a move redraws, or the redraw it causes would report again forever. A row growing, as a
 // reply streams in, has not moved.
-// ponytail: redraws the whole UI on each move; debounce if scrolling lags.
 type Seen = { first: number; last: number } | null | undefined
 const see = async ($: EngineInterface, requestId: string, onScreen: Seen, key = requestId) => {
   if (onScreen === undefined) return
   if (!onScreen) {
-    if (shown.delete(requestId)) $.ui.invalidate('ui.render')
+    if (shown.delete(requestId)) redrawSoon($)
     return
   }
   const where = `${onScreen.first}-${onScreen.last}`
@@ -327,7 +366,7 @@ const see = async ($: EngineInterface, requestId: string, onScreen: Seen, key = 
   const at = await $.clock.now()
   keepNewest(shown, requestId, { where, key, at }, SHOWN_MAX)
   if (moved && !pinHolds(pin, at)) pin = undefined
-  if (moved) $.ui.invalidate('ui.render')
+  if (moved) redrawSoon($)
 }
 
 // When the chat file stamped each row, by its uuid or a tool call's id: grep -o's pattern, then its
@@ -353,8 +392,13 @@ export const readStamps = (printed: string) => {
 }
 // A row's stamp never changes: searched for until found, then kept.
 const stamps = new Map<string, number>()
+// A row the chat file does not hold yet (mid-turn: the reply streaming in, a running tool) is
+// looked for again at most once per READ_TTL, as each look greps the whole file.
+const looked = new Map<string, number>()
 const rowTimes = async ($: EngineInterface, keys: string[]) => {
-  const missing = keys.filter(key => !stamps.has(key) && /^[\w-]+$/.test(key))
+  const now = await $.clock.now()
+  const missing = keys.filter(key => !stamps.has(key) && /^[\w-]+$/.test(key) && now - (looked.get(key) ?? -Infinity) >= READ_TTL)
+  for (const key of missing) keepNewest(looked, key, now, SHOWN_MAX)
   if (missing.length) {
     try {
       // -a: as in pastPrompts.
@@ -492,38 +536,22 @@ export const register: Register = on => {
 
     let body
     if (current === 'History') {
-      await read($, submitted)
-      const all = await pastPrompts($)
-      const prompts = all.slice(0, MAX_PROMPTS)
+      // A timer that never fires must not hold off every later redraw.
+      redrawing = false
+      const key = `${await $.session.id()}:${await read($, submitted)}`
+      const at = await $.clock.now()
+      if (historyRead?.key !== key || at - historyRead.at >= READ_TTL) historyRead = { key, at, reads: readHistory($) }
+      const { all, prompts, drawnOnly, commands, rows } = await historyRead.reads
       // "↻ " and "HH:MM  " come before the text; padding it to the edge makes the whole row the jump button.
       const room = e.props.bodyColumns - 2 * PAD - 9
       const now = new Date()
       const days = prompts.map(prompt => dayLabel(prompt.timestamp, now))
-      // A failed read marks nothing (see gone) instead of blanking the tab.
-      const queued = await midTurn($)
-      const chatRead = await $.session.messages().catch(() => [])
-      const sent = chatRead
-        .filter(message => message.role === 'user' && !message.toolResults?.length && message.text)
-        .map(message => message.text)
-      // A mid-turn prompt is never a chat message, nor most slash commands (/compact is): reachable
-      // once drawn. One sent as a turn ended landed as a normal message instead.
-      const landed = new Set(sent.map(flat))
-      const drawnOnly = new Set(queued.map(flat).filter(text => !landed.has(text)))
-      const commands = new Set(sent.flatMap(text => typedCommand(text) ?? []))
       const isReachable = (prompt: Prompt) => {
         const key = flat(prompt.display)
         if ((!isCommand(prompt) && !drawnOnly.has(key)) || rowIds.has(key) || commands.has(key)) return true
         awaited.add(key)
         return false
       }
-      // What the model is sent: the last compaction's summary in place of what it replaced.
-      // Each text block alone, as reminders ride in the same message.
-      const modelRead = await $.session.messages({ as: 'api' }).catch(() => [])
-      const model = modelRead
-        .filter(message => message.role === 'user')
-        .flatMap(message => message.content.flatMap(block => (typeof block.text === 'string' ? [block.text] : [])))
-      const capped = { chat: chatRead.length >= READ_MAX, model: modelRead.length >= READ_MAX }
-      const rows = gone(prompts, sent, model, queued, capped)
       // Rows under the Compacted line still jump while the chat shows them, dim as the model lost them.
       const compacted = rows.findIndex(row => row.marker === 'Compacted')
       // The prompt being read lights even if compacted: it is on screen.
