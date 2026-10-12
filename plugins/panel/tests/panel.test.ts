@@ -426,6 +426,19 @@ test('History reads the prompt history under CLAUDE_CONFIG_DIR when it is set', 
   expect((await ui.find({ key: 'jump:0' }))?.text).toContain('from the moved folder')
 })
 
+test('a prompt holding a control character still lists, the character drawn as a space', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
+  // A paste of colored terminal output keeps its escape sequences.
+  const history = JSON.stringify({ display: 'paste \x1b[31mred\x07', timestamp: 1, sessionId: 'chat-1' })
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('fs.read', () => ({ value: history }))
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+
+  expect((await ui.find({ key: 'jump:0' }))?.text).toContain('paste [31mred')
+})
+
 test('History still lists prompts once the prompt history is too big to read whole', async ($, on) => {
   on('clock.now', () => ({ value: 0 }))
   const line = JSON.stringify({ display: 'found by grep', timestamp: 1, sessionId: 'chat-1' })

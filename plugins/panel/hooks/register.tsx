@@ -114,11 +114,12 @@ const dayName = (day: Date) => `${DAYS[day.getDay()]} ${day.getDate()} ${MONTHS[
 // By local calendar day: "Today", else "Sat 10 Oct".
 export const dayLabel = (ms: number, now: Date) =>
   new Date(ms).toDateString() === now.toDateString() ? 'Today' : dayName(new Date(ms))
-// The chat wraps a paste in <pasted_content> tags; history keeps it bare.
+// The chat wraps a paste in <pasted_content> tags; history keeps it bare. A control character (a
+// pasted escape sequence) would get the whole pane refused, so it reads as a space.
 const flat = (text: string) =>
   text
     .replace(/<\/?pasted_content[^>]*>/g, '')
-    .replace(/\s+/g, ' ')
+    .replace(/[\s\x00-\x1f\x7f]+/g, ' ')
     .trim()
 
 // A prompt typed while a turn runs reaches the chat as a queued note, never a user message, so
