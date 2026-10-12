@@ -146,6 +146,37 @@ echo '{bad' > "$R"; run_install "$H"; rc=$?
 check "record: unparsable record falls back" [ "$rc" -eq 0 ]
 check "record: unparsable record rewritten" cmp -s "$R" "$REPO/settings.base.json"
 
+# --- keybindings: alt+h toggles the panel ---
+key() { node -p 'const [f,c,k]=process.argv.slice(1);JSON.stringify(require(f).bindings.filter(b=>b.context===c).map(b=>b.bindings[k]).find(v=>v!==undefined))' "$1/.claude/keybindings.json" "$2" "$3" 2>/dev/null; }
+K=$(new_home); run_install "$K"
+check "keys: fresh alt+h opens panel" [ "$(key "$K" Chat alt+h)" = '"command:panel"' ]
+K=$(new_home); mkdir -p "$K/.claude"
+echo '{"bindings":[{"context":"Global","bindings":{"ctrl+t":"app:toggleTodos"}},{"context":"Chat","bindings":{"ctrl+e":"chat:externalEditor"}}]}' > "$K/.claude/keybindings.json"
+run_install "$K"
+check "keys: own binding kept" [ "$(key "$K" Global ctrl+t)" = '"app:toggleTodos"' ]
+check "keys: own Chat binding kept" [ "$(key "$K" Chat ctrl+e)" = '"chat:externalEditor"' ]
+check "keys: alt+h added beside own" [ "$(key "$K" Chat alt+h)" = '"command:panel"' ]
+check "keys: added to existing Chat block" node -e 'process.exit(require(process.argv[1]).bindings.filter(b=>b.context==="Chat").length===1?0:1)' "$K/.claude/keybindings.json"
+check "keys: own file backed up" bash -c "ls '$K'/.claude/.claudzilla-backup/*/keybindings.json >/dev/null"
+cp "$K/.claude/keybindings.json" "$K/k1"; nb=$(ls "$K/.claude/.claudzilla-backup" | wc -l); sleep 1; run_install "$K"
+check "keys: rerun unchanged" cmp -s "$K/.claude/keybindings.json" "$K/k1"
+check "keys: rerun no new backup" [ "$(ls "$K/.claude/.claudzilla-backup" | wc -l)" -eq "$nb" ]
+for own in '{"bindings":[{"context":"Chat","bindings":{"alt+h":null}}]}' \
+           '{"bindings":[{"context":"Chat","bindings":{"opt+h":null}}]}' \
+           '{"bindings":[{"context":"Global","bindings":{"Meta+H":"app:toggleTodos"}}]}' \
+           '{"bindings":[{"context":"Global","bindings":{"ctrl+p":"command:panel"}}]}' \
+           '{"bindings":[{"context":"Chat","bindings":"x"}]}' '{bad'; do
+  K=$(new_home); mkdir -p "$K/.claude"; printf '%s\n' "$own" | tee "$K/k0" > "$K/.claude/keybindings.json"; run_install "$K"; rc=$?
+  check "keys: left alone: $own" cmp -s "$K/.claude/keybindings.json" "$K/k0"
+done
+check "keys: bad file, install exits 0" [ "$rc" -eq 0 ]
+check "keys: bad file warns" grep -q 'keybindings.json' "$K/install.log"
+K=$(new_home); mkdir -p "$K/.claude" "$K/dots"; echo '{"bindings":[]}' | tee "$K/k0" > "$K/dots/kb.json"
+ln -s "$K/dots/kb.json" "$K/.claude/keybindings.json"; run_install "$K"
+check "keys: symlink kept" [ "$(readlink "$K/.claude/keybindings.json")" = "$K/dots/kb.json" ]
+check "keys: symlink target untouched" cmp -s "$K/dots/kb.json" "$K/k0"
+check "keys: symlink warns" grep -q 'symlink' "$K/install.log"
+
 # --- curl | bash bootstrap (clones committed HEAD of $REPO) ---
 H=$(new_home)
 (cd "$H" && clean_env HOME="$H" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_REPO="$REPO" bash < "$REPO/install.sh" >"$H/install.log" 2>&1); rc=$?

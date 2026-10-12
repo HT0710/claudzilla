@@ -51,7 +51,7 @@ settings.base.json     ──merge────▶  ~/.claude/settings.json  your
 | `~/.claude/CLAUDE.local.md` | instructions for this machine only |
 | `~/.claude/settings.overrides.json` | settings for this machine only, merged last (e.g. `{"permissions":{"defaultMode":"dontAsk"}}`) |
 | `claudzilla.json` | turn guard checks on or off, see below |
-| `~/.claude/keybindings.json` | a key for the panel, e.g. alt+h: `{"bindings":[{"context":"Chat","bindings":{"alt+h":"command:panel"}}]}` |
+| `~/.claude/keybindings.json` | your keys. Install adds alt+h for the panel unless you bound alt+h (`Chat` or `Global`), gave the panel a key, or symlinked the file; `"alt+h": null` in `Chat` opts out |
 
 <details>
 <summary>Guard hook config</summary>

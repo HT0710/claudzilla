@@ -79,6 +79,32 @@ fs.writeFileSync(out,JSON.stringify(merge(merge(old?prune(d,old,b):d,b),read(ove
   cmp -s "$REPO/settings.base.json" "$rec" || cp "$REPO/settings.base.json" "$rec"
 }
 
+# alt+h toggles the panel. The user's own choice is left alone: alt+h under any
+# alias in Chat or Global (null unbinds), the panel on another key, or a symlink
+# (a dotfiles tool owns it).
+keybindings() {
+  local dst="$DEST/keybindings.json" tmp="$DEST/.keybindings.json.claudzilla" rc=0
+  node -e '
+const fs=require("fs"),[dst,out]=process.argv.slice(1);
+const isObj=v=>v&&typeof v=="object"&&!Array.isArray(v);
+let j={bindings:[]};
+if(fs.existsSync(dst))try{j=JSON.parse(fs.readFileSync(dst,"utf8"))}catch{process.exit(2)}
+if(!isObj(j)||!Array.isArray(j.bindings)||!j.bindings.every(b=>isObj(b)&&isObj(b.bindings)))process.exit(2);
+const chat=j.bindings.filter(b=>b.context==="Chat");
+const altH=/^(alt|opt|option|meta)\+h$/i;
+if(j.bindings.some(b=>(["Chat","Global"].includes(b.context)&&Object.keys(b.bindings).some(k=>altH.test(k)))||Object.values(b.bindings).includes("command:panel")))process.exit(3);
+if(!chat.length)j.bindings.push(chat[0]={context:"Chat",bindings:{}});
+chat[0].bindings["alt+h"]="command:panel";
+fs.writeFileSync(out,JSON.stringify(j,null,2)+"\n")' "$dst" "$tmp" || rc=$?
+  case $rc in
+    0) if [ -L "$dst" ]; then rm -f "$tmp"; echo "claudzilla: $dst is a symlink - add alt+h for /panel yourself (see README)" >&2
+       else [ -f "$dst" ] && save keybindings.json
+         mv "$tmp" "$dst"; echo "keybindings: alt+h -> /panel"; fi ;;
+    3) ;;
+    *) rm -f "$tmp"; echo "claudzilla: $dst unreadable - add alt+h for /panel yourself (see README)" >&2 ;;
+  esac
+}
+
 # When each rule first reached this machine; rule-review counts a rule only from then on.
 # Paths go in env: rules-guard.mjs treats argv[1] as "am I the hook?".
 stamp_rules() {
@@ -232,6 +258,7 @@ main() {
   for f in $LINKS; do link "$f"; done
   [ -e "$DEST/CLAUDE.local.md" ] || : > "$DEST/CLAUDE.local.md"
   merge_settings
+  keybindings
   truecolor
   font
   stamp_rules || echo "claudzilla: rule dates not saved - /rule-review skips undated rules until the next install" >&2
