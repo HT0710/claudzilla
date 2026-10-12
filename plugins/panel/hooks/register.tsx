@@ -8,7 +8,9 @@ const PAD = 2
 // Activity is deferred: its slot stays below, list it here to show it.
 const TABS: Tab[] = ['History', 'Git']
 const MAX_PROMPTS = 100
-const COMMITS = 50
+// COMMITS reads this many at a time, the next page once scrolled past: git walks every commit it
+// skips (210 ms at 100k), so a read per wheel tick would lag.
+const PAGE = 100
 // Built-in tools that never change files: their calls leave the Git tab's reads standing.
 const READ_ONLY = new Set(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'])
 // \u00a0: the toast wraps at spaces; ↻ keeps to its word.
@@ -242,7 +244,6 @@ const readGit = ($: EngineInterface) =>
   Promise.all([
     // quotePath off: a non-ASCII path reads as itself, not octal escapes.
     $.process.run(['git', '--no-optional-locks', '-c', 'core.quotePath=false', 'status', '--porcelain', '-b']).catch(() => undefined),
-    $.process.run(['git', 'log', `-${COMMITS}`, '--format=%H %h %s']).catch(() => undefined),
     $.process.run(['git', '--no-optional-locks', 'diff', '--shortstat']).catch(() => undefined),
     // Local only: commits no remote has.
     $.process.run(['git', 'rev-list', 'HEAD', '--not', '--remotes']).catch(() => undefined),
@@ -251,6 +252,11 @@ const readGit = ($: EngineInterface) =>
 // Kept until a tool call or a prompt may have changed the repo, or the tab is picked again: a chat
 // scroll or a drag redraws the pane many times a second. `signal`: the draw that started the runs.
 let gitRead: { key: string; signal: AbortSignal; runs: ReturnType<typeof readGit> } | undefined
+// One page of COMMITS from its first, with a page more: a window of up to PAGE rows starting in the
+// page fits whole. Kept as gitRead is, per page.
+const readLog = ($: EngineInterface, page: number) =>
+  $.process.run(['git', 'log', `--skip=${page * PAGE}`, `-${2 * PAGE}`, '--format=%H %h %s']).catch(() => undefined)
+let logRead: { key: string; signal: AbortSignal; run: ReturnType<typeof readLog> } | undefined
 // The Git tab as last drawn: rows above `commitsAt` scroll CHANGES, the rest COMMITS, each up to its
 // last offset. Unset while another tab shows: the engine scrolls that one.
 let gitZones: { commitsAt: number; changes: number; commits: number } | undefined
@@ -385,7 +391,7 @@ const idle = async () => {
 }
 const pick = async ($: EngineInterface, next: Tab) => {
   // Picking Git reads the repo afresh: it may have changed outside this chat.
-  if (next === 'Git') gitRead = undefined
+  if (next === 'Git') gitRead = logRead = undefined
   await update($, tab, () => next)
   // Each write draws the pane; a second draw could land before the first, and the terminal
   // then dropped the next click.
@@ -741,7 +747,7 @@ export const register: Register = on => {
         gitRead = { key, signal: next.signal, runs: readGit($) }
         runs = await gitRead.runs
       }
-      const [status, log, diff, unpushed, count] = runs
+      const [status, diff, unpushed, count] = runs
       const local = unpushed?.exitCode === 0 ? new Set(unpushed.stdout.split('\n').filter(Boolean)) : undefined
       const total = count?.exitCode === 0 ? count.stdout.trim() : ''
       // As the HUD statusline's churn: unstaged lines added and removed, "+144 -6".
@@ -751,8 +757,6 @@ export const register: Register = on => {
       // As the HUD statusline's dirty count: "!4 ?1", tracked changes then untracked files.
       const untracked = files.filter(line => line.startsWith('??')).length
       const dirty = [files.length > untracked && `!${files.length - untracked}`, untracked && `?${untracked}`].filter(Boolean).join(' ')
-      // An empty repo's log fails: no commits to list.
-      const commits = log?.exitCode === 0 ? log.stdout.split('\n').filter(Boolean) : []
       // The body less 3 columns: a path gets room + 1 after its status letter and a space; a commit's
       // subject room + 2 less its hash.
       const room = e.props.bodyColumns - 2 * PAD - 3
@@ -769,9 +773,20 @@ export const register: Register = on => {
       // Clamped here too: a list shrinks, or the divider grows its zone, after the wheel moved it.
       const top = await read($, scrolled)
       const changesFrom = Math.max(0, Math.min(top.changes, files.length - changesRows))
-      const commitsFrom = Math.max(0, Math.min(top.commits, commits.length - commitsRows))
+      const commitsFrom = Math.max(0, Math.min(top.commits, (Number(total) || Infinity) - commitsRows))
+      const page = Math.floor(commitsFrom / PAGE)
+      const logKey = `${key}:${page}`
+      if (head && logRead?.key !== logKey) logRead = { key: logKey, signal: next.signal, run: readLog($, page) }
+      let log = head ? await logRead!.run : undefined
+      // As the runs above: a read a dropped draw took down with it is read again.
+      if (head && !log && logRead!.signal.aborted && !next.signal.aborted) {
+        logRead = { key: logKey, signal: next.signal, run: readLog($, page) }
+        log = await logRead.run
+      }
+      // An empty repo's log fails: no commits to list.
+      const commits = log?.exitCode === 0 ? log.stdout.split('\n').filter(Boolean) : []
       // CHANGES' rows end under its last file: the tabs, their rule, the branch, its rule and the header.
-      if (head) gitZones = { commitsAt: files.length ? 5 + changesRows : 0, changes: Math.max(0, files.length - changesRows), commits: Math.max(0, commits.length - commitsRows) }
+      if (head) gitZones = { commitsAt: files.length ? 5 + changesRows : 0, changes: Math.max(0, files.length - changesRows), commits: Math.max(0, (Number(total) || commits.length) - commitsRows) }
       body = !head ? (
         // The rows under the tabs and their rule. No answer at all: git is not on PATH, or the surface
         // runs no command.
@@ -845,7 +860,7 @@ export const register: Register = on => {
             </Box>
           )}
           {/* Local commits bright, pushed ones dim; the type colored by what it does (TYPES). */}
-          {commits.slice(commitsFrom, commitsFrom + commitsRows).map(line => {
+          {commits.slice(commitsFrom - page * PAGE, commitsFrom - page * PAGE + commitsRows).map(line => {
             const [full = '', hash = '', ...subject] = line.split(' ')
             const isLocal = !!local?.has(full)
             // A control character in any text gets the whole pane refused.

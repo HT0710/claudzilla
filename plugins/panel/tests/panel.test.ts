@@ -168,6 +168,32 @@ test('the wheel scrolls CHANGES and COMMITS each on its own, up to their ends', 
   expect(await ui.find({ type: 'Text', text: /file3\.ts/ })).toBeDefined()
 })
 
+test('COMMITS reads a page at a time as the wheel goes past it, down to the first commit', async ($, on) => {
+  noHistory(on)
+  const all = Array.from({ length: 250 }, (_, i) => `c${i}ffff c${i} commit ${i}\n`)
+  const skips: number[] = []
+  on('process.run', (_, e) => {
+    if (!e.argv.includes('log')) return ran(git({ status: '## main\n', '--count': '250\n' })(e.argv) ?? '')
+    const skip = Number(e.argv.find(arg => arg.startsWith('--skip='))?.slice(7))
+    skips.push(skip)
+    return ran(all.slice(skip, skip + Number(e.argv.find(arg => /^-\d+$/.test(arg))!.slice(1))).join(''))
+  })
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+  // A clean repo: 15 rows of COMMITS.
+  const wheel = (by: number) =>
+    $.ui.scroll({ component: 'Pane', requestId: 'panel', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
+
+  await wheel(150)
+  expect(await ui.find({ type: 'Text', text: /commit 149$/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /commit 164$/ })).toBeDefined()
+  await wheel(1)
+  await wheel(1000)
+  expect(await ui.find({ type: 'Text', text: /commit 234$/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /commit 249$/ })).toBeDefined()
+  expect(skips).toEqual([0, 100, 200])
+})
+
 test('a clean repo drops CHANGES and its divider: COMMITS takes their rows', async ($, on) => {
   noHistory(on)
   const log = Array.from({ length: 15 }, (_, i) => `c${i}ffff c${i} commit ${i}`).join('\n')
