@@ -145,6 +145,29 @@ test('dragging the divider gives CHANGES more rows', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: /file9\.ts/ })).toBeUndefined()
 })
 
+test('the wheel scrolls CHANGES and COMMITS each on its own, up to their ends', async ($, on) => {
+  noHistory(on)
+  const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
+  const log = Array.from({ length: 30 }, (_, i) => `c${i}ffff c${i} commit ${i}`).join('\n')
+  on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: `${log}\n` })(e.argv) ?? ''))
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+  // 7 rows of CHANGES end on row 11, 6 of COMMITS start on row 14.
+  const wheel = (by: number, row: number) =>
+    $.ui.scroll({ component: 'Pane', requestId: 'panel', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
+
+  await wheel(5, 8)
+  expect(await ui.find({ type: 'Text', text: /file2\.ts/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /file9\.ts/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /commit 0$/ })).toBeDefined()
+
+  await wheel(100, 16)
+  expect(await ui.find({ type: 'Text', text: /commit 23$/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /commit 24$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /commit 29$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /file3\.ts/ })).toBeDefined()
+})
+
 test('a clean repo drops CHANGES and its divider: COMMITS takes their rows', async ($, on) => {
   noHistory(on)
   const log = Array.from({ length: 15 }, (_, i) => `c${i}ffff c${i} commit ${i}`).join('\n')

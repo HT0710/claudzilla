@@ -7,7 +7,7 @@ A side pane listing this chat's prompts, newest first.
 - **`⟲ rewind`:** opens the `/rewind` picker.
 - **Lit prompt:** the one whose turn is on screen. Needs the fullscreen layout.
 - **Dim prompt:** rewound or compacted (a `Rewound` or `Compacted` line marks where), or not drawn in the chat yet. `↻` still works.
-- **Git tab:** the session folder's branch (`↑` ahead, `↓` behind), changed files and recent commits. Redraws after each tool call and prompt.
+- **Git tab:** the session folder's branch (`↑` ahead, `↓` behind), changed files and recent commits. The wheel scrolls the list under it. Redraws after each tool call and prompt.
 
 ## Install
 
