@@ -38,6 +38,7 @@ case "${FAKE_MODE:-ok}" in
   error) echo '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"rate limited"}'; exit 1 ;;
   hang) exec sleep 5 ;;
 esac
+case " $* " in *" --json-schema "*) echo '{"type":"result","subtype":"success","is_error":false,"structured_output":{"score":0.5,"matched":["a"],"missed":["b"]},"total_cost_usd":0.1}'; exit 0 ;; esac
 sid="fake-$$" model=x
 while [ $# -gt 0 ]; do
   case "$1" in --resume) sid=$2 ;; --model) model=$2 ;; esac
@@ -180,6 +181,33 @@ check "run: generated replay runs from its setup.sh" [ "$(field "$TMP/o14/rows.j
 printf 't/two sonnet high\n' > "$TMP/only.txt"
 run --cases 't/*' --only "$TMP/only.txt" --out "$TMP/o7" >/dev/null
 check "run: --only runs listed cells only" [ "$(field "$TMP/o7/rows.jsonl" model)" = sonnet ]
+
+# --- judge.mjs: judged rows vs reference rows → scores.jsonl (the fake judge answers 0.5)
+J="$TMP/jdg"; mkdir -p "$J/ref" "$J/err"
+say() { printf '{"type":"assistant","message":{"id":"m","content":[{"type":"text","text":"%s"}]}}\n' "$2" > "$J/$1.jsonl"; }
+say ref1 "ref one"; say cand1 "cand one"; : > "$J/empty.jsonl"
+jrow() { printf '{"case":"%s","role":"j","model":"haiku","effort":"low","run":1,"status":"%s","judge":%s,"transcript":"%s"}\n' "$@"; }
+{
+  jrow j/a replayed true "$J/cand1.jsonl"   # judged
+  jrow j/b fail true "$J/empty.jsonl"       # no output: 0 without a call
+  jrow j/c pass false "$J/cand1.jsonl"      # not a judged case
+  jrow j/d replayed true "$J/cand1.jsonl"   # no reference run
+  jrow j/f errored true "$J/cand1.jsonl"    # errored run
+  jrow j/e replayed true "$J/gone.jsonl"    # transcript deleted since
+  jrow j/h replayed true "$J/cand1.jsonl"   # reference said nothing
+} > "$J/rows.jsonl"
+{ for k in a b e g; do jrow "j/$k" replayed true "$J/ref1.jsonl"; done; jrow j/h replayed true "$J/empty.jsonl"; } > "$J/ref/rows.jsonl"
+: > "$FAKE_LOG"
+node "$EV/judge.mjs" "$J/rows.jsonl" "$J/ref/rows.jsonl" >/dev/null 2>&1
+check "judge: one call per judged row with output, transcript and reference" [ "$(calls)" = 1 ]
+check "judge: fixed opus high cell, no tools, schema output" grep -q -- '--model opus --effort high --tools  --json-schema' "$FAKE_LOG"
+check "judge: prompt carries reference and candidate" bash -c 'grep -q "<reference> ref one </reference>" "$1" && grep -q "<candidate> cand one </candidate>" "$1"' _ "$FAKE_LOG"
+check "judge: scores written, empty output scores 0" [ "$(field "$J/scores.jsonl" case) $(field "$J/scores.jsonl" score)" = "j/a j/b 0.5 0" ]
+node "$EV/judge.mjs" "$J/rows.jsonl" "$J/ref/rows.jsonl" >/dev/null 2>&1
+check "judge: re-run skips scored rows" [ "$(calls)" = 1 ]
+{ jrow j/a replayed true "$J/cand1.jsonl"; jrow j/g replayed true "$J/cand1.jsonl"; } > "$J/err/rows.jsonl"
+FAKE_MODE=error node "$EV/judge.mjs" "$J/err/rows.jsonl" "$J/ref/rows.jsonl" >/dev/null 2>&1; rc=$?
+check "judge: two errors in a row stop with exit 3, nothing scored" bash -c '[ "$1" = 3 ] && [ ! -s "$2" ]' _ "$rc" "$J/err/scores.jsonl"
 
 # --- report: selection rule on canned rows (best opus max 100%; four cells at 90-91%)
 R="$TMP/rep"; mkdir -p "$R"
