@@ -308,7 +308,7 @@ test('Git tab outside a repo says so', async ($, on) => {
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
   await ui.press({ key: 'Git' })
 
-  expect(await ui.find({ type: 'Text', text: 'Not a git repository.' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Not a git repository' })).toBeDefined()
 })
 
 test('branch line: no upstream, behind only, upstream gone', () => {

@@ -600,6 +600,16 @@ export const register: Register = on => {
     const flagged = await read($, notices)
     // Divider gets half the side margin on each side.
     const rule = '─'.repeat(e.props.bodyColumns - PAD)
+    // A tab with nothing to list: a framed note, centered in `rows`.
+    const emptyNote = (rows: number, title: string, ...lines: JSX.Element[]) => (
+      <Box height={Math.max(0, rows)} justifyContent="center" alignItems="center">
+        <Box flexDirection="column" alignItems="center" borderStyle="round" borderColor="promptBorder" paddingX={2} paddingY={1}>
+          <Text bold color={HUD.label}>{title}</Text>
+          <Text> </Text>
+          {lines}
+        </Box>
+      </Box>
+    )
 
     // Tries the transcript's id first, then the drawn row's, until one scrolls. The pin's settle
     // starts again once the scroll lands, as the search before it can be slow.
@@ -671,7 +681,18 @@ export const register: Register = on => {
               {all.length > MAX_PROMPTS ? '+' : ''} {all.length === 1 ? 'prompt' : 'prompts'} this session
             </Text>
           </Box>
-          {prompts.length === 0 && <Text color={HUD.faint}>No prompts yet.</Text>}
+          {/* The rows under the tabs, their rule and the header. */}
+          {prompts.length === 0 &&
+            emptyNote(
+              e.props.scroll.bodyRows - 3,
+              'No prompts yet',
+              <Text color={HUD.faint}>Sent prompts show here.</Text>,
+              <Box>
+                <Text color={HUD.faint}>Click to jump, </Text>
+                <Text color={HUD.idle}>↻</Text>
+                <Text color={HUD.faint}> to reuse.</Text>
+              </Box>,
+            )}
           {prompts.map((prompt, i) => (
             <Box flexDirection="column">
               {days[i] !== days[i - 1] && divider(days[i] ?? '', '─', HUD.label, DIM.label)}
@@ -722,7 +743,13 @@ export const register: Register = on => {
       const commitsRows = Math.max(1, files.length ? free - changesRows : free + 2)
       const changed = `${files.length} changed`
       body = !head ? (
-        <Text color={HUD.faint}>Not a git repository.</Text>
+        // The rows under the tabs and their rule.
+        emptyNote(
+          e.props.scroll.bodyRows - 2,
+          'Not a git repository',
+          <Text color={HUD.faint}>Branch, changes and commits</Text>,
+          <Text color={HUD.faint}>show here inside a repo.</Text>,
+        )
       ) : (
         <Box flexDirection="column">
           <Box justifyContent="space-between">
