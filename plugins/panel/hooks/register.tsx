@@ -185,8 +185,6 @@ const fit = (text: string, room: number) => (text.length > room ? `${text.slice(
 // The chat's own file holds every prompt's message id, drawn or not; searched with grep, as it
 // outgrows what $.fs.read takes whole. A repeated prompt resolves to the copy sent nearest the
 // history entry's time.
-// -a here and below: a crash can leave NUL bytes, and grep then takes the file for binary and
-// prints no line.
 // Found by session id, not rebuilt from the root: Claude Code cuts a long root's folder name and
 // hashes it, and /cd or a worktree move changes the root. Kept once found.
 const chatPaths = new Map<string, string>()
@@ -199,6 +197,7 @@ const chatPath = async ($: EngineInterface) => {
   }
   return chatPaths.get(sessionId) ?? ''
 }
+// -a: as in pastPrompts.
 const transcriptId = async ($: EngineInterface, prompt: Prompt) => {
   try {
     const path = await chatPath($)
@@ -358,6 +357,7 @@ const rowTimes = async ($: EngineInterface, keys: string[]) => {
   const missing = keys.filter(key => !stamps.has(key) && /^[\w-]+$/.test(key))
   if (missing.length) {
     try {
+      // -a: as in pastPrompts.
       const { stdout } = await $.process.run(['grep', '-a', '-o', '-E', '--', stampPattern(missing), await chatPath($)])
       for (const [key, at] of readStamps(stdout)) stamps.set(key, at)
     } catch {
