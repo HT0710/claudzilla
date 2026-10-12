@@ -56,12 +56,13 @@ const unpaste = async ($: EngineInterface, dir: string, row: any): Promise<strin
 // the session's cwd follows a shell `cd`, so a folder match drifts.
 // grep takes only this chat's lines, as the history of every chat outgrows what $.fs.read takes
 // (4 MiB); read whole where no process runs (desktop).
+// -a: a crash can leave NUL bytes, and grep then takes the file for binary and prints no line.
 const pastPrompts = async ($: EngineInterface): Promise<Prompt[]> => {
   const [dir, sessionId] = await Promise.all([configDir($), $.session.id()])
   const path = `${dir}/history.jsonl`
   let text: string
   try {
-    text = (await $.process.run(['grep', '-F', '--', `"sessionId":"${sessionId}"`, path])).stdout
+    text = (await $.process.run(['grep', '-a', '-F', '--', `"sessionId":"${sessionId}"`, path])).stdout
   } catch {
     try {
       text = String(await $.fs.read(path))
@@ -184,6 +185,8 @@ const fit = (text: string, room: number) => (text.length > room ? `${text.slice(
 // The chat's own file holds every prompt's message id, drawn or not; searched with grep, as it
 // outgrows what $.fs.read takes whole. A repeated prompt resolves to the copy sent nearest the
 // history entry's time.
+// -a here and below: a crash can leave NUL bytes, and grep then takes the file for binary and
+// prints no line.
 // Found by session id, not rebuilt from the root: Claude Code cuts a long root's folder name and
 // hashes it, and /cd or a worktree move changes the root. Kept once found.
 const chatPaths = new Map<string, string>()
@@ -202,11 +205,11 @@ const transcriptId = async ($: EngineInterface, prompt: Prompt) => {
     if (isCommand(prompt)) {
       // -A1: the output line follows its command's row.
       const name = `<command-name>${prompt.display.split(/\s/, 1)[0]}</command-name>`
-      const { stdout } = await $.process.run(['grep', '-F', '-A1', '--', name, path])
+      const { stdout } = await $.process.run(['grep', '-a', '-F', '-A1', '--', name, path])
       return nearestCommandId(stdout, prompt)
     }
     const patterns = needles(prompt.typed ?? prompt.display).flatMap(text => ['-e', text])
-    const { stdout } = await $.process.run(['grep', '-F', ...patterns, '--', path])
+    const { stdout } = await $.process.run(['grep', '-a', '-F', ...patterns, '--', path])
     return nearestId(stdout, prompt)
   } catch {
     return undefined
@@ -355,7 +358,7 @@ const rowTimes = async ($: EngineInterface, keys: string[]) => {
   const missing = keys.filter(key => !stamps.has(key) && /^[\w-]+$/.test(key))
   if (missing.length) {
     try {
-      const { stdout } = await $.process.run(['grep', '-o', '-E', '--', stampPattern(missing), await chatPath($)])
+      const { stdout } = await $.process.run(['grep', '-a', '-o', '-E', '--', stampPattern(missing), await chatPath($)])
       for (const [key, at] of readStamps(stdout)) stamps.set(key, at)
     } catch {
       // no file yet
