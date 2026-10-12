@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { dayLabel, gone, inView, keepNewest, litPrompt, nearestCommandId, nearestId, needles, ordered, pinHolds, readStamps, stampPattern } from '../hooks/register'
+import { branchLine, dayLabel, gone, inView, keepNewest, litPrompt, nearestCommandId, nearestId, needles, ordered, pinHolds, readStamps, stampPattern } from '../hooks/register'
 
 // A process.run result with `stdout`.
 const ran = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -18,17 +18,268 @@ const props = {
 }
 
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`${surface}: only History shows while Activity and Git are deferred`, async ($, on) => {
+  test(`${surface}: History and Git show while Activity is deferred`, async ($, on) => {
     on('clock.now', () => ({ value: 0 }))
     on('env.get', () => ({ value: '/home/me' }))
     on('session.id', () => ({ value: 'chat-1' }))
     on('fs.read', () => ({ value: '' }))
     const ui = await $.ui.mount({ plugin: 'panel', surface, component: 'Pane', props, requestId: 'panel' })
     expect(await ui.find({ key: 'Activity' })).toBeUndefined()
-    expect(await ui.find({ key: 'Git' })).toBeUndefined()
+    expect(await ui.find({ key: 'Git' })).toBeDefined()
     expect(await ui.find({ key: 'rewind' })).toBeDefined()
   })
 }
+
+// Stands for git in the session's folder: each subcommand the test holds answers its text.
+const git = (repo: Record<string, string>) => (argv: readonly string[]) =>
+  argv[0] !== 'git' ? undefined : (Object.entries(repo).find(([command]) => argv.includes(command))?.[1] ?? '')
+// History draws first on mount: an empty one.
+const noHistory = (on: Parameters<TestBody>[1]) => {
+  on('clock.now', () => ({ value: 0 }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('fs.read', () => ({ value: '' }))
+}
+
+test('Git tab shows the branch, changed files and last commits', async ($, on) => {
+  noHistory(on)
+  const repo = {
+    status: '## main...origin/main [ahead 1, behind 2]\n M hooks/register.tsx\nA  new.ts\n?? notes.md\n',
+    log: 'abc1234ffff abc1234 feat: add thing\nghi9012ffff ghi9012 chore(ci): tidy\njkl3456ffff jkl3456 wip: try\ndef5678ffff def5678 fix(core): old bug\n',
+    diff: ' 1 file changed, 144 insertions(+), 6 deletions(-)\n',
+    // Answers only the list that leaves out commits a remote has.
+    '--remotes': 'abc1234ffff\nghi9012ffff\njkl3456ffff\n',
+    '--count': '142\n',
+  }
+  on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+
+  expect(await ui.find({ type: 'Text', text: '⎇ main ↑1 ↓2' })).toBeDefined()
+  // A rule under the branch, as wide as the body.
+  expect(await ui.find({ type: 'Text', text: new RegExp(`^─{${props.bodyColumns - 4}}$`) })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '3 changed' })).toBeDefined()
+  // As the HUD statusline: tracked changes, untracked files, then lines added and removed.
+  expect(await ui.find({ type: 'Text', text: '!2 ?1' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '  +144 -6' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /hooks\/register\.tsx/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /notes\.md/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'abc1234' })).toBeDefined()
+  // CHANGES' colors: local in the dirty count's yellow, total in the churn's green.
+  expect((await ui.find({ type: 'Text', text: /^3 local$/ }))?.props.color).toBe('#8c7850')
+  expect((await ui.find({ type: 'Text', text: /^ {2}142 total$/ }))?.props.color).toBe('#6e8c6e')
+  // Local bright, pushed dim.
+  expect((await ui.find({ type: 'Text', text: 'add thing' }))?.props.color).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: 'old bug' }))?.props.color).toBe('#4f5c68')
+  // Each type its own color, pushed at 60%; a type outside the git rules stays gray.
+  expect((await ui.find({ type: 'Text', text: ' feat' }))?.props.color).toBe('#98c379')
+  expect((await ui.find({ type: 'Text', text: ' chore' }))?.props.color).toBe('#a396d2')
+  expect((await ui.find({ type: 'Text', text: ' wip' }))?.props.color).toBe('#4f5c68')
+  expect((await ui.find({ type: 'Text', text: ' fix' }))?.props.color).toBe('#864146')
+  // A local scope a light gray under its subject; its parentheses stay faint.
+  expect((await ui.find({ type: 'Text', text: /^ci$/ }))?.props.color).toBe('#808286')
+  expect((await ui.find({ type: 'Text', text: /^\($/ }))?.props.color).toBe('#4f5c68')
+  expect((await ui.find({ type: 'Text', text: /^\): $/ }))?.props.color).toBe('#4f5c68')
+  expect((await ui.find({ type: 'Text', text: /^core$/ }))?.props.color).toBe('#4f5c68')
+})
+
+test('a commit subject with no Conventional Commits type shows whole', async ($, on) => {
+  noHistory(on)
+  on('process.run', (_, e) => ran(git({ status: '## main\n', log: 'abc1234ffff abc1234 Merge branch x\n', '--remotes': 'abc1234ffff\n' })(e.argv) ?? ''))
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+
+  expect((await ui.find({ type: 'Text', text: ' Merge branch x' }))?.props.color).toBeUndefined()
+})
+
+test('a changed file shows one status letter: bright while unstaged, dim once staged', async ($, on) => {
+  noHistory(on)
+  on('process.run', (_, e) => ran(git({ status: '## main\n M a.ts\nA  b.ts\nMM c.ts\n?? d.ts\n' })(e.argv) ?? ''))
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+
+  // Unstaged changes, a file staged and edited again included: the worktree's letter, bright.
+  expect((await ui.findAll({ type: 'Text', text: /^M$/ })).map(found => found.props.color)).toEqual(['#e5c07b', '#e5c07b'])
+  expect((await ui.find({ type: 'Text', text: /a\.ts$/ }))?.props.color).toBeUndefined()
+  // Wholly staged: the index's letter at 60%, its path faint.
+  expect((await ui.find({ type: 'Text', text: /^A$/ }))?.props.color).toBe('#5b7549')
+  expect((await ui.find({ type: 'Text', text: /b\.ts$/ }))?.props.color).toBe('#4f5c68')
+  expect((await ui.find({ type: 'Text', text: /^\?$/ }))?.props.color).toBe('#56b6c2')
+})
+
+test('Git tab redraws after a tool call changes the repo', async ($, on) => {
+  noHistory(on)
+  const repo = { status: '## main\n M a.ts\n', log: 'abc1234ffff abc1234 first\n' }
+  on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
+  on('tool.call', () => ({ result: { stdout: '', stderr: '' } }) as any)
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+  Object.assign(repo, { status: '## main...origin/main [ahead 1]\n', log: 'fed4321ffff fed4321 second\nabc1234ffff abc1234 first\n' })
+  await $.tool.call({ tool: 'Bash', command: 'git commit -am second' })
+
+  expect(await ui.find({ type: 'Text', text: '⎇ main ↑1' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'fed4321' })).toBeDefined()
+})
+
+test('dragging the divider gives CHANGES more rows', async ($, on) => {
+  noHistory(on)
+  const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
+  const repo = { status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' }
+  on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+  // 20 body rows less 7 fixed: CHANGES takes up to half of 13, 7 rows.
+  expect(await ui.find({ type: 'Text', text: /file6\.ts/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /file7\.ts/ })).toBeUndefined()
+
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
+  await ui.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'divider' })
+  await ui.pointer({ type: 'up', x: 0, y: 2, button: 'left', in: 'divider' })
+
+  expect(await ui.find({ type: 'Text', text: /file8\.ts/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /file9\.ts/ })).toBeUndefined()
+})
+
+test('a clean repo drops CHANGES and its divider: COMMITS takes their rows', async ($, on) => {
+  noHistory(on)
+  const log = Array.from({ length: 15 }, (_, i) => `c${i}ffff c${i} commit ${i}`).join('\n')
+  on('process.run', (_, e) => ran(git({ status: '## main\n', log: `${log}\n` })(e.argv) ?? ''))
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+
+  expect(await ui.find({ type: 'Text', text: '0 changed' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'CHANGES' })).toBeUndefined()
+  expect(await ui.find({ key: 'divider' })).toBeUndefined()
+  // 20 body rows less the tabs, their rule, the branch, its rule and the COMMITS header: 15.
+  expect(await ui.find({ type: 'Text', text: /commit 14$/ })).toBeDefined()
+})
+
+test('the divider drags up to the CHANGES title, and no further', async ($, on) => {
+  noHistory(on)
+  const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
+  on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+  // 7 rows of CHANGES; dragged 9 rows up, past its title.
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
+  await ui.pointer({ type: 'move', x: 0, y: -9, button: 'left', in: 'divider' })
+  await ui.pointer({ type: 'up', x: 0, y: -9, button: 'left', in: 'divider' })
+
+  expect(await ui.find({ type: 'Text', text: /file0\.ts/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'CHANGES' })).toBeDefined()
+})
+
+test('Git tab reruns git after a tool call, not on every redraw', async ($, on) => {
+  noHistory(on)
+  const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
+  const repo = { status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' }
+  let runs = 0
+  on('process.run', (_, e) => {
+    if (e.argv[0] === 'git' && e.argv.includes('status')) runs++
+    return ran(git(repo)(e.argv) ?? '')
+  })
+  on('tool.call', () => ({ result: { stdout: '', stderr: '' } }) as any)
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+  const before = runs
+  // A drag redraws the pane; the repo has not changed.
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
+  await ui.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'divider' })
+  expect(await ui.find({ type: 'Text', text: /file8\.ts/ })).toBeDefined()
+  expect(runs).toBe(before)
+
+  await $.tool.call({ tool: 'Bash', command: 'touch x' })
+  await ui.drawn()
+  expect(runs).toBe(before + 1)
+})
+
+test('a read-only tool call leaves git unread', async ($, on) => {
+  noHistory(on)
+  let runs = 0
+  on('process.run', (_, e) => {
+    if (e.argv[0] === 'git' && e.argv.includes('status')) runs++
+    return ran(git({ status: '## main\n' })(e.argv) ?? '')
+  })
+  on('tool.call', () => ({ result: {} }) as any)
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+  const before = runs
+  await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  await $.tool.call({ tool: 'Grep', pattern: 'x' } as any)
+  await ui.drawn()
+
+  expect(runs).toBe(before)
+})
+
+test('a commit subject draws its control characters as spaces', async ($, on) => {
+  noHistory(on)
+  on('process.run', (_, e) => ran(git({ status: '## main\n', log: 'abc1234ffff abc1234 feat: tab\there\x1bend\n' })(e.argv) ?? ''))
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+
+  expect(await ui.find({ type: 'Text', text: 'tab here end' })).toBeDefined()
+})
+
+test('the tab separator sits mid-row, over the divider grip', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  // The divider's left run: half the body less its 3-column grip, rounded down.
+  expect((await ui.find({ key: 'tab:History' }))?.props.width).toBe(Math.floor((props.bodyColumns - 4 - 3) / 2))
+})
+
+test('the shown tab is lit across its cell and no button; another tab presses across its cell', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  // The body less its margins and the separator, split: 16 columns, the last taking the odd one.
+  expect(await ui.find({ type: 'Button', key: 'History' })).toBeUndefined()
+  const shown = await ui.find({ type: 'Text', text: /^\s*History\s*$/ })
+  expect(shown?.text.length).toBe(16)
+  expect(shown?.props.inverse).toBe(true)
+  const other = await ui.find({ type: 'Button', key: 'Git' })
+  expect(other?.text.length).toBe(17)
+  // One color across it, so the focus inverts it as one block.
+  const parts = (other?.children ?? []) as { type?: string; props?: { color?: string } }[]
+  expect(new Set(parts.filter(part => part.type === 'Text').map(part => part.props?.color))).toEqual(new Set(['#456186']))
+})
+
+// Each write draws the pane: two per press could land out of order, and the terminal then
+// dropped the next click.
+test('a tab press writes only the tab when no notice is up', async ($, on) => {
+  noHistory(on)
+  on('process.run', (_, e) => ran(git({ status: '## main\n' })(e.argv) ?? ''))
+  const keys: string[] = []
+  on('state.set', (_, e, next) => {
+    keys.push(e.key)
+    return next(e)
+  })
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+
+  expect(keys).toEqual(['tab'])
+})
+
+test("a tab press switches even when the button's onPress is lost", async ($, on) => {
+  noHistory(on)
+  on('process.run', (_, e) => ran(git({ status: '## main\n' })(e.argv) ?? ''))
+  // Stands for the terminal losing onPress to a redraw that swaps the tree as the click lands.
+  on('ui.press', (_, e) => ({ element: e.element }))
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+
+  expect(await ui.find({ type: 'Text', text: '⎇ main' })).toBeDefined()
+})
 
 test('a slow pane draw finishes before a newer fast one', async () => {
   let open = () => {}
@@ -46,6 +297,67 @@ test('a slow pane draw finishes before a newer fast one', async () => {
   await Promise.all([older, newer])
 
   expect(finished).toEqual(['older', 'newer'])
+})
+
+test('Git tab outside a repo says so', async ($, on) => {
+  noHistory(on)
+  on('process.run', (_, e) =>
+    e.argv[0] === 'git' ? { value: { exitCode: 128, stdout: '', stderr: 'fatal: not a git repository', isStdoutTruncated: false, isStderrTruncated: false } } : ran(''),
+  )
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+
+  expect(await ui.find({ type: 'Text', text: 'Not a git repository.' })).toBeDefined()
+})
+
+test('branch line: no upstream, behind only, upstream gone', () => {
+  expect(branchLine('## feat/x')).toBe('feat/x')
+  expect(branchLine('## main...origin/main [behind 3]')).toBe('main ↓3')
+  expect(branchLine('## main...origin/main [gone]')).toBe('main gone')
+  // Only the tracking part is rewritten, not a branch named like it.
+  expect(branchLine('## feat/go-ahead...origin/feat/go-ahead [ahead 1]')).toBe('feat/go-ahead ↑1')
+  expect(branchLine('## fix/fall-behind...origin/fix/fall-behind [behind 2]')).toBe('fix/fall-behind ↓2')
+})
+
+test('a long branch row is cut to fit beside its count, not wrapped', async ($, on) => {
+  noHistory(on)
+  const head = '## feature/a-really-long-branch-name-that-goes-on...origin/x [ahead 12, behind 3]'
+  on('process.run', (_, e) => ran(git({ status: `${head}\n M a.ts\n`, log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+
+  const branch = (await ui.find({ type: 'Text', text: /^⎇ / }))?.text ?? ''
+  expect(branch.endsWith('…')).toBe(true)
+  // The body less its margins: the branch, a space at least, "1 changed".
+  expect(branch.length + 1 + '1 changed'.length).toBeLessThanOrEqual(props.bodyColumns - 4)
+})
+
+test('a conflict shows U, whatever git pairs it with', async ($, on) => {
+  noHistory(on)
+  on('process.run', (_, e) => ran(git({ status: '## main\nAA both.ts\nUU c.ts\nDD d.ts\nUD e.ts\n' })(e.argv) ?? ''))
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+
+  expect((await ui.findAll({ type: 'Text', text: /^U$/ })).map(found => found.props.color)).toEqual(['#e06c75', '#e06c75', '#e06c75', '#e06c75'])
+})
+
+test('a renamed file shows its new name; paths come unescaped', async ($, on) => {
+  noHistory(on)
+  const runs: (readonly string[])[] = []
+  on('process.run', (_, e) => {
+    runs.push(e.argv)
+    return ran(git({ status: '## main\nR  old-name.ts -> new-name.ts\n' })(e.argv) ?? '')
+  })
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+
+  expect(await ui.find({ type: 'Text', text: /new-name\.ts$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /old-name/ })).toBeUndefined()
+  expect(runs.find(argv => argv.includes('status'))).toContain('core.quotePath=false')
 })
 
 test('divider keeps half the side margin', async ($, on) => {
@@ -71,7 +383,7 @@ test("History tab lists this chat's prompts, newest first, wherever the shell cd
   on('fs.read', (_, e) => ({ value: e.path === '/home/me/.claude/history.jsonl' ? history : '' }))
 
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  await ui.press({ key: 'History' })
+  await ui.redraw()
 
   expect((await ui.find({ key: 'jump:0' }))?.text).toContain('newest prompt')
   // "↻ " takes 2 columns; the jump button fills the rest of the row.
@@ -121,7 +433,7 @@ test('↻ puts the prompt, line breaks kept, back in the prompt box', async ($, 
   })
 
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  await ui.press({ key: 'History' })
+  await ui.redraw()
   await ui.press({ key: 'reuse:0' })
 
   expect(filled).toEqual(['older\nprompt'])
@@ -140,7 +452,7 @@ test('jumping to a prompt the chat cannot find says so', async ($, on) => {
   })
 
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  await ui.press({ key: 'History' })
+  await ui.redraw()
   await ui.press({ key: 'jump:0' })
 
   expect(toasts).toEqual(["Can't jump: not found in the chat. ↻\u00a0reuses it."])
@@ -196,7 +508,7 @@ test('the rewind button opens the /rewind picker', async ($, on) => {
   })
 
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  await ui.press({ key: 'History' })
+  await ui.redraw()
   await ui.press({ key: 'rewind' })
 
   expect(ran).toEqual(['rewind'])
@@ -220,7 +532,7 @@ test('a day divider opens each day, once', async ($, on) => {
   on('fs.read', () => ({ value: history }))
 
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  await ui.press({ key: 'History' })
+  await ui.redraw()
 
   expect((await ui.findAll({ type: 'Text', text: 'Today' })).length).toBe(1)
   // "──── Today ────" spans the row exactly (side margins take 4 columns), label centered.
@@ -346,7 +658,7 @@ test('the History tab draws Rewound above a rewound run, Compacted where the mod
   }))
 
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  await ui.press({ key: 'History' })
+  await ui.redraw()
 
   expect((await ui.findAll({ type: 'Text', text: 'Rewound' })).length).toBe(1)
   expect((await ui.findAll({ type: 'Text', text: 'Compacted' })).length).toBe(1)
@@ -392,7 +704,7 @@ test('a paste kept as a placeholder shows its text and matches the chat', async 
   }))
 
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  await ui.press({ key: 'History' })
+  await ui.redraw()
 
   expect((await ui.find({ key: 'jump:0' }))?.text).toContain('see short')
   expect((await ui.find({ key: 'jump:1' }))?.text).toContain('long paste')
@@ -441,7 +753,7 @@ test('a prompt sent mid-turn, remembered in the store, is not marked rewound', a
   mock.store(on, { 'midTurn:chat-1': ['sent mid-turn'] })
 
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  await ui.press({ key: 'History' })
+  await ui.redraw()
 
   expect((await ui.findAll({ type: 'Text', text: 'Rewound' })).length).toBe(0)
 })
@@ -456,7 +768,7 @@ test('/quit, /exit, /rewind, /panel, /resume and /clear are left out', async ($,
   on('fs.read', () => ({ value: history }))
 
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  await ui.press({ key: 'History' })
+  await ui.redraw()
 
   expect((await ui.find({ key: 'jump:0' }))?.text).toContain('/exited-not')
   expect((await ui.find({ key: 'jump:1' }))?.text).toContain('kept')
@@ -494,7 +806,7 @@ test('a slash row stays dim until its output line is drawn in the chat', async (
   on('ui.render', { component: 'CommandOutput' }, () => ({ type: 'Text' as const, children: ['Set model.'] }))
 
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  await ui.press({ key: 'History' })
+  await ui.redraw()
   const color = async () => (await ui.find({ type: 'Text', text: /^\/model\s*$/ }))?.props.color
   expect(await color()).toBe('#4f5c68')
 
@@ -520,7 +832,7 @@ test('a slash row is live once the chat holds its command row, drawn or not', as
   }))
 
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  await ui.press({ key: 'History' })
+  await ui.redraw()
 
   expect((await ui.find({ type: 'Text', text: /^\/compact keep\s*$/ }))?.props.color).toBe('claude')
 })
@@ -542,7 +854,7 @@ test('a stored mid-turn note the chat lost to a compaction is not held live', as
   }))
 
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  await ui.press({ key: 'History' })
+  await ui.redraw()
 
   expect((await ui.findAll({ type: 'Text', text: 'Compacted' })).length).toBe(1)
   expect((await ui.find({ type: 'Text', text: /^note\s*$/ }))?.props.color).toBe('#4f5c68')
@@ -564,7 +876,7 @@ test('jumping to a prompt gone from the chat says so without searching', async (
   })
 
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  await ui.press({ key: 'History' })
+  await ui.redraw()
   await ui.press({ key: 'jump:1' })
 
   expect(toasts).toEqual(["Can't jump: rewound or compacted out of the chat. ↻\u00a0reuses it."])
@@ -584,7 +896,7 @@ test('a mid-turn prompt stays dim until its row is drawn in the chat', async ($,
   on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['sent mid-turn'] }))
 
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  await ui.press({ key: 'History' })
+  await ui.redraw()
   const color = async () => (await ui.find({ type: 'Text', text: /^sent mid-turn\s*$/ }))?.props.color
   expect(await color()).toBe('#4f5c68')
 
@@ -632,7 +944,7 @@ test('a prompt sent mid-turn that landed as a normal message is not held dim', a
   mock.store(on, { 'midTurn:chat-1': ['landed normally'] })
 
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  await ui.press({ key: 'History' })
+  await ui.redraw()
 
   expect((await ui.find({ type: 'Text', text: /^landed normally\s*$/ }))?.props.color).toBe('claude')
 })
@@ -645,7 +957,7 @@ test('the count says 100+ when the chat holds more prompts than the list shows',
   on('fs.read', () => ({ value: history.join('\n') }))
 
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  await ui.press({ key: 'History' })
+  await ui.redraw()
 
   expect(await ui.find({ type: 'Text', text: '100+ prompts this session' })).toBeDefined()
   expect(await ui.find({ key: 'jump:100' })).toBeUndefined()
@@ -658,7 +970,7 @@ test('one prompt is counted without the plural s', async ($, on) => {
   on('fs.read', () => ({ value: JSON.stringify({ display: 'only', timestamp: 1, sessionId: 'chat-1' }) }))
 
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  await ui.press({ key: 'History' })
+  await ui.redraw()
 
   expect(await ui.find({ type: 'Text', text: '1 prompt this session' })).toBeDefined()
 })

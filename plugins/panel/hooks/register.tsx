@@ -5,15 +5,29 @@ import type { Tab } from '../types'
 
 const PANE = 'panel'
 const PAD = 2
-// Activity and Git are deferred: their slots stay below, list them here to show them.
-const TABS: Tab[] = ['History']
+// Activity is deferred: its slot stays below, list it here to show it.
+const TABS: Tab[] = ['History', 'Git']
 const MAX_PROMPTS = 100
+const COMMITS = 50
+// Built-in tools that never change files: their calls leave the Git tab's reads standing.
+const READ_ONLY = new Set(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'])
 // \u00a0: the toast wraps at spaces; ↻ keeps to its word.
 const GONE = "Can't jump: rewound or compacted out of the chat. ↻\u00a0reuses it."
 // HUD colors (claudzilla/claude/hud/hud-filter.pl) the theme has no key for.
-const HUD = { label: '#a396d2', faint: '#4f5c68', idle: '#456186', action: '#5d9678', compacted: '#8c7850' }
+const HUD = { label: '#a396d2', faint: '#4f5c68', idle: '#456186', action: '#5d9678', compacted: '#8c7850', dirty: '#8c7850', churn: '#6e8c6e' }
 // Divider lines: their word's HUD color at 60%.
 const DIM = { label: '#625a7e', action: '#385a48', compacted: '#544830' }
+// A commit type (claude/rules/git.md's, plus perf) by what it does, one color each: feat adds (green),
+// fix repairs (red), refactor reshapes (blue), perf speeds up (orange), docs (yellow), test (cyan),
+// chore (the section labels' purple). Any other type stays gray.
+const TYPES: Record<string, string> = { feat: '#98c379', fix: '#e06c75', refactor: '#61afef', perf: '#d19a66', docs: '#e5c07b', test: '#56b6c2', chore: HUD.label }
+// A changed file's git status letter, one color each from TYPES' palette: modified (yellow), added
+// (green), deleted or conflicted (red), renamed or copied (blue), untracked (cyan); any other gray.
+const STATUS: Record<string, string> = { M: '#e5c07b', A: '#98c379', D: '#e06c75', U: '#e06c75', R: '#61afef', C: '#61afef', '?': '#56b6c2' }
+// A local commit's scope: a light gray under the subject.
+const SCOPE = '#808286'
+// A pushed commit's, or a staged file's: its color at 60%, as DIM's are.
+const dim = (hex: string) => `#${hex.slice(1).replace(/../g, c => Math.round(parseInt(c, 16) * 0.6).toString(16).padStart(2, '0'))}`
 const SECTIONS = [
   ['SUMMARY', '1-2 rows'],
   ['SECTION 1', 'list, grow'],
@@ -25,6 +39,10 @@ const tab = atom({ plugin: 'panel', key: 'tab' } as const, 'History' as Tab)
 const notices = atom({ plugin: 'panel', key: 'notices' } as const, [] as Tab[])
 // Bumped per prompt so the History list redraws.
 const submitted = atom({ plugin: 'panel', key: 'submitted' } as const, 0)
+// Bumped per tool call so the Git tab redraws.
+const toolCalls = atom({ plugin: 'panel', key: 'toolCalls' } as const, 0)
+// Rows the Git tab's CHANGES zone takes, as the divider was dragged; -1 until it is.
+const split = atom({ plugin: 'panel', key: 'split' } as const, -1)
 
 // `typed`: history's own text, set when a paste placeholder in it was swapped for the paste.
 export type Prompt = { display: string; timestamp: number; typed?: string }
@@ -179,6 +197,13 @@ export const gone = (
     i === at ? { ...row, marker: 'Compacted' } : marker === 'Rewound' ? { ...row, marker } : row,
   )
 }
+// `git status --porcelain -b`'s first line, "## main...origin/main [ahead 1, behind 2]": "main ↑1 ↓2".
+export const branchLine = (head: string) =>
+  head
+    .replace(/^## /, '')
+    .replace(/\.\.\.\S+/, '')
+    // Inside the brackets only: a branch may be named "go-ahead".
+    .replace(/ \[(.*)\]$/, (_, track: string) => ` ${track.replace('ahead ', '↑').replace(', behind ', ' ↓').replace('behind ', '↓')}`)
 // The History tab's reads, and which prompts they leave live.
 const readHistory = async ($: EngineInterface) => {
   const all = await pastPrompts($)
@@ -207,6 +232,22 @@ const readHistory = async ($: EngineInterface) => {
 // second, and every read grows with the chat.
 const READ_TTL = 1000
 let historyRead: { key: string; at: number; reads: ReturnType<typeof readHistory> } | undefined
+
+// The Git tab's reads, in the session's folder, which follows a shell `cd`. No optional locks: a
+// status run beside the model's own git command must not hold index.lock.
+const readGit = ($: EngineInterface) =>
+  Promise.all([
+    // quotePath off: a non-ASCII path reads as itself, not octal escapes.
+    $.process.run(['git', '--no-optional-locks', '-c', 'core.quotePath=false', 'status', '--porcelain', '-b']).catch(() => undefined),
+    $.process.run(['git', 'log', `-${COMMITS}`, '--format=%H %h %s']).catch(() => undefined),
+    $.process.run(['git', '--no-optional-locks', 'diff', '--shortstat']).catch(() => undefined),
+    // Local only: commits no remote has.
+    $.process.run(['git', 'rev-list', 'HEAD', '--not', '--remotes']).catch(() => undefined),
+    $.process.run(['git', 'rev-list', '--count', 'HEAD']).catch(() => undefined),
+  ])
+// Kept until a tool call or a prompt may have changed the repo, or the tab is picked again: a chat
+// scroll or a drag redraws the pane many times a second.
+let gitRead: { key: string; runs: ReturnType<typeof readGit> } | undefined
 // Counts UTF-16 units, not cells: a wide glyph (CJK, emoji) can still overflow by one.
 const fit = (text: string, room: number) => (text.length > room ? `${text.slice(0, room - 1)}…` : text)
 
@@ -335,6 +376,14 @@ const idle = async () => {
     await draw
     if (draw === lastDraw) return
   }
+}
+const pick = async ($: EngineInterface, next: Tab) => {
+  // Picking Git reads the repo afresh: it may have changed outside this chat.
+  if (next === 'Git') gitRead = undefined
+  await update($, tab, () => next)
+  // Each write draws the pane; a second draw could land before the first, and the terminal
+  // then dropped the next click.
+  if ((await read($, notices)).includes(next)) await update($, notices, list => list.filter(one => one !== next))
 }
 // Rows the panel shows dim until they draw, as only a drawn row can be jumped to: drawing one
 // redraws the panel.
@@ -475,6 +524,33 @@ export const register: Register = on => {
     return result
   })
 
+  // Tabs switch here, not in their onPress: mid-turn, a click landing as a redraw swaps the tree
+  // reached this hook but lost its onPress.
+  on('ui.press', { requestId: PANE }, async ($, e, next) => {
+    const picked = TABS.find(one => one === e.element)
+    if (!picked) return next(e)
+    await pick($, picked)
+
+    return { element: e.element }
+  })
+
+  // The Git tab's divider, dragged: it stops at the CHANGES title; the render clamps the rest to the pane.
+  on('ui.message', async ($, e, next) => {
+    const rows = (e.data as { split?: unknown } | undefined)?.split
+    if (e.requestId !== PANE || e.element !== 'divider' || typeof rows !== 'number') return next(e)
+    await update($, split, () => Math.max(0, rows))
+
+    return {}
+  })
+
+  // A tool call may change the repo; the built-in read-only ones never do, and each reread is 5 git runs.
+  on('tool.call', async ($, e, next) => {
+    const result = await next(e)
+    if (!READ_ONLY.has(e.tool)) await update($, toolCalls, n => n + 1)
+
+    return result
+  })
+
   // A compaction changes which prompts are live: redraw now, not at the next prompt. The engine
   // stores the compacted chat only after this hook returns.
   // ponytail: fixed wait (the store lagged 8 ms when measured); poll $.session.messages if it lags more.
@@ -515,17 +591,15 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => ordered(async () => {
-    const { Box, Button, Text } = $.ui.resolve(e)
+    const elements = $.ui.resolve(e)
+    const { Box, Button, Text } = elements
+    const Client = 'Client' in elements ? elements.Client : undefined
     // A tab saved before it was hidden falls back to the first shown.
     const saved = await read($, tab)
     const current = TABS.includes(saved) ? saved : TABS[0]!
     const flagged = await read($, notices)
     // Divider gets half the side margin on each side.
     const rule = '─'.repeat(e.props.bodyColumns - PAD)
-    const select = async (next: Tab) => {
-      await update($, tab, () => next)
-      await update($, notices, list => list.filter(one => one !== next))
-    }
 
     // Tries the transcript's id first, then the drawn row's, until one scrolls. The pin's settle
     // starts again once the scroll lands, as the search before it can be slow.
@@ -619,6 +693,118 @@ export const register: Register = on => {
           ))}
         </Box>
       )
+    } else if (current === 'Git') {
+      const key = `${await read($, submitted)}:${await read($, toolCalls)}`
+      if (gitRead?.key !== key) gitRead = { key, runs: readGit($) }
+      const [status, log, diff, unpushed, count] = await gitRead.runs
+      const local = unpushed?.exitCode === 0 ? new Set(unpushed.stdout.split('\n').filter(Boolean)) : undefined
+      const total = count?.exitCode === 0 ? count.stdout.trim() : ''
+      // As the HUD statusline's churn: unstaged lines added and removed, "+144 -6".
+      const [ins, del] = [/(\d+) insertion/, /(\d+) deletion/].map(re => re.exec(diff?.stdout ?? '')?.[1])
+      const churn = [ins && `+${ins}`, del && `-${del}`].filter(Boolean).join(' ')
+      const [head, ...files] = status?.exitCode === 0 ? status.stdout.split('\n').filter(Boolean) : []
+      // As the HUD statusline's dirty count: "!4 ?1", tracked changes then untracked files.
+      const untracked = files.filter(line => line.startsWith('??')).length
+      const dirty = [files.length > untracked && `!${files.length - untracked}`, untracked && `?${untracked}`].filter(Boolean).join(' ')
+      // An empty repo's log fails: no commits to list.
+      const commits = log?.exitCode === 0 ? log.stdout.split('\n').filter(Boolean) : []
+      // The body less 3 columns: a path gets room + 1 after its status letter and a space; a commit's
+      // subject room + 2 less its hash.
+      const room = e.props.bodyColumns - 2 * PAD - 3
+      const bodyRule = '─'.repeat(room + 3)
+      // Rows left once the tabs, their rule, the branch, the rule under it, both headers and the
+      // divider are drawn. CHANGES takes what it needs up to half, or what the divider was dragged
+      // to, none at least (the divider right under its title); COMMITS the rest, a row at least.
+      const free = e.props.scroll.bodyRows - 7
+      const dragged = await read($, split)
+      const changesRows = Math.max(0, Math.min(dragged >= 0 ? dragged : Math.min(files.length, Math.ceil(free / 2)), free - 1))
+      // With no changes, no CHANGES header or divider: COMMITS takes their rows too.
+      const commitsRows = Math.max(1, files.length ? free - changesRows : free + 2)
+      const changed = `${files.length} changed`
+      body = !head ? (
+        <Text color={HUD.faint}>Not a git repository.</Text>
+      ) : (
+        <Box flexDirection="column">
+          <Box justifyContent="space-between">
+            {/* The HUD statusline's branch glyph and green; cut to stay on one row beside the count. */}
+            <Text color={HUD.action}>⎇ {fit(branchLine(head), e.props.bodyColumns - 2 * PAD - changed.length - 3)}</Text>
+            <Text color={HUD.faint}>{changed}</Text>
+          </Box>
+          {/* History's day-line purple. */}
+          <Text color={DIM.label}>{bodyRule}</Text>
+          {files.length > 0 && (
+            <Box justifyContent="space-between">
+              <Text bold color={HUD.label}>CHANGES</Text>
+              <Box>
+                <Text color={HUD.dirty}>{dirty}</Text>
+                <Text color={HUD.churn}>{churn && `  ${churn}`}</Text>
+              </Box>
+            </Box>
+          )}
+          {files.length > 0 && changesRows > 0 && (
+            <Box flexDirection="column" height={changesRows}>
+              {/* One letter: the worktree's while it has unstaged changes, bright; else the index's, staged, dim.
+                  A conflict is U whatever git pairs it with (UU, AA, DD, UD...); a rename shows its new name. */}
+              {files.slice(0, changesRows).map(line => {
+                const xy = line.slice(0, 2)
+                const isConflict = xy.includes('U') || xy === 'AA' || xy === 'DD'
+                const isStaged = !isConflict && line[1] === ' '
+                const letter = isConflict ? 'U' : isStaged ? line[0]! : line[1]!
+                const color = STATUS[letter] ?? HUD.faint
+                return (
+                  <Box>
+                    <Text color={isStaged ? dim(color) : color}>{letter}</Text>
+                    <Text color={isStaged ? HUD.faint : undefined}> {fit(line.slice(3).split(' -> ').pop()!, room + 1)}</Text>
+                  </Box>
+                )
+              })}
+            </Box>
+          )}
+          {/* Only the terminal and desktop draw a Client: elsewhere the rule stays put. */}
+          {files.length > 0 &&
+            (Client ? (
+              <Client key="divider" module="./divider.tsx" props={{ split: changesRows }} height={1} />
+            ) : (
+              <Text color={DIM.label}>{bodyRule}</Text>
+            ))}
+          {commits.length > 0 && (
+            <Box justifyContent="space-between">
+              <Text bold color={HUD.label}>COMMITS</Text>
+              {/* CHANGES' colors: local in the dirty count's yellow, as neither is pushed; total in the churn's green. */}
+              <Box>
+                {local && <Text color={HUD.dirty}>{`${local.size} local`}</Text>}
+                {total ? <Text color={HUD.churn}>{`${local ? '  ' : ''}${total} total`}</Text> : null}
+              </Box>
+            </Box>
+          )}
+          {/* Local commits bright, pushed ones dim; the type colored by what it does (TYPES). */}
+          {commits.slice(0, commitsRows).map(line => {
+            const [full = '', hash = '', ...subject] = line.split(' ')
+            const isLocal = !!local?.has(full)
+            // A control character in any text gets the whole pane refused.
+            const shown = fit(subject.join(' ').replace(/[\x00-\x1f\x7f]/g, ' '), room + 2 - hash.length)
+            // "type(scope)!: rest"; a subject cut inside the type part shows plain.
+            const [, type, scope, tail, rest] = /^(\w+)(?:\(([^)]*)\))?(!?: )(.*)$/.exec(shown) ?? []
+            const known = type ? TYPES[type] : undefined
+            const typeColor = !known ? HUD.faint : isLocal ? known : dim(known)
+            return (
+              <Box>
+                <Text color={HUD.faint}>{hash}</Text>
+                {type
+                  ? [
+                      <Text color={typeColor}> {type}</Text>,
+                      ...(scope === undefined
+                        ? []
+                        : [<Text color={HUD.faint}>(</Text>, <Text color={isLocal ? SCOPE : HUD.faint}>{scope}</Text>]),
+                      <Text color={HUD.faint}>{scope === undefined ? tail : `)${tail}`}</Text>,
+                      <Text color={isLocal ? undefined : HUD.faint}>{rest}</Text>,
+                    ]
+                  : <Text color={isLocal ? undefined : HUD.faint}> {shown}</Text>}
+              </Box>
+            )
+          })}
+        </Box>
+      )
     } else {
       body = SECTIONS.map(([title, hint], i) => (
         <Box flexDirection="column" marginBottom={i < SECTIONS.length - 1 ? 1 : 0}>
@@ -633,14 +819,31 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column">
-        <Box justifyContent="space-evenly" paddingX={PAD}>
-          {TABS.flatMap((one, i) => [
-            ...(i > 0 ? [<Text color="promptBorder"> │ </Text>] : []),
-            <Button key={one} plain onPress={() => select(one)}>
-              <Text bold={one === current} color={one === current ? 'claude' : HUD.idle}>{one}</Text>
-              {flagged.includes(one) ? <Text color="warning"> !</Text> : ''}
-            </Button>,
-          ])}
+        {/* Equal slots, the last taking the odd column: a separator lands where the Git divider's grip does. */}
+        <Box paddingX={PAD}>
+          {TABS.flatMap((one, i) => {
+            const slots = e.props.bodyColumns - 2 * PAD - 3 * (TABS.length - 1)
+            const width = i < TABS.length - 1 ? Math.floor(slots / TABS.length) : slots - Math.floor(slots / TABS.length) * (TABS.length - 1)
+            // The name centered in spaces across the slot: a Button presses and lights as wide as it draws.
+            // The tab shown is no Button, lit across its slot as a focused one is.
+            const notice = flagged.includes(one) ? ' !' : ''
+            const left = Math.max(0, Math.floor((width - one.length - notice.length) / 2))
+            const right = Math.max(0, width - left - one.length - notice.length)
+            return [
+              ...(i > 0 ? [<Text color="promptBorder"> │ </Text>] : []),
+              <Box key={`tab:${one}`} width={width}>
+                {one === current ? (
+                  <Text bold inverse color="claude">{`${' '.repeat(left)}${one}${notice}${' '.repeat(right)}`}</Text>
+                ) : (
+                  <Button key={one} plain onPress={() => pick($, one)}>
+                    <Text color={HUD.idle}>{`${' '.repeat(left)}${one}`}</Text>
+                    {notice ? <Text color="warning">{notice}</Text> : ''}
+                    <Text color={HUD.idle}>{' '.repeat(right)}</Text>
+                  </Button>
+                )}
+              </Box>,
+            ]
+          })}
         </Box>
         <Box paddingX={PAD / 2}>
           <Text color="promptBorder">{rule}</Text>
