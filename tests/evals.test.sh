@@ -158,6 +158,7 @@ agentcall() { node -e 'console.log(JSON.stringify({type:"assistant",timestamp:pr
   agentcall 2026-01-06 caveman:cavecrew-reviewer "Review the latest commit in $G."
   agentcall 2026-01-07 caveman:cavecrew-reviewer "Review \`git diff $s2..$s3\` in ~/grepo."   # HOME=$TMP below
   agentcall 2026-01-08 caveman:cavecrew-reviewer "Review \`git diff main..HEAD\` in $G (commits $s2, $s3)."
+  agentcall 2026-01-09 general-purpose "Review $s3 in $G-wt. Do not read $G (a newer version lives there)."
 } > "$TP/s.jsonl"
 RP="$TMP/replays"
 HOME="$TMP" node "$EV/replays.mjs" --repo "$G" --out "$RP" > "$TMP/ref.txt"
@@ -170,6 +171,8 @@ check "replays: --per-role keeps the newest calls" [ "$(cd "$TMP/replays1" && ls
 check "replays: newest of duplicate calls kept" grep -q 'Read-only\.' "$D1/prompt.md"
 check "replays: checkout paths become {{WORKDIR}}" bash -c 'grep -q "in {{WORKDIR}} against {{WORKDIR}}/docs/plan.md" "$1" && ! grep -q "$2" "$1"' _ "$D2/prompt.md" "$G"
 check "replays: ~ form of the checkout path becomes {{WORKDIR}}" grep -q "in {{WORKDIR}}\." "$RP/cavecrew-reviewer/$s2-$s3/prompt.md"
+check "replays: call naming the bare checkout and a worktree dropped" [ ! -e "$RP/sdd-reviewer/$s2-$s3" ]
+check "replays: children run node tests only" node -e 'const t=require(process.argv[1]).allowed_tools;process.exit(t.includes("Bash(node --test:*)")&&!t.includes("Bash(node:*)")?0:1)' "$D2/case.json"
 check "replays: local-only file copied for setup" [ -f "$D2/extra/docs/plan.md" ]
 check "replays: case is a judged replay of the recorded agent" node -e 'const c=require(process.argv[1]);process.exit(c.agent==="general-purpose"&&c.source==="replay"&&c.judge===true?0:1)' "$D2/case.json"
 mkdir -p "$TMP/rw"; (cd "$TMP/rw" && CASE_DIR="$D2" bash "$D2/setup.sh" >/dev/null 2>&1)
@@ -202,6 +205,7 @@ jrow() { printf '{"case":"%s","role":"j","model":"haiku","effort":"low","run":1,
 node "$EV/judge.mjs" "$J/rows.jsonl" "$J/ref/rows.jsonl" >/dev/null 2>&1
 check "judge: one call per judged row with output, transcript and reference" [ "$(calls)" = 1 ]
 check "judge: fixed opus high cell, no tools, schema output" grep -q -- '--model opus --effort high --tools  --json-schema' "$FAKE_LOG"
+check "judge: rubric scores a reference with no findings" grep -q "no substantive points" "$FAKE_LOG"
 check "judge: prompt carries reference and candidate" bash -c 'grep -q "<reference> ref one </reference>" "$1" && grep -q "<candidate> cand one </candidate>" "$1"' _ "$FAKE_LOG"
 check "judge: scores written, empty output scores 0" [ "$(field "$J/scores.jsonl" case) $(field "$J/scores.jsonl" score)" = "j/a j/b 0.5 0" ]
 node "$EV/judge.mjs" "$J/rows.jsonl" "$J/ref/rows.jsonl" >/dev/null 2>&1

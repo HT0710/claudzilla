@@ -15,7 +15,8 @@ const SCHEMA = {
 const RUBRIC = `You grade an AI agent's output against a reference output for the same task. Use only the two texts below.
 List the reference's substantive points: for a review, each real finding (bug, risk, missing requirement), not praise or style; for a plan or an answer, each key decision or fact.
 A point is matched when the candidate makes the same point (same problem, same place) in any wording. Points only the candidate makes do not count.
-score = matched / total. matched and missed name the reference points.`;
+score = matched / total. matched and missed name the reference points.
+If the reference has no substantive points, score 1 when the candidate raises no real problem either, else 0.`;
 
 const [file, refFile] = process.argv.slice(2);
 const read = (f) => (f && existsSync(f) ? readFileSync(f, "utf8").split("\n").flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } }) : []);

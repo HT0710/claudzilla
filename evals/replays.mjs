@@ -11,7 +11,8 @@ import { fileURLToPath } from "node:url";
 const EVALS = dirname(fileURLToPath(import.meta.url));
 // general-purpose calls replay only when they are reviews: that is the role the synthetic sdd-reviewer case scores.
 const ROLES = { "caveman:cavecrew-reviewer": "cavecrew-reviewer", "general-purpose": "sdd-reviewer", Explore: "investigator", Plan: "plan" };
-const TOOLS = ["Read", "Grep", "Glob", "Bash(git:*)", "Bash(node:*)", "Bash(bash tests/:*)"];
+// node --test only: a replay at a commit of this repo holds evals/run.mjs, and bare node would let a child start a paid sweep.
+const TOOLS = ["Read", "Grep", "Glob", "Bash(git:*)", "Bash(node --test:*)", "Bash(bash tests/:*)"];
 
 const a = { repo: null, out: join(EVALS, "replays"), perRole: 5 };
 for (let i = 2; i < process.argv.length; i++) {
@@ -47,7 +48,10 @@ function toCase(c) {
   if (!role || (c.agent === "general-purpose" && !/\breview/i.test(c.prompt))) return null;
   // The checkout and its sibling worktrees (<repo>-<slug>), as absolute or ~/ paths, all become the replay workdir.
   const forms = [repo, ...(repo.startsWith(`${homedir()}/`) ? [`~${repo.slice(homedir().length)}`] : [])];
-  const prompt = c.prompt.replace(new RegExp(`(?:${forms.map((f) => f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?:-[\\w.-]+)?`, "g"), "{{WORKDIR}}");
+  const root = `(?:${forms.map((f) => f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`;
+  // A prompt that names a worktree and the bare main checkout tells them apart ("do not read <repo>"); one workdir cannot be both.
+  if (new RegExp(`${root}-[\\w.-]`).test(c.prompt) && new RegExp(`${root}(?![\\w-]|/\\S)`).test(c.prompt)) return null;
+  const prompt = c.prompt.replace(new RegExp(`${root}(?:-[\\w.-]+)?`, "g"), "{{WORKDIR}}");
   const range = prompt.match(/\b([0-9a-f]{7,40})\.\.\.?([0-9a-f]{7,40})\b/);
   let base = range && commit(range[1]), head = range && commit(range[2]);
   if (!base || !head) {
