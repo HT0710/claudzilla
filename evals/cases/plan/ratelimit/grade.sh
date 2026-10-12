@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Pass: the plan hits at least 4 of 5 points a sound design needs (reuse, status, header, client identity, bucket memory).
-# ponytail: keyword proxy for plan quality; Plan 3 adds the judge score.
+# Keyword proxy for plan quality; judge.mjs adds a score against a reference plan.
 C="$(cd "$(dirname "$0")" && pwd)"
 text=$(node "$C/../../../tx.mjs" text "$TRANSCRIPT")
 n=0

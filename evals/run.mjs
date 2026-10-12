@@ -46,7 +46,7 @@ function loadCases(root, pattern) {
     if (!re.test(id) || !existsSync(join(dir, "case.json"))) continue;
     const c = JSON.parse(readFileSync(join(dir, "case.json"), "utf8"));
     out.push({
-      id, dir, role: c.role ?? role, agent: c.agent ?? null, skill: c.skill ?? null,
+      id, dir, role: c.role ?? role, agent: c.agent ?? null, skill: c.skill ?? null, source: c.source ?? "synthetic", judge: c.judge ?? false,
       tools: withRtk(c.allowed_tools ?? READ_ONLY).join(","), matrix: c.matrix ?? (c.agent ? AGENT_CELLS : SKILL_CELLS),
       followups: c.followups ?? [], timeout: (c.timeout_seconds ?? 900) * 1000,
       prompt: readFileSync(join(dir, "prompt.md"), "utf8").trim(),
@@ -92,7 +92,8 @@ function runP(c, cell, wd) {
   // Cases ship CLI stubs (e.g. a fake `gh`) in <workdir>/bin.
   const env = { ...process.env, PATH: `${join(wd, "bin")}${delimiter}${process.env.PATH}` };
   let sid = null;
-  for (const prompt of [c.prompt, ...c.followups]) {
+  // Replay prompts name the original checkout; replays.mjs swapped it for {{WORKDIR}}.
+  for (const prompt of [c.prompt, ...c.followups].map((p) => p.replaceAll("{{WORKDIR}}", wd))) {
     const args = ["-p", prompt, ...claudeArgs(c, cell), "--output-format", "json", ...(sid ? ["--resume", sid] : [])];
     const r = spawnSync("claude", args, { cwd: wd, env, encoding: "utf8", timeout: c.timeout, stdio: ["ignore", "pipe", "pipe"] });
     let j;
@@ -116,6 +117,8 @@ function setup(c, wd) {
 
 function grade(c, wd, res) {
   if (c.skill && !skillFired(res.transcript, c.skill)) return "invalid";
+  // Replays have no grader: judge.mjs scores them against a reference run.
+  if (c.source === "replay") return "replayed";
   const r = spawnSync("bash", [join(c.dir, "grade.sh")], {
     cwd: wd, timeout: 120000, stdio: "ignore", env: { ...process.env, WORKDIR: wd, TRANSCRIPT: res.transcript ?? "" },
   });
@@ -138,7 +141,7 @@ function main(argv) {
     for (const cell of a.smoke ? [{ model: "haiku", effort: "low" }] : c.matrix) {
       if (only && !only.has(`${c.id} ${cell.model} ${cell.effort}`)) continue;
       for (let run = 1; run <= a.runs; run++) {
-        const row = { case: c.id, role: c.role, agent: c.agent, model: cell.model, effort: cell.effort, run, claude };
+        const row = { case: c.id, role: c.role, agent: c.agent, model: cell.model, effort: cell.effort, run, claude, judge: c.judge };
         if (done.has(key(row))) continue;
         const wd = mkdtempSync(join(tmpdir(), "eval-"));
         try {

@@ -1,3 +1,4 @@
 {
-  "agent": "Plan"
+  "agent": "Plan",
+  "judge": true
 }
