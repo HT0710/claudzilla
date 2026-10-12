@@ -156,11 +156,11 @@ agentcall() { node -e 'console.log(JSON.stringify({type:"assistant",timestamp:pr
   agentcall 2026-01-04 general-purpose "Implement task 2 in $G from $s3."
   agentcall 2026-01-05 caveman:cavecrew-reviewer "Review $s3 in $G with $G/.superpowers/sdd/p/review.diff."
   agentcall 2026-01-06 caveman:cavecrew-reviewer "Review the latest commit in $G."
-  agentcall 2026-01-07 caveman:cavecrew-reviewer "Review \`git diff $s2..$s3\` in $G."
+  agentcall 2026-01-07 caveman:cavecrew-reviewer "Review \`git diff $s2..$s3\` in ~/grepo."   # HOME=$TMP below
   agentcall 2026-01-08 caveman:cavecrew-reviewer "Review \`git diff main..HEAD\` in $G (commits $s2, $s3)."
 } > "$TP/s.jsonl"
 RP="$TMP/replays"
-node "$EV/replays.mjs" --repo "$G" --out "$RP" > "$TMP/ref.txt"
+HOME="$TMP" node "$EV/replays.mjs" --repo "$G" --out "$RP" > "$TMP/ref.txt"
 D1="$RP/cavecrew-reviewer/$s1-$s2" D2="$RP/sdd-reviewer/$s1-$s3"
 want=$(printf '%s\n' "cavecrew-reviewer/$s1-$s2" "cavecrew-reviewer/$s1-$s3" "cavecrew-reviewer/$s2-$s3" "sdd-reviewer/$s1-$s3" | sort)
 check "replays: one case per reviewed range (commit, BASE/HEAD, X..Y, branch commits), reviews only" [ "$(cd "$RP" 2>/dev/null && ls -d */* | sort)" = "$want" ]
@@ -169,6 +169,7 @@ node "$EV/replays.mjs" --repo "$G" --out "$TMP/replays1" --per-role 1 >/dev/null
 check "replays: --per-role keeps the newest calls" [ "$(cd "$TMP/replays1" && ls -d */* | tr '\n' ' ')" = "cavecrew-reviewer/$s1-$s3 sdd-reviewer/$s1-$s3 " ]
 check "replays: newest of duplicate calls kept" grep -q 'Read-only\.' "$D1/prompt.md"
 check "replays: checkout paths become {{WORKDIR}}" bash -c 'grep -q "in {{WORKDIR}} against {{WORKDIR}}/docs/plan.md" "$1" && ! grep -q "$2" "$1"' _ "$D2/prompt.md" "$G"
+check "replays: ~ form of the checkout path becomes {{WORKDIR}}" grep -q "in {{WORKDIR}}\." "$RP/cavecrew-reviewer/$s2-$s3/prompt.md"
 check "replays: local-only file copied for setup" [ -f "$D2/extra/docs/plan.md" ]
 check "replays: case is a judged replay of the recorded agent" node -e 'const c=require(process.argv[1]);process.exit(c.agent==="general-purpose"&&c.source==="replay"&&c.judge===true?0:1)' "$D2/case.json"
 mkdir -p "$TMP/rw"; (cd "$TMP/rw" && CASE_DIR="$D2" bash "$D2/setup.sh" >/dev/null 2>&1)

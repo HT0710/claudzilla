@@ -45,8 +45,9 @@ function calls() {
 function toCase(c) {
   const role = ROLES[c.agent];
   if (!role || (c.agent === "general-purpose" && !/\breview/i.test(c.prompt))) return null;
-  // The checkout and its sibling worktrees (<repo>-<slug>) all become the replay workdir.
-  const prompt = c.prompt.replace(new RegExp(`${repo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:-[\\w.-]+)?`, "g"), "{{WORKDIR}}");
+  // The checkout and its sibling worktrees (<repo>-<slug>), as absolute or ~/ paths, all become the replay workdir.
+  const forms = [repo, ...(repo.startsWith(`${homedir()}/`) ? [`~${repo.slice(homedir().length)}`] : [])];
+  const prompt = c.prompt.replace(new RegExp(`(?:${forms.map((f) => f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?:-[\\w.-]+)?`, "g"), "{{WORKDIR}}");
   const range = prompt.match(/\b([0-9a-f]{7,40})\.\.\.?([0-9a-f]{7,40})\b/);
   let base = range && commit(range[1]), head = range && commit(range[2]);
   if (!base || !head) {
