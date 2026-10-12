@@ -131,6 +131,15 @@ run --cases 't/badsetup' --out "$TMP/o12" >/dev/null 2>&1; rc=$?
 check "run: failing setup.sh aborts with no row" bash -c '[ "$1" != 0 ] && [ ! -s "$2" ]' _ "$rc" "$TMP/o12/rows.jsonl"
 check "run: workdirs removed after setup failure" [ -z "$(ls -A "$TMP/tmp")" ]
 
+# --- replay cases: no grader (status replayed), judge flag on the row, {{WORKDIR}} in prompts → the workdir
+mk replay '{"role":"t","source":"replay","judge":true,"matrix":[{"model":"opus","effort":"low"}]}'
+echo 'Review {{WORKDIR}} now.' > "$TMP/cases/t/replay/prompt.md"
+: > "$FAKE_LOG"
+run --cases 't/replay' --out "$TMP/o13" >/dev/null
+check "run: replay rows are replayed, not graded" [ "$(field "$TMP/o13/rows.jsonl" status)" = replayed ]
+check "run: judge flag copied to the row" [ "$(field "$TMP/o13/rows.jsonl" judge)" = true ]
+check "run: {{WORKDIR}} becomes the workdir" bash -c 'grep -q "Review /.*/eval-[^/ ]* now\." "$1" && ! grep -q "{{WORKDIR}}" "$1"' _ "$FAKE_LOG"
+
 # --- --only limits cells
 printf 't/two sonnet high\n' > "$TMP/only.txt"
 run --cases 't/*' --only "$TMP/only.txt" --out "$TMP/o7" >/dev/null
