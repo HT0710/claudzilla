@@ -18,7 +18,7 @@ claudzilla's `install.sh` installs it. Without claudzilla:
 
 ## Open it
 
-`/panel` toggles the pane. To toggle it with a key, add this to `~/.claude/keybindings.json`:
+`/panel` toggles the pane. claudzilla's `install.sh` binds alt+h unless you bound it. Without claudzilla, add this to `~/.claude/keybindings.json`:
 
 ```json
 {
