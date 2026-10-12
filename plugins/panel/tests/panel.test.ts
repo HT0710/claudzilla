@@ -299,6 +299,28 @@ test('a slow pane draw finishes before a newer fast one', async () => {
   expect(finished).toEqual(['older', 'newer'])
 })
 
+// The engine drops a draw once a newer one starts, rejecting its git runs; only those are read again
+// (no harness draw is dropped). A git that cannot start must not rerun on every draw.
+test('a git that cannot start is run once per change, not on every draw', async ($, on) => {
+  noHistory(on)
+  let statusRuns = 0
+  on('process.run', (_, e) => {
+    if (e.argv[0] !== 'git') return ran('')
+    if (e.argv.includes('status')) statusRuns++
+    return { deny: 'git: cannot start' }
+  })
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+  await ui.redraw()
+  await ui.redraw()
+
+  // Not "Not a git repository": git never answered (none on PATH, a surface that runs no command).
+  expect(await ui.find({ type: 'Text', text: 'Not a git repository' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: "Git can't run here" })).toBeDefined()
+  expect(statusRuns).toBe(1)
+})
+
 test('Git tab outside a repo says so', async ($, on) => {
   noHistory(on)
   on('process.run', (_, e) =>
