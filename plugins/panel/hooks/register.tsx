@@ -43,6 +43,8 @@ const submitted = atom({ plugin: 'panel', key: 'submitted' } as const, 0)
 const toolCalls = atom({ plugin: 'panel', key: 'toolCalls' } as const, 0)
 // Rows the Git tab's CHANGES zone takes, as the divider was dragged; -1 until it is.
 const split = atom({ plugin: 'panel', key: 'split' } as const, -1)
+// The first row each Git zone shows, as the wheel moved it.
+const scrolled = atom({ plugin: 'panel', key: 'scrolled' } as const, { changes: 0, commits: 0 })
 
 // `typed`: history's own text, set when a paste placeholder in it was swapped for the paste.
 export type Prompt = { display: string; timestamp: number; typed?: string }
@@ -249,6 +251,9 @@ const readGit = ($: EngineInterface) =>
 // Kept until a tool call or a prompt may have changed the repo, or the tab is picked again: a chat
 // scroll or a drag redraws the pane many times a second. `signal`: the draw that started the runs.
 let gitRead: { key: string; signal: AbortSignal; runs: ReturnType<typeof readGit> } | undefined
+// The Git tab as last drawn: rows above `commitsAt` scroll CHANGES, the rest COMMITS, each up to its
+// last offset. Unset while another tab shows: the engine scrolls that one.
+let gitZones: { commitsAt: number; changes: number; commits: number } | undefined
 // Counts UTF-16 units, not cells: a wide glyph (CJK, emoji) can still overflow by one.
 const fit = (text: string, room: number) => (text.length > room ? `${text.slice(0, room - 1)}…` : text)
 
@@ -544,6 +549,16 @@ export const register: Register = on => {
     return {}
   })
 
+  // The wheel over the Git tab scrolls the zone under it, not the pane; keys, with no pointer, COMMITS.
+  on('ui.scroll', { requestId: PANE }, async ($, e, next) => {
+    const zones = gitZones
+    if (!zones) return next(e)
+    const zone = (e.pointer?.row ?? Infinity) < zones.commitsAt ? 'changes' : 'commits'
+    await update($, scrolled, top => ({ ...top, [zone]: Math.max(0, Math.min(top[zone] + e.by, zones[zone])) }))
+
+    return {}
+  })
+
   // A tool call may change the repo; the built-in read-only ones never do, and each reread is 5 git runs.
   on('tool.call', async ($, e, next) => {
     const result = await next(e)
@@ -636,6 +651,7 @@ export const register: Register = on => {
     const rewind = () => $.command.run({ command: 'rewind' }).catch(() => $.ui.toast('Could not open /rewind.'))
 
     let body
+    gitZones = undefined
     if (current === 'History') {
       const key = `${await $.session.id()}:${await read($, submitted)}`
       const at = await $.clock.now()
@@ -750,6 +766,12 @@ export const register: Register = on => {
       // With no changes, no CHANGES header or divider: COMMITS takes their rows too.
       const commitsRows = Math.max(1, files.length ? free - changesRows : free + 2)
       const changed = `${files.length} changed`
+      // Clamped here too: a list shrinks, or the divider grows its zone, after the wheel moved it.
+      const top = await read($, scrolled)
+      const changesFrom = Math.max(0, Math.min(top.changes, files.length - changesRows))
+      const commitsFrom = Math.max(0, Math.min(top.commits, commits.length - commitsRows))
+      // CHANGES' rows end under its last file: the tabs, their rule, the branch, its rule and the header.
+      if (head) gitZones = { commitsAt: files.length ? 5 + changesRows : 0, changes: Math.max(0, files.length - changesRows), commits: Math.max(0, commits.length - commitsRows) }
       body = !head ? (
         // The rows under the tabs and their rule. No answer at all: git is not on PATH, or the surface
         // runs no command.
@@ -790,7 +812,7 @@ export const register: Register = on => {
             <Box flexDirection="column" height={changesRows}>
               {/* One letter: the worktree's while it has unstaged changes, bright; else the index's, staged, dim.
                   A conflict is U whatever git pairs it with (UU, AA, DD, UD...); a rename shows its new name. */}
-              {files.slice(0, changesRows).map(line => {
+              {files.slice(changesFrom, changesFrom + changesRows).map(line => {
                 const xy = line.slice(0, 2)
                 const isConflict = xy.includes('U') || xy === 'AA' || xy === 'DD'
                 const isStaged = !isConflict && line[1] === ' '
@@ -823,7 +845,7 @@ export const register: Register = on => {
             </Box>
           )}
           {/* Local commits bright, pushed ones dim; the type colored by what it does (TYPES). */}
-          {commits.slice(0, commitsRows).map(line => {
+          {commits.slice(commitsFrom, commitsFrom + commitsRows).map(line => {
             const [full = '', hash = '', ...subject] = line.split(' ')
             const isLocal = !!local?.has(full)
             // A control character in any text gets the whole pane refused.
