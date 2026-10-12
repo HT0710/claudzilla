@@ -310,15 +310,31 @@ export const nearestCommandId = (text: string, prompt: Prompt) => {
 const rowIds = new Map<string, string>()
 // Redraws within 100 ms, once however many rows moved or drew meanwhile. It redraws every chat row
 // this plugin hooks too, which is what makes the rows that did not move say where they are again
-// (see FRESH).
-let redrawing = false
-const redrawSoon = ($: EngineInterface) => {
-  if (redrawing) return
-  redrawing = true
-  $.clock.after(100, () => {
-    redrawing = false
-    $.ui.invalidate('ui.render')
-  })
+// (see FRESH). Due by the clock, not a flag: a timer dropped with the draw that set it holds off
+// nothing past its 100 ms.
+let due = -Infinity
+const redrawSoon = async ($: EngineInterface) => {
+  const at = await $.clock.now().catch(() => undefined)
+  if (at === undefined || at < due) return
+  due = at + 100
+  $.clock.after(100, () => idle().then(() => $.ui.invalidate('ui.render')))
+}
+// Each draw finishes only after the one started before it: once an older draw finished after a
+// newer one, the terminal dropped every click on the pane until the next redraw. A draw that never
+// settled would hold back the ones after it.
+let lastDraw: Promise<unknown> = Promise.resolve()
+export const ordered = <T,>(draw: () => Promise<T>) => {
+  const before = lastDraw
+  const result = draw().finally(() => before)
+  lastDraw = result.catch(() => undefined)
+  return result
+}
+// Settles once no pane draw runs: a redraw started during one drops it, and the reads it awaits.
+const idle = async () => {
+  for (let draw = lastDraw; ; draw = lastDraw) {
+    await draw
+    if (draw === lastDraw) return
+  }
 }
 // Rows the panel shows dim until they draw, as only a drawn row can be jumped to: drawing one
 // redraws the panel.
@@ -358,7 +374,7 @@ type Seen = { first: number; last: number } | null | undefined
 const see = async ($: EngineInterface, requestId: string, onScreen: Seen, key = requestId) => {
   if (onScreen === undefined) return
   if (!onScreen) {
-    if (shown.delete(requestId)) redrawSoon($)
+    if (shown.delete(requestId)) await redrawSoon($)
     return
   }
   const where = `${onScreen.first}-${onScreen.last}`
@@ -366,7 +382,7 @@ const see = async ($: EngineInterface, requestId: string, onScreen: Seen, key = 
   const at = await $.clock.now()
   keepNewest(shown, requestId, { where, key, at }, SHOWN_MAX)
   if (moved && !pinHolds(pin, at)) pin = undefined
-  if (moved) redrawSoon($)
+  if (moved) await redrawSoon($)
 }
 
 // When the chat file stamped each row, by its uuid or a tool call's id: grep -o's pattern, then its
@@ -498,7 +514,7 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => ordered(async () => {
     const { Box, Button, Text } = $.ui.resolve(e)
     // A tab saved before it was hidden falls back to the first shown.
     const saved = await read($, tab)
@@ -536,8 +552,6 @@ export const register: Register = on => {
 
     let body
     if (current === 'History') {
-      // A timer that never fires must not hold off every later redraw.
-      redrawing = false
       const key = `${await $.session.id()}:${await read($, submitted)}`
       const at = await $.clock.now()
       if (historyRead?.key !== key || at - historyRead.at >= READ_TTL) historyRead = { key, at, reads: readHistory($) }
@@ -636,5 +650,5 @@ export const register: Register = on => {
         </Box>
       </Box>
     )
-  })
+  }))
 }
