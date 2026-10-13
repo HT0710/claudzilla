@@ -125,8 +125,36 @@ function save(sid, s) {
   writeFileSync(statePath(sid), JSON.stringify(s));
 }
 const hasSkill = (s, name) => s.skills.some((k) => k === name || k.endsWith(`:${name}`));
+const isVerify = (k) => k === VERIFY || k.endsWith(`:${VERIFY}`);
 // Invoking the skill is not verifying: a check command must run after it.
-const verified = (s) => hasSkill(s, VERIFY) && s.checked;
+const verified = (s) => hasSkill(s, VERIFY) && (s.checked || ranCheck());
+// The transcript of the tool call under PreToolUse, for ranCheck.
+let transcript = "";
+// Results of calls that never ran: denied by a hook, or rejected by the user.
+const NOT_RUN = /^(PreToolUse:|The user doesn't want to proceed)/;
+// The Bash hook only sees git/gh commands (settings `if`), so a check run between them is
+// found in the transcript: a finished Bash call after this turn's verify skill (or its prompt).
+function ranCheck() {
+  const ran = new Set(), lines = tailLines(transcript);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].includes('"tool_') && !lines[i].includes('"user"')) continue;
+    let o;
+    try { o = JSON.parse(lines[i]); } catch { continue; }
+    if (o?.isSidechain) continue;
+    const content = o?.message?.content;
+    // The turn's prompt: a typed skill leaves no Skill call, and older turns never count.
+    if (o?.type === "user" && !o.isMeta && !(Array.isArray(content) && content.some((c) => c.type === "tool_result"))) return false;
+    if (!Array.isArray(content)) continue;
+    for (const c of [...content].reverse()) {
+      const text = typeof c.content === "string" ? c.content : c.content?.[0]?.text ?? "";
+      if (c.type === "tool_result" && !NOT_RUN.test(text)) ran.add(c.tool_use_id);
+      if (c.type !== "tool_use") continue;
+      if (c.name === "Skill" && isVerify(String(c.input?.skill ?? ""))) return false;
+      if (c.name === "Bash" && ran.has(c.id) && expand(String(c.input?.command ?? "")).some(isCheck)) return true;
+    }
+  }
+  return false;
+}
 const out = (event, fields) =>
   process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: event, ...fields } })}\n`);
 const deny = (reason) => out("PreToolUse", { permissionDecision: "deny", permissionDecisionReason: reason });
@@ -140,28 +168,32 @@ function gitOk(cwd, ...args) {
 }
 
 const TAIL = 1024 * 1024;
-// Tokens in the prompt as of the last main-thread reply (what the statusline's ctx shows); 0 after a compact or if unknown.
-function contextTokens(path) {
-  if (!path) return 0;
+// The transcript's last TAIL bytes as lines; [] if unreadable.
+function tailLines(path) {
+  if (!path) return [];
   let fd;
   try {
     fd = openSync(String(path), "r");
     const { size } = fstatSync(fd), start = Math.max(0, size - TAIL), buf = Buffer.alloc(size - start);
-    const lines = buf.toString("utf8", 0, readSync(fd, buf, 0, buf.length, start)).split("\n");
-    const n = (v) => (Number.isFinite(v) && v > 0 ? v : 0);
-    for (let i = lines.length - 1; i >= 0; i--) {
-      if (!lines[i].includes('"usage"') && !lines[i].includes("compact_boundary")) continue;
-      let o;
-      try { o = JSON.parse(lines[i]); } catch { continue; }
-      if (o?.subtype === "compact_boundary") return 0;
-      const u = o?.message?.usage;
-      if (o?.type !== "assistant" || o.isSidechain || !u) continue;
-      // synthetic replies (API errors, limits) carry all-zero usage
-      const sum = n(u.input_tokens) + n(u.cache_creation_input_tokens) + n(u.cache_read_input_tokens);
-      if (sum) return sum;
-    }
-  } catch { /* no transcript */ } finally {
+    return buf.toString("utf8", 0, readSync(fd, buf, 0, buf.length, start)).split("\n");
+  } catch { return []; /* no transcript */ } finally {
     if (fd !== undefined) closeSync(fd);
+  }
+}
+// Tokens in the prompt as of the last main-thread reply (what the statusline's ctx shows); 0 after a compact or if unknown.
+function contextTokens(path) {
+  const lines = tailLines(path);
+  const n = (v) => (Number.isFinite(v) && v > 0 ? v : 0);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].includes('"usage"') && !lines[i].includes("compact_boundary")) continue;
+    let o;
+    try { o = JSON.parse(lines[i]); } catch { continue; }
+    if (o?.subtype === "compact_boundary") return 0;
+    const u = o?.message?.usage;
+    if (o?.type !== "assistant" || o.isSidechain || !u) continue;
+    // synthetic replies (API errors, limits) carry all-zero usage
+    const sum = n(u.input_tokens) + n(u.cache_creation_input_tokens) + n(u.cache_read_input_tokens);
+    if (sum) return sum;
   }
   return 0;
 }
@@ -212,7 +244,7 @@ function onPostTool(d) {
   const s = load(d.session_id);
   const name = String(d.tool_input?.skill ?? "");
   s.skills.push(name);
-  if (name === VERIFY || name.endsWith(`:${VERIFY}`)) s.checked = false;
+  if (isVerify(name)) s.checked = false;
   save(d.session_id, s);
 }
 
@@ -497,6 +529,7 @@ function expand(cmd, depth = 0) {
 
 // Text plumbing (a heredoc body, a piped message) and cd run no check.
 const NOT_CHECK = new Set(["cat", "echo", "printf", "cd"]);
+const isCheck = (t) => t[0] !== "git" && t[0] !== "gh" && !NOT_CHECK.has(t[0]);
 function checkBash(cmd, cwd, s) {
   const hits = [], branches = new Map(), was = s.checked;
   for (const t of expand(cmd)) {
@@ -530,6 +563,7 @@ function excludeSpecs(file) {
 }
 
 function onPreTool(d) {
+  transcript = d.transcript_path;
   const s = load(d.session_id);
   if (d.tool_name === "Bash") {
     const was = s.checked;
