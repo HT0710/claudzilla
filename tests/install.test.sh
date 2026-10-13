@@ -215,6 +215,7 @@ cp "$REPO/claude/hooks/claudzilla-update.sh" "$U/clone/claude/hooks/"
 ln -s "$U/clone/claude/hooks/claudzilla-update.sh" "$U/home/.claude/hooks/claudzilla-update.sh"
 cp "$REPO/claude/hooks/rules-guard.mjs" "$U/clone/claude/hooks/"
 notice() { clean_env HOME="$U/home" sh "$U/home/.claude/hooks/claudzilla-update.sh"; }
+ev="$(git -C "$U/clone" rev-parse --absolute-git-dir)/claudzilla-update.events"
 echo '{"rulesGuard":{"autoUpdate":false}}' > "$U/home/.claude/claudzilla.json"
 check "update: silent when current" [ -z "$(notice)" ]
 g -C "$U/seed" commit --allow-empty -m two; g -C "$U/seed" push origin main
@@ -225,6 +226,7 @@ out=$(notice)
 check "update: stale fetch refreshed in background" [ -n "$out" ]
 check "update: user sees 'update available'" node -e 'const j=JSON.parse(process.argv[1]);if(!/update available/.test(j.systemMessage)||/\d+ update/.test(j.systemMessage))process.exit(1)' "$out"
 check "update: Claude gets the update command" node -e 'const h=JSON.parse(process.argv[1]).hookSpecificOutput;if(h.hookEventName!=="SessionStart"||!/pull --ff-only/.test(h.additionalContext)||!/install\.sh/.test(h.additionalContext))process.exit(1)' "$out"
+check "events: available is a start line" grep -qE $'^[0-9]+\tstart\tclaudzilla: update available - ' "$ev"
 mkdir -p "$U/nogit"; cp "$REPO/claude/hooks/claudzilla-update.sh" "$U/nogit/"
 check "update: not a git repo is silent" [ -z "$(clean_env HOME="$U/home" sh "$U/nogit/claudzilla-update.sh" 2>&1)" ]
 # autoUpdate on (default): background pull + install.sh, result shown next session
@@ -236,7 +238,11 @@ out=$(notice); waitres
 check "auto: user told it updates in background" grep -q 'updating in background' <<<"$out"
 check "auto: pulled to upstream" [ "$(git -C "$U/clone" rev-parse HEAD)" = "$(git -C "$U/seed" rev-parse HEAD)" ]
 check "auto: install.sh ran" [ -f "$U/home/ran" ]
-check "auto: next session reports update" grep -q 'updated to [0-9a-f]* two' <<<"$(notice)"
+check "events: updating is a live line" grep -qE $'^[0-9]+\tlive\tclaudzilla: updating to [0-9a-f]{7,}$' "$ev"
+check "events: updated is a live line" grep -qE $'^[0-9]+\tlive\tclaudzilla: updated to [0-9a-f]{7,} - restart Claude to apply$' "$ev"
+check "events: background update is no line" bash -c '! grep -q "updating in background" "$1"' _ "$ev"
+check "auto: next session reports update" grep -q 'updated to [0-9a-f]\{7,\}"' <<<"$(notice)"
+check "events: consumed result is a start line" grep -qE $'^[0-9]+\tstart\tclaudzilla: updated to [0-9a-f]{7,}$' "$ev"
 check "auto: report shown once" [ -z "$(notice)" ]
 printf 'x\n' > "$U/seed/f"; g -C "$U/seed" add f; g -C "$U/seed" commit -m three; g -C "$U/seed" push origin main
 g -C "$U/clone" pull --ff-only; echo local >> "$U/clone/f"
@@ -245,9 +251,14 @@ g -C "$U/clone" fetch
 out=$(notice); sleep 1
 check "auto: local changes skip update" [ "$(git -C "$U/clone" log -1 --format=%s)" = three ]
 check "auto: local changes keep notice" grep -q 'update available.*local changes' <<<"$out"
+check "events: skipped is a start line" grep -qF $'\tstart\tclaudzilla: update available (auto-update skipped: local changes) - ' "$ev"
 g -C "$U/clone" checkout f; printf 'exit 3\n' > "$U/clone/install.sh"
 notice >/dev/null; waitres
-check "auto: failed install reported with remedy" grep -q 'auto-update failed - see .*claudzilla-update.log; then run: cd .* && ./install.sh' <<<"$(notice)"
+check "events: failure is a fail line" grep -qE $'^[0-9]+\tfail\tclaudzilla: auto-update failed - ask Claude to debug it \\(log: .*claudzilla-update\\.log\\)$' "$ev"
+out=$(notice)
+check "auto: failed install reported" grep -q 'auto-update failed - ask Claude to debug it (log: .*claudzilla-update.log)' <<<"$out"
+check "auto: Claude gets the failure log" node -e 'const h=JSON.parse(process.argv[1]).hookSpecificOutput;if(!/claudzilla-update\.log/.test(h.additionalContext)||!/install\.sh/.test(h.additionalContext))process.exit(1)' "$out"
+check "events: consumed failure is a start line" grep -qE $'^[0-9]+\tstart\tclaudzilla: auto-update failed - ' "$ev"
 printf 'echo ran > "$HOME/ran"\n' > "$U/clone/install.sh"
 g -C "$U/clone" commit --allow-empty -m mine
 g -C "$U/seed" commit --allow-empty -m five; g -C "$U/seed" push origin main; g -C "$U/clone" fetch
@@ -265,6 +276,10 @@ out=$(notice)
 check "no upstream: user sees 'update available'" grep -q 'update available' <<<"$out"
 check "no upstream: hint switches to main first" grep -q 'git switch main && git pull' <<<"$out"
 check "no upstream: no auto-update" bash -c '! grep -q "updating in background" <<<"$1"' _ "$out"
+check "events: no upstream hint is a start line" grep -qF $'\tstart\tclaudzilla: update available - ask Claude to update, or run: cd ' "$ev"
+for i in $(seq 150); do printf '0\tlive\tx%s\n' "$i"; done > "$ev"; notice >/dev/null
+check "events: trimmed past 100 lines" [ "$(wc -l < "$ev" | tr -d ' ')" -le 22 ]
+check "events: trim keeps the newest" grep -qF $'0\tlive\tx150' "$ev"
 
 # --- truecolor on WSL ---
 W=$(new_home); echo 'alias x=y' > "$W/.bashrc"; echo 'export COLORTERM=24bit' > "$W/.zshrc"
