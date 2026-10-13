@@ -174,6 +174,39 @@ test('one decision: plain rows, dim tradeoffs; each sends its id and option', as
   expect(sent).toEqual(['3: keep the branch as-is'])
 })
 
+test('a pressed answer is appended to the up-arrow history, as a typed one is', async ($, on) => {
+  const runs: any[] = []
+  engine(on)
+  on('session.cwd', () => ({ value: '/work/repo' }))
+  on('session.id', () => ({ value: 's1' }))
+  on('prompt.submit', (_: any, e: any) => ({ text: e.text }) as any)
+  on('prompt.suggest', () => ({ isShown: true }))
+  on('process.run', (_: any, e: any) => { runs.push(e); return { value: { exitCode: 0, stdout: '', stderr: '' } } as any })
+  await $.turn.complete(done(LETTERS))
+  const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
+  await ui.press({ key: 'pick:B' })
+  expect(runs.length).toBe(1)
+  expect(runs[0].argv.slice(0, 2)).toEqual(['sh', '-c'])
+  // `>` would wipe the user's history.
+  expect(runs[0].argv[2]).toContain('cat >> ')
+  expect(runs[0].argv[2]).toContain('history.jsonl')
+  const entry = JSON.parse(runs[0].init.stdin)
+  expect([entry.display, entry.project, entry.sessionId, entry.pastedContents]).toEqual(['B: retry', '/work/repo', 's1', {}])
+  expect(typeof entry.timestamp).toBe('number')
+})
+
+test('a dropped answer is not added to history', async ($, on) => {
+  const runs: any[] = []
+  engine(on)
+  on('prompt.suggest', () => ({ isShown: true }))
+  on('prompt.submit', () => ({ drop: 'guard' }) as any)
+  on('process.run', (_: any, e: any) => { runs.push(e); return { value: { exitCode: 0, stdout: '', stderr: '' } } as any })
+  await $.turn.complete(done(LETTERS))
+  const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
+  await ui.press({ key: 'pick:B' })
+  expect(runs.length).toBe(0)
+})
+
 test('a letter id is sent with its option', async ($, on) => {
   const sent: string[] = []
   engine(on)
