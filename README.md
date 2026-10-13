@@ -44,7 +44,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 ### Code that stays small
 - **Lazy by default:** the smallest change that fully works ([ponytail](https://github.com/DietrichGebert/ponytail)).
 
-  <img src=".github/assets/fix.png" alt="A one-line test fix shown as a +2 -2 diff, then the test run that proves it" width="720">
+  <img src=".github/assets/fix.png" alt="A one-line test fix shown as a +2 -2 diff, then Claude reports the test now passes" width="720">
 
 - **Disciplined workflow:** debugging, TDD, plans and reviews via [superpowers](https://github.com/obra/superpowers).
 - **Fewer tokens:** short-form voice ([caveman](https://github.com/JuliusBrussee/caveman)), and every Bash call is filtered through [`rtk`](https://github.com/rtk-ai/rtk).
@@ -62,11 +62,12 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 
 ### A better terminal
 - **Statusline:** cwd, branch, context / 5h / weekly meters, model, effort, active skill.
+
+  <img src=".github/assets/statusline.png" alt="Statusline: cwd, branch, context, 5-hour and weekly meters, model, effort and active skill" width="720">
+
 - **Prompt panel:** `/panel` lists this chat's prompts; click to jump, reuse or rewind ([details](plugins/panel/README.md)).
 - **Update toasts:** updates install in the background and say so ([details](plugins/update-toast/README.md)).
 - **Theme + settings:** muted dark truecolor theme, `opus[1m]`, normal permission prompts.
-
-<img src=".github/assets/statusline.png" alt="Statusline: cwd, branch, context, 5-hour and weekly meters, model, effort and active skill" width="720">
 
 ### Skills and commands
 
