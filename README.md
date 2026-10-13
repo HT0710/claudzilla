@@ -23,61 +23,41 @@ curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh |
 
 Safe to re-run. Anything replaced is backed up to `~/.claude/.claudzilla-backup/`.
 
-## Before / after
-
-Same prompt: *"why does the login test fail?"* (illustrative)
-
-<table>
-<tr><th>Stock Claude Code</th><th>claudzilla</th></tr>
-<tr><td>
-
-```text
-Great question! Let me take a look at the
-login test. I'll start by exploring the
-codebase to understand the authentication
-flow...
-
-[edits 4 files]
-
-I've fixed the issue! The test should now
-pass. Here's a summary of what I changed:
-...
-```
-
-</td><td>
-
-```text
-TL;DR — token check uses <, should be <=.
-
-  what              where
-  off-by-one expiry auth/mw.go:42
-
-Fix: if now <= exp {
-
-Next: say go → I patch + run go test ./auth
-```
-
-</td></tr>
-</table>
+## What you get
 
 Answer first, evidence cited, one fix proposed, nothing edited until you say go, and "fixed" only after the test ran.
 
-## What you get
+<img src=".github/assets/answer.png" alt="Claude Code with claudzilla answering why a test fails: TL;DR first, then a cause table citing file:line and the real test output" width="720">
 
 ### Answers you can scan
 - **Terse replies:** TL;DR first, tables over prose, every claim backed by a `file:line` or a command, or marked unverified.
 - **Investigate, then ask:** root cause and one recommendation before any multi-file edit.
+
+  <img src=".github/assets/decision.png" alt="A decision table with options A and B, a bold recommendation with its source, and a Next line" width="720">
+
 - **Picks card:** a reply that ends in a decision shows a card above the prompt; press a digit to answer ([details](plugins/picks/README.md)).
+
+  <img src=".github/assets/picks.png" alt="The picks card above the prompt, numbering the options so a digit answers" width="720">
+
 - **Dividers:** lines frame the TL;DR, `Next:` and each `---`, fitted to the chat width ([details](plugins/response-dividers/README.md)).
 
 ### Code that stays small
 - **Lazy by default:** the smallest change that fully works ([ponytail](https://github.com/DietrichGebert/ponytail)).
+
+  <img src=".github/assets/fix.png" alt="A one-line test fix shown as a +2 -2 diff, then the test run that proves it" width="720">
+
 - **Disciplined workflow:** debugging, TDD, plans and reviews via [superpowers](https://github.com/obra/superpowers).
 - **Fewer tokens:** short-form voice ([caveman](https://github.com/JuliusBrussee/caveman)), and every Bash call is filtered through [`rtk`](https://github.com/rtk-ai/rtk).
 
 ### Git that can't bite
 - **Guard hook:** blocks force-pushes, discarding work and commits on `main`.
+
+  <img src=".github/assets/guard.png" alt="Asked to commit straight to master, Claude reports the guard hook blocked it and names the opt-in setting" width="720">
+
 - **Verify before push:** push and PR wait until verification ran; "done" claims get sent back to check.
+
+  <img src=".github/assets/verify.png" alt="The stop hook sends a done claim back; Claude reruns the checks, including one that proves the test fails if the code is broken again" width="720">
+
 - **Clean history:** Conventional Commits enforced, Claude session links stripped from commits and PRs ([details](plugins/attribution/README.md)).
 
 ### A better terminal
@@ -85,6 +65,8 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 - **Prompt panel:** `/panel` lists this chat's prompts; click to jump, reuse or rewind ([details](plugins/panel/README.md)).
 - **Update toasts:** updates install in the background and say so ([details](plugins/update-toast/README.md)).
 - **Theme + settings:** muted dark truecolor theme, `opus[1m]`, normal permission prompts.
+
+<img src=".github/assets/statusline.png" alt="Statusline: cwd, branch, context, 5-hour and weekly meters, model, effort and active skill" width="720">
 
 ### Skills and commands
 
