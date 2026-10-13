@@ -219,9 +219,10 @@ ev="$(git -C "$U/clone" rev-parse --absolute-git-dir)/claudzilla-update.events"
 # The update-toast mod's repo lookup, run as the mod runs it (sh -c, the session's cwd).
 FIND=$(node -e 'const s=require("fs").readFileSync(process.argv[1],"utf8");process.stdout.write(eval(s.match(/const FIND = (\x27.*\x27)\n/)[1]))' "$REPO/plugins/update-toast/hooks/register.ts")
 find_repo() { (cd "$1" && clean_env "${@:2}" sh -c "$FIND" 2>/dev/null); }
-mkdir -p "$U/nohome"; gdir=$(git -C "$U/clone" rev-parse --absolute-git-dir)
-check "toast find: clone via the linked hook" [ "$(find_repo /tmp HOME="$U/home")" = "$(printf '%s\n%s' "$U/clone" "$gdir")" ]
-check "toast find: honours CLAUDE_CONFIG_DIR" [ "$(find_repo /tmp HOME="$U/nohome" CLAUDE_CONFIG_DIR="$U/home/.claude")" = "$(printf '%s\n%s' "$U/clone" "$gdir")" ]
+# The lookup resolves links (macOS: /var -> /private/var), so expect the physical path.
+mkdir -p "$U/nohome"; clone=$(cd "$U/clone" && pwd -P); gdir=$(git -C "$clone" rev-parse --absolute-git-dir)
+check "toast find: clone via the linked hook" [ "$(find_repo /tmp HOME="$U/home")" = "$(printf '%s\n%s' "$clone" "$gdir")" ]
+check "toast find: honours CLAUDE_CONFIG_DIR" [ "$(find_repo /tmp HOME="$U/nohome" CLAUDE_CONFIG_DIR="$U/home/.claude")" = "$(printf '%s\n%s' "$clone" "$gdir")" ]
 check "toast find: no link never falls back to the cwd repo" [ -z "$(find_repo "$U/seed" HOME="$U/nohome")" ]
 echo '{"rulesGuard":{"autoUpdate":false}}' > "$U/home/.claude/claudzilla.json"
 check "update: silent when current" [ -z "$(notice)" ]
