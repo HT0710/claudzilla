@@ -26,6 +26,7 @@ curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh |
 | **Skills** | `pr` (pre-PR checks + description template), `/rule-review` (how often each rule slipped; a weekly summary shows at startup; on your yes, shares the counts, no text, as a claudzilla issue) |
 | **Panel** | `/panel` opens a side pane listing this chat's prompts: click one to jump to it, `↻` reuses it, `⟲ rewind` opens `/rewind` ([details](plugins/panel/README.md)) |
 | **Attribution** | strips Claude session links from the commit and PR text Claude writes ([details](plugins/attribution/README.md)) |
+| **Picks band** | after a reply with Picks or "say go", a card above the prompt asks the reply's question and numbers its options (or `go`); a digit sends one, the last drafts `go, but ` ([details](plugins/picks/README.md)) |
 | **Plugins** | [caveman](https://github.com/JuliusBrussee/caveman), [ponytail](https://github.com/DietrichGebert/ponytail), [superpowers](https://github.com/obra/superpowers) |
 | **Statusline** | cwd, branch, context / 5h / weekly meters, model, effort, active skill |
 | **Token saver** | every Bash call runs through `rtk` |

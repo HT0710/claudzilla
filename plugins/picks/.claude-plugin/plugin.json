@@ -1,0 +1,5 @@
+{
+  "name": "picks",
+  "description": "After a reply that asks for go, a band above the prompt: 1 sends go, 2 drafts \"go, but \"",
+  "author": { "name": "HT0710", "url": "https://github.com/HT0710" }
+}
