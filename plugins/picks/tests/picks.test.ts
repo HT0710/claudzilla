@@ -118,6 +118,40 @@ test('the pick is blue; a "Why: reason" line in the same blue gives its reason',
   expect([reason?.props.color, reason?.props.bold]).toEqual([undefined, undefined])
 })
 
+test('ctrl+x tab lands on the pick, or on go when there are no rows', async ($, on) => {
+  engine(on)
+  await $.turn.complete(done(LONE))
+  const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
+  expect((await ui.findAll({ type: 'Button' })).filter((b: any) => b.props.autoFocus).map((b: any) => b.props.label)).toEqual(['push + PR'])
+  await $.turn.complete(done(PICKS))
+  const again = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
+  expect((await again.findAll({ type: 'Button' })).filter((b: any) => b.props.autoFocus).map((b: any) => b.props.label)).toEqual(['go'])
+})
+
+test('the pick, or go, is the dim suggestion in the prompt box, over the engine\'s own', async ($, on) => {
+  const shown: string[] = []
+  engine(on)
+  on('prompt.suggest', (_: any, e: any) => { shown.push(e.text); return { isShown: true } })
+  on('prompt.submit', (_: any, e: any) => ({ text: e.text }) as any)
+  const guess = { text: 'run the tests', origin: { kind: 'suggestion' } } as any
+  await $.turn.complete(done(LONE))
+  await $.prompt.suggest(guess)
+  await $.prompt.suggest({ text: 'from another mod', origin: { kind: 'plugin', name: 'other' } } as any)
+  await $.turn.complete(done(PICKS))
+  await $.prompt.submit({ text: 'hi' } as any)
+  await $.prompt.suggest(guess)
+  expect(shown).toEqual(['2: push + PR', '2: push + PR', 'from another mod', 'go', 'run the tests'])
+})
+
+test('rows with none picked: no suggestion, as the card has no go row', async ($, on) => {
+  const shown: string[] = []
+  engine(on)
+  on('prompt.suggest', (_: any, e: any) => { shown.push(e.text); return { isShown: true } })
+  await $.turn.complete(done(LETTERS.replace('**Recommend: A**', '**Recommend: Z**')))
+  await $.prompt.suggest({ text: 'run the tests', origin: { kind: 'suggestion' } } as any)
+  expect(shown).toEqual(['run the tests'])
+})
+
 test('no Why under Recommend: no footer line', async ($, on) => {
   engine(on)
   await $.turn.complete(done(LETTERS))
@@ -125,7 +159,7 @@ test('no Why under Recommend: no footer line', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'Why: ' })).toBeUndefined()
 })
 
-test('one decision: plain rows, dim tradeoffs; each sends its id', async ($, on) => {
+test('one decision: plain rows, dim tradeoffs; each sends its id and option', async ($, on) => {
   const sent: string[] = []
   engine(on)
   on('prompt.submit', (_: any, e: any) => { sent.push(e.text); return { text: e.text } as any })
@@ -137,10 +171,10 @@ test('one decision: plain rows, dim tradeoffs; each sends its id', async ($, on)
   expect((await ui.find({ type: 'Text', text: 'CI runs' }))?.props.color).toBe('#808286')
   expect((await ui.find({ key: 'pick:3' }))?.props.hotkey).toBe('3')
   await ui.press({ key: 'pick:3' })
-  expect(sent).toEqual(['3'])
+  expect(sent).toEqual(['3: keep the branch as-is'])
 })
 
-test('letter ids are what gets sent', async ($, on) => {
+test('a letter id is sent with its option', async ($, on) => {
   const sent: string[] = []
   engine(on)
   on('prompt.submit', (_: any, e: any) => { sent.push(e.text); return { text: e.text } as any })
@@ -148,7 +182,7 @@ test('letter ids are what gets sent', async ($, on) => {
   const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
   expect(await labels(ui)).toEqual(['no retry', 'retry', 'type your own…'])
   await ui.press({ key: 'pick:B' })
-  expect(sent).toEqual(['B'])
+  expect(sent).toEqual(['B: retry'])
 })
 
 test('no table: 1 sends go and clears the band; 2 drafts "go, but "', async ($, on) => {

@@ -88,13 +88,31 @@ export function parse(answer: string): Offer | null {
   return { title, rows, why }
 }
 
+// The id answers Claude; the option keeps the history readable.
+const answer = (row: Row) => `${row.id}: ${row.text}`
+// Dim in the empty prompt box; → or Tab, then Enter, sends it. Rows, none picked: no card row to match.
+const suggestion = (o: Offer) => {
+  const pick = o.rows.find(row => row.picked)
+  return pick ? answer(pick) : o.rows.length ? null : 'go'
+}
+
 export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     if (e.reason === 'answer' && !e.agentId) {
       offer = parse(e.answer)
       $.ui.invalidate('ui.render')
     }
-    return next(e)
+    const result = await next(e)
+    // After next: the box takes no suggestion while the turn still runs.
+    const text = offer && e.reason === 'answer' && !e.agentId ? suggestion(offer) : null
+    if (text) await $.prompt.suggest({ text })
+    return result
+  })
+
+  // The engine's own next-prompt guess would replace the pick; another mod's is left alone.
+  on('prompt.suggest', async ($, e, next) => {
+    const text = offer && e.origin.kind === 'suggestion' ? suggestion(offer) : null
+    return next(text ? { ...e, text } : e)
   })
 
   on('prompt.submit', async ($, e, next) => {
@@ -117,7 +135,7 @@ export const register: Register = on => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const theirs = await next(e)
     const sends = shown.rows.length
-      ? shown.rows.slice(0, MAX_ROWS).map(row => ({ key: `pick:${row.id}`, text: row.text, tradeoff: row.tradeoff, picked: row.picked, send: row.id }))
+      ? shown.rows.slice(0, MAX_ROWS).map(row => ({ key: `pick:${row.id}`, text: row.text, tradeoff: row.tradeoff, picked: row.picked, send: answer(row) }))
       : [{ key: 'go', text: 'go', tradeoff: '', picked: false, send: 'go' }]
     // Tradeoffs line up in one column after the longest option.
     const width = Math.max(...sends.map(s => s.text.length)) + 4
@@ -133,6 +151,8 @@ export const register: Register = on => {
               label={s.text}
               hotkey={String(i + 1)}
               plain
+              // ctrl+x tab focuses the band; Enter then sends the pick, or go.
+              autoFocus={s.picked || s.key === 'go' ? true : undefined}
               onPress={async () => {
                 // Our own submit skips our prompt.submit hook, so clear here.
                 offer = null
