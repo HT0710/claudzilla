@@ -18,7 +18,7 @@ const question = (s: string) => {
 
 type Decision = { topic: string; rows: Row[] | null; recommend: string; why: string; afterRecommend: boolean }
 
-// Shown after a reply with a `**Picks:**` line, or a `**Next:**` asking "say go", outside ``` / ~~~ fences.
+// Shown after a reply with a `**Picks:**` line, a `**Next:**` asking "say go", or one titled Decision table, outside ``` / ~~~ fences.
 // A reply with exactly one `Decision`, holding a table, yields its rows; its heading is the title.
 // A decision owns the table, Recommend and Why under its heading, up to the next heading.
 export function parse(answer: string): Offer | null {
@@ -69,9 +69,10 @@ export function parse(answer: string): Offer | null {
     // A bare `go` would match "run `go test`".
     else if (m && /\bsay\s+`?go\b/i.test(m[2]!)) next = m[2]!
   }
-  if (picks === null && next === null) return null
-  const pick = picks?.split(/[\s,]/)[0]
   const lone = decisions.length === 1 && decisions[0]!.rows?.length ? decisions[0]! : null
+  // A skill gate ends with its own question, so its lone decision table is the ask.
+  if (picks === null && next === null && !lone?.topic) return null
+  const pick = picks?.split(/[\s,]/)[0]
   const ids = lone?.rows?.map(row => row.id) ?? []
   // One row at most: the decision's own Recommend, else the first Picks token.
   const chosen = ids.includes(lone?.recommend ?? '') ? lone!.recommend : pick

@@ -1,6 +1,6 @@
 # picks
 
-After a reply with a `**Picks:**` line, or a `**Next:**` line that says "say go", a card above the prompt asks the reply's question and numbers the answers:
+After a reply with a `**Picks:**` line, a `**Next:**` line that says "say go", or one `Decision — <topic>` table, a card above the prompt asks the reply's question and numbers the answers:
 
 ```text
 ╭──────────────────────────────────────────────╮
