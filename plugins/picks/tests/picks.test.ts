@@ -37,7 +37,30 @@ test('parse: the lone decision heading is the title, as a question', () => {
   expect(parse(LETTERS)?.title).toBe('Retry?')
 })
 
-test('parse: no lone decision → title from "say go → I run X", else Next, else Picks', () => {
+test('parse: a Recommend and Why outside the decision are not its own', () => {
+  const fixesFirst = '### Fixes\n\n| # | fix |\n|---|---|\n| 1 | trim |\n\n**Recommend: fixes 1**\n- **Why:** fixes reason\n\n' + LETTERS
+  const offer = parse(fixesFirst)
+  expect(offer?.why).toBe('')
+  expect(offer?.rows.filter(r => r.picked).map(r => r.id)).toEqual(['A'])
+})
+
+test('parse: a Decision with no table gives no rows, even with a table under another heading', () => {
+  const prose = '### Decision — force push\n\nNeeds a yes.\n\n**Recommend: A**\n\n### Fixes\n\n| # | fix |\n|---|---|\n| 1 | trim |\n\n**Picks:** A'
+  expect(parse(prose)?.rows).toEqual([])
+})
+
+test('parse: two Decisions, only one with a table, give no rows', () => {
+  const second = '\n\n### Decision 2 — force push\n\nNeeds a yes.\n\n**Recommend: A**\n\n**Picks:** 1B, 2A'
+  const first = LETTERS.replace('Decision — retry', 'Decision 1 — retry').replace('**Recommend: A**', '**Recommend: B**')
+  expect(parse(first + second)?.rows).toEqual([])
+})
+
+test('parse: the bold-label Recommend form picks too, and only one row is ever picked', () => {
+  expect(parse(LETTERS.replace('**Recommend: A**', '**Recommend:** B'))?.rows.filter(r => r.picked).map(r => r.id)).toEqual(['B'])
+  expect(parse(LONE.replace('**Picks:** 2', '**Picks:** 3'))?.rows.filter(r => r.picked).map(r => r.id)).toEqual(['2'])
+})
+
+test('parse: no lone decision → title from "say go → I run X", else Picks, else Next', () => {
   expect(parse(PICKS)?.title).toBe('Run executing-plans?')
   expect(parse(TWO)?.title).toBe('Go with 2?')
   expect(parse('**Next:** if right, say `go` and I start.')?.title).toBe('If right, say `go` and I start.')

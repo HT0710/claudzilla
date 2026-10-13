@@ -16,18 +16,18 @@ const question = (s: string) => {
   return `${t.charAt(0).toUpperCase()}${t.slice(1)}${t.endsWith('?') ? '' : '?'}`
 }
 
+type Decision = { topic: string; rows: Row[] | null; recommend: string; why: string; afterRecommend: boolean }
+
 // Shown after a reply with a `**Picks:**` line, or a `**Next:**` asking "say go", outside ``` / ~~~ fences.
-// A reply with exactly one `Decision` table yields its rows, and its heading is the title.
+// A reply with exactly one `Decision`, holding a table, yields its rows; its heading is the title.
+// A decision owns the table, Recommend and Why under its heading, up to the next heading.
 export function parse(answer: string): Offer | null {
   let picks: string | null = null
   let next: string | null = null
-  let recommend = ''
-  let why = ''
-  let afterRecommend = false
   let fence = ''
-  const tables: { topic: string; rows: Row[] }[] = []
-  let topic: string | null = null
-  let table: Row[] | null = null
+  const decisions: Decision[] = []
+  let current: Decision | null = null
+  let inTable = false
   for (const line of answer.split('\n')) {
     const mark = line.match(/^\s*(```|~~~)/)?.[1]
     if (mark && (!fence || fence === mark)) {
@@ -35,28 +35,35 @@ export function parse(answer: string): Offer | null {
       continue
     }
     if (fence) continue
-    const heading = line.match(/^#{2,4}\s+Decision\b(?:\s+\d+)?\s*(?:[—–-]\s*(.*))?$/)
-    if (heading) {
-      topic = heading[1] ?? ''
-      table = null
+    if (/^#{1,6}\s/.test(line)) {
+      const heading = line.match(/^#{2,4}\s+Decision\b(?:\s+\d+)?\s*(?:[—–-]\s*(.*))?$/)
+      current = heading ? { topic: heading[1] ?? '', rows: null, recommend: '', why: '', afterRecommend: false } : null
+      if (current) decisions.push(current)
+      inTable = false
       continue
     }
     const cells = line.match(/^\|(.*)\|\s*$/)?.[1]?.split('|').map(c => c.trim())
-    if (topic !== null && cells) {
-      // The first table line is its header; a short first cell marks an option row.
-      if (!table) tables.push({ topic, rows: (table = []) })
-      else if (/^[\w.]{1,3}$/.test(cells[0]!) && cells[1]) table.push({ id: cells[0]!, text: cells[1], tradeoff: cells[2] ?? '', picked: false })
+    if (current && cells) {
+      // Only the decision's first table; its first line is the header; a short first cell marks an option row.
+      if (!current.rows) {
+        current.rows = []
+        inTable = true
+      } else if (inTable && /^[\w.]{1,3}$/.test(cells[0]!) && cells[1]) {
+        current.rows.push({ id: cells[0]!, text: cells[1], tradeoff: cells[2] ?? '', picked: false })
+      }
       continue
     }
-    if (table) topic = null
-    table = null
-    const r = line.match(/^\*\*Recommend:\s*([^*]+?)\s*\*\*/)
-    if (r) recommend = r[1]!
-    // The first `- **Why:**` bullet under the Recommend line.
-    const w = afterRecommend && !why ? line.match(/^\s*-\s*\*\*Why:\*\*\s*(.+)$/) : null
-    // Drawn as plain text, so markdown marks would show raw.
-    if (w) why = w[1]!.replace(/\*\*|`/g, '')
-    afterRecommend = r ? true : afterRecommend && line.trim() !== ''
+    inTable = false
+    if (current) {
+      // `**Recommend: B**` or `**Recommend:** B`: the first token is the option id.
+      const r = line.match(/^\*\*Recommend:\s*(?:\*\*\s*)?([^*\s,]+)/)
+      if (r) current.recommend = r[1]!
+      // The first `- **Why:**` bullet under the Recommend line.
+      const w = current.afterRecommend && !current.why ? line.match(/^\s*-\s*\*\*Why:\*\*\s*(.+)$/) : null
+      // Drawn as plain text, so markdown marks would show raw.
+      if (w) current.why = w[1]!.replace(/\*\*|`/g, '')
+      current.afterRecommend = r ? true : current.afterRecommend && line.trim() !== ''
+    }
     const m = line.match(/^\*\*(Picks|Next):\*\*\s*(.+)$/)
     if (m?.[1] === 'Picks') picks = m[2]!
     // A bare `go` would match "run `go test`".
@@ -64,8 +71,12 @@ export function parse(answer: string): Offer | null {
   }
   if (picks === null && next === null) return null
   const pick = picks?.split(/[\s,]/)[0]
-  const lone = tables.length === 1 ? tables[0]! : null
-  const rows = lone ? lone.rows.map(row => ({ ...row, picked: row.id === recommend || row.id === pick })) : []
+  const lone = decisions.length === 1 && decisions[0]!.rows?.length ? decisions[0]! : null
+  const ids = lone?.rows?.map(row => row.id) ?? []
+  // One row at most: the decision's own Recommend, else the first Picks token.
+  const chosen = ids.includes(lone?.recommend ?? '') ? lone!.recommend : pick
+  const rows = lone ? lone.rows!.map(row => ({ ...row, picked: row.id === chosen })) : []
+  const why = lone?.why ?? ''
   const runs = next?.match(/\bI\s+run\s+(.+)$/)?.[1]
   const title = lone?.topic
     ? question(lone.topic)
