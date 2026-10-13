@@ -2,12 +2,17 @@
 # SessionStart hook: keep the claudzilla clone current. A background job fetches
 # (at most daily) and, with rulesGuard.autoUpdate on (default), fast-forwards and re-runs
 # install.sh; the next session reports the result. Startup never waits on the network.
+# Each notice is also a line in the events file, which the update-toast mod toasts.
 here=$(dirname "$(readlink "$0" || echo "$0")")
 repo=$(git -C "$here" rev-parse --show-toplevel 2>/dev/null) || exit 0
 gd=$(git -C "$repo" rev-parse --absolute-git-dir)
 log=$gd/claudzilla-update.log res=$gd/claudzilla-update.result lock=$gd/claudzilla-update.lock
+ev=$gd/claudzilla-update.events
 
 json() { printf '%s' "$1" | sed 's/[\\"]/\\&/g'; }
+# <epoch>\t<kind>\t<text>; kind start|live|fail, read by plugins/update-toast.
+emit() { printf '%s\t%s\t%s\n' "$(date +%s)" "$1" "$2" >> "$ev"; }
+ver() { git -C "$repo" describe --tags --always "$@" 2>/dev/null; }
 behind() { git -C "$repo" rev-list --count "HEAD..$up" 2>/dev/null; }
 # Uncommitted edits or local commits. Untracked files don't block: a fast-forward
 # only fails if upstream adds the same path.
@@ -20,17 +25,25 @@ git -C "$repo" rev-parse -q --verify "$up" >/dev/null 2>&1 || {
   up=$(git -C "$repo" rev-parse --abbrev-ref origin/HEAD 2>/dev/null) auto=false
   pull="git switch ${up#origin/} && git pull" cpull="git -C $repo switch ${up#origin/} && $cpull"
 }
+# The mod drops lines it already showed, so a trim never re-toasts.
+[ -f "$ev" ] && [ $(wc -l < "$ev") -gt 100 ] && tail -n 20 "$ev" > "$ev.tmp" && mv "$ev.tmp" "$ev"
 
 user="" claude="" why=""
-[ -f "$res" ] && user=$(cat "$res") && rm -f "$res"
+if [ -f "$res" ]; then
+  user=$(cat "$res"); rm -f "$res"; emit start "$user"
+  case $user in *"auto-update failed"*)
+    claude="The last claudzilla auto-update failed (log: $log). Only if the user asks, read the log, fix the cause, then run: $cpull --ff-only && $repo/install.sh - then report the result." ;;
+  esac
+fi
 n=$(behind)
 if [ "${n:-0}" -gt 0 ]; then
   if [ "$auto" = true ] && [ -z "$(dirty)" ]; then
     user="${user:+$user | }claudzilla: updating in background - restart Claude to apply"
   else
     [ "$auto" = true ] && why=" (auto-update skipped: local changes)"
-    user="${user:+$user | }claudzilla: update available${why:-} - ask Claude to update, or run: cd $repo && $pull && ./install.sh"
-    claude="A claudzilla update is available (repo: $repo). Only if the user asks to update claudzilla, run: $cpull --ff-only && $repo/install.sh - then report the result."
+    msg="claudzilla: update available${why:-} - ask Claude to update, or run: cd $repo && $pull && ./install.sh"
+    user="${user:+$user | }$msg"; emit start "$msg"
+    claude="${claude:+$claude }A claudzilla update is available (repo: $repo). Only if the user asks to update claudzilla, run: $cpull --ff-only && $repo/install.sh - then report the result."
   fi
 fi
 if [ -n "$claude" ]; then
@@ -48,9 +61,11 @@ find "$lock" -maxdepth 0 -mmin +60 -exec rmdir {} \; 2>/dev/null   # left by a k
   trap 'rmdir "$lock"' EXIT
   [ -z "$stale" ] || GIT_TERMINAL_PROMPT=0 git -C "$repo" fetch -q
   [ "$auto" = true ] && [ "$(behind)" -gt 0 ] 2>/dev/null && [ -z "$(dirty)" ] || exit 0
+  emit live "claudzilla: updating to $(ver @{u})"
   if { git -C "$repo" merge -q --ff-only @{u} && bash "$repo/install.sh"; } >"$log" 2>&1
-  then echo "claudzilla: updated to $(git -C "$repo" log -1 --format='%h %s')" >"$res.tmp"
-  else echo "claudzilla: auto-update failed - see $log; then run: cd $repo && git pull && ./install.sh" >"$res.tmp"; fi
+  then msg="claudzilla: updated to $(ver)"; emit live "$msg - restart Claude to apply"
+  else msg="claudzilla: auto-update failed - ask Claude to debug it (log: $log)"; emit fail "$msg"; fi
+  echo "$msg" >"$res.tmp"
   mv "$res.tmp" "$res"
 ) </dev/null >/dev/null 2>&1 &
 exit 0
