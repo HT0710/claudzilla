@@ -66,7 +66,7 @@ check "stamp fail: warns" grep -q 'rule dates not saved' "$H3/install.log"
 check "stamp fail: install finishes" grep -q 'claudzilla installed' "$H3/install.log"
 check "fresh: rules-guard hook in settings" grep -q 'rules-guard.mjs' "$H/.claude/settings.json"
 check "fresh: md-display hook in settings" grep -q 'md-display.pl' "$H/.claude/settings.json"
-check "fresh: git and gh hook commands differ" node -e 'const h=require(process.argv[1]).hooks.PreToolUse.flatMap(e=>e.hooks).filter(x=>x.if);process.exit(new Set(h.map(x=>x.command)).size===2?0:1)' "$H/.claude/settings.json"
+check "fresh: one unfiltered Bash rules-guard hook" node -e 'const h=require(process.argv[1]).hooks.PreToolUse.filter(e=>e.matcher==="Bash").flatMap(e=>e.hooks).filter(x=>/rules-guard/.test(x.command));process.exit(h.length===1&&!h[0].if?0:1)' "$H/.claude/settings.json"
 check "fresh: rtk hook kept once" [ "$(grep -c 'rtk hook claude' "$H/.claude/settings.json")" -eq 1 ]
 check "fresh: no backup dir" [ ! -e "$H/.claude/.claudzilla-backup" ]
 sl=$(cd /tmp && clean_env HOME="$H" sh -c "$(node -p 'require(process.argv[1]).statusLine.command' "$H/.claude/settings.json")" \
@@ -106,14 +106,15 @@ check "rerun: settings unchanged" cmp -s "$S" "$H/s1"
 # --- key-order-safe merge + prune of stale claudzilla entries ---
 hasCmd() { node -e 'const s=require(process.argv[1]);process.exit(Object.values(s.hooks||{}).flat().some(e=>(e.hooks||[]).some(h=>h.command===process.argv[2]))?0:1)' "$1" "$2"; }
 lacksCmd() { ! hasCmd "$@"; }
+rgBash() { node -p 'require(process.argv[1]).hooks.PreToolUse.filter(x=>x.matcher==="Bash"&&x.hooks.some(h=>/rules-guard/.test(h.command))).length' "$1"; }
 H=$(new_home); S="$H/.claude/settings.json"; R="$H/.claude/.claudzilla-base.json"; mkdir -p "$H/.claude"
 node -e '
-const b=require(process.argv[1]),e=b.hooks.PreToolUse.find(x=>x.hooks.some(h=>h.if==="Bash(git *)"));
+const b=require(process.argv[1]),e=b.hooks.PreToolUse.find(x=>x.matcher==="Bash"&&x.hooks.some(h=>/rules-guard/.test(h.command)));
 e.hooks=e.hooks.map(({type,command,...r})=>({command,...r,type}));
 b.hooks.PreToolUse.push({matcher:"Edit",hooks:[{type:"command",command:"mine"}]});
 require("fs").writeFileSync(process.argv[2],JSON.stringify(b))' "$REPO/settings.base.json" "$S"
 run_install "$H"
-check "order: reordered base entry merged once" [ "$(grep -c 'Bash(git \*)' "$S")" -eq 1 ]
+check "order: reordered base entry merged once" [ "$(rgBash "$S")" -eq 1 ]
 check "no record: machine hook kept" hasCmd "$S" mine
 check "record: written as base" cmp -s "$R" "$REPO/settings.base.json"
 node -e '
@@ -130,18 +131,18 @@ run_install "$H"
 check "prune: rerun is a no-op" bash -c "! grep -q 'settings.json merged' '$H/install.log'"
 node -e '
 const fs=require("fs"),s=process.argv[1],d=JSON.parse(fs.readFileSync(s,"utf8"));
-const e=d.hooks.PreToolUse.find(x=>x.hooks.some(h=>h.if==="Bash(git *)"));
+const e=d.hooks.PreToolUse.find(x=>x.matcher==="Bash"&&x.hooks.some(h=>/rules-guard/.test(h.command)));
 d.hooks.PreToolUse.push({...e,hooks:e.hooks.map(({type,command,...r})=>({command,...r,type}))});
 fs.writeFileSync(s,JSON.stringify(d))' "$S"
 run_install "$H"
-check "prune: existing duplicate collapsed (record)" [ "$(grep -c 'Bash(git \*)' "$S")" -eq 1 ]
+check "prune: existing duplicate collapsed (record)" [ "$(rgBash "$S")" -eq 1 ]
 H2=$(new_home); S2="$H2/.claude/settings.json"; mkdir -p "$H2/.claude"
 node -e '
-const b=require(process.argv[1]),e=b.hooks.PreToolUse.find(x=>x.hooks.some(h=>h.if==="Bash(git *)"));
+const b=require(process.argv[1]),e=b.hooks.PreToolUse.find(x=>x.matcher==="Bash"&&x.hooks.some(h=>/rules-guard/.test(h.command)));
 b.hooks.PreToolUse.push({...e,hooks:e.hooks.map(({type,command,...r})=>({command,...r,type}))});
 require("fs").writeFileSync(process.argv[2],JSON.stringify(b))' "$REPO/settings.base.json" "$S2"
 run_install "$H2"
-check "no record: existing duplicate collapsed" [ "$(grep -c 'Bash(git \*)' "$S2")" -eq 1 ]
+check "no record: existing duplicate collapsed" [ "$(rgBash "$S2")" -eq 1 ]
 echo '{bad' > "$R"; run_install "$H"; rc=$?
 check "record: unparsable record falls back" [ "$rc" -eq 0 ]
 check "record: unparsable record rewritten" cmp -s "$R" "$REPO/settings.base.json"
