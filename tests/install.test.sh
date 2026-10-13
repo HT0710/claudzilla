@@ -216,6 +216,13 @@ ln -s "$U/clone/claude/hooks/claudzilla-update.sh" "$U/home/.claude/hooks/claudz
 cp "$REPO/claude/hooks/rules-guard.mjs" "$U/clone/claude/hooks/"
 notice() { clean_env HOME="$U/home" sh "$U/home/.claude/hooks/claudzilla-update.sh"; }
 ev="$(git -C "$U/clone" rev-parse --absolute-git-dir)/claudzilla-update.events"
+# The update-toast mod's repo lookup, run as the mod runs it (sh -c, the session's cwd).
+FIND=$(node -e 'const s=require("fs").readFileSync(process.argv[1],"utf8");process.stdout.write(eval(s.match(/const FIND = (\x27.*\x27)\n/)[1]))' "$REPO/plugins/update-toast/hooks/register.ts")
+find_repo() { (cd "$1" && clean_env "${@:2}" sh -c "$FIND" 2>/dev/null); }
+mkdir -p "$U/nohome"; gdir=$(git -C "$U/clone" rev-parse --absolute-git-dir)
+check "toast find: clone via the linked hook" [ "$(find_repo /tmp HOME="$U/home")" = "$(printf '%s\n%s' "$U/clone" "$gdir")" ]
+check "toast find: honours CLAUDE_CONFIG_DIR" [ "$(find_repo /tmp HOME="$U/nohome" CLAUDE_CONFIG_DIR="$U/home/.claude")" = "$(printf '%s\n%s' "$U/clone" "$gdir")" ]
+check "toast find: no link never falls back to the cwd repo" [ -z "$(find_repo "$U/seed" HOME="$U/nohome")" ]
 echo '{"rulesGuard":{"autoUpdate":false}}' > "$U/home/.claude/claudzilla.json"
 check "update: silent when current" [ -z "$(notice)" ]
 g -C "$U/seed" commit --allow-empty -m two; g -C "$U/seed" push origin main

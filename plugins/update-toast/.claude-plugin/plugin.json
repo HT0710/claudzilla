@@ -1,0 +1,5 @@
+{
+  "name": "update-toast",
+  "description": "Toasts claudzilla update progress: available, updating, updated, failed",
+  "author": { "name": "HT0710", "url": "https://github.com/HT0710" }
+}
