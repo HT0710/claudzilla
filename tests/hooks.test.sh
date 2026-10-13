@@ -145,6 +145,30 @@ check "push: compound --force -> deny" denied "$(sh_ 'npm test && git push --for
 check "push: -f -> deny" denied "$(sh_ 'git push -f')"
 check "push: +refspec -> deny" denied "$(sh_ 'git push origin +main')"
 check "push: --force-with-lease allowed" [ -z "$(sh_ 'git push --force-with-lease')" ]
+# The Bash hook only sees git/gh commands (settings `if`); a check between them is read from the transcript.
+use() { printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"%s","name":"%s","input":%s}]}}\n' "$@"; }
+res() { printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"%s","content":"%s"}]}}\n' "$@"; }
+VS='{"skill":"superpowers:verification-before-completion"}'
+txpush() { hook PreToolUse tool_name=Bash "tool_input.command=$2" "transcript_path=$1" tool_use_id=now; }
+saved=$SID; new_session; hook UserPromptSubmit prompt=go >/dev/null
+hook PostToolUse tool_name=Skill tool_input.skill=superpowers:verification-before-completion >/dev/null
+TX="$TMP/tx.jsonl"
+{ use t1 Bash '{"command":"npm test"}'; res t1 ok; use v Skill "$VS"; } > "$TX"
+check "transcript: check before the skill -> deny" denied "$(txpush "$TX" 'git push')"
+{ use v Skill "$VS"; use t1 Bash '{"command":"npm test"}'; res t1 'PreToolUse:Bash hook error: no'; } > "$TX"
+check "transcript: denied check -> deny" denied "$(txpush "$TX" 'git push')"
+{ use v Skill "$VS"; use now Bash '{"command":"git push && npm test"}'; } > "$TX"
+check "transcript: the push command itself is not a check" denied "$(txpush "$TX" 'git push && npm test')"
+{ use v Skill "$VS"; use t1 Bash '{"command":"npm test"}'; } > "$TX"
+check "transcript: check with no result yet -> deny" denied "$(txpush "$TX" 'git push')"
+{ use v Skill "$VS"; use t1 Bash '{"command":"npm test"}'; res t1 "The user doesn't want to proceed with this tool use."; } > "$TX"
+check "transcript: rejected check -> deny" denied "$(txpush "$TX" 'git push')"
+ask() { printf '{"type":"user","message":{"role":"user","content":"%s"}}\n' "$1"; }
+{ ask hi; use t1 Bash '{"command":"npm test"}'; res t1 ok; ask /superpowers:verification-before-completion; } > "$TX"
+check "transcript: check in an earlier turn -> deny" denied "$(txpush "$TX" 'git push')"
+{ use v Skill "$VS"; use t1 Bash '{"command":"npm test"}'; res t1 ok; } > "$TX"
+check "transcript: check after the skill -> allowed" [ -z "$(txpush "$TX" 'git push')" ]
+SID=$saved
 for c in 'git reset --hard' 'git clean -fd' 'git checkout -- .' 'git checkout .' 'git checkout -f main' 'git switch --discard-changes main' 'git switch -f main' 'git restore a.txt' 'git stash drop' 'git stash clear'; do
   check "discard: $c -> deny" denied "$(sh_ "$c")"
 done
