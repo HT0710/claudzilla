@@ -146,26 +146,42 @@ echo '{bad' > "$R"; run_install "$H"; rc=$?
 check "record: unparsable record falls back" [ "$rc" -eq 0 ]
 check "record: unparsable record rewritten" cmp -s "$R" "$REPO/settings.base.json"
 
-# --- keybindings: alt+h toggles the panel ---
+# --- keybindings: alt+h toggles the panel, alt+k focuses the band ---
 key() { node -p 'const [f,c,k]=process.argv.slice(1);JSON.stringify(require(f).bindings.filter(b=>b.context===c).map(b=>b.bindings[k]).find(v=>v!==undefined))' "$1/.claude/keybindings.json" "$2" "$3" 2>/dev/null; }
 K=$(new_home); run_install "$K"
 check "keys: fresh alt+h opens panel" [ "$(key "$K" Chat alt+h)" = '"command:panel"' ]
+check "keys: fresh alt+k focuses band" [ "$(key "$K" Chat alt+k)" = '"abovePrompt:focus"' ]
 K=$(new_home); mkdir -p "$K/.claude"
 echo '{"bindings":[{"context":"Global","bindings":{"ctrl+t":"app:toggleTodos"}},{"context":"Chat","bindings":{"ctrl+e":"chat:externalEditor"}}]}' > "$K/.claude/keybindings.json"
 run_install "$K"
 check "keys: own binding kept" [ "$(key "$K" Global ctrl+t)" = '"app:toggleTodos"' ]
 check "keys: own Chat binding kept" [ "$(key "$K" Chat ctrl+e)" = '"chat:externalEditor"' ]
 check "keys: alt+h added beside own" [ "$(key "$K" Chat alt+h)" = '"command:panel"' ]
+check "keys: alt+k added beside own" [ "$(key "$K" Chat alt+k)" = '"abovePrompt:focus"' ]
 check "keys: added to existing Chat block" node -e 'process.exit(require(process.argv[1]).bindings.filter(b=>b.context==="Chat").length===1?0:1)' "$K/.claude/keybindings.json"
 check "keys: own file backed up" bash -c "ls '$K'/.claude/.claudzilla-backup/*/keybindings.json >/dev/null"
 cp "$K/.claude/keybindings.json" "$K/k1"; nb=$(ls "$K/.claude/.claudzilla-backup" | wc -l); sleep 1; run_install "$K"
 check "keys: rerun unchanged" cmp -s "$K/.claude/keybindings.json" "$K/k1"
 check "keys: rerun no new backup" [ "$(ls "$K/.claude/.claudzilla-backup" | wc -l)" -eq "$nb" ]
+# Each key is judged alone: the user's own alt+h leaves alt+k still added, and the reverse.
+n() { grep -o "$2" "$1" | wc -l; }
 for own in '{"bindings":[{"context":"Chat","bindings":{"alt+h":null}}]}' \
            '{"bindings":[{"context":"Chat","bindings":{"opt+h":null}}]}' \
            '{"bindings":[{"context":"Global","bindings":{"Meta+H":"app:toggleTodos"}}]}' \
-           '{"bindings":[{"context":"Global","bindings":{"ctrl+p":"command:panel"}}]}' \
-           '{"bindings":[{"context":"Chat","bindings":"x"}]}' '{bad'; do
+           '{"bindings":[{"context":"Global","bindings":{"ctrl+p":"command:panel"}}]}'; do
+  K=$(new_home); mkdir -p "$K/.claude"; printf '%s\n' "$own" | tee "$K/k0" > "$K/.claude/keybindings.json"; run_install "$K"
+  check "keys: alt+h left alone: $own" [ "$(n "$K/.claude/keybindings.json" command:panel)" -eq "$(n "$K/k0" command:panel)" ]
+  check "keys: alt+k still added: $own" [ "$(key "$K" Chat alt+k)" = '"abovePrompt:focus"' ]
+done
+for own in '{"bindings":[{"context":"Chat","bindings":{"alt+k":null}}]}' \
+           '{"bindings":[{"context":"Global","bindings":{"ctrl+f":"abovePrompt:focus"}}]}'; do
+  K=$(new_home); mkdir -p "$K/.claude"; printf '%s\n' "$own" | tee "$K/k0" > "$K/.claude/keybindings.json"; run_install "$K"
+  check "keys: alt+k left alone: $own" [ "$(n "$K/.claude/keybindings.json" abovePrompt:focus)" -eq "$(n "$K/k0" abovePrompt:focus)" ]
+  check "keys: alt+h still added: $own" [ "$(key "$K" Chat alt+h)" = '"command:panel"' ]
+done
+K=$(new_home); mkdir -p "$K/.claude"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+h":null,"alt+k":null}}]}' | tee "$K/k0" > "$K/.claude/keybindings.json"; run_install "$K"
+check "keys: both own, file untouched" cmp -s "$K/.claude/keybindings.json" "$K/k0"
+for own in '{"bindings":[{"context":"Chat","bindings":"x"}]}' '{bad'; do
   K=$(new_home); mkdir -p "$K/.claude"; printf '%s\n' "$own" | tee "$K/k0" > "$K/.claude/keybindings.json"; run_install "$K"; rc=$?
   check "keys: left alone: $own" cmp -s "$K/.claude/keybindings.json" "$K/k0"
 done
