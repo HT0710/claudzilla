@@ -81,6 +81,7 @@ test('parse: a lone Decision table asks on its own, as a skill gate ends with it
   const gate = LONE.replace('**Picks:** 2', '**Next:** review the plan and pick 1, 2 or 3.')
   expect(parse(gate)?.rows.filter(r => r.picked).map(r => r.id)).toEqual(['2'])
   expect(parse(gate.replace('Decision — how to finish the branch', 'Decision'))).toBeNull()
+  expect(parse(gate.replace('Decision — how to finish the branch', 'Decision-making'))).toBeNull()
 })
 
 test('parse: one Decision table gives its rows, the recommended one picked', () => {
