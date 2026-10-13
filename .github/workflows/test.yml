@@ -22,3 +22,29 @@ jobs:
       - run: bash tests/install.test.sh
       - run: bash tests/rule-review.test.sh
       - run: bash tests/hud.test.sh
+      - run: bash tests/release.test.sh
+
+  release:
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency: release
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A run whose push main has moved past leaves the tagging to the newer run, so tags stay in order.
+          git fetch -q origin main
+          [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || { echo "main moved on; the newer run tags"; exit 0; }
+          last=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          tag=$(git log --format='%s%n%b' ${last:+$last..}HEAD | sh .github/next-version.sh "$last")
+          [ -n "$tag" ] || { echo "no release-worthy commits since ${last:-the start}"; exit 0; }
+          git tag "$tag"
+          git push origin "$tag"
+          gh release create "$tag" --generate-notes --verify-tag
