@@ -657,7 +657,8 @@ export const register: Register = on => {
     const rewind = () => $.command.run({ command: 'rewind' }).catch(() => $.ui.toast('Could not open /rewind.'))
 
     let body
-    gitZones = undefined
+    // Kept while a Git draw reads: a wheel tick meanwhile still scrolls its zone.
+    if (current !== 'Git') gitZones = undefined
     if (current === 'History') {
       const key = `${await $.session.id()}:${await read($, submitted)}`
       const at = await $.clock.now()
@@ -786,7 +787,15 @@ export const register: Register = on => {
       // An empty repo's log fails: no commits to list.
       const commits = log?.exitCode === 0 ? log.stdout.split('\n').filter(Boolean) : []
       // CHANGES' rows end under its last file: the tabs, their rule, the branch, its rule and the header.
-      if (head) gitZones = { commitsAt: files.length ? 5 + changesRows : 0, changes: Math.max(0, files.length - changesRows), commits: Math.max(0, (Number(total) || commits.length) - commitsRows) }
+      // Only a live draw sets them: a dropped one finishing after another tab drew would take its wheel.
+      if (!next.signal.aborted)
+        gitZones = !head
+          ? undefined
+          : {
+              commitsAt: files.length && changesRows ? 5 + changesRows : 0,
+              changes: Math.max(0, files.length - changesRows),
+              commits: Math.max(0, (Number(total) || page * PAGE + commits.length) - commitsRows),
+            }
       body = !head ? (
         // The rows under the tabs and their rule. No answer at all: git is not on PATH, or the surface
         // runs no command.
