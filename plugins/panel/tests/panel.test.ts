@@ -660,11 +660,24 @@ test('gone runs: a middle run was rewound, a run reaching the oldest was compact
     { isLive: true },
     { isLive: true },
   ])
-  expect(gone(asPrompts('P9', 'P8', 'P7', 'P1'), ['P8', 'P9'], ['P8', 'P9']).map(row => row.marker)).toEqual([
+  expect(gone(asPrompts('P9', 'P8', 'P7', 'P1'), ['P8', 'P9'], ['P8', 'P9'], [], undefined, true).map(row => row.marker)).toEqual([
     undefined,
     undefined,
     'Compacted',
     undefined,
+  ])
+})
+
+test('gone runs: an Esc-cancelled first prompt in a chat never compacted was rewound', () => {
+  const chat = ['P2', 'P3', 'P4', 'P5']
+  const prompts = asPrompts('P5', 'P4', 'P3', 'cancelled', 'P2', 'first')
+  expect(gone(prompts, chat, chat, [], undefined, false).map(row => row.marker)).toEqual([
+    undefined,
+    undefined,
+    undefined,
+    'Rewound',
+    undefined,
+    'Rewound',
   ])
 })
 
@@ -769,6 +782,35 @@ test('the History tab draws Rewound above a rewound run, Compacted where the mod
   expect((await ui.findAll({ type: 'Text', text: 'Compacted' })).length).toBe(1)
   // Still in the chat but compacted: dim.
   expect((await ui.find({ type: 'Text', text: /^old\s*$/ }))?.props.color).toBe('#4f5c68')
+})
+
+test('the History tab draws a cancelled first prompt Rewound when the chat file holds no compaction', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
+  const history = ['cancelled', 'kept', 'latest']
+    .map((display, i) => JSON.stringify({ display, timestamp: Date.now() - 3 + i, sessionId: 'chat-1' }))
+    .join('\n')
+  on('env.get', (_, e) => ({ value: e.name === 'HOME' ? '/home/me' : undefined }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('process.run', (_, e) => {
+    if (isHistoryGrep(e.argv)) return ran(history)
+    if (e.argv[0] === 'find') return ran('/home/me/.claude/projects/-proj/chat-1.jsonl\n')
+    // grep -q finds no compact_boundary row.
+    if (e.argv.includes('"subtype":"compact_boundary"')) return { value: { ...ran('').value, exitCode: 1 } }
+    return ran('')
+  })
+  const chat = ['kept', 'latest']
+  on('session.messages', (_, e) => ({
+    value:
+      e.as === 'api'
+        ? chat.map(text => ({ role: 'user' as const, content: [{ type: 'text', text }] }))
+        : chat.map(text => ({ role: 'user' as const, text, toolUses: [] })),
+  }))
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.redraw()
+
+  expect((await ui.findAll({ type: 'Text', text: 'Rewound' })).length).toBe(1)
+  expect(await ui.find({ type: 'Text', text: 'Compacted' })).toBeUndefined()
 })
 
 test('gone runs: a paste matches though the chat wraps it in tags', () => {
