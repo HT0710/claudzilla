@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Recorded Agent calls → local replay cases in <out>/<role>/<base7>-<head7>/; prints their "<case> opus max" reference cells.
+// Recorded Agent calls → local replay cases in <out>/<role>/<base7>-<head7>/; prints their "<case> opus xhigh" reference cells.
 //   node evals/replays.mjs [--repo DIR] [--out DIR] [--per-role N]
 // Output stays gitignored: prompts carry local paths and private context.
 import { execFileSync, spawnSync } from "node:child_process";
@@ -104,5 +104,5 @@ for (const k of calls().map(toCase).filter(Boolean).sort((x, y) => y.ts.localeCo
   seen.add(id);
   per.set(k.role, (per.get(k.role) ?? 0) + 1);
   write(id, k);
-  console.log(`${id} opus max`);
+  console.log(`${id} opus xhigh`);
 }

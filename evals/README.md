@@ -12,7 +12,7 @@ Dev-only, not installed. Measures which model + effort each workflow role needs 
 | B confirm | `node evals/report.mjs $S/rows.jsonl --stage-b > $S/b.txt && node evals/run.mjs --only $S/b.txt --runs 5 --out $S` |
 | replays | `node evals/replays.mjs > $S/ref.txt` |
 | references | `node evals/run.mjs --root evals/replays --only $S/ref.txt --out $S/ref` |
-| plan reference | `echo 'plan/ratelimit opus max' > $S/pref.txt && node evals/run.mjs --only $S/pref.txt --out $S/ref` |
+| plan reference | `echo 'plan/ratelimit opus xhigh' > $S/pref.txt && node evals/run.mjs --only $S/pref.txt --out $S/ref` |
 | C replay | `node evals/report.mjs $S/rows.jsonl --stage-c > $S/c.txt && node evals/run.mjs --root evals/replays --only $S/c.txt --runs 2 --out $S` |
 | judge | `node evals/judge.mjs $S/rows.jsonl $S/ref/rows.jsonl` |
 | report | `node evals/report.mjs $S/rows.jsonl` writes `$S/report.md` and `$S/picks.json` |

@@ -141,6 +141,13 @@ check "run: replay rows are replayed, not graded" [ "$(field "$TMP/o13/rows.json
 check "run: judge flag copied to the row" [ "$(field "$TMP/o13/rows.jsonl" judge)" = true ]
 check "run: {{WORKDIR}} becomes the workdir" bash -c 'grep -q "Review /.*/eval-[^/ ]* now\." "$1" && ! grep -q "{{WORKDIR}}" "$1"' _ "$FAKE_LOG"
 
+# --- default cells: no matrix in case.json → agent 3 models x low..xhigh, skill opus low..xhigh; never max
+for k in agent skill; do mkdir -p "$TMP/cases/d/$k"; cp -R "$EV/cases/pilot/sum/." "$TMP/cases/d/$k/"; done
+echo '{"agent":"caveman:cavecrew-reviewer"}' > "$TMP/cases/d/agent/case.json"
+echo '{"skill":"superpowers:systematic-debugging"}' > "$TMP/cases/d/skill/case.json"
+run --cases 'd/*' --out "$TMP/o15" >/dev/null 2>&1
+check "run: default cells stop at xhigh (12 agent, 4 skill, no max)" bash -c '[ "$(grep -c "\"case\":\"d/agent\"" "$1")" = 12 ] && [ "$(grep -c "\"case\":\"d/skill\"" "$1")" = 4 ] && ! grep -q "\"effort\":\"max\"" "$1"' _ "$TMP/o15/rows.jsonl"
+
 # --- replays.mjs: recorded Agent calls (fake transcripts of a 3-commit repo) → local replay cases
 G="$TMP/grepo"; mkdir -p "$G"; git -C "$G" init -q -b main
 for n in 1 2 3; do echo "$n" > "$G/f$n"; git -C "$G" add -A; git -C "$G" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm "chore: c$n"; done
@@ -165,7 +172,7 @@ HOME="$TMP" node "$EV/replays.mjs" --repo "$G" --out "$RP" > "$TMP/ref.txt"
 D1="$RP/cavecrew-reviewer/$s1-$s2" D2="$RP/sdd-reviewer/$s1-$s3"
 want=$(printf '%s\n' "cavecrew-reviewer/$s1-$s2" "cavecrew-reviewer/$s1-$s3" "cavecrew-reviewer/$s2-$s3" "sdd-reviewer/$s1-$s3" | sort)
 check "replays: one case per reviewed range (commit, BASE/HEAD, X..Y, branch commits), reviews only" [ "$(cd "$RP" 2>/dev/null && ls -d */* | sort)" = "$want" ]
-check "replays: prints opus max reference cells" [ "$(sed 's/ opus max$//' "$TMP/ref.txt" | sort)" = "$want" ]
+check "replays: prints opus xhigh reference cells" [ "$(sed 's/ opus xhigh$//' "$TMP/ref.txt" | sort)" = "$want" ]
 node "$EV/replays.mjs" --repo "$G" --out "$TMP/replays1" --per-role 1 >/dev/null
 check "replays: --per-role keeps the newest calls" [ "$(cd "$TMP/replays1" && ls -d */* | tr '\n' ' ')" = "cavecrew-reviewer/$s1-$s3 sdd-reviewer/$s1-$s3 " ]
 check "replays: newest of duplicate calls kept" grep -q 'Read-only\.' "$D1/prompt.md"
