@@ -53,7 +53,7 @@ settings.base.json     ──merge────▶  ~/.claude/settings.json  your
 | `~/.claude/CLAUDE.local.md` | instructions for this machine only |
 | `~/.claude/settings.overrides.json` | settings for this machine only, merged last (e.g. `{"permissions":{"defaultMode":"dontAsk"}}`) |
 | `claudzilla.json` | turn guard checks on or off, see below |
-| `~/.claude/keybindings.json` | your keys. Install adds alt+h for the panel unless you bound alt+h (`Chat` or `Global`), gave the panel a key, or symlinked the file; `"alt+h": null` in `Chat` opts out |
+| `~/.claude/keybindings.json` | your keys. Install adds alt+h for the panel and alt+k to focus the picks card, each unless you bound that key (`Chat` or `Global`) or gave its action a key; a symlinked file is left alone; `"alt+h": null` or `"alt+k": null` in `Chat` opts out |
 
 <details>
 <summary>Guard hook config</summary>
