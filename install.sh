@@ -99,11 +99,11 @@ for(const[k,a]of add)chat[0].bindings[`alt+${k}`]=a;
 fs.writeFileSync(out,JSON.stringify(j,null,2)+"\n");
 console.log(add.map(([k,a])=>`alt+${k} -> ${a}`).join(", "))' "$dst" "$tmp") || rc=$?
   case $rc in
-    0) if [ -L "$dst" ]; then rm -f "$tmp"; echo "claudzilla: $dst is a symlink - add alt+h (/panel) and alt+k (card focus) yourself (see README)" >&2
+    0) if [ -L "$dst" ]; then rm -f "$tmp"; echo "claudzilla: $dst is a symlink - add alt+h (/panel) and alt+k (card focus) yourself (see CONFIGURATION.md)" >&2
        else [ -f "$dst" ] && save keybindings.json
          mv "$tmp" "$dst"; echo "keybindings: $added"; fi ;;
     3) ;;
-    *) rm -f "$tmp"; echo "claudzilla: $dst unreadable - add alt+h (/panel) and alt+k (card focus) yourself (see README)" >&2 ;;
+    *) rm -f "$tmp"; echo "claudzilla: $dst unreadable - add alt+h (/panel) and alt+k (card focus) yourself (see CONFIGURATION.md)" >&2 ;;
   esac
 }
 
