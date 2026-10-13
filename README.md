@@ -25,6 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh |
 | **Display hook** | on screen only: frames a reply that has a TL;DR, with lines below the TL;DR, above Next and at each `---`, which the response-dividers plugin keeps fitted to the chat's width ([details](plugins/response-dividers/README.md)); shows `<br>` in tables as ` · ` |
 | **Skills** | `pr` (pre-PR checks + description template), `/rule-review` (how often each rule slipped; a weekly summary shows at startup; on your yes, shares the counts, no text, as a claudzilla issue) |
 | **Panel** | `/panel` opens a side pane listing this chat's prompts: click one to jump to it, `↻` reuses it, `⟲ rewind` opens `/rewind` ([details](plugins/panel/README.md)) |
+| **Attribution** | strips Claude session links from the commit and PR text Claude writes ([details](plugins/attribution/README.md)) |
 | **Plugins** | [caveman](https://github.com/JuliusBrussee/caveman), [ponytail](https://github.com/DietrichGebert/ponytail), [superpowers](https://github.com/obra/superpowers) |
 | **Statusline** | cwd, branch, context / 5h / weekly meters, model, effort, active skill |
 | **Token saver** | every Bash call runs through `rtk` |
