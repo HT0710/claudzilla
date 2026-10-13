@@ -1,4 +1,4 @@
-import type { Register } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 
 export type Row = { id: string; text: string; tradeoff: string; picked: boolean }
 export type Offer = { title: string; rows: Row[]; why: string }
@@ -96,6 +96,16 @@ const suggestion = (o: Offer) => {
   return pick ? answer(pick) : o.rows.length ? null : 'go'
 }
 
+// A plugin's prompt.submit skips the up-arrow history; O_APPEND keeps Claude Code's own writes intact.
+// shortcut: history.jsonl is Claude Code's internal format, not a mod API; drop once a pressed prompt is recorded.
+// Best effort: a failed append never blocks the sent answer.
+const remember = async ($: EngineInterface, display: string) => {
+  try {
+    const entry = { display, pastedContents: {}, timestamp: Date.now(), project: await $.session.cwd(), sessionId: await $.session.id() }
+    await $.process.run(['sh', '-c', 'cat >> "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/history.jsonl"'], { stdin: `${JSON.stringify(entry)}\n` })
+  } catch {}
+}
+
 export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     if (e.reason === 'answer' && !e.agentId) {
@@ -157,7 +167,8 @@ export const register: Register = on => {
                 // Our own submit skips our prompt.submit hook, so clear here.
                 offer = null
                 $.ui.invalidate('ui.render')
-                await $.prompt.submit({ text: s.send, asUser: true })
+                const sent = await $.prompt.submit({ text: s.send, asUser: true })
+                if (!sent.drop) await remember($, s.send)
               }}
             >
               {s.picked ? <Text color="claude">{s.text.padEnd(width)}</Text> : s.text.padEnd(width)}
