@@ -77,6 +77,12 @@ test('parse: Next needs "say go"', () => {
   expect(parse('plain reply')).toBeNull()
 })
 
+test('parse: a lone Decision table asks on its own, as a skill gate ends with its own question', () => {
+  const gate = LONE.replace('**Picks:** 2', '**Next:** review the plan and pick 1, 2 or 3.')
+  expect(parse(gate)?.rows.filter(r => r.picked).map(r => r.id)).toEqual(['2'])
+  expect(parse(gate.replace('Decision — how to finish the branch', 'Decision'))).toBeNull()
+})
+
 test('parse: one Decision table gives its rows, the recommended one picked', () => {
   expect(parse(LONE)?.rows).toEqual([
     { id: '1', text: 'merge to main locally', picked: false },
