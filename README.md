@@ -27,10 +27,11 @@ Safe to re-run. Anything replaced is backed up to `~/.claude/.claudzilla-backup/
 
 Answer first, evidence cited, one fix proposed, nothing edited until you say go, and "fixed" only after the test ran.
 
-<img src=".github/assets/answer.png" alt="Claude Code with claudzilla answering why a test fails: TL;DR first, then a cause table citing file:line and the real test output" width="720">
-
 ### Answers you can scan
 - **Terse replies:** TL;DR first, tables over prose, every claim backed by a `file:line` or a command, or marked unverified.
+
+  <img src=".github/assets/answer.png" alt="Claude Code with claudzilla answering why a test fails: TL;DR first, then a cause table citing file:line and the real test output" width="720">
+
 - **Investigate, then ask:** root cause and one recommendation before any multi-file edit.
 
   <img src=".github/assets/decision.png" alt="A decision table with options A and B, a bold recommendation with its source, and a Next line" width="720">
