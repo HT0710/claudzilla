@@ -102,7 +102,8 @@
     "superpowers@claude-plugins-official": true,
     "panel@claudzilla": true,
     "response-dividers@claudzilla": true,
-    "attribution@claudzilla": true
+    "attribution@claudzilla": true,
+    "picks@claudzilla": true
   },
   "extraKnownMarketplaces": {
     "claude-plugins-official": {
