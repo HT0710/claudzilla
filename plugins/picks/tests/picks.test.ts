@@ -77,11 +77,11 @@ test('parse: Next needs "say go"', () => {
   expect(parse('plain reply')).toBeNull()
 })
 
-test('parse: one Decision table gives its rows with tradeoffs, the recommended one picked', () => {
+test('parse: one Decision table gives its rows, the recommended one picked', () => {
   expect(parse(LONE)?.rows).toEqual([
-    { id: '1', text: 'merge to main locally', tradeoff: 'no CI', picked: false },
-    { id: '2', text: 'push + PR', tradeoff: 'CI runs', picked: true },
-    { id: '3', text: 'keep the branch as-is', tradeoff: 'nothing lands', picked: false },
+    { id: '1', text: 'merge to main locally', picked: false },
+    { id: '2', text: 'push + PR', picked: true },
+    { id: '3', text: 'keep the branch as-is', picked: false },
   ])
 })
 
@@ -115,7 +115,7 @@ test('the pick is blue; a "Why: reason" line in the same blue gives its reason',
   const label = await ui.find({ type: 'Text', text: 'Why: ' })
   expect([label?.props.color, label?.props.bold]).toEqual(['claude', true])
   const reason = await ui.find({ type: 'Text', text: 'your finish-via-pr memory says PR, merge once CI is green.' })
-  expect([reason?.props.color, reason?.props.bold]).toEqual([undefined, undefined])
+  expect([reason?.props.color, reason?.props.bold, reason?.props.wrap]).toEqual([undefined, undefined, 'wrap'])
 })
 
 test('ctrl+x tab lands on the pick, or on go when there are no rows', async ($, on) => {
@@ -159,7 +159,7 @@ test('no Why under Recommend: no footer line', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'Why: ' })).toBeUndefined()
 })
 
-test('one decision: plain rows, dim tradeoffs; each sends its id and option', async ($, on) => {
+test('one decision: plain rows, no tradeoffs; each sends its id and option', async ($, on) => {
   const sent: string[] = []
   engine(on)
   on('prompt.submit', (_: any, e: any) => { sent.push(e.text); return { text: e.text } as any })
@@ -167,8 +167,8 @@ test('one decision: plain rows, dim tradeoffs; each sends its id and option', as
   const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
   expect(await labels(ui)).toEqual(['merge to main locally', 'push + PR', 'keep the branch as-is', 'type your own…'])
   expect((await ui.findAll({ type: 'Button' })).every((b: any) => b.props.plain)).toBe(true)
-  // dimColor barely shows in some terminals; an explicit gray always does.
-  expect((await ui.find({ type: 'Text', text: 'CI runs' }))?.props.color).toBe('#808286')
+  // The reply's table, just above, already holds them.
+  expect(await ui.find({ type: 'Text', text: /CI runs/ })).toBeUndefined()
   expect((await ui.find({ key: 'pick:3' }))?.props.hotkey).toBe('3')
   await ui.press({ key: 'pick:3' })
   expect(sent).toEqual(['3: keep the branch as-is'])
