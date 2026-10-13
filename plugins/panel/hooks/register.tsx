@@ -151,15 +151,17 @@ const found = (prompts: Prompt[], texts: string[]) => {
 const READ_MAX = 4096
 
 // Which prompts (newest first) are still in the chat, with a marker opening each run of gone ones:
-// a run reaching the oldest was compacted away, any other was rewound (an Esc-cancel looks the
-// same). A compacted prompt the chat still shows stays live, the marker on the first the model
-// lost. A capped read (the newest READ_MAX entries) says nothing of prompts older than it holds.
+// a run reaching the oldest was compacted away if the chat ever was (`compacted`), else rewound like
+// any other (an Esc-cancel looks the same). A compacted prompt the chat still shows stays live, the
+// marker on the first the model lost. A capped read (the newest READ_MAX entries) says nothing of prompts
+// older than it holds.
 export const gone = (
   prompts: Prompt[],
   chat: string[],
   model: string[],
   notes: string[] = [],
   capped = { chat: false, model: false },
+  compacted = true,
 ): { isLive: boolean; marker?: 'Rewound' | 'Compacted' }[] => {
   // A slash command is never in the chat as typed, nor a paste whose text paste-cache dropped,
   // so each takes the state of the run around it.
@@ -192,7 +194,7 @@ export const gone = (
     }
     if (isOpen) return { isLive: false }
     isOpen = true
-    return { isLive: false, marker: inChat.slice(i).some(Boolean) ? 'Rewound' : 'Compacted' }
+    return { isLive: false, marker: !compacted || inChat.slice(i).some(Boolean) ? 'Rewound' : 'Compacted' }
   })
   // Only the newest compaction is marked, right under the /compact that ran it when one sits above.
   let at = rows.findIndex(row => row.marker === 'Compacted')
@@ -231,7 +233,12 @@ const readHistory = async ($: EngineInterface) => {
     .filter(message => message.role === 'user')
     .flatMap(message => message.content.flatMap(block => (typeof block.text === 'string' ? [block.text] : [])))
   const capped = { chat: chatRead.length >= READ_MAX, model: modelRead.length >= READ_MAX }
-  return { all, prompts, drawnOnly, commands, rows: gone(prompts, sent, model, queued, capped) }
+  // A compaction leaves a compact_boundary row in the chat's file; grep exits 1 on none. A failed
+  // read counts as compacted.
+  const boundary = await chatPath($)
+    .then(path => $.process.run(['grep', '-a', '-F', '-q', '--', '"subtype":"compact_boundary"', path]))
+    .catch(() => undefined)
+  return { all, prompts, drawnOnly, commands, rows: gone(prompts, sent, model, queued, capped, boundary?.exitCode !== 1) }
 }
 // Kept for up to READ_TTL, or until a prompt is sent: a chat scroll redraws the pane many times a
 // second, and every read grows with the chat.
