@@ -76,6 +76,7 @@ A bad file or value is skipped and named on your next prompt; unknown keys are i
 
 ## Notes
 
+- The display hook changes the screen only, not the transcript; it shows `<br>` in tables as ` · `.
 - Only the default `~/.claude` config dir is supported. `CLAUDE.md` imports from `@~/.claude/...`.
 - `/rule-review` counts a rule only from when it reached your machine (`~/.claude/.claudzilla-rules.json`, written by the installer).
 - Tests run offline: `bash tests/install.test.sh` (the other suites are in `tests/`).

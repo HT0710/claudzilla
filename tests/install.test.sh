@@ -18,7 +18,7 @@ export CLAUDZILLA_FONT=yes   # answer the font prompt; declined case overrides
 check "content: no home paths" \
   bash -c "! grep -rqE '/home/|/Users/' '$REPO/claude' '$REPO/settings.base.json'"
 check "content: no emails" \
-  bash -c "! grep -rqE '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[a-z]{2,}' '$REPO/claude' '$REPO/settings.base.json' '$REPO/install.sh' '$REPO/README.md'"
+  bash -c "! grep -rqE '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[a-z]{2,}' '$REPO/claude' '$REPO/settings.base.json' '$REPO/install.sh' '$REPO/README.md' '$REPO/CONFIGURATION.md'"
 check "content: settings.base.json valid" node -e "require('$REPO/settings.base.json')"
 mcpHooked() { node -e 'const t=process.argv[2],m=require(process.argv[1]).hooks.PreToolUse.map(e=>e.matcher);process.exit(m.some(x=>new RegExp(`^(?:${x})$`).test(t))?0:1)' "$1" "$2"; }
 check "content: GitHub MCP PR tools hooked" mcpHooked "$REPO/settings.base.json" mcp__github__create_pull_request
@@ -30,8 +30,8 @@ check "content: python.md scoped to Python files" bash -c "head -1 '$REPO/claude
 check "content: CLAUDE.md covers new Python projects" grep -q "New Python project before that" "$REPO/claude/CLAUDE.md"
 check "content: hook cites superpowers.md by section" bash -c "grep -q 'superpowers.md Order' '$REPO/claude/hooks/rules-guard.mjs' && grep -q '^## Order' '$REPO/claude/rules/superpowers.md' && ! grep -q 'superpowers.md:[0-9]' '$REPO/claude/hooks/rules-guard.mjs'"
 check "content: no CodeGraph section" bash -c "! grep -qi codegraph '$REPO/claude/CLAUDE.md'"
-check "content: reviewNudge not documented under rules" bash -c "! grep -q '^| \`reviewNudge\`' '$REPO/README.md'"
-check "content: no omc" bash -c "! grep -rqi omc '$REPO/claude' '$REPO/settings.base.json' '$REPO/README.md'"
+check "content: reviewNudge not documented under rules" bash -c "! grep -q '^| \`reviewNudge\`' '$REPO/CONFIGURATION.md'"
+check "content: no omc" bash -c "! grep -rqi omc '$REPO/claude' '$REPO/settings.base.json' '$REPO/README.md' '$REPO/CONFIGURATION.md'"
 
 # --- fresh machine ---
 H=$(new_home); run_install "$H"; rc=$?

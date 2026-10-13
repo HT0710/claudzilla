@@ -65,7 +65,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 ## What you get
 
 ### Answers you can scan
-- **Terse replies:** TL;DR first, tables over prose, every claim backed by a `file:line` or a command.
+- **Terse replies:** TL;DR first, tables over prose, every claim backed by a `file:line` or a command, or marked unverified.
 - **Investigate, then ask:** root cause and one recommendation before any multi-file edit.
 - **Picks card:** a reply that ends in a decision shows a card above the prompt; press a digit to answer ([details](plugins/picks/README.md)).
 - **Dividers:** lines frame the TL;DR, `Next:` and each `---`, fitted to the chat width ([details](plugins/response-dividers/README.md)).
@@ -84,14 +84,14 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 - **Statusline:** cwd, branch, context / 5h / weekly meters, model, effort, active skill.
 - **Prompt panel:** `/panel` lists this chat's prompts; click to jump, reuse or rewind ([details](plugins/panel/README.md)).
 - **Update toasts:** updates install in the background and say so ([details](plugins/update-toast/README.md)).
-- **Theme:** muted dark truecolor theme, `opus[1m]`, medium effort.
+- **Theme + settings:** muted dark truecolor theme, `opus[1m]`, normal permission prompts.
 
 ### Skills and commands
 
 | command | does |
 |---|---|
 | `/panel` | side pane of this chat's prompts |
-| `/rule-review` | how often each rule slipped; weekly summary at startup |
+| `/rule-review` | how often each rule slipped; weekly summary at startup; on your yes, shares the counts (no text) as a claudzilla issue |
 | `pr` skill | pre-PR checks + description template, runs before every PR |
 
 ## Customize
@@ -106,7 +106,7 @@ Full reference, install internals and keybindings: **[CONFIGURATION.md](CONFIGUR
 
 ## Update
 
-Updates install themselves in the background. To update by hand:
+Updates install themselves in the background, unless the clone has local changes; then you get a notice. To update by hand:
 
 ```bash
 cd ~/claudzilla && git pull && ./install.sh
