@@ -15,6 +15,7 @@ Unprefixed names below = `superpowers:<name>` in the Skill tool; others carry th
 | refactor, restructure or cleanup task | `caveman:safe-refactor` |
 | schema, data, API, config or dependency migration | `caveman:migration` |
 | "what's next", backlog question, repo has `shortcut:` or `ponytail:` markers | `ponytail:ponytail-debt` — alongside the memory backlog |
+| user asks to push, open a PR or merge; branch had no SDD / executing-plans review | `requesting-code-review` — after git.md Before push reorganize, before `verification-before-completion`; trivial branch diff (1 file, obvious change) exempt; never offered after edits |
 
 ## Suggest — name in `Recommend:` or `Next:`, invoke on yes
 
@@ -24,7 +25,6 @@ Unprefixed names below = `superpowers:<name>` in the Skill tool; others carry th
 | plan exists, execute it | `executing-plans` / `subagent-driven-development` |
 | 2+ independent tasks | `dispatching-parallel-agents` |
 | isolated feature work | `using-git-worktrees` — location `../<repo>-<slug>` (git.md); never `.worktrees/` or a `.gitignore` commit |
-| work done outside SDD / executing-plans, before merge | `requesting-code-review` |
 | branch finished (outside the Order chain) | `finishing-a-development-branch` |
 | change at a trust boundary (auth, secrets, shell exec, input parsing), before PR | `security-review` (built-in) |
 
