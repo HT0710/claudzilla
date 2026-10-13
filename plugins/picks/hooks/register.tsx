@@ -1,6 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-export type Row = { id: string; text: string; tradeoff: string; picked: boolean }
+export type Row = { id: string; text: string; picked: boolean }
 export type Offer = { title: string; rows: Row[]; why: string }
 
 // Bare digits are the only hotkeys the band arms; one goes to the draft row.
@@ -49,7 +49,7 @@ export function parse(answer: string): Offer | null {
         current.rows = []
         inTable = true
       } else if (inTable && /^[\w.]{1,3}$/.test(cells[0]!) && cells[1]) {
-        current.rows.push({ id: cells[0]!, text: cells[1], tradeoff: cells[2] ?? '', picked: false })
+        current.rows.push({ id: cells[0]!, text: cells[1], picked: false })
       }
       continue
     }
@@ -145,16 +145,15 @@ export const register: Register = on => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const theirs = await next(e)
     const sends = shown.rows.length
-      ? shown.rows.slice(0, MAX_ROWS).map(row => ({ key: `pick:${row.id}`, text: row.text, tradeoff: row.tradeoff, picked: row.picked, send: answer(row) }))
-      : [{ key: 'go', text: 'go', tradeoff: '', picked: false, send: 'go' }]
-    // Tradeoffs line up in one column after the longest option.
-    const width = Math.max(...sends.map(s => s.text.length)) + 4
+      ? shown.rows.slice(0, MAX_ROWS).map(row => ({ key: `pick:${row.id}`, text: row.text, picked: row.picked, send: answer(row) }))
+      : [{ key: 'go', text: 'go', picked: false, send: 'go' }]
     const pick = shown.rows.find(row => row.picked)
     return (
       <Box flexDirection="column">
         <Box flexDirection="column" borderStyle="round" borderColor="promptBorder" paddingX={1}>
           <Text bold wrap="truncate">{shown.title}</Text>
           <Text> </Text>
+          {/* No tradeoffs: the reply's table, just above, holds them. */}
           {sends.map((s, i) => (
             <Button
               key={s.key}
@@ -171,8 +170,7 @@ export const register: Register = on => {
                 if (!sent.drop) await remember($, s.send)
               }}
             >
-              {s.picked ? <Text color="claude">{s.text.padEnd(width)}</Text> : s.text.padEnd(width)}
-              <Text color={FAINT}>{s.tradeoff}</Text>
+              {s.picked ? <Text color="claude">{s.text}</Text> : s.text}
             </Button>
           ))}
           <Button
@@ -189,7 +187,7 @@ export const register: Register = on => {
             <Box flexDirection="row">
               {/* The pick's own blue ties the reason to its row. */}
               <Text color="claude" bold>{'Why: '}</Text>
-              <Text wrap="truncate">{shown.why}</Text>
+              <Text wrap="wrap">{shown.why}</Text>
             </Box>
           ) : ''}
         </Box>

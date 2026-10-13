@@ -6,16 +6,16 @@ After a reply with a `**Picks:**` line, or a `**Next:**` line that says "say go"
 ╭──────────────────────────────────────────────╮
 │ How to finish the branch?                    │
 │                                              │
-│ 1: merge to main locally    no CI            │
-│ 2: push + PR                CI runs          │
-│ 3: keep the branch as-is    nothing lands    │
+│ 1: merge to main locally                     │
+│ 2: push + PR                                 │
+│ 3: keep the branch as-is                     │
 │ 4: type your own…                            │
 │                                              │
 │ Why: PR, merge once CI is green              │
 ╰──────────────────────────────────────────────╯
 ```
 
-- **One `Decision` table in the reply:** its heading is the question, and each option row is a choice with its tradeoff in gray. The recommended row is blue, and when the reply gives a `Why:`, a `Why:` line in the same blue under the rows gives the reason. A choice sends its option's id and text (`2: push + PR`), so the history reads on its own; it is also added to the up-arrow prompt history (`history.jsonl`), as a typed prompt is.
+- **One `Decision` table in the reply:** its heading is the question, and each option row is a choice; its tradeoff stays in the reply's table, just above. The recommended row is blue, and when the reply gives a `Why:`, a `Why:` line in the same blue under the rows gives the reason. A choice sends its option's id and text (`2: push + PR`), so the history reads on its own; it is also added to the up-arrow prompt history (`history.jsonl`), as a typed prompt is.
 - **Several decisions, or none, or one without a table:** the question comes from `say go → I run X`, else the Picks, else the Next line itself; `1: go` sends `go`.
 - **Last row, `type your own…`:** puts `go, but ` in the prompt box for your exceptions (`go, but 2B`).
 
