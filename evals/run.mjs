@@ -11,10 +11,9 @@ const EVALS = dirname(fileURLToPath(import.meta.url));
 const REPO = dirname(EVALS);
 const EFFORTS = ["low", "medium", "high", "xhigh"];
 // Inline skills cannot switch model (measured), so skill roles only ever run on the main model.
-const SKILL_CELLS = [...EFFORTS, "max"].map((effort) => ({ model: "opus", effort }));
+const SKILL_CELLS = EFFORTS.map((effort) => ({ model: "opus", effort }));
 const AGENT_CELLS = ["haiku", "sonnet", "opus"]
-  .flatMap((model) => EFFORTS.map((effort) => ({ model, effort })))
-  .concat({ model: "opus", effort: "max" });
+  .flatMap((model) => EFFORTS.map((effort) => ({ model, effort })));
 const READ_ONLY = ["Read", "Grep", "Glob"];
 // claudzilla's RTK hook rewrites `git …` to `rtk git …` before the permission check (measured), so mirror each Bash rule
 // and re-allow the read-only commands it rewrites; `echo` covers the common `cmd; echo "exit=$?"`.
