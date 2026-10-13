@@ -259,6 +259,12 @@ printf 'up\n' > "$U/seed/u"; g -C "$U/seed" add u; g -C "$U/seed" commit -m six;
 g -C "$U/clone" fetch; printf 'mine\n' > "$U/clone/u"
 notice >/dev/null; waitres
 check "auto: failure still behind is reported" grep -q 'auto-update failed.*updating in background' <<<"$(notice)"
+# A local branch with no upstream: notice against origin's default branch, never auto-update.
+waitres; rm -f "$res" "$U/clone/u"; g -C "$U/clone" switch -c feat/x
+out=$(notice)
+check "no upstream: user sees 'update available'" grep -q 'update available' <<<"$out"
+check "no upstream: hint switches to main first" grep -q 'git switch main && git pull' <<<"$out"
+check "no upstream: no auto-update" bash -c '! grep -q "updating in background" <<<"$1"' _ "$out"
 
 # --- truecolor on WSL ---
 W=$(new_home); echo 'alias x=y' > "$W/.bashrc"; echo 'export COLORTERM=24bit' > "$W/.zshrc"

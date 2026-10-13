@@ -8,12 +8,18 @@ gd=$(git -C "$repo" rev-parse --absolute-git-dir)
 log=$gd/claudzilla-update.log res=$gd/claudzilla-update.result lock=$gd/claudzilla-update.lock
 
 json() { printf '%s' "$1" | sed 's/[\\"]/\\&/g'; }
-behind() { git -C "$repo" rev-list --count HEAD..@{u} 2>/dev/null; }
+behind() { git -C "$repo" rev-list --count "HEAD..$up" 2>/dev/null; }
 # Uncommitted edits or local commits. Untracked files don't block: a fast-forward
 # only fails if upstream adds the same path.
 dirty() { git -C "$repo" status --porcelain --untracked-files=no 2>/dev/null; git -C "$repo" log --oneline @{u}..HEAD 2>/dev/null; }
 auto=$(GUARD="$here/rules-guard.mjs" node --input-type=module -e 'const { loadConfig } = await import(process.env.GUARD); process.stdout.write(String(loadConfig("").cfg.autoUpdate))' 2>/dev/null)
 [ "$auto" = true ] || auto=false   # node failed: never run upstream code unasked
+up=@{u} pull="git pull" cpull="git -C $repo pull"
+# A local branch with no upstream: notice against origin's default branch, never auto-update.
+git -C "$repo" rev-parse -q --verify "$up" >/dev/null 2>&1 || {
+  up=$(git -C "$repo" rev-parse --abbrev-ref origin/HEAD 2>/dev/null) auto=false
+  pull="git switch ${up#origin/} && git pull" cpull="git -C $repo switch ${up#origin/} && $cpull"
+}
 
 user="" claude="" why=""
 [ -f "$res" ] && user=$(cat "$res") && rm -f "$res"
@@ -23,8 +29,8 @@ if [ "${n:-0}" -gt 0 ]; then
     user="${user:+$user | }claudzilla: updating in background - restart Claude to apply"
   else
     [ "$auto" = true ] && why=" (auto-update skipped: local changes)"
-    user="${user:+$user | }claudzilla: update available${why:-} - ask Claude to update, or run: cd $repo && git pull && ./install.sh"
-    claude="A claudzilla update is available (repo: $repo). Only if the user asks to update claudzilla, run: git -C $repo pull --ff-only && $repo/install.sh - then report the result."
+    user="${user:+$user | }claudzilla: update available${why:-} - ask Claude to update, or run: cd $repo && $pull && ./install.sh"
+    claude="A claudzilla update is available (repo: $repo). Only if the user asks to update claudzilla, run: $cpull --ff-only && $repo/install.sh - then report the result."
   fi
 fi
 if [ -n "$claude" ]; then
