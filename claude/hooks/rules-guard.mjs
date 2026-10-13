@@ -566,9 +566,11 @@ function onPreTool(d) {
   transcript = d.transcript_path;
   const s = load(d.session_id);
   if (d.tool_name === "Bash") {
-    const was = s.checked;
-    checkBash(String(d.tool_input?.command ?? ""), d.cwd ?? process.cwd(), s);
-    if (s.checked !== was) save(d.session_id, s);
+    const cmd = String(d.tool_input?.command ?? "");
+    const was = s.checked, edited = s.edited;
+    checkBash(cmd, d.cwd ?? process.cwd(), s);
+    s.edited ||= writes(cmd);
+    if (s.checked !== was || s.edited !== edited) save(d.session_id, s);
     return;
   }
   const pr = mcpPr(d.tool_name, d.tool_input);
@@ -590,7 +592,12 @@ function onPreTool(d) {
 
 const EDGE_L = "│├┤┼└", EDGE_R = "│├┤┼┘";
 // "want it fixed", "once fixed", "not done" talk about a fix; they don't claim one.
-const CLAIM_RE = /\b(?<!\b(?:want|get|once|if|until|when|not)\s+(?:it\s+|them\s+)?)(?:done|fixed|passing|all tests pass|works now|verified)\b/i;
+const CLAIM_RE = /\b(?<!\b(?:want|get|once|if|until|when|not)\s+(?:it\s+|them\s+)?)(?:done|fixed|passing|all tests pass|works now|verified|merged|implemented|finished|(?:\d+(?:\/\d+)?|tests?) (?:\w+ )?pass(?:ed|es)?|is in(?=[.,;]|$))\b/im;
+// Bash file writes count as edits; /tmp, /dev and `=>` arrows don't. Shell never redirects inside quotes.
+const NOT_SCRATCH = String.raw`(?!\/dev\/|\/tmp\/)[\w~.\/$"'-]`;
+const REDIRECT_RE = new RegExp(String.raw`\b(?:sed|perl)\s+(?:-\w+\s+)*(?:-[A-Za-z]*i\b|--in-place)|\btee\s+(?:-\w+\s+)*${NOT_SCRATCH}|(?<![=-])>>?\s*${NOT_SCRATCH}`);
+const CODE_WRITE_RE = /\.write(?:_text|FileSync)?\(|open\([^)]*["'][wa][b+]?["']/;
+const writes = (cmd) => REDIRECT_RE.test(cmd.replace(/'[^']*'|"[^"]*"/g, '""')) || CODE_WRITE_RE.test(cmd);
 
 // Returns the 1-based message line of the first misaligned box edge in ```text blocks, else 0.
 function boxError(msg) {
@@ -705,5 +712,5 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
 
 export {
   CLAIM_RE, CONFIG_DIR, DEFAULTS, MACHINE_PROMPT, MSG, SESSION_RE, VERIFY, WHY,
-  commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, git, gitParse, keywordRe, loadConfig, mcpPr, nudge, prDescribes, proseOf, subjectProblem, unquote,
+  commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, git, gitParse, keywordRe, loadConfig, mcpPr, nudge, prDescribes, proseOf, subjectProblem, unquote, writes,
 };

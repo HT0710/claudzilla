@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   CLAIM_RE, CONFIG_DIR, DEFAULTS, MACHINE_PROMPT, SESSION_RE, VERIFY,
-  commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, git, gitParse, keywordRe, loadConfig, mcpPr, proseOf, subjectProblem, unquote,
+  commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, git, gitParse, keywordRe, loadConfig, mcpPr, proseOf, subjectProblem, unquote, writes,
 } from "../../hooks/rules-guard.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -174,7 +174,7 @@ function scan(root, days) {
           if (x.type === "text" && typeof x.text === "string" && x.text.trim()) turn.reply = x.text;
           if (x.type !== "tool_use") continue;
           if (x.name === "Skill") turn.skills.push(String(x.input?.skill ?? ""));
-          if (EDITS.has(x.name)) turn.edited = true;
+          if (EDITS.has(x.name) || (x.name === "Bash" && writes(String(x.input?.command ?? "")))) turn.edited = true;
           const pr = mcpPr(x.name, x.input);
           if (x.name === "Bash" || pr) {
             const cmd = pr ? JSON.stringify(x.input ?? {}) : String(x.input?.command ?? "");

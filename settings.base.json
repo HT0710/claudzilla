@@ -31,8 +31,7 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "if": "Bash(git *)", "command": "node \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/rules-guard.mjs\"" },
-          { "type": "command", "if": "Bash(gh *)", "command": "node \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/rules-guard.mjs\" gh" }
+          { "type": "command", "command": "node \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/rules-guard.mjs\"" }
         ]
       },
       {

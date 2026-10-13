@@ -278,6 +278,14 @@ stop "Fixed the parser." >/dev/null
 check "stop: verified claim ok" [ "$(state .flags.length)" = 0 ]
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "Done." >/dev/null
 check "stop: claim without edits ok" [ "$(state .flags.length)" = 0 ]
+new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ "sed -i s/a/b/ /x/a.js" >/dev/null
+check "stop: claim after Bash edit continues" has "$(stop "Fixed the parser.")" "Claimed done"
+new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ "git status > /dev/null 2>&1; echo x > /tmp/n; sed -n 1p f; grep '<a>' f; awk '\$1 > 5' f; node -e 'a => a'" >/dev/null
+check "stop: claim after read-only Bash ok" [ -z "$(stop "Fixed the parser.")" ]
+new_session; hook UserPromptSubmit prompt=go >/dev/null; hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
+check "stop: 'is in, N pass' is a claim" has "$(stop "Change A is in. Tests: 25 pass.")" "Claimed done"
+new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ "perl -pi -e 's/a/b/' f" >/dev/null
+check "stop: perl -pi is an edit" has "$(stop "All 304 tests pass.")" "Claimed done"
 long=$'## A\n'"$(printf 'x\n%.0s' {1..16})"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "$long" >/dev/null
 check "stop: missing TL;DR flagged" has "$(state .flags)" "TL;DR"
