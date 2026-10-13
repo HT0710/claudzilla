@@ -27,6 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh |
 | **Panel** | `/panel` opens a side pane listing this chat's prompts: click one to jump to it, `↻` reuses it, `⟲ rewind` opens `/rewind` ([details](plugins/panel/README.md)) |
 | **Attribution** | strips Claude session links from the commit and PR text Claude writes ([details](plugins/attribution/README.md)) |
 | **Picks band** | after a reply with Picks, "say go", or one `Decision — <topic>` table, a card above the prompt asks the reply's question and numbers its options (or `go`); a digit sends one, the last drafts `go, but ` ([details](plugins/picks/README.md)) |
+| **Update toasts** | toasts claudzilla update progress: available, updating, updated (restart to apply), failed ([details](plugins/update-toast/README.md)) |
 | **Plugins** | [caveman](https://github.com/JuliusBrussee/caveman), [ponytail](https://github.com/DietrichGebert/ponytail), [superpowers](https://github.com/obra/superpowers) |
 | **Statusline** | cwd, branch, context / 5h / weekly meters, model, effort, active skill |
 | **Token saver** | every Bash call runs through `rtk` |

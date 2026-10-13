@@ -6,6 +6,7 @@
     { "name": "panel", "source": "./plugins/panel" },
     { "name": "response-dividers", "source": "./plugins/response-dividers" },
     { "name": "attribution", "source": "./plugins/attribution" },
-    { "name": "picks", "source": "./plugins/picks" }
+    { "name": "picks", "source": "./plugins/picks" },
+    { "name": "update-toast", "source": "./plugins/update-toast" }
   ]
 }
