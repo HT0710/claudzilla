@@ -1270,6 +1270,47 @@ test('History shows a prompt as soon as it is sent, inside the second', async ($
   expect((await ui.find({ key: 'jump:0' }))?.text).toContain('second')
 })
 
+test('the wheel scrolls the History list under a fixed header, up to its end; ↑ or a new prompt brings it back up', async ($, on) => {
+  const start = Date.now() - 60_000
+  let history = Array.from({ length: 30 }, (_, i) => JSON.stringify({ display: `p${i}`, timestamp: start + i * 1000, sessionId: 'chat-1' })).join('\n')
+  on('clock.now', () => ({ value: 0 }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('process.run', (_, e) => ran(isHistoryGrep(e.argv) ? history : ''))
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.redraw()
+  // The day line and 30 prompts; 17 rows show under the tabs, their rule and the header, 16 once
+  // scrolled: the back-to-top line takes one.
+  const wheel = (by: number) =>
+    $.ui.scroll({ component: 'Pane', requestId: 'panel', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
+
+  expect(await ui.find({ key: 'top' })).toBeUndefined()
+  await wheel(5)
+  expect(await ui.find({ type: 'Text', text: 'Today' })).toBeUndefined()
+  expect(await ui.find({ key: 'jump:3' })).toBeUndefined()
+  expect((await ui.find({ key: 'jump:4' }))?.text).toContain('p25')
+  expect(await ui.find({ key: 'jump:20' })).toBeUndefined()
+  expect(await ui.find({ key: 'rewind' })).toBeDefined()
+  // Only the symbol is the button: hover lights it alone.
+  expect((await ui.find({ key: 'top' }))?.text).toBe('↑')
+
+  await wheel(100)
+  expect(await ui.find({ key: 'jump:13' })).toBeUndefined()
+  expect((await ui.find({ key: 'jump:29' }))?.text).toContain('p0')
+
+  await ui.press({ key: 'top' })
+  expect(await ui.find({ type: 'Text', text: 'Today' })).toBeDefined()
+  expect(await ui.find({ key: 'top' })).toBeUndefined()
+
+  await wheel(3)
+  history += `\n${JSON.stringify({ display: 'new', timestamp: start + 40_000, sessionId: 'chat-1' })}`
+  await $.prompt.submit({ text: 'new', wait: false, origin: { kind: 'composer' } })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'Today' })).toBeDefined()
+  expect((await ui.find({ key: 'jump:0' }))?.text).toContain('new')
+})
+
 test('after a long jump, rows left on the old screen no longer stretch the lit range', async ($, on) => {
   const start = Date.now() - 60_000
   const history = ['a', 'b', 'c']
