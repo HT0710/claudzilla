@@ -48,4 +48,4 @@ jobs:
           git tag "$tag"
           git push origin "$tag"
           notes=$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$tag" -q .body)
-          gh release create "$tag" --verify-tag --notes "$(printf '%s\n' "$notes" | sh .github/release-notes.sh)"
+          gh release create "$tag" --verify-tag --title "$tag" --notes "$(printf '%s\n' "$notes" | sh .github/release-notes.sh)"
