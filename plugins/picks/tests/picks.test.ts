@@ -130,6 +130,23 @@ test('parse: a lone Decision table asks on its own, as a skill gate ends with it
   expect(parse(gate.replace('Decision — how', 'Decision 2:how'))?.title).toBe('How to finish the branch?')
 })
 
+test('parse: an Options heading is a decision; a Recommendation heading keeps it open', () => {
+  const options = LETTERS.replace('### Decision — retry', '## Options').replace('**Recommend: A**', '## Recommendation\n\n**Recommend: A**\n- **Why:** fast.').replace('**Next:** say go.', '**Next:** pick A or B.')
+  expect(parse(options)).toEqual({
+    title: 'Pick one?',
+    rows: [{ id: 'A', text: 'no retry', picked: true }, { id: 'B', text: 'retry', picked: false }],
+    why: 'fast.',
+    go: 'go',
+  })
+  expect(parse(options.replace('## Options', '### Retry options'))?.title).toBe('Pick one?')
+  expect(parse(options.replace('## Options', '## Options — retry'))?.title).toBe('Retry?')
+  expect(parse(options.replace('## Recommendation', '## recommendation'))?.rows[0]?.picked).toBe(true)
+  // A reference table of options asks nothing: no Recommend, no card.
+  expect(parse(options.replace('## Options', '## CLI options').replace(/## Recommendation[^]*/, ''))).toBeNull()
+  expect(parse(options.replace('## Options', '## Options considered').replace('**Next:** pick A or B.', ''))).toBeNull()
+  expect(parse(LETTERS.replace('### Decision', '### DECISION').replace('**Next:** say go.', ''))).toBeNull()
+})
+
 test('parse: one Decision table gives its rows, the recommended one picked', () => {
   expect(parse(LONE)?.rows).toEqual([
     { id: '1', text: 'merge to main locally', picked: false },
