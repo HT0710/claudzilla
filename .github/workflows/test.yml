@@ -47,4 +47,5 @@ jobs:
           [ -n "$tag" ] || { echo "no release-worthy commits since ${last:-the start}"; exit 0; }
           git tag "$tag"
           git push origin "$tag"
-          gh release create "$tag" --generate-notes --verify-tag
+          notes=$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$tag" -q .body)
+          gh release create "$tag" --verify-tag --notes "$(printf '%s\n' "$notes" | sh .github/release-notes.sh)"
