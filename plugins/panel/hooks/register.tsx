@@ -15,8 +15,9 @@ const PAGE = 100
 const READ_ONLY = new Set(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'])
 // \u00a0: the toast wraps at spaces; ↻ keeps to its word.
 const GONE = "Can't jump: rewound or compacted out of the chat. ↻\u00a0reuses it."
-// HUD colors (claudzilla/claude/hud/hud-filter.pl) the theme has no key for.
-const HUD = { label: '#a396d2', faint: '#4f5c68', idle: '#456186', action: '#5d9678', compacted: '#8c7850', dirty: '#8c7850', churn: '#6e8c6e' }
+// HUD colors (claudzilla/claude/hud/hud-filter.pl) the theme has no key for; latest, a lighter
+// dirty yellow, is the panel's own.
+const HUD = { label: '#a396d2', faint: '#4f5c68', idle: '#456186', action: '#5d9678', compacted: '#8c7850', dirty: '#8c7850', churn: '#6e8c6e', latest: '#a8995a' }
 // Divider lines: their word's HUD color at 60%.
 const DIM = { label: '#625a7e', action: '#385a48', compacted: '#544830' }
 // A commit type (claude/rules/git.md's, plus perf) by what it does, one color each: feat adds (green),
@@ -320,6 +321,25 @@ const promptText = (content: unknown) => {
   return content.flatMap(block => (block.type === 'text' ? [String(block.text)] : [])).join('\n')
 }
 
+// The ids the chat file's last rows may be drawn under, newest first: a line's tool calls and
+// results (a tool row's), then its own (a message row's).
+export const lastRowIds = (tail: string) => [
+  ...new Set(
+    tail
+      .split('\n')
+      .reverse()
+      .flatMap(line => {
+        try {
+          const row = JSON.parse(line)
+          const blocks: { id?: unknown; tool_use_id?: unknown }[] = Array.isArray(row.message?.content) ? row.message.content : []
+          return [...blocks.map(block => block.id ?? block.tool_use_id).reverse(), row.uuid].filter((id): id is string => typeof id === 'string')
+        } catch {
+          // blank or partly written line
+          return []
+        }
+      }),
+  ),
+]
 export const nearestId = (text: string, prompt: Prompt) => {
   let best: { id: string; gap: number } | undefined
   for (const line of text.split('\n')) {
@@ -672,6 +692,16 @@ export const register: Register = on => {
     }
     // /rewind takes no target, so this opens its picker; the person picks the message there.
     const rewind = () => $.command.run({ command: 'rewind' }).catch(() => $.ui.toast('Could not open /rewind.'))
+    // The chat scrolls only to a row, never to its end: its newest row that is drawn, a tool group's
+    // calls not being drawn under their own ids.
+    const latest = async () => {
+      const tail = await $.process.run(['tail', '-n', '40', await chatPath($)]).catch(() => undefined)
+      for (const requestId of lastRowIds(tail?.stdout ?? '').slice(0, 10)) {
+        const moved = await $.ui.scroll({ to: { requestId }, block: 'end' }).catch(() => ({ deny: 'failed' }))
+        if (!moved.deny) return
+      }
+      $.ui.toast("Can't scroll to the chat's end.")
+    }
 
     let body
     // Kept while a Git draw reads: a wheel tick meanwhile still scrolls its zone.
@@ -686,6 +716,9 @@ export const register: Register = on => {
       const room = e.props.bodyColumns - 2 * PAD - 9
       const now = new Date()
       const days = prompts.map(prompt => dayLabel(prompt.timestamp, now))
+      // The longest count that fits beside "⟲ rewind  ⤓ latest " (19 columns); none in the narrowest pane.
+      const count = `${prompts.length}${all.length > MAX_PROMPTS ? '+' : ''} ${all.length === 1 ? 'prompt' : 'prompts'}`
+      const counted = [`${count} this session`, count, ''].find(text => !text || text.length + 19 <= room + 9)
       const isReachable = (prompt: Prompt) => {
         const key = flat(prompt.display)
         if ((!isCommand(prompt) && !drawnOnly.has(key)) || rowIds.has(key) || commands.has(key)) return true
@@ -740,13 +773,16 @@ export const register: Register = on => {
       body = (
         <Box flexDirection="column">
           <Box justifyContent="space-between">
-            <Button key="rewind" plain onPress={rewind}>
-              <Text color={HUD.action}>⟲ rewind</Text>
-            </Button>
-            <Text color={HUD.faint}>
-              {prompts.length}
-              {all.length > MAX_PROMPTS ? '+' : ''} {all.length === 1 ? 'prompt' : 'prompts'} this session
-            </Text>
+            <Box>
+              <Button key="rewind" plain onPress={rewind}>
+                <Text color={HUD.action}>⟲ rewind</Text>
+              </Button>
+              <Text>  </Text>
+              <Button key="latest" plain onPress={latest}>
+                <Text color={HUD.latest}>⤓ latest</Text>
+              </Button>
+            </Box>
+            {counted && <Text color={HUD.faint}>{counted}</Text>}
           </Box>
           {/* The rows under the tabs, their rule and the header. */}
           {prompts.length === 0 &&
