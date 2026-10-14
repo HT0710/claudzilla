@@ -37,7 +37,7 @@ export function parse(answer: string): Offer | null {
     }
     if (fence) continue
     if (/^#{1,6}\s/.test(line)) {
-      const heading = line.match(/^#{2,4}\s+Decision\b(?:\s+\d+)?(?:(?:\s*[—–]|\s+-)\s*(.*))?\s*$/)
+      const heading = line.match(/^#{2,4}\s+Decision\b(?:\s+\d+)?(?:(?:\s*[—–:]|\s+-)\s*(.*))?\s*$/)
       current = heading ? { topic: heading[1] ?? '', rows: null, recommend: '', why: '', afterRecommend: false } : null
       if (current) decisions.push(current)
       inTable = false

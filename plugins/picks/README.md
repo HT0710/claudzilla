@@ -1,6 +1,6 @@
 # picks
 
-After a reply with one `Decision — <topic>` table of two or more options, a card above the prompt asks the reply's question and numbers the answers:
+After a reply with one `Decision — <topic>` (or `Decision: <topic>`) table of two or more options, a card above the prompt asks the reply's question and numbers the answers:
 
 ```text
 ╭──────────────────────────────────────────────╮
