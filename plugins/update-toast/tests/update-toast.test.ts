@@ -8,7 +8,7 @@ const S = 1_000_000
 const ran = (exitCode: number, stdout: string) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
 const FOUND = ran(0, '/repo\n/repo/.git\n')
 const line = (at: number, kind: string, text: string) => `${at}\t${kind}\t${text}\n`
-const FAIL = 'claudzilla: auto-update failed - ask Claude to debug it (log: /repo/.git/claudzilla-update.log)'
+const FAIL = 'claudzilla: auto-update to v1.3.0 failed - ask Claude to debug it (log: /repo/.git/claudzilla-update.log)'
 
 type Piece = { stream: 'stdout' | 'stderr'; text: string }
 // The module types carry no timers; the test runner has them.
@@ -126,8 +126,16 @@ test('a fail line reaches the next prompt once, with the log and retry command',
   const second = await $.prompt.submit({ text: 'again', wait: false, origin: { kind: 'composer' } })
   const note = 'context' in first ? first.context?.find(c => c.includes('claudzilla-update.log')) : undefined
   expect(note).toContain('/repo/.git/claudzilla-update.log')
-  expect(note).toContain('git -C /repo pull --ff-only && /repo/install.sh')
+  expect(note).toContain('git -C /repo merge --ff-only v1.3.0 && /repo/install.sh')
   expect('context' in second && second.context?.some(c => c.includes('claudzilla-update.log'))).not.toBe(true)
+})
+
+test('a fail line without a target retries to the upstream branch', async ($, on) => {
+  const seen = session(on, [{ stream: 'stdout', text: line(S, 'fail', 'claudzilla: auto-update failed - ask Claude to debug it (log: /repo/.git/claudzilla-update.log)') }])
+  await $.session.start(start)
+  await until(() => seen.toasts.length > 0)
+  const first = await $.prompt.submit({ text: 'hi', wait: false, origin: { kind: 'composer' } })
+  expect('context' in first && first.context?.some(c => c.includes('git -C /repo merge --ff-only @{u} && /repo/install.sh'))).toBe(true)
 })
 
 test('a non-interactive session starts no watch', async ($, on) => {
