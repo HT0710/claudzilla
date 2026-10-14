@@ -1,6 +1,6 @@
 # picks
 
-After a reply with a `**Picks:**` line, a `**Next:**` line that says "say go", or one `Decision — <topic>` table, a card above the prompt asks the reply's question and numbers the answers:
+After a reply with one `Decision — <topic>` table of two or more options, a card above the prompt asks the reply's question and numbers the answers:
 
 ```text
 ╭──────────────────────────────────────────────╮
@@ -16,10 +16,10 @@ After a reply with a `**Picks:**` line, a `**Next:**` line that says "say go", o
 ```
 
 - **One `Decision` table in the reply:** its heading is the question, and each option row is a choice; its tradeoff stays in the reply's table, just above. The recommended row is blue, and when the reply gives a `Why:`, a `Why:` line in the same blue under the rows gives the reason. A choice puts its option's id and text (`2: push + PR`) in the prompt box, so the history reads on its own; Enter sends it.
-- **Several decisions, or none, or one without a table:** the question comes from `say go → I run X`, else the Picks, else the Next line itself; `1: go` puts `go` in the prompt box.
+- **Nothing to choose** (a `**Picks:**` line, a `**Next:**` that says "say go", or a one-option table): no card, only the dim answer in the prompt box: `go: 1B, 2A` with the Picks, else `go: run X` from `say go → I run X`, else `go`; a one-option table with no Picks gives its option.
 - **Last row, `type your own…`:** puts `go, but ` in the prompt box for your exceptions (`go, but 2B`).
 
-A digit typed into an empty prompt, then a short pause, picks a row. The recommended row's answer (or `go`) waits dim in the empty prompt: → or Tab, then Enter, sends it. alt+k (`abovePrompt:focus`, which claudzilla's `install.sh` binds; `ctrl+x tab` by default) focuses the card on that row: arrows move, Enter puts the answer in the prompt box, Esc returns to the prompt. The card hides while Claude works and goes once you send any prompt.
+A digit typed into an empty prompt, then a short pause, picks a row. The recommended row's answer (or the `go` answer) waits dim in the empty prompt: → or Tab, then Enter, sends it. alt+k (`abovePrompt:focus`, which claudzilla's `install.sh` binds; `ctrl+x tab` by default) focuses the card on that row: arrows move, Enter puts the answer in the prompt box and returns there, Esc returns without one. The card hides while Claude works and goes once you send any prompt.
 
 ## Install
 

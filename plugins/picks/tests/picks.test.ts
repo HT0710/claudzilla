@@ -24,6 +24,7 @@ const LONE = [
   '**Picks:** 2',
 ].join('\n')
 const LETTERS = '### Decision — retry\n\n| # | option | tradeoff |\n|---|---|---|\n| A | no retry | fast |\n| B | retry | +1 dep |\n\n**Recommend: A**\n\n**Next:** say go.'
+const ONE = LETTERS.replace('| B | retry | +1 dep |\n', '')
 const TWO = `${LONE.replace('Decision — how', 'Decision 1 — how')}\n\n${LETTERS.replace('Decision — retry', 'Decision 2 — retry')}`
 
 const engine = (on: any) => {
@@ -125,17 +126,14 @@ test('the pick is blue; a "Why: reason" line in the same blue gives its reason',
   expect([reason?.props.color, reason?.props.bold, reason?.props.wrap]).toEqual([undefined, undefined, 'wrap'])
 })
 
-test('ctrl+x tab lands on the pick, or on go when there are no rows', async ($, on) => {
+test('ctrl+x tab lands on the pick', async ($, on) => {
   engine(on)
   await $.turn.complete(done(LONE))
   const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
   expect((await ui.findAll({ type: 'Button' })).filter((b: any) => b.props.autoFocus).map((b: any) => b.props.label)).toEqual(['push + PR'])
-  await $.turn.complete(done(PICKS))
-  const again = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
-  expect((await again.findAll({ type: 'Button' })).filter((b: any) => b.props.autoFocus).map((b: any) => b.props.label)).toEqual(['go'])
 })
 
-test('the pick, or go, is the dim suggestion in the prompt box, over the engine\'s own', async ($, on) => {
+test('the pick, or go with its detail, is the dim suggestion in the prompt box, over the engine\'s own', async ($, on) => {
   const shown: string[] = []
   engine(on)
   on('prompt.suggest', (_: any, e: any) => { shown.push(e.text); return { isShown: true } })
@@ -147,7 +145,20 @@ test('the pick, or go, is the dim suggestion in the prompt box, over the engine\
   await $.turn.complete(done(PICKS))
   await $.prompt.submit({ text: 'hi' } as any)
   await $.prompt.suggest(guess)
-  expect(shown).toEqual(['2: push + PR', '2: push + PR', 'from another mod', 'go', 'run the tests'])
+  expect(shown).toEqual(['2: push + PR', '2: push + PR', 'from another mod', 'go: 1B, 2A', 'run the tests'])
+})
+
+test('no card without 2+ options: go, with Picks or the run as detail, or the lone option, is only the suggestion', async ($, on) => {
+  const shown: string[] = []
+  engine(on)
+  on('prompt.suggest', (_: any, e: any) => { shown.push(e.text); return { isShown: true } })
+  for (const reply of [PICKS, '**Next:** say go → I run executing-plans.', '**Next:** say go.', ONE, ONE.replace('**Recommend: A**', '**Recommend: A**\n\n**Picks:** A, fixes 1–3'), ONE.replace('**Recommend: A**', '')]) {
+    await $.turn.complete(done(reply))
+    const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
+    expect(await ui.findAll({ type: 'Button' })).toEqual([])
+    await ui.unmount()
+  }
+  expect(shown).toEqual(['go: 1B, 2A', 'go: run executing-plans', 'go', 'A: no retry', 'go: A, fixes 1–3', 'A: no retry'])
 })
 
 test('rows with none picked: no suggestion, as the card has no go row', async ($, on) => {
@@ -195,52 +206,49 @@ test('a press puts its id and option in the prompt box, unsent, so the box clear
   expect(sent).toEqual([])
 })
 
-test('no table: 1 drafts go; 2 drafts "go, but "', async ($, on) => {
+test('type your own… drafts "go, but "', async ($, on) => {
   const filled: string[] = []
   engine(on)
   on('prompt.fill', (_: any, e: any) => { filled.push(e.text); return { isFilled: true } })
-  await $.turn.complete(done(PICKS))
+  await $.turn.complete(done(LETTERS))
   const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
-  expect(await labels(ui)).toEqual(['go', 'type your own…'])
-  expect((await ui.find({ key: 'own' }))?.props.hotkey).toBe('2')
+  expect((await ui.find({ key: 'own' }))?.props.hotkey).toBe('3')
   await ui.press({ key: 'own' })
   expect(filled).toEqual(['go, but '])
-  await ui.press({ key: 'go' })
-  expect(filled).toEqual(['go, but ', 'go'])
 })
 
 test('no band for a subagent turn, an aborted turn, or while working', async ($, on) => {
   engine(on)
   // Module state may outlive a test: start from a reply with no picks.
   await $.turn.complete(done('plain'))
-  await $.turn.complete(done(PICKS, { agentId: 'a1' }))
-  await $.turn.complete(done(PICKS, { reason: 'aborted', isAborted: true }))
+  await $.turn.complete(done(LETTERS, { agentId: 'a1' }))
+  await $.turn.complete(done(LETTERS, { reason: 'aborted', isAborted: true }))
   let ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
-  expect(await ui.find({ key: 'go' })).toBeUndefined()
+  expect(await ui.find({ key: 'pick:A' })).toBeUndefined()
   await ui.unmount()
-  await $.turn.complete(done(PICKS))
+  await $.turn.complete(done(LETTERS))
   ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND, props: { ...BAND.props, isWorking: true } })
-  expect(await ui.find({ key: 'go' })).toBeUndefined()
+  expect(await ui.find({ key: 'pick:A' })).toBeUndefined()
 })
 
 test('a typed prompt clears the band', async ($, on) => {
   engine(on)
   on('prompt.submit', (_: any, e: any) => ({ text: e.text }) as any)
-  await $.turn.complete(done(PICKS))
+  await $.turn.complete(done(LETTERS))
   const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
-  expect(await ui.find({ key: 'go' })).toBeDefined()
+  expect(await ui.find({ key: 'pick:A' })).toBeDefined()
   await $.prompt.submit({ text: 'something else', wait: false, origin: { kind: 'composer' } })
   await ui.drawn()
-  expect(await ui.find({ key: 'go' })).toBeUndefined()
+  expect(await ui.find({ key: 'pick:A' })).toBeUndefined()
 })
 
 test('/clear (session.end) clears the band', async ($, on) => {
   engine(on)
   on('session.end', () => ({ sessionId: 's1' }))
-  await $.turn.complete(done(PICKS))
+  await $.turn.complete(done(LETTERS))
   const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
-  expect(await ui.find({ key: 'go' })).toBeDefined()
+  expect(await ui.find({ key: 'pick:A' })).toBeDefined()
   await $.session.end({ reason: 'clear' })
   await ui.drawn()
-  expect(await ui.find({ key: 'go' })).toBeUndefined()
+  expect(await ui.find({ key: 'pick:A' })).toBeUndefined()
 })
