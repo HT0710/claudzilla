@@ -5,6 +5,7 @@ A side pane listing this chat's prompts, newest first.
 - **Click a prompt:** the chat scrolls to it.
 - **`↻`:** puts the prompt back in the prompt box.
 - **`⟲ rewind`:** opens the `/rewind` picker.
+- **`⤓ latest`:** scrolls the chat to its newest row, as ctrl+end does.
 - **Wheel:** scrolls the prompts under the tabs and header. Scrolled, a `↑` line under the header, or a new prompt, goes back to the top.
 - **Lit prompt:** the one whose turn is on screen. Needs the fullscreen layout.
 - **Dim prompt:** rewound or compacted (a `Rewound` or `Compacted` line marks where), or not drawn in the chat yet. `↻` still works.

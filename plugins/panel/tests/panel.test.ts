@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { branchLine, dayLabel, gone, inView, keepNewest, litPrompt, nearestCommandId, nearestId, needles, ordered, pinHolds, readStamps, stampPattern } from '../hooks/register'
+import { branchLine, dayLabel, gone, inView, keepNewest, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, pinHolds, readStamps, stampPattern } from '../hooks/register'
 
 // A process.run result with `stdout`.
 const ran = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -578,6 +578,43 @@ test('jumping to a prompt the chat cannot find says so', async ($, on) => {
   expect(toasts).toEqual(["Can't jump: not found in the chat. ↻\u00a0reuses it."])
 })
 
+// The chat file's tail: a prompt, a reply calling a tool, its result, a system line, a line half written.
+const chatTail = [
+  JSON.stringify({ type: 'user', uuid: 'u1', message: { content: 'hi' } }),
+  JSON.stringify({ type: 'assistant', uuid: 'a1', message: { content: [{ type: 'text', text: 'ok' }, { type: 'tool_use', id: 'toolu_1' }] } }),
+  JSON.stringify({ type: 'user', uuid: 'u2', message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_1' }] } }),
+  JSON.stringify({ type: 'file-history-snapshot', messageId: 'x' }),
+  '{"type":"assistant","uuid":"a2',
+].join('\n')
+
+test("the chat's last row ids, newest first: a line's calls before its own id", () => {
+  expect(lastRowIds(chatTail)).toEqual(['toolu_1', 'u2', 'a1', 'u1'])
+})
+
+test('⤓ latest reads the chat file\'s tail, and says so when no row of it scrolls', async ($, on) => {
+  const toasts: string[] = []
+  const runs: string[] = []
+  noHistory(on)
+  on('process.run', (_, e) => {
+    runs.push(e.argv.join(' '))
+    return ran(e.argv[0] === 'find' ? '/home/me/projects/p/chat-1.jsonl\n' : e.argv[0] === 'tail' ? chatTail : '')
+  })
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const latest = await ui.find({ key: 'latest' })
+  expect(latest?.text).toBe('⤓ latest')
+  // Yellow, apart from rewind's green, the back-to-top line's purple and Compacted's darker yellow.
+  expect((await ui.find({ type: 'Text', text: '⤓ latest' }))?.props.color).toBe('#a8995a')
+
+  // The test surface cannot scroll the chat: every row is refused.
+  await ui.press({ key: 'latest' })
+  expect(runs).toContain('tail -n 40 /home/me/projects/p/chat-1.jsonl')
+  expect(toasts).toEqual(["Can't scroll to the chat's end."])
+})
+
 test('a jump whose scroll fails says so', async ($, on) => {
   const toasts: string[] = []
   const at = '2026-10-10T10:00:00.000Z'
@@ -1121,17 +1158,32 @@ test('the count says 100+ when the chat holds more prompts than the list shows',
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
   await ui.redraw()
 
-  expect(await ui.find({ type: 'Text', text: '100+ prompts this session' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '100+ prompts' })).toBeDefined()
   expect(await ui.find({ key: 'jump:100' })).toBeUndefined()
 })
 
-test('one prompt is counted without the plural s', async ($, on) => {
+test('the narrowest pane keeps both buttons and drops the count', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('fs.read', () => ({ value: JSON.stringify({ display: 'only', timestamp: 1, sessionId: 'chat-1' }) }))
+  // The narrowest the terminal lets the pane be dragged.
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 23 }, requestId: 'panel' })
+  await ui.redraw()
+
+  expect(await ui.find({ key: 'rewind' })).toBeDefined()
+  expect(await ui.find({ key: 'latest' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /prompt/ })).toBeUndefined()
+})
+
+test('one prompt is counted without the plural s; " this session" only where it fits', async ($, on) => {
   on('clock.now', () => ({ value: 0 }))
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('fs.read', () => ({ value: JSON.stringify({ display: 'only', timestamp: 1, sessionId: 'chat-1' }) }))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  // 40 columns hold only "1 prompt" (the 100+ test's); 60 hold " this session" too.
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 60 }, requestId: 'panel' })
   await ui.redraw()
 
   expect(await ui.find({ type: 'Text', text: '1 prompt this session' })).toBeDefined()
