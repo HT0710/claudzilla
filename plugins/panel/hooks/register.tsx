@@ -45,8 +45,8 @@ const submitted = atom({ plugin: 'panel', key: 'submitted' } as const, 0)
 const toolCalls = atom({ plugin: 'panel', key: 'toolCalls' } as const, 0)
 // Rows the Git tab's CHANGES zone takes, as the divider was dragged; -1 until it is.
 const split = atom({ plugin: 'panel', key: 'split' } as const, -1)
-// The first row each Git zone shows, as the wheel moved it.
-const scrolled = atom({ plugin: 'panel', key: 'scrolled' } as const, { changes: 0, commits: 0 })
+// The first row each Git zone, and the History list, shows, as the wheel moved it.
+const scrolled = atom({ plugin: 'panel', key: 'scrolled' } as const, { changes: 0, commits: 0, history: 0 })
 
 // `typed`: history's own text, set when a paste placeholder in it was swapped for the paste.
 export type Prompt = { display: string; timestamp: number; typed?: string }
@@ -267,6 +267,8 @@ let logRead: { key: string; signal: AbortSignal; run: ReturnType<typeof readLog>
 // The Git tab as last drawn: rows above `commitsAt` scroll CHANGES, the rest COMMITS, each up to its
 // last offset. Unset while another tab shows: the engine scrolls that one.
 let gitZones: { commitsAt: number; changes: number; commits: number } | undefined
+// The History list's last offset as last drawn; unset as gitZones is.
+let historyEnd: number | undefined
 // Counts UTF-16 units, not cells: a wide glyph (CJK, emoji) can still overflow by one.
 const fit = (text: string, room: number) => (text.length > room ? `${text.slice(0, room - 1)}…` : text)
 
@@ -538,6 +540,8 @@ export const register: Register = on => {
       const texts = [...(await midTurn($)), e.text].slice(-MAX_PROMPTS)
       await $.store.set(await midTurnKey($), texts).catch(() => undefined)
     }
+    // The new prompt lists first: back to the top to show it.
+    await update($, scrolled, top => ({ ...top, history: 0 }))
     await update($, submitted, n => n + 1)
 
     return result
@@ -563,7 +567,13 @@ export const register: Register = on => {
   })
 
   // The wheel over the Git tab scrolls the zone under it, not the pane; keys, with no pointer, COMMITS.
+  // Over History, its list, under the header.
   on('ui.scroll', { requestId: PANE }, async ($, e, next) => {
+    const end = historyEnd
+    if (end !== undefined) {
+      await update($, scrolled, top => ({ ...top, history: Math.max(0, Math.min(top.history + e.by, end)) }))
+      return {}
+    }
     const zones = gitZones
     if (!zones) return next(e)
     const zone = (e.pointer?.row ?? Infinity) < zones.commitsAt ? 'changes' : 'commits'
@@ -666,6 +676,7 @@ export const register: Register = on => {
     let body
     // Kept while a Git draw reads: a wheel tick meanwhile still scrolls its zone.
     if (current !== 'Git') gitZones = undefined
+    if (current !== 'History') historyEnd = undefined
     if (current === 'History') {
       const key = `${await $.session.id()}:${await read($, submitted)}`
       const at = await $.clock.now()
@@ -701,6 +712,31 @@ export const register: Register = on => {
           <Text color={dim}> {flanks(label, line)[1]}</Text>
         </Box>
       )
+      // One element per row, dividers too, so the list scrolls by rows under the header.
+      const lines = prompts.flatMap((prompt, i) => [
+        ...(days[i] !== days[i - 1] ? [divider(days[i] ?? '', '─', HUD.label, DIM.label)] : []),
+        // Rewound shares the rewind button's green.
+        ...(rows[i]?.marker === 'Rewound' ? [divider('Rewound', '~', HUD.action, DIM.action)] : []),
+        ...(rows[i]?.marker === 'Compacted' ? [divider('Compacted', '=', HUD.compacted, DIM.compacted)] : []),
+        <Box>
+          <Button key={`reuse:${i}`} plain onPress={() => reuse(prompt.display)}>
+            <Text color={HUD.idle}>↻ </Text>
+          </Button>
+          <Button key={`jump:${i}`} plain onPress={() => (rows[i]?.isLive ? jump(prompt) : $.ui.toast(GONE))}>
+            <Text color={HUD.faint}>{clock(prompt.timestamp)}  </Text>
+            <Text color={!rows[i]?.isLive || !isReachable(prompt) ? HUD.faint : i === lit ? 'claude' : compacted >= 0 && i >= compacted ? HUD.faint : undefined}>
+              {fit(flat(prompt.display), room).padEnd(room)}
+            </Text>
+          </Button>
+        </Box>,
+      ])
+      // The rows under the tabs, their rule and the header, less the back-to-top line once scrolled.
+      // Clamped: the list shrinks after a rewind.
+      const listRows = e.props.scroll.bodyRows - 3
+      const end = lines.length > listRows ? lines.length - listRows + 1 : 0
+      const from = Math.min((await read($, scrolled)).history, end)
+      if (!next.signal.aborted) historyEnd = end
+      const [left, right] = flanks('↑', '─')
       body = (
         <Box flexDirection="column">
           <Box justifyContent="space-between">
@@ -724,25 +760,17 @@ export const register: Register = on => {
                 <Text color={HUD.faint}> to reuse.</Text>
               </Box>,
             )}
-          {prompts.map((prompt, i) => (
-            <Box flexDirection="column">
-              {days[i] !== days[i - 1] && divider(days[i] ?? '', '─', HUD.label, DIM.label)}
-              {/* Rewound shares the rewind button's green. */}
-              {rows[i]?.marker === 'Rewound' && divider('Rewound', '~', HUD.action, DIM.action)}
-              {rows[i]?.marker === 'Compacted' && divider('Compacted', '=', HUD.compacted, DIM.compacted)}
-              <Box>
-                <Button key={`reuse:${i}`} plain onPress={() => reuse(prompt.display)}>
-                  <Text color={HUD.idle}>↻ </Text>
-                </Button>
-                <Button key={`jump:${i}`} plain onPress={() => (rows[i]?.isLive ? jump(prompt) : $.ui.toast(GONE))}>
-                  <Text color={HUD.faint}>{clock(prompt.timestamp)}  </Text>
-                  <Text color={!rows[i]?.isLive || !isReachable(prompt) ? HUD.faint : i === lit ? 'claude' : compacted >= 0 && i >= compacted ? HUD.faint : undefined}>
-                    {fit(flat(prompt.display), room).padEnd(room)}
-                  </Text>
-                </Button>
-              </Box>
+          {from > 0 && (
+            <Box>
+              <Text color={DIM.label}>{left} </Text>
+              {/* Only the symbol: a Button lights as wide as it draws. */}
+              <Button key="top" plain onPress={() => update($, scrolled, top => ({ ...top, history: 0 }))}>
+                <Text color={HUD.label}>↑</Text>
+              </Button>
+              <Text color={DIM.label}> {right}</Text>
             </Box>
-          ))}
+          )}
+          {lines.slice(from, from + listRows - (from > 0 ? 1 : 0))}
         </Box>
       )
     } else if (current === 'Git') {
