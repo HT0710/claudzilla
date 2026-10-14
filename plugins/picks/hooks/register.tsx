@@ -17,9 +17,14 @@ const question = (s: string) => {
   return `${t.charAt(0).toUpperCase()}${t.slice(1)}${t.endsWith('?') ? '' : '?'}`
 }
 
+// "→ I X", "and I'll X", "and I will X" or "and I run X"; plain "and I start" stays prose.
+const DOES = /(?:→\s*I|\band\s+I(?:['’]ll|\s+will|(?=\s+run\b)))\s+/.source
+// A bare `go` would match "run `go test`"; another word needs DOES right after it, or it asks a question. \x60 is a backtick.
+const SAY = new RegExp(String.raw`\bsay\s+\x60?(?:go\b|\w+\x60?,?\s+${DOES})`, 'i')
+
 type Decision = { topic: string; rows: Row[] | null; recommend: string; why: string; afterRecommend: boolean }
 
-// Parsed from a reply with a `**Picks:**` line, a `**Next:**` asking "say go", or one titled Decision table, outside ``` / ~~~ fences; the card draws only for 2+ options.
+// Parsed from a reply with a `**Picks:**` line, a `**Next:**` asking "say go" (or "say <word> and I'll X"), or one titled Decision table, outside ``` / ~~~ fences; the card draws only for 2+ options.
 // A reply with exactly one `Decision`, holding a table, yields its rows; its heading is the title.
 // A decision owns the table, Recommend and Why under its heading, up to the next heading.
 export function parse(answer: string): Offer | null {
@@ -67,8 +72,7 @@ export function parse(answer: string): Offer | null {
     }
     const m = line.match(/^\*\*(Picks|Next):\*\*\s*(.+)$/)
     if (m?.[1] === 'Picks') picks = m[2]!
-    // A bare `go` would match "run `go test`".
-    else if (m && /\bsay\s+`?go\b/i.test(m[2]!)) next = m[2]!
+    else if (m && SAY.test(m[2]!)) next = m[2]!
   }
   const lone = decisions.length === 1 && decisions[0]!.rows?.length ? decisions[0]! : null
   // A skill gate ends with its own question, so its lone decision table is the ask.
@@ -79,8 +83,13 @@ export function parse(answer: string): Offer | null {
   const chosen = ids.includes(lone?.recommend ?? '') ? lone!.recommend : pick
   const rows = lone ? lone.rows!.map(row => ({ ...row, picked: row.id === chosen })) : []
   const why = lone?.why ?? ''
-  // "say go → I run X", "and I run X" or "and I'll X"; plain "and I start" stays prose. Ticks would show raw.
-  const act = next?.match(/(?:→\s*I|\band\s+I(?:['’]ll|\s+will|(?=\s+run\b)))\s+(.+)$/)?.[1]?.replace(/`/g, '')
+  // X follows the say that let the line in, not an earlier "and I'll".
+  const said = next?.slice(next.search(SAY))
+  const does = said?.match(new RegExp(`${DOES}(.+)$`))
+  // Ticks would show raw; a second sentence or ", or say" is another ask.
+  const act = does?.[1]!.replace(/`/g, '').split(/(?<=[.?])(?<!\b(?:e\.g|i\.e)\.)\s|,\s+or\s+say\b/)[0]
+  // "say B and I'll X" also picks B; only the word said right before X.
+  const letter = does && said!.slice(0, does.index).match(/\b[Ss]ay\s+`?([A-Z])`?,?\s*$/)?.[1]
   const title = lone?.topic
     ? question(lone.topic)
     : act
@@ -89,7 +98,7 @@ export function parse(answer: string): Offer | null {
         ? question(`go with ${picks}`)
         : `${next!.charAt(0).toUpperCase()}${next!.slice(1)}`
   // The Picks line also holds fixes the lone option would drop.
-  const go = picks !== null ? picks : rows.length === 1 ? `${rows[0]!.id}: ${rows[0]!.text}` : act ? act.replace(/[.:]$/, '') : 'go'
+  const go = picks !== null ? picks : rows.length === 1 ? `${rows[0]!.id}: ${rows[0]!.text}` : act ? `${letter ? `${letter}: ` : ''}${act.replace(/[.:]$/, '')}` : 'go'
   return { title, rows, why, go }
 }
 

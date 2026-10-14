@@ -78,13 +78,38 @@ test('parse: "say go and I\'ll <do X>" gives X as the title and the go detail', 
   expect(parse('**Next:** say go and I run executing-plans.')?.go).toBe('run executing-plans')
 })
 
+test('parse: "say <word> and I\'ll X" gives X; an option letter gives "B: X"', () => {
+  expect(parse("**Next:** say commit and I'll commit it on `fix/x`.")?.go).toBe('commit it on fix/x')
+  expect(parse('**Next:** say push, and I will push the branch.')?.go).toBe('push the branch')
+  expect(parse('**Next:** say so → I debug the load.')?.go).toBe('debug the load')
+  expect(parse("**Next:** say B and I'll brainstorm the skill.")?.go).toBe('B: brainstorm the skill')
+  // The letter is the one said right before X, not a later "or say C".
+  expect(parse("**Next:** say commit and I'll commit it, or say C and I'll start.")?.go).toBe('commit it')
+  // X is what follows the say, not an earlier "and I'll".
+  expect(parse("**Next:** once it lands and I'll rerun CI. Say push and I'll push.")?.go).toBe('push')
+  expect(parse("**Next:** Say B and I'll brainstorm it.")?.go).toBe('B: brainstorm it')
+})
+
+test('parse: the go detail stops at its first sentence or ", or say"', () => {
+  expect(parse("**Next:** say ship and I'll commit, push and merge it. A one-file diff skips the review.")?.go).toBe('commit, push and merge it')
+  expect(parse("**Next:** say B and I'll brainstorm it, or say A to drop it.")?.go).toBe('B: brainstorm it')
+  expect(parse("**Next:** say go and I'll run `brainstorming`. Or say \"measure first\".")?.title).toBe('Run brainstorming?')
+  expect(parse("**Next:** say go and I'll edit `a.md` and `b.ts`.")?.go).toBe('edit a.md and b.ts')
+  expect(parse("**Next:** say go and I'll run it (or run `! make` yourself).")?.go).toBe('run it (or run ! make yourself)')
+  expect(parse("**Next:** say go and I'll add a guard (e.g. a null check).")?.go).toBe('add a guard (e.g. a null check)')
+})
+
 test('parse: Picks only inside a fence is ignored; a real one after it counts', () => {
   expect(parse('```md\n**Picks:** 9Z\n```')).toBeNull()
   expect(parse('~~~\n```\n**Picks:** 9Z\n~~~\n**Picks:** 1A')?.title).toBe('Go with 1A?')
 })
 
-test('parse: Next needs "say go"', () => {
+test('parse: Next needs "say go" or "say <word> and I\'ll X"', () => {
   expect(parse('**Next:** run `go test ./auth`.')).toBeNull()
+  // A word other than go needs the "and I'll X" right after it.
+  expect(parse('**Next:** say whether to fold these in.')).toBeNull()
+  expect(parse("**Next:** say A (or B) and I'll start.")).toBeNull()
+  expect(parse("**Next:** say the word and I'll run the probe.")).toBeNull()
   expect(parse('plain reply')).toBeNull()
 })
 
