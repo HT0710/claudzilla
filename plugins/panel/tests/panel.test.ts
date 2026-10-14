@@ -145,6 +145,21 @@ test('dragging the divider gives CHANGES more rows', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: /file9\.ts/ })).toBeUndefined()
 })
 
+test('the divider lights its grip while the pointer is over it', async ($, on) => {
+  noHistory(on)
+  on('process.run', (_, e) => ran(git({ status: '## main\n M file0.ts\n', log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+  const grip = async () => (await ui.find({ type: 'Text', text: '⇕', in: 'divider' }))?.props
+
+  expect((await grip())?.inverse).toBeUndefined()
+  await ui.pointer({ type: 'enter', x: 0, y: 0, in: 'divider' })
+  expect((await grip())?.inverse).toBe(true)
+  await ui.pointer({ type: 'leave', x: 0, y: 0, in: 'divider' })
+  expect(await grip()).toBeDefined()
+  expect((await grip())?.inverse).toBeUndefined()
+})
+
 test('the wheel scrolls CHANGES and COMMITS each on its own, up to their ends', async ($, on) => {
   noHistory(on)
   const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
