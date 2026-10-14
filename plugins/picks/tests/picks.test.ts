@@ -68,6 +68,16 @@ test('parse: no lone decision → title from "say go → I run X", else Picks, e
   expect(parse('**Picks:** 1B, 2A')?.title).toBe('Go with 1B, 2A?')
 })
 
+test('parse: "say go and I\'ll <do X>" gives X as the title and the go detail', () => {
+  const run = parse("**Next:** say go and I'll run `brainstorming` to write the spec.")
+  expect(run?.title).toBe('Run brainstorming to write the spec?')
+  expect(run?.go).toBe('go: run brainstorming to write the spec')
+  expect(parse("**Next:** say go and I'll write the spec.")?.go).toBe('go: write the spec')
+  expect(parse('**Next:** say go and I will write the spec.')?.go).toBe('go: write the spec')
+  expect(parse('**Next:** say go and I’ll write the spec.')?.go).toBe('go: write the spec')
+  expect(parse('**Next:** say go and I run executing-plans.')?.go).toBe('go: run executing-plans')
+})
+
 test('parse: Picks only inside a fence is ignored; a real one after it counts', () => {
   expect(parse('```md\n**Picks:** 9Z\n```')).toBeNull()
   expect(parse('~~~\n```\n**Picks:** 9Z\n~~~\n**Picks:** 1A')?.title).toBe('Go with 1A?')

@@ -79,16 +79,17 @@ export function parse(answer: string): Offer | null {
   const chosen = ids.includes(lone?.recommend ?? '') ? lone!.recommend : pick
   const rows = lone ? lone.rows!.map(row => ({ ...row, picked: row.id === chosen })) : []
   const why = lone?.why ?? ''
-  const runs = next?.match(/\bI\s+run\s+(.+)$/)?.[1]
+  // "say go → I run X", "and I run X" or "and I'll X"; plain "and I start" stays prose. Ticks would show raw.
+  const act = next?.match(/(?:→\s*I|\band\s+I(?:['’]ll|\s+will|(?=\s+run\b)))\s+(.+)$/)?.[1]?.replace(/`/g, '')
   const title = lone?.topic
     ? question(lone.topic)
-    : runs
-      ? question(`run ${runs}`)
+    : act
+      ? question(act)
       : picks !== null
         ? question(`go with ${picks}`)
         : `${next!.charAt(0).toUpperCase()}${next!.slice(1)}`
   // The Picks line also holds fixes the lone option would drop.
-  const go = picks !== null ? `go: ${picks}` : rows.length === 1 ? `${rows[0]!.id}: ${rows[0]!.text}` : runs ? `go: run ${runs.replace(/[.:]$/, '')}` : 'go'
+  const go = picks !== null ? `go: ${picks}` : rows.length === 1 ? `${rows[0]!.id}: ${rows[0]!.text}` : act ? `go: ${act.replace(/[.:]$/, '')}` : 'go'
   return { title, rows, why, go }
 }
 
