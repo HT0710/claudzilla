@@ -233,9 +233,9 @@ check "update: silent until the fetch lands" [ -z "$(notice)" ]
 for i in 1 2 3 4 5 6 7 8 9 10; do [ -n "$(notice)" ] && break; sleep 0.5; done
 out=$(notice)
 check "update: stale fetch refreshed in background" [ -n "$out" ]
-check "update: user sees 'update available'" node -e 'const j=JSON.parse(process.argv[1]);if(!/update available/.test(j.systemMessage)||/\d+ update/.test(j.systemMessage))process.exit(1)' "$out"
+check "update: user sees 'update available'" node -e 'const j=JSON.parse(process.argv[1]);if(!/update [0-9a-f]{7,} available/.test(j.systemMessage)||/\d+ update/.test(j.systemMessage))process.exit(1)' "$out"
 check "update: Claude gets the update command" node -e 'const h=JSON.parse(process.argv[1]).hookSpecificOutput;if(h.hookEventName!=="SessionStart"||!/merge --ff-only @\{u\}/.test(h.additionalContext)||!/install\.sh/.test(h.additionalContext))process.exit(1)' "$out"
-check "events: available is a start line" grep -qE $'^[0-9]+\tstart\tclaudzilla: update available - ' "$ev"
+check "events: available is a start line" grep -qE $'^[0-9]+\tstart\tclaudzilla: update [0-9a-f]{7,} available - ' "$ev"
 mkdir -p "$U/nogit"; cp "$REPO/claude/hooks/claudzilla-update.sh" "$U/nogit/"
 check "update: not a git repo is silent" [ -z "$(clean_env HOME="$U/home" sh "$U/nogit/claudzilla-update.sh" 2>&1)" ]
 # autoUpdate on (default): background pull + install.sh, result shown next session
@@ -244,7 +244,7 @@ waitres() { for i in $(seq 20); do [ -f "$res" ] && break; sleep 0.5; done; }
 rm "$U/home/.claude/claudzilla.json"
 printf 'echo ran > "$HOME/ran"\n' > "$U/clone/install.sh"
 out=$(notice); waitres
-check "auto: user told it updates in background" grep -q 'updating in background' <<<"$out"
+check "auto: user told it updates in background" grep -qE 'updating to [0-9a-f]{7,} in background' <<<"$out"
 check "auto: pulled to upstream" [ "$(git -C "$U/clone" rev-parse HEAD)" = "$(git -C "$U/seed" rev-parse HEAD)" ]
 check "auto: install.sh ran" [ -f "$U/home/ran" ]
 check "events: updating is a live line" grep -qE $'^[0-9]+\tlive\tclaudzilla: updating to [0-9a-f]{7,}$' "$ev"
@@ -259,15 +259,15 @@ g -C "$U/seed" commit --allow-empty -m four; g -C "$U/seed" push origin main
 g -C "$U/clone" fetch
 out=$(notice); sleep 1
 check "auto: local changes skip update" [ "$(git -C "$U/clone" log -1 --format=%s)" = three ]
-check "auto: local changes keep notice" grep -q 'update available.*local changes' <<<"$out"
-check "events: skipped is a start line" grep -qF $'\tstart\tclaudzilla: update available (auto-update skipped: local changes) - ' "$ev"
+check "auto: local changes keep notice" grep -qE 'update [0-9a-f]{7,} available.*local changes' <<<"$out"
+check "events: skipped is a start line" grep -qE $'\tstart\tclaudzilla: update [0-9a-f]{7,} available \\(auto-update skipped: local changes\\) - ' "$ev"
 g -C "$U/clone" checkout f; printf 'exit 3\n' > "$U/clone/install.sh"
 notice >/dev/null; waitres
-check "events: failure is a fail line" grep -qE $'^[0-9]+\tfail\tclaudzilla: auto-update failed - ask Claude to debug it \\(log: .*claudzilla-update\\.log\\)$' "$ev"
+check "events: failure is a fail line" grep -qE $'^[0-9]+\tfail\tclaudzilla: auto-update to [0-9a-f]{7,} failed - ask Claude to debug it \\(log: .*claudzilla-update\\.log\\)$' "$ev"
 out=$(notice)
-check "auto: failed install reported" grep -q 'auto-update failed - ask Claude to debug it (log: .*claudzilla-update.log)' <<<"$out"
+check "auto: failed install reported" grep -qE 'auto-update to [0-9a-f]{7,} failed - ask Claude to debug it \(log: .*claudzilla-update.log\)' <<<"$out"
 check "auto: Claude gets the failure log" node -e 'const h=JSON.parse(process.argv[1]).hookSpecificOutput;if(!/claudzilla-update\.log/.test(h.additionalContext)||!/install\.sh/.test(h.additionalContext))process.exit(1)' "$out"
-check "events: consumed failure is a start line" grep -qE $'^[0-9]+\tstart\tclaudzilla: auto-update failed - ' "$ev"
+check "events: consumed failure is a start line" grep -qE $'^[0-9]+\tstart\tclaudzilla: auto-update to [0-9a-f]{7,} failed - ' "$ev"
 printf 'echo ran > "$HOME/ran"\n' > "$U/clone/install.sh"
 g -C "$U/clone" commit --allow-empty -m mine
 g -C "$U/seed" commit --allow-empty -m five; g -C "$U/seed" push origin main; g -C "$U/clone" fetch
@@ -278,14 +278,14 @@ g -C "$U/clone" reset -q --hard origin/main
 printf 'up\n' > "$U/seed/u"; g -C "$U/seed" add u; g -C "$U/seed" commit -m six; g -C "$U/seed" push origin main
 g -C "$U/clone" fetch; printf 'mine\n' > "$U/clone/u"
 notice >/dev/null; waitres
-check "auto: failure still behind is reported" grep -q 'auto-update failed.*updating in background' <<<"$(notice)"
+check "auto: failure still behind is reported" grep -qE 'auto-update to [0-9a-f]{7,} failed.*updating to [0-9a-f]{7,} in background' <<<"$(notice)"
 # A local branch with no upstream: notice against origin's default branch, never auto-update.
 waitres; rm -f "$res" "$U/clone/u"; g -C "$U/clone" switch -c feat/x
 out=$(notice)
-check "no upstream: user sees 'update available'" grep -q 'update available' <<<"$out"
+check "no upstream: user sees 'update available'" grep -qE 'update [0-9a-f]{7,} available' <<<"$out"
 check "no upstream: hint switches to main first" grep -q 'git switch main && git merge --ff-only origin/main' <<<"$out"
 check "no upstream: no auto-update" bash -c '! grep -q "updating in background" <<<"$1"' _ "$out"
-check "events: no upstream hint is a start line" grep -qF $'\tstart\tclaudzilla: update available - ask Claude to update, or run: cd ' "$ev"
+check "events: no upstream hint is a start line" grep -qE $'\tstart\tclaudzilla: update [0-9a-f]{7,} available - ask Claude to update, or run: cd ' "$ev"
 # Tagged upstream: auto-update stops at the newest release tag, not the branch tip.
 g -C "$U/clone" switch main; g -C "$U/seed" tag v1.0.0; g -C "$U/seed" commit --allow-empty -m seven; g -C "$U/seed" push origin main v1.0.0
 g -C "$U/clone" fetch --tags; g -C "$U/clone" reset -q --hard v1.0.0
@@ -296,9 +296,10 @@ notice >/dev/null; waitres
 check "release: background fetch gets new tags" git -C "$U/clone" rev-parse -q --verify v1.1.0
 check "release: updated to the tag, not the tip" [ "$(git -C "$U/clone" log -1 --format=%s)" = seven ]
 check "release: report names the tag" grep -qx 'claudzilla: updated to v1.1.0' "$res"
-rm -f "$res"; g -C "$U/seed" tag v1.2.0; g -C "$U/seed" push origin v1.2.0
+rm -f "$res"; g -C "$U/seed" tag v1.2.0; g -C "$U/seed" tag aa-old; g -C "$U/seed" push origin v1.2.0 aa-old
 echo '{"rulesGuard":{"autoUpdate":false}}' > "$U/home/.claude/claudzilla.json"; g -C "$U/clone" fetch
 check "release: hint updates to the tag" grep -q 'git merge --ff-only v1.2.0 && ./install.sh' <<<"$(notice)"
+check "release: toast names the tag" grep -q 'update v1.2.0 available' "$ev"
 g -C "$U/seed" commit --allow-empty -m nine; g -C "$U/seed" tag backup; g -C "$U/seed" push origin main backup; g -C "$U/clone" fetch
 check "release: non-release tag is no target" grep -q 'merge --ff-only v1.2.0' <<<"$(notice)"
 rm "$U/home/.claude/claudzilla.json"; g -C "$U/clone" pull --ff-only

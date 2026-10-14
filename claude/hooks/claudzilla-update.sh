@@ -36,17 +36,17 @@ pull="${sw:+git $sw && }git merge --ff-only $to" cpull="${sw:+git -C $repo $sw &
 user="" claude="" why=""
 if [ -f "$res" ]; then
   user=$(cat "$res"); rm -f "$res"; emit start "$user"
-  case $user in *"auto-update failed"*)
+  case $user in *auto-update*failed*)
     claude="The last claudzilla auto-update failed (log: $log). Only if the user asks, read the log, fix the cause, then run: $cpull && $repo/install.sh - then report the result." ;;
   esac
 fi
 n=$(behind)
 if [ "${n:-0}" -gt 0 ]; then
   if [ "$auto" = true ] && [ -z "$(dirty)" ]; then
-    user="${user:+$user | }claudzilla: updating in background - restart Claude to apply"
+    user="${user:+$user | }claudzilla: updating to $(ver --match 'v[0-9]*' "$to") in background - restart Claude to apply"
   else
     [ "$auto" = true ] && why=" (auto-update skipped: local changes)"
-    msg="claudzilla: update available${why:-} - ask Claude to update, or run: cd $repo && $pull && ./install.sh"
+    msg="claudzilla: update $(ver --match 'v[0-9]*' "$to") available${why:-} - ask Claude to update, or run: cd $repo && $pull && ./install.sh"
     user="${user:+$user | }$msg"; emit start "$msg"
     claude="${claude:+$claude }A claudzilla update is available (repo: $repo). Only if the user asks to update claudzilla, run: $cpull && $repo/install.sh - then report the result."
   fi
@@ -66,10 +66,10 @@ find "$lock" -maxdepth 0 -mmin +60 -exec rmdir {} \; 2>/dev/null   # left by a k
   trap 'rmdir "$lock"' EXIT
   [ -z "$stale" ] || GIT_TERMINAL_PROMPT=0 git -C "$repo" fetch -q
   [ "$auto" = true ] && [ "$(behind)" -gt 0 ] 2>/dev/null && [ -z "$(dirty)" ] || exit 0
-  emit live "claudzilla: updating to $(ver "$(rel)")"
-  if { git -C "$repo" merge -q --ff-only "$(rel)" && bash "$repo/install.sh"; } >"$log" 2>&1
+  to=$(ver --match 'v[0-9]*' "$(rel)"); emit live "claudzilla: updating to $to"
+  if { git -C "$repo" merge -q --ff-only "$to" && bash "$repo/install.sh"; } >"$log" 2>&1
   then msg="claudzilla: updated to $(ver)"; emit live "$msg - restart Claude to apply"
-  else msg="claudzilla: auto-update failed - ask Claude to debug it (log: $log)"; emit fail "$msg"; fi
+  else msg="claudzilla: auto-update to $to failed - ask Claude to debug it (log: $log)"; emit fail "$msg"; fi
   echo "$msg" >"$res.tmp"
   mv "$res.tmp" "$res"
 ) </dev/null >/dev/null 2>&1 &

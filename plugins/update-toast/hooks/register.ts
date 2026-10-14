@@ -37,8 +37,11 @@ export async function watch($: EngineInterface, startedS: number, onFail: (note:
       if (!ev || !due(ev, startedS) || shown.has(raw)) continue
       shown.add(raw)
       $.ui.toast(ev.text, { timeoutMs: 15000 })
-      if (ev.kind === 'fail')
-        onFail(`${ev.text}. Only if the user asks, read the log, fix the cause, then run: git -C ${repo} pull --ff-only && ${repo}/install.sh - then report the result.`)
+      if (ev.kind === 'fail') {
+        // The hook names its target, the newest release tag: retry to that, not the branch tip.
+        const to = /auto-update to (\S+) failed/.exec(ev.text)?.[1] ?? '@{u}'
+        onFail(`${ev.text}. Only if the user asks, read the log, fix the cause, then run: git -C ${repo} merge --ff-only ${to} && ${repo}/install.sh - then report the result.`)
+      }
     }
   }
 }
