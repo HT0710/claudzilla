@@ -62,7 +62,7 @@ Optional JSON files, applied in this order. Later files win; objects merge and a
 
 `reviewNudge` sits next to `allowMain`, not under `rules`: `false` turns off the weekly `/rule-review` summary at startup.
 
-`autoUpdate` (machine file only): at startup a background job fast-forwards the clone and re-runs `install.sh`; the next session says it updated (or failed, with the log). Skipped when the clone has uncommitted edits or local commits. `false` = notice only.
+`autoUpdate` (machine file only): at startup a background job fast-forwards the clone to the newest release tag (weekly) and re-runs `install.sh`; the next session says it updated (or failed, with the log). Skipped when the clone has uncommitted edits or local commits. `false` = notice only.
 
 `tableWidth`: each prompt tells Claude the terminal width (`COLUMNS`, which Claude Code passes to hooks), and a reply whose table renders wider gets flagged.
 
