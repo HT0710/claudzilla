@@ -67,6 +67,15 @@ check "data: 999.5k rounds to 1M" [ "$(usage '{"input_tokens":999600}')" = 1M ]
 
 past=$(node -e 'const j=JSON.parse(process.argv[1]);j.rate_limits.five_hour.resets_at=1;console.log(JSON.stringify(j))' "$full")
 check "data: past reset -> no note" [ -z "$(key 5h_note "$(data <<<"$past")")" ]
+gone=$(node -e 'const j=JSON.parse(process.argv[1]);delete j.rate_limits.five_hour;console.log(JSON.stringify(j))' "$full")
+kv=$(data <<<"$gone")
+check "data: dropped window -> 5h 0" [ "$(key 5h "$kv")" = 0 ]
+check "data: dropped window -> no note" [ -z "$(key 5h_note "$kv")" ]
+kv=$(data <<<'{"rate_limits":{"spend_limit":{"used_percentage":5}}}')
+check "data: spend limit only -> no 5h" [ -z "$(key 5h "$kv")" ]
+check "data: spend limit only -> no wk" [ -z "$(key wk "$kv")" ]
+kv=$(data <<<'{"rate_limits":{"five_hour":{"used_percentage":null,"resets_at":9999999999}}}')
+check "data: null pct -> no 5h_note" [ -z "$(key 5h_note "$kv")" ]
 
 perl -i -ne 'print unless eof' "$T"
 echo "{\"timestamp\":\"$(iso 120)\",\"message\":{\"content\":[{\"type\":\"thinking\",\"thinking\":\"\"}]}}" >> "$T"
