@@ -42,8 +42,10 @@ function resetIn(v) {
 }
 for (const [key, src] of [["5h", "five_hour"], ["wk", "seven_day"]]) {
   const lim = d.rate_limits?.[src];
-  out[key] = pct(lim?.used_percentage);
-  if (out[key] !== undefined) out[`${key}_note`] = resetIn(lim.resets_at);
+  const v = pct(lim?.used_percentage);
+  // Claude Code drops a window after resets_at; dropped = fresh window, 0% used
+  out[key] = v ?? (d.rate_limits?.five_hour || d.rate_limits?.seven_day ? 0 : undefined);
+  if (v !== undefined) out[`${key}_note`] = resetIn(lim.resets_at);
 }
 
 try {
