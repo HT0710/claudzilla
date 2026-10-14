@@ -833,6 +833,11 @@ export const register: Register = on => {
       // subject room + 2 less its hash.
       const room = e.props.bodyColumns - 2 * PAD - 3
       const bodyRule = '─'.repeat(room + 3)
+      // A header's counts, each only where it fits after its 7-letter title and a space: the
+      // narrowest pane drops them from the right.
+      const fits = (...counts: string[]) => 8 + counts.join('').length <= room + 3
+      const localCount = local ? `${local.size} local` : ''
+      const totalCount = total ? `${local ? '  ' : ''}${total} total` : ''
       // Rows left once the tabs, their rule, the branch, the rule under it, both headers and the
       // divider are drawn. CHANGES takes what it needs up to half, or what the divider was dragged
       // to, none at least (the divider right under its title); COMMITS the rest, a row at least.
@@ -898,8 +903,8 @@ export const register: Register = on => {
             <Box justifyContent="space-between">
               <Text bold color={HUD.label}>CHANGES</Text>
               <Box>
-                <Text color={HUD.dirty}>{dirty}</Text>
-                <Text color={HUD.churn}>{churn && `  ${churn}`}</Text>
+                {fits(dirty) && <Text color={HUD.dirty}>{dirty}</Text>}
+                {churn && fits(dirty, `  ${churn}`) && <Text color={HUD.churn}>{`  ${churn}`}</Text>}
               </Box>
             </Box>
           )}
@@ -934,8 +939,8 @@ export const register: Register = on => {
               <Text bold color={HUD.label}>COMMITS</Text>
               {/* CHANGES' colors: local in the dirty count's yellow, as neither is pushed; total in the churn's green. */}
               <Box>
-                {local && <Text color={HUD.dirty}>{`${local.size} local`}</Text>}
-                {total ? <Text color={HUD.churn}>{`${local ? '  ' : ''}${total} total`}</Text> : null}
+                {localCount && fits(localCount) && <Text color={HUD.dirty}>{localCount}</Text>}
+                {totalCount && fits(localCount, totalCount) && <Text color={HUD.churn}>{totalCount}</Text>}
               </Box>
             </Box>
           )}
