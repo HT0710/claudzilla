@@ -89,7 +89,7 @@ export function parse(answer: string): Offer | null {
         ? question(`go with ${picks}`)
         : `${next!.charAt(0).toUpperCase()}${next!.slice(1)}`
   // The Picks line also holds fixes the lone option would drop.
-  const go = picks !== null ? `go: ${picks}` : rows.length === 1 ? `${rows[0]!.id}: ${rows[0]!.text}` : act ? `go: ${act.replace(/[.:]$/, '')}` : 'go'
+  const go = picks !== null ? picks : rows.length === 1 ? `${rows[0]!.id}: ${rows[0]!.text}` : act ? act.replace(/[.:]$/, '') : 'go'
   return { title, rows, why, go }
 }
 

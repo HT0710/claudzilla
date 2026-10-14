@@ -71,11 +71,11 @@ test('parse: no lone decision → title from "say go → I run X", else Picks, e
 test('parse: "say go and I\'ll <do X>" gives X as the title and the go detail', () => {
   const run = parse("**Next:** say go and I'll run `brainstorming` to write the spec.")
   expect(run?.title).toBe('Run brainstorming to write the spec?')
-  expect(run?.go).toBe('go: run brainstorming to write the spec')
-  expect(parse("**Next:** say go and I'll write the spec.")?.go).toBe('go: write the spec')
-  expect(parse('**Next:** say go and I will write the spec.')?.go).toBe('go: write the spec')
-  expect(parse('**Next:** say go and I’ll write the spec.')?.go).toBe('go: write the spec')
-  expect(parse('**Next:** say go and I run executing-plans.')?.go).toBe('go: run executing-plans')
+  expect(run?.go).toBe('run brainstorming to write the spec')
+  expect(parse("**Next:** say go and I'll write the spec.")?.go).toBe('write the spec')
+  expect(parse('**Next:** say go and I will write the spec.')?.go).toBe('write the spec')
+  expect(parse('**Next:** say go and I’ll write the spec.')?.go).toBe('write the spec')
+  expect(parse('**Next:** say go and I run executing-plans.')?.go).toBe('run executing-plans')
 })
 
 test('parse: Picks only inside a fence is ignored; a real one after it counts', () => {
@@ -145,7 +145,7 @@ test('ctrl+x tab lands on the pick', async ($, on) => {
   expect((await ui.findAll({ type: 'Button' })).filter((b: any) => b.props.autoFocus).map((b: any) => b.props.label)).toEqual(['push + PR'])
 })
 
-test('the pick, or go with its detail, is the dim suggestion in the prompt box, over the engine\'s own', async ($, on) => {
+test('the pick, or the go detail, is the dim suggestion in the prompt box, over the engine\'s own', async ($, on) => {
   const shown: string[] = []
   engine(on)
   on('prompt.suggest', (_: any, e: any) => { shown.push(e.text); return { isShown: true } })
@@ -157,7 +157,7 @@ test('the pick, or go with its detail, is the dim suggestion in the prompt box, 
   await $.turn.complete(done(PICKS))
   await $.prompt.submit({ text: 'hi' } as any)
   await $.prompt.suggest(guess)
-  expect(shown).toEqual(['2: push + PR', '2: push + PR', 'from another mod', 'go: 1B, 2A', 'run the tests'])
+  expect(shown).toEqual(['2: push + PR', '2: push + PR', 'from another mod', '1B, 2A', 'run the tests'])
 })
 
 test('no card without 2+ options: go, with Picks or the run as detail, or the lone option, is only the suggestion', async ($, on) => {
@@ -170,7 +170,7 @@ test('no card without 2+ options: go, with Picks or the run as detail, or the lo
     expect(await ui.findAll({ type: 'Button' })).toEqual([])
     await ui.unmount()
   }
-  expect(shown).toEqual(['go: 1B, 2A', 'go: run executing-plans', 'go', 'A: no retry', 'go: A, fixes 1–3', 'A: no retry'])
+  expect(shown).toEqual(['1B, 2A', 'run executing-plans', 'go', 'A: no retry', 'A, fixes 1–3', 'A: no retry'])
 })
 
 test('rows with none picked: no suggestion, as the card has no go row', async ($, on) => {
