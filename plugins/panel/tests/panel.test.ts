@@ -631,7 +631,7 @@ test('⤓ latest reads the chat file\'s tail, and says so when no row of it scro
 
   // The test surface cannot scroll the chat: every row is refused.
   await ui.press({ key: 'latest' })
-  expect(runs).toContain('tail -n 40 /home/me/projects/p/chat-1.jsonl')
+  expect(runs).toContain('tail -c 4000000 /home/me/projects/p/chat-1.jsonl')
   expect(toasts).toEqual(["Can't scroll to the chat's end."])
 })
 
