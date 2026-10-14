@@ -234,7 +234,7 @@ for i in 1 2 3 4 5 6 7 8 9 10; do [ -n "$(notice)" ] && break; sleep 0.5; done
 out=$(notice)
 check "update: stale fetch refreshed in background" [ -n "$out" ]
 check "update: user sees 'update available'" node -e 'const j=JSON.parse(process.argv[1]);if(!/update available/.test(j.systemMessage)||/\d+ update/.test(j.systemMessage))process.exit(1)' "$out"
-check "update: Claude gets the update command" node -e 'const h=JSON.parse(process.argv[1]).hookSpecificOutput;if(h.hookEventName!=="SessionStart"||!/pull --ff-only/.test(h.additionalContext)||!/install\.sh/.test(h.additionalContext))process.exit(1)' "$out"
+check "update: Claude gets the update command" node -e 'const h=JSON.parse(process.argv[1]).hookSpecificOutput;if(h.hookEventName!=="SessionStart"||!/merge --ff-only @\{u\}/.test(h.additionalContext)||!/install\.sh/.test(h.additionalContext))process.exit(1)' "$out"
 check "events: available is a start line" grep -qE $'^[0-9]+\tstart\tclaudzilla: update available - ' "$ev"
 mkdir -p "$U/nogit"; cp "$REPO/claude/hooks/claudzilla-update.sh" "$U/nogit/"
 check "update: not a git repo is silent" [ -z "$(clean_env HOME="$U/home" sh "$U/nogit/claudzilla-update.sh" 2>&1)" ]
@@ -283,9 +283,27 @@ check "auto: failure still behind is reported" grep -q 'auto-update failed.*upda
 waitres; rm -f "$res" "$U/clone/u"; g -C "$U/clone" switch -c feat/x
 out=$(notice)
 check "no upstream: user sees 'update available'" grep -q 'update available' <<<"$out"
-check "no upstream: hint switches to main first" grep -q 'git switch main && git pull' <<<"$out"
+check "no upstream: hint switches to main first" grep -q 'git switch main && git merge --ff-only origin/main' <<<"$out"
 check "no upstream: no auto-update" bash -c '! grep -q "updating in background" <<<"$1"' _ "$out"
 check "events: no upstream hint is a start line" grep -qF $'\tstart\tclaudzilla: update available - ask Claude to update, or run: cd ' "$ev"
+# Tagged upstream: auto-update stops at the newest release tag, not the branch tip.
+g -C "$U/clone" switch main; g -C "$U/seed" tag v1.0.0; g -C "$U/seed" commit --allow-empty -m seven; g -C "$U/seed" push origin main v1.0.0
+g -C "$U/clone" fetch --tags; g -C "$U/clone" reset -q --hard v1.0.0
+check "release: untagged commits are no update" [ -z "$(notice)" ]
+g -C "$U/seed" tag v1.1.0; g -C "$U/seed" commit --allow-empty -m eight; g -C "$U/seed" push origin main v1.1.0
+touch -t 200001010000 "$(git -C "$U/clone" rev-parse --absolute-git-dir)/FETCH_HEAD"
+notice >/dev/null; waitres
+check "release: background fetch gets new tags" git -C "$U/clone" rev-parse -q --verify v1.1.0
+check "release: updated to the tag, not the tip" [ "$(git -C "$U/clone" log -1 --format=%s)" = seven ]
+check "release: report names the tag" grep -qx 'claudzilla: updated to v1.1.0' "$res"
+rm -f "$res"; g -C "$U/seed" tag v1.2.0; g -C "$U/seed" push origin v1.2.0
+echo '{"rulesGuard":{"autoUpdate":false}}' > "$U/home/.claude/claudzilla.json"; g -C "$U/clone" fetch
+check "release: hint updates to the tag" grep -q 'git merge --ff-only v1.2.0 && ./install.sh' <<<"$(notice)"
+g -C "$U/seed" commit --allow-empty -m nine; g -C "$U/seed" tag backup; g -C "$U/seed" push origin main backup; g -C "$U/clone" fetch
+check "release: non-release tag is no target" grep -q 'merge --ff-only v1.2.0' <<<"$(notice)"
+rm "$U/home/.claude/claudzilla.json"; g -C "$U/clone" pull --ff-only
+check "release: ahead of tag is no update" [ -z "$(notice)" ]
+check "release: ahead of tag keeps HEAD" [ "$(git -C "$U/clone" log -1 --format=%s)" = nine ]
 for i in $(seq 150); do printf '0\tlive\tx%s\n' "$i"; done > "$ev"; notice >/dev/null
 check "events: trimmed past 100 lines" [ "$(wc -l < "$ev" | tr -d ' ')" -le 22 ]
 check "events: trim keeps the newest" grep -qF $'0\tlive\tx150' "$ev"

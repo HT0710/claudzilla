@@ -90,7 +90,7 @@ Full reference, install internals and keybindings: **[CONFIGURATION.md](CONFIGUR
 
 ## Update
 
-Updates install themselves in the background, unless the clone has local changes; then you get a notice. To update by hand:
+Releases ship weekly. Each one installs itself in the background, unless the clone has local changes; then you get a notice. To update by hand (latest `main`, may be ahead of the release):
 
 ```bash
 cd ~/claudzilla && git pull && ./install.sh
