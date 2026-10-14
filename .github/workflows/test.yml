@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: '17 0 * * 1'
+  workflow_dispatch:
 
 jobs:
   test:
@@ -26,7 +29,7 @@ jobs:
 
   release:
     needs: test
-    if: github.event_name == 'push'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -39,9 +42,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # A run whose push main has moved past leaves the tagging to the newer run, so tags stay in order.
+          # Tag only main's tip, so tags stay in order; a skipped release waits for the next schedule or a manual run.
           git fetch -q origin main
-          [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || { echo "main moved on; the newer run tags"; exit 0; }
+          [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || { echo "not main's tip; rerun via workflow_dispatch or wait for the schedule"; exit 0; }
           last=$(git describe --tags --abbrev=0 2>/dev/null || true)
           tag=$(git log --format='%s%n%b' ${last:+$last..}HEAD | sh .github/next-version.sh "$last")
           [ -n "$tag" ] || { echo "no release-worthy commits since ${last:-the start}"; exit 0; }

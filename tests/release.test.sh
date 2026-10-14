@@ -26,6 +26,9 @@ check "CI release trims notes" grep -q 'release-notes.sh' "$REPO/.github/workflo
 check "CI runs release tests" grep -q 'tests/release.test.sh' "$REPO/.github/workflows/test.yml"
 check "CI release skips a run behind main" grep -q 'origin/main' "$REPO/.github/workflows/test.yml"
 check "CI release waits for tests" grep -q 'needs: test' "$REPO/.github/workflows/test.yml"
+check "CI release runs weekly" grep -q "cron: '17 0 \\* \\* 1'" "$REPO/.github/workflows/test.yml"
+check "CI release runs on demand" grep -q '^  workflow_dispatch:' "$REPO/.github/workflows/test.yml"
+check "CI releases weekly, not per push" grep -q "if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'" "$REPO/.github/workflows/test.yml"
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
