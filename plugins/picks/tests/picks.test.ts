@@ -99,6 +99,14 @@ test('parse: the go detail stops at its first sentence or ", or say"', () => {
   expect(parse("**Next:** say go and I'll add a guard (e.g. a null check).")?.go).toBe('add a guard (e.g. a null check)')
 })
 
+test('parse: Picks with a Next act gives "<picks>, then X"; alone, just the picks', () => {
+  expect(parse("**Picks:** 1A, 2A\n\n**Next:** say go and I'll build it test-first.")?.go).toBe('1A, 2A, then build it test-first')
+  expect(parse('**Picks:** 1A, 2A\n\n**Next:** say go.')?.go).toBe('1A, 2A')
+  expect(parse('**Picks:** 1A, 2A')?.go).toBe('1A, 2A')
+  // Only go's act follows the picks; "say so and I'll X" is a fallback.
+  expect(parse("**Picks:** 2\n\n**Next:** press a digit. If no card shows, say so and I'll debug the load.")?.go).toBe('2')
+})
+
 test('parse: Picks only inside a fence is ignored; a real one after it counts', () => {
   expect(parse('```md\n**Picks:** 9Z\n```')).toBeNull()
   expect(parse('~~~\n```\n**Picks:** 9Z\n~~~\n**Picks:** 1A')?.title).toBe('Go with 1A?')
@@ -182,7 +190,7 @@ test('the pick, or the go detail, is the dim suggestion in the prompt box, over 
   await $.turn.complete(done(PICKS))
   await $.prompt.submit({ text: 'hi' } as any)
   await $.prompt.suggest(guess)
-  expect(shown).toEqual(['2: push + PR', '2: push + PR', 'from another mod', '1B, 2A', 'run the tests'])
+  expect(shown).toEqual(['2: push + PR', '2: push + PR', 'from another mod', '1B, 2A, then run executing-plans', 'run the tests'])
 })
 
 test('no card without 2+ options: go, with Picks or the run as detail, or the lone option, is only the suggestion', async ($, on) => {
@@ -195,7 +203,7 @@ test('no card without 2+ options: go, with Picks or the run as detail, or the lo
     expect(await ui.findAll({ type: 'Button' })).toEqual([])
     await ui.unmount()
   }
-  expect(shown).toEqual(['1B, 2A', 'run executing-plans', 'go', 'A: no retry', 'A, fixes 1–3', 'A: no retry'])
+  expect(shown).toEqual(['1B, 2A, then run executing-plans', 'run executing-plans', 'go', 'A: no retry', 'A, fixes 1–3', 'A: no retry'])
 })
 
 test('rows with none picked: no suggestion, as the card has no go row', async ($, on) => {
