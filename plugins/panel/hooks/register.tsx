@@ -46,8 +46,10 @@ const submitted = atom({ plugin: 'panel', key: 'submitted' } as const, 0)
 const toolCalls = atom({ plugin: 'panel', key: 'toolCalls' } as const, 0)
 // Rows the Git tab's CHANGES zone takes, as the divider was dragged; -1 until it is.
 const split = atom({ plugin: 'panel', key: 'split' } as const, -1)
-// The first row each Git zone, and the History list, shows, as the wheel moved it.
-const scrolled = atom({ plugin: 'panel', key: 'scrolled' } as const, { changes: 0, commits: 0, history: 0 })
+// The first row each Git zone shows, as the wheel moved it.
+const scrolled = atom({ plugin: 'panel', key: 'scrolled' } as const, { changes: 0, commits: 0 })
+// The History list's, on a key of its own: a reload keeps what older code stored under `scrolled`.
+const historyTop = atom({ plugin: 'panel', key: 'historyTop' } as const, 0)
 
 // `typed`: history's own text, set when a paste placeholder in it was swapped for the paste.
 export type Prompt = { display: string; timestamp: number; typed?: string }
@@ -561,7 +563,7 @@ export const register: Register = on => {
       await $.store.set(await midTurnKey($), texts).catch(() => undefined)
     }
     // The new prompt lists first: back to the top to show it.
-    await update($, scrolled, top => ({ ...top, history: 0 }))
+    await update($, historyTop, () => 0)
     await update($, submitted, n => n + 1)
 
     return result
@@ -591,7 +593,8 @@ export const register: Register = on => {
   on('ui.scroll', { requestId: PANE }, async ($, e, next) => {
     const end = historyEnd
     if (end !== undefined) {
-      await update($, scrolled, top => ({ ...top, history: Math.max(0, Math.min(top.history + e.by, end)) }))
+      // From the row drawn: a rewind may have shrunk the list under the offset stored.
+      await update($, historyTop, top => Math.max(0, Math.min(Math.min(top, end) + e.by, end)))
       return {}
     }
     const zones = gitZones
@@ -765,9 +768,9 @@ export const register: Register = on => {
       ])
       // The rows under the tabs, their rule and the header, less the back-to-top line once scrolled.
       // Clamped: the list shrinks after a rewind.
-      const listRows = e.props.scroll.bodyRows - 3
+      const listRows = Math.max(0, e.props.scroll.bodyRows - 3)
       const end = lines.length > listRows ? lines.length - listRows + 1 : 0
-      const from = Math.min((await read($, scrolled)).history, end)
+      const from = Math.min(await read($, historyTop), end)
       if (!next.signal.aborted) historyEnd = end
       const [left, right] = flanks('↑', '─')
       body = (
@@ -800,7 +803,7 @@ export const register: Register = on => {
             <Box>
               <Text color={DIM.label}>{left} </Text>
               {/* Only the symbol: a Button lights as wide as it draws. */}
-              <Button key="top" plain onPress={() => update($, scrolled, top => ({ ...top, history: 0 }))}>
+              <Button key="top" plain onPress={() => update($, historyTop, () => 0)}>
                 <Text color={HUD.label}>↑</Text>
               </Button>
               <Text color={DIM.label}> {right}</Text>
