@@ -125,6 +125,26 @@ test('Git tab redraws after a tool call changes the repo', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'fed4321' })).toBeDefined()
 })
 
+test('the narrowest pane keeps the Git headers on one row, dropping their counts from the right', async ($, on) => {
+  noHistory(on)
+  const repo = {
+    status: '## main\n M a.ts\nA  b.ts\n?? c.md\n',
+    log: 'abc1234ffff abc1234 feat: add thing\n',
+    diff: ' 1 file changed, 144 insertions(+), 6 deletions(-)\n',
+    '--remotes': 'abc1234ffff\nghi9012ffff\njkl3456ffff\n',
+    '--count': '142\n',
+  }
+  on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 23 }, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+
+  // 19 columns: "CHANGES !2 ?1" fits, the churn after it does not; "COMMITS 3 local" fits, the total does not.
+  expect(await ui.find({ type: 'Text', text: '!2 ?1' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /\+144/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: '3 local' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /total/ })).toBeUndefined()
+})
+
 test('dragging the divider gives CHANGES more rows', async ($, on) => {
   noHistory(on)
   const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
