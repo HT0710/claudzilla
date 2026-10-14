@@ -1,7 +1,8 @@
 import type { Register } from 'claude-code'
 
 export type Row = { id: string; text: string; picked: boolean }
-export type Offer = { title: string; rows: Row[]; why: string }
+// `go` is the answer under two rows: what go accepts, or the lone option.
+export type Offer = { title: string; rows: Row[]; why: string; go: string }
 
 // Bare digits are the only hotkeys the band arms; one goes to the draft row.
 const MAX_ROWS = 8
@@ -18,7 +19,7 @@ const question = (s: string) => {
 
 type Decision = { topic: string; rows: Row[] | null; recommend: string; why: string; afterRecommend: boolean }
 
-// Shown after a reply with a `**Picks:**` line, a `**Next:**` asking "say go", or one titled Decision table, outside ``` / ~~~ fences.
+// Parsed from a reply with a `**Picks:**` line, a `**Next:**` asking "say go", or one titled Decision table, outside ``` / ~~~ fences; the card draws only for 2+ options.
 // A reply with exactly one `Decision`, holding a table, yields its rows; its heading is the title.
 // A decision owns the table, Recommend and Why under its heading, up to the next heading.
 export function parse(answer: string): Offer | null {
@@ -86,15 +87,18 @@ export function parse(answer: string): Offer | null {
       : picks !== null
         ? question(`go with ${picks}`)
         : `${next!.charAt(0).toUpperCase()}${next!.slice(1)}`
-  return { title, rows, why }
+  // The Picks line also holds fixes the lone option would drop.
+  const go = picks !== null ? `go: ${picks}` : rows.length === 1 ? `${rows[0]!.id}: ${rows[0]!.text}` : runs ? `go: run ${runs.replace(/[.:]$/, '')}` : 'go'
+  return { title, rows, why, go }
 }
 
 // The id answers Claude; the option keeps the history readable.
 const answer = (row: Row) => `${row.id}: ${row.text}`
 // Dim in the empty prompt box; → or Tab, then Enter, sends it. Rows, none picked: no card row to match.
 const suggestion = (o: Offer) => {
+  if (o.rows.length < 2) return o.go
   const pick = o.rows.find(row => row.picked)
-  return pick ? answer(pick) : o.rows.length ? null : 'go'
+  return pick ? answer(pick) : null
 }
 
 export const register: Register = on => {
@@ -132,12 +136,11 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const shown = offer
-    if (!shown || e.props.isWorking || e.props.hasSurvey) return next(e)
+    // Under two options there is nothing to choose: the suggestion alone answers.
+    if (!shown || shown.rows.length < 2 || e.props.isWorking || e.props.hasSurvey) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
     const theirs = await next(e)
-    const sends = shown.rows.length
-      ? shown.rows.slice(0, MAX_ROWS).map(row => ({ key: `pick:${row.id}`, text: row.text, picked: row.picked, send: answer(row) }))
-      : [{ key: 'go', text: 'go', picked: false, send: 'go' }]
+    const sends = shown.rows.slice(0, MAX_ROWS).map(row => ({ key: `pick:${row.id}`, text: row.text, picked: row.picked, send: answer(row) }))
     const pick = shown.rows.find(row => row.picked)
     return (
       <Box flexDirection="column">
@@ -151,8 +154,8 @@ export const register: Register = on => {
               label={s.text}
               hotkey={String(i + 1)}
               plain
-              // ctrl+x tab focuses the band; Enter then drafts the pick, or go.
-              autoFocus={s.picked || s.key === 'go' ? true : undefined}
+              // ctrl+x tab focuses the band; Enter then drafts the pick.
+              autoFocus={s.picked ? true : undefined}
               // Drafted, not sent: only the box's own Enter clears the dim suggestion and records history.
               onPress={async () => { await $.prompt.fill({ text: s.send }) }}
             >
