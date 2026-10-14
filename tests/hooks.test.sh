@@ -76,6 +76,7 @@ check "compact: keep conversation-only facts" has "$out" "**Keep:** <only what e
 check "compact: files by path" has "$out" "anything in a file → its path"
 check "compact: skip reloaded instructions" has "$out" "Skip CLAUDE.md, rules and memory"
 check "compact: clear when nothing carries over" has "$out" '`/clear` alone'
+check "compact: clear as code span" has "$out" 'as a code span like `/compact`'
 check "compact: Drop bold" has "$out" "**Drop:** <finished detail>"
 check "compact: no fenced block" [ "$(grep -c '```' <<<"$out")" = 0 ]
 check "compact: copy rules outside template line" has "$out" "Rules: whole /compact line on one line; bold only Keep and Drop"

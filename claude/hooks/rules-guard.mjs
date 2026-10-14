@@ -211,7 +211,7 @@ function compactMsg(tokens, t) {
 
 \`/compact\` **Keep:** <only what exists nowhere but this conversation: decisions and why, preferences stated, open items, branch or uncommitted state, exact errors under debug; anything in a file → its path>. **Drop:** <finished detail>.
 
-Rules: whole /compact line on one line; bold only Keep and Drop, no other markdown after /compact. Skip CLAUDE.md, rules and memory in Keep: they reload after compact. Next step needs nothing from this session → write \`/clear\` alone in place of the \`/compact\` line (free; /compact re-reads the whole conversation).
+Rules: whole /compact line on one line; bold only Keep and Drop, no other markdown after /compact. Skip CLAUDE.md, rules and memory in Keep: they reload after compact. Next step needs nothing from this session → write \`/clear\` alone, as a code span like \`/compact\`, in place of the \`/compact\` line (free; /compact re-reads the whole conversation).
 Fill each <...> with facts from this session, not guesses. Condition not met → don't mention compacting.`;
 }
 
