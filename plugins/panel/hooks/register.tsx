@@ -698,7 +698,8 @@ export const register: Register = on => {
     // The chat scrolls only to a row, never to its end: its newest row that is drawn, a tool group's
     // calls not being drawn under their own ids.
     const latest = async () => {
-      const tail = await $.process.run(['tail', '-n', '40', await chatPath($)]).catch(() => undefined)
+      // By bytes, under process.run's 4 MiB: a line holding an image may be MBs, and a cut keeps the head.
+      const tail = await $.process.run(['tail', '-c', '4000000', await chatPath($)]).catch(() => undefined)
       for (const requestId of lastRowIds(tail?.stdout ?? '').slice(0, 10)) {
         const moved = await $.ui.scroll({ to: { requestId }, block: 'end' }).catch(() => ({ deny: 'failed' }))
         if (!moved.deny) return
