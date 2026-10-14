@@ -178,6 +178,16 @@ test('the divider lights its grip while the pointer is over it', async ($, on) =
   await ui.pointer({ type: 'leave', x: 0, y: 0, in: 'divider' })
   expect(await grip()).toBeDefined()
   expect((await grip())?.inverse).toBeUndefined()
+
+  // Lit through a drag; let go off the rule, a drag sends no leave, so the up ends it.
+  await ui.resize({ columns: 36, rows: 1, in: 'divider' })
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
+  expect((await grip())?.inverse).toBe(true)
+  await ui.pointer({ type: 'up', x: 0, y: 1, button: 'left', in: 'divider' })
+  expect((await grip())?.inverse).toBeUndefined()
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
+  await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: 'divider' })
+  expect((await grip())?.inverse).toBe(true)
 })
 
 test('the wheel scrolls CHANGES and COMMITS each on its own, up to their ends', async ($, on) => {
