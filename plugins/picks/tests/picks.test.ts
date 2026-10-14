@@ -166,10 +166,10 @@ test('no Why under Recommend: no footer line', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'Why: ' })).toBeUndefined()
 })
 
-test('one decision: plain rows, no tradeoffs; each sends its id and option', async ($, on) => {
-  const sent: string[] = []
+test('one decision: plain rows, no tradeoffs; each drafts its id and option', async ($, on) => {
+  const filled: string[] = []
   engine(on)
-  on('prompt.submit', (_: any, e: any) => { sent.push(e.text); return { text: e.text } as any })
+  on('prompt.fill', (_: any, e: any) => { filled.push(e.text); return { isFilled: true } })
   await $.turn.complete(done(LONE))
   const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
   expect(await labels(ui)).toEqual(['merge to main locally', 'push + PR', 'keep the branch as-is', 'type your own…'])
@@ -178,58 +178,26 @@ test('one decision: plain rows, no tradeoffs; each sends its id and option', asy
   expect(await ui.find({ type: 'Text', text: /CI runs/ })).toBeUndefined()
   expect((await ui.find({ key: 'pick:3' }))?.props.hotkey).toBe('3')
   await ui.press({ key: 'pick:3' })
-  expect(sent).toEqual(['3: keep the branch as-is'])
+  expect(filled).toEqual(['3: keep the branch as-is'])
 })
 
-test('a pressed answer is appended to the up-arrow history, as a typed one is', async ($, on) => {
-  const runs: any[] = []
-  engine(on)
-  on('session.cwd', () => ({ value: '/work/repo' }))
-  on('session.id', () => ({ value: 's1' }))
-  on('prompt.submit', (_: any, e: any) => ({ text: e.text }) as any)
-  on('prompt.suggest', () => ({ isShown: true }))
-  on('process.run', (_: any, e: any) => { runs.push(e); return { value: { exitCode: 0, stdout: '', stderr: '' } } as any })
-  await $.turn.complete(done(LETTERS))
-  const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
-  await ui.press({ key: 'pick:B' })
-  expect(runs.length).toBe(1)
-  expect(runs[0].argv.slice(0, 2)).toEqual(['sh', '-c'])
-  // `>` would wipe the user's history.
-  expect(runs[0].argv[2]).toContain('cat >> ')
-  expect(runs[0].argv[2]).toContain('history.jsonl')
-  const entry = JSON.parse(runs[0].init.stdin)
-  expect([entry.display, entry.project, entry.sessionId, entry.pastedContents]).toEqual(['B: retry', '/work/repo', 's1', {}])
-  expect(typeof entry.timestamp).toBe('number')
-})
-
-test('a dropped answer is not added to history', async ($, on) => {
-  const runs: any[] = []
-  engine(on)
-  on('prompt.suggest', () => ({ isShown: true }))
-  on('prompt.submit', () => ({ drop: 'guard' }) as any)
-  on('process.run', (_: any, e: any) => { runs.push(e); return { value: { exitCode: 0, stdout: '', stderr: '' } } as any })
-  await $.turn.complete(done(LETTERS))
-  const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
-  await ui.press({ key: 'pick:B' })
-  expect(runs.length).toBe(0)
-})
-
-test('a letter id is sent with its option', async ($, on) => {
-  const sent: string[] = []
-  engine(on)
-  on('prompt.submit', (_: any, e: any) => { sent.push(e.text); return { text: e.text } as any })
-  await $.turn.complete(done(LETTERS))
-  const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
-  expect(await labels(ui)).toEqual(['no retry', 'retry', 'type your own…'])
-  await ui.press({ key: 'pick:B' })
-  expect(sent).toEqual(['B: retry'])
-})
-
-test('no table: 1 sends go and clears the band; 2 drafts "go, but "', async ($, on) => {
+test('a press puts its id and option in the prompt box, unsent, so the box clears its suggestion on Enter', async ($, on) => {
   const sent: string[] = []
   const filled: string[] = []
   engine(on)
   on('prompt.submit', (_: any, e: any) => { sent.push(e.text); return { text: e.text } as any })
+  on('prompt.fill', (_: any, e: any) => { filled.push(e.text); return { isFilled: true } })
+  await $.turn.complete(done(LETTERS))
+  const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
+  expect(await labels(ui)).toEqual(['no retry', 'retry', 'type your own…'])
+  await ui.press({ key: 'pick:B' })
+  expect(filled).toEqual(['B: retry'])
+  expect(sent).toEqual([])
+})
+
+test('no table: 1 drafts go; 2 drafts "go, but "', async ($, on) => {
+  const filled: string[] = []
+  engine(on)
   on('prompt.fill', (_: any, e: any) => { filled.push(e.text); return { isFilled: true } })
   await $.turn.complete(done(PICKS))
   const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
@@ -238,9 +206,7 @@ test('no table: 1 sends go and clears the band; 2 drafts "go, but "', async ($, 
   await ui.press({ key: 'own' })
   expect(filled).toEqual(['go, but '])
   await ui.press({ key: 'go' })
-  expect(sent).toEqual(['go'])
-  await ui.drawn()
-  expect(await ui.find({ key: 'go' })).toBeUndefined()
+  expect(filled).toEqual(['go, but ', 'go'])
 })
 
 test('no band for a subagent turn, an aborted turn, or while working', async ($, on) => {
