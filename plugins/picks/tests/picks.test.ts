@@ -310,7 +310,7 @@ test('/clear (session.end) clears the band', async ($, on) => {
   await $.turn.complete(done(LETTERS))
   const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
   expect(await ui.find({ key: 'pick:A' })).toBeDefined()
-  await $.session.end({ reason: 'clear' })
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
   await ui.drawn()
   expect(await ui.find({ key: 'pick:A' })).toBeUndefined()
 })
