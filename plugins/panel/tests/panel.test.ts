@@ -2139,7 +2139,7 @@ test('the rule asks for a now ping with every later tool message', async ($, on)
 
 test('with a report, updating… takes the step count\'s place until TOPICS are read; TOPICS counts them', async ($, on) => {
   let answer: (value: unknown) => void = () => undefined
-  const { ui, clock } = await overviewPane($, on, n => (n === 1 ? { isAnswered: true, text: TOPICS, usage: {} } : new Promise(resolve => (answer = resolve))))
+  const { ui, clock } = await overviewPane($, on, n => (n === 1 ? { isAnswered: true, text: TOPICS, usage: {} } : n === 2 ? new Promise(resolve => (answer = resolve)) : new Promise(() => undefined)))
   await ui.press({ key: 'Overview' })
   await clock.settle()
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
@@ -2154,6 +2154,11 @@ test('with a report, updating… takes the step count\'s place until TOPICS are 
   await ui.drawn()
   // A failed read keeps the steps in place and says so on the TOPICS header.
   expect(await right()).toEqual(['0/2 steps', "couldn't read: api-error"])
+  // The next read: its state on the status row, the count back on the header.
+  await send($, 'another thing')
+  await clock.advance(0)
+  await ui.drawn()
+  expect(await right()).toEqual(['updating…', '2 topics'])
 })
 
 test('the first TOPICS read, with none shown yet, says reading…', async ($, on) => {
@@ -2173,4 +2178,37 @@ test('a now ping after an interrupt picks the stopped report back up', async ($,
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: '● working' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '1/3 steps' })).toBeDefined()
+})
+
+test('TOPICS scrolled to the end still shows the oldest topic, though it wraps past the zone', async ($, on) => {
+  const text = `- ${'x'.repeat(100)}\n- topic 1`
+  const { ui, clock } = await overviewPane($, on, () => ({ isAnswered: true, text, usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await ui.drawn()
+  // 4 rows (3 for the long topic, 1 for topic 1), dragged up to 1.
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'now' })
+  await ui.pointer({ type: 'move', x: 0, y: -3, button: 'left', in: 'now' })
+  await ui.pointer({ type: 'up', x: 0, y: -3, button: 'left', in: 'now' })
+  await $.ui.scroll({ component: 'Pane', requestId: 'panel', offset: 0, by: 100, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 5 } })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: /^x+$/ })).toBeDefined()
+})
+
+test('the wheel finds TOPICS by the row drawn, once the engine scrolled the Overview', async ($, on) => {
+  // The engine's own scroll, past what TOPICS take.
+  on('ui.scroll', () => ({}) as any)
+  const ui = await twelveTopics($, on)
+  // The pane drawn with the window `offset` rows down, then a wheel tick on its `row`.
+  const wheel = async (offset: number, row: number) => {
+    await ui.redraw({ ...props, scroll: { offset, bodyRows: 20 } })
+    await $.ui.scroll({ component: 'Pane', requestId: 'panel', offset: offset + 3, by: 3, bodyRows: 20, contentRows: 30, origin: { kind: 'person' }, pointer: { column: 0, row } })
+  }
+  // Row 6 of the window, 10 rows down: the report, not TOPICS.
+  await wheel(10, 6)
+  expect(await topicShown(ui, 11)).toBe(true)
+  // Row 3 of the window, 3 rows down: TOPICS' second row.
+  await wheel(3, 3)
+  expect(await topicShown(ui, 11)).toBe(false)
 })

@@ -379,8 +379,9 @@ let logRead: { key: string; signal: AbortSignal; run: ReturnType<typeof readLog>
 let gitZones: { commitsAt: number; changes: number; commits: number } | undefined
 // The History list's last offset as last drawn; unset as gitZones is.
 let historyEnd: number | undefined
-// The Overview's TOPICS as last drawn, with a report under them: rows `from` to `to`, up to offset `end`.
-let topicsZone: { from: number; to: number; end: number } | undefined
+// The Overview's TOPICS as last drawn, with a report under them: rows `from` to `to` of the tree, up to
+// offset `end`; `offset`, the engine's window then, as a pointer's row counts from it.
+let topicsZone: { from: number; to: number; end: number; offset: number } | undefined
 // Counts UTF-16 units, not cells: a wide glyph (CJK, emoji) can still overflow by one.
 const fit = (text: string, room: number) => (text.length > room ? `${text.slice(0, room - 1)}…` : text)
 
@@ -775,7 +776,7 @@ export const register: Register = (on, options) => {
       return {}
     }
     const topics = topicsZone
-    const row = e.pointer?.row ?? -1
+    const row = (e.pointer?.row ?? -Infinity) + (topics?.offset ?? 0)
     if (topics && row >= topics.from && row < topics.to) {
       await update($, topicsTop, top => Math.max(0, Math.min(Math.min(top, topics.end) + e.by, topics.end)))
       return {}
@@ -1223,6 +1224,8 @@ export const register: Register = (on, options) => {
       // their rule, the status row, its rule, the TOPICS header and the Now divider are drawn, or what the
       // divider was dragged to; the wheel scrolls them in it.
       const topics = about.topics.map((topic, i) => ({ topic, i })).reverse()
+      // shortcut: counts cells as if the text filled each row; a word wrap or a wide glyph takes more, so at
+      // the scroll's end the oldest topic's last line can sit past the zone. Upgrade: count wrapped words.
       const lines = (topic: string) => Math.max(1, Math.ceil(topic.length / Math.max(1, width - 2)))
       const free = e.props.scroll.bodyRows - 6
       const draggedTopics = await read($, topicsSplit)
@@ -1231,9 +1234,11 @@ export const register: Register = (on, options) => {
       // The last offset: the fewest oldest topics that fill the zone.
       let topicsEnd = topics.length
       for (let rows = 0; topicsEnd > 0 && rows + lines(topics[topicsEnd - 1]!.topic) <= topicsRows; topicsEnd--) rows += lines(topics[topicsEnd - 1]!.topic)
+      // The oldest alone may take more rows than the zone: it still shows, cut by its edge.
+      topicsEnd = Math.min(topicsEnd, Math.max(0, topics.length - 1))
       const zoned = !!shown.wants && hasAbout
       const topicsFrom = zoned ? Math.min(await read($, topicsTop), topicsEnd) : 0
-      if (!next.signal.aborted) topicsZone = zoned ? { from: 5, to: 5 + topicsRows, end: topicsEnd } : undefined
+      if (!next.signal.aborted) topicsZone = zoned ? { from: 5, to: 5 + topicsRows, end: topicsEnd, offset: e.props.scroll.offset } : undefined
       // In a zone, the topics that start in it, the last one cut by its edge.
       let shownTopics = topics.slice(topicsFrom)
       if (zoned) {
@@ -1266,7 +1271,8 @@ export const register: Register = (on, options) => {
             {hasAbout && [
               <Box key="session" justifyContent="space-between">
                 <Text bold color={HUD.label}>TOPICS</Text>
-                <Text color={HUD.faint}>{about.failed || (about.running && !shown.wants) ? aboutHint : topicCount}</Text>
+                {/* Cut to one row beside its title: the zone under it starts on a fixed row. */}
+                <Text color={HUD.faint}>{fit((shown.wants && about.running ? '' : aboutHint) || topicCount, Math.max(1, width - 7))}</Text>
               </Box>,
               ...(zoned
                 ? [
