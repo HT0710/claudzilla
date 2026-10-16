@@ -31,7 +31,7 @@ const SCOPE = '#808286'
 // A pushed commit's, or a staged file's: its color at 60%, as DIM's are.
 const dim = (hex: string) => `#${hex.slice(1).replace(/../g, c => Math.round(parseInt(c, 16) * 0.6).toString(16).padStart(2, '0'))}`
 
-const tab = atom({ plugin: 'panel', key: 'tab' } as const, 'History' as Tab)
+const tab = atom({ plugin: 'panel', key: 'tab' } as const, 'Overview' as Tab)
 // Content hooks flag tabs here.
 const notices = atom({ plugin: 'panel', key: 'notices' } as const, [] as Tab[])
 // Bumped per prompt so the History list redraws.
