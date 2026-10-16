@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { branchLine, dayLabel, gone, inView, keepNewest, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, pinHolds, readStamps, stampPattern } from '../hooks/register'
+import { branchLine, dayLabel, gone, inView, keepNewest, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseTopics, pinHolds, readStamps, stampPattern } from '../hooks/register'
 
 // A process.run result with `stdout`.
 const ran = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -18,7 +18,7 @@ const props = {
 }
 
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`${surface}: History and Git show while Activity is deferred`, async ($, on) => {
+  test(`${surface}: History, Git and Overview tabs show`, async ($, on) => {
     on('clock.now', () => ({ value: 0 }))
     on('env.get', () => ({ value: '/home/me' }))
     on('session.id', () => ({ value: 'chat-1' }))
@@ -26,6 +26,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ plugin: 'panel', surface, component: 'Pane', props, requestId: 'panel' })
     expect(await ui.find({ key: 'Activity' })).toBeUndefined()
     expect(await ui.find({ key: 'Git' })).toBeDefined()
+    expect(await ui.find({ key: 'Overview' })).toBeDefined()
     expect(await ui.find({ key: 'rewind' })).toBeDefined()
   })
 }
@@ -34,8 +35,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
 const git = (repo: Record<string, string>) => (argv: readonly string[]) =>
   argv[0] !== 'git' ? undefined : (Object.entries(repo).find(([command]) => argv.includes(command))?.[1] ?? '')
 // History draws first on mount: an empty one.
-const noHistory = (on: Parameters<TestBody>[1]) => {
-  on('clock.now', () => ({ value: 0 }))
+const noHistory = (on: Parameters<TestBody>[1], now = () => 0) => {
+  on('clock.now', () => ({ value: now() }))
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('fs.read', () => ({ value: '' }))
@@ -345,23 +346,30 @@ test('a commit subject draws its control characters as spaces', async ($, on) =>
   expect(await ui.find({ type: 'Text', text: 'tab here end' })).toBeDefined()
 })
 
-test('the tab separator sits mid-row, over the divider grip', async ($, on) => {
+test('Overview tab with nothing read yet shows a note', async ($, on) => {
   noHistory(on)
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  // The divider's left run: half the body less its 3-column grip, rounded down.
-  expect((await ui.find({ key: 'tab:History' }))?.props.width).toBe(Math.floor((props.bodyColumns - 4 - 3) / 2))
+  await ui.press({ key: 'Overview' })
+  expect(await ui.find({ type: 'Text', text: 'No intent yet' })).toBeDefined()
+})
+
+test('the tabs split the row in equal thirds', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  // The body less its margins and two 3-column separators, split three ways.
+  expect((await ui.find({ key: 'tab:History' }))?.props.width).toBe(Math.floor((props.bodyColumns - 4 - 6) / 3))
 })
 
 test('the shown tab is lit across its cell and no button; another tab presses across its cell', async ($, on) => {
   noHistory(on)
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  // The body less its margins and the separator, split: 16 columns, the last taking the odd one.
+  // The body less its margins and the separators, split: 10 columns each.
   expect(await ui.find({ type: 'Button', key: 'History' })).toBeUndefined()
   const shown = await ui.find({ type: 'Text', text: /^\s*History\s*$/ })
-  expect(shown?.text.length).toBe(16)
+  expect(shown?.text.length).toBe(10)
   expect(shown?.props.inverse).toBe(true)
   const other = await ui.find({ type: 'Button', key: 'Git' })
-  expect(other?.text.length).toBe(17)
+  expect(other?.text.length).toBe(10)
   // One color across it, so the focus inverts it as one block.
   const parts = (other?.children ?? []) as { type?: string; props?: { color?: string } }[]
   expect(new Set(parts.filter(part => part.type === 'Text').map(part => part.props?.color))).toEqual(new Set(['#456186']))
@@ -1731,4 +1739,371 @@ test('/panel runs at once, even while Claude is working', async ($, on) => {
   await $.session.start({ cwd: '/proj', surface: null, isInteractive: false })
 
   expect(registered.find(command => command.name === 'panel')?.immediate).toBe(true)
+})
+
+const INTENT = 'mcp__panel__intent'
+const REPORT = { wants: 'a third tab', plan: 'write the spec', steps: [{ text: 'spec', status: 'in_progress' }, { text: 'plan', status: 'pending' }] }
+// History empty, the pane mounted on the Overview tab.
+const intentPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], now?: () => number) => {
+  noHistory(on, now)
+  on('session.end', (_, e) => ({ sessionId: e.sessionId }) as any)
+  on('turn.complete', (_, e) => ({ text: e.answer }) as any)
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Overview' })
+  return ui
+}
+const turnEnd = ($: Parameters<TestBody>[0], agentId?: string, reason = 'answer') =>
+  $.turn.complete({ answer: '', durationMs: 1, isAborted: reason === 'aborted', turnId: 't1', reason, category: null, explanation: null, agentId } as any)
+
+test("Claude's intent report draws on the Overview tab", async ($, on) => {
+  const ui = await intentPane($, on)
+  expect(await $.tool.call({ tool: INTENT, ...REPORT } as any)).toMatchObject({ result: 'ok' })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '● working' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '0/2 steps' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'write the spec' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^STEPS/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^ASK$/ })).toBeDefined()
+  // No TOPICS read yet: no Now divider to tie the report to a topic.
+  expect(await ui.find({ type: 'Text', text: 'Now' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^● $/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^○ $/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^spec$/ })).toBeDefined()
+})
+
+test("a subagent's intent report is answered but not drawn", async ($, on) => {
+  const ui = await intentPane($, on)
+  expect(await $.tool.call({ tool: INTENT, ...REPORT, agentId: 'a1' } as any)).toMatchObject({ result: 'ok' })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'No intent yet' })).toBeDefined()
+})
+
+test("a main turn's end marks the report ended; a subagent's does not", async ($, on) => {
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await turnEnd($, 'a1')
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '● working' })).toBeDefined()
+  await turnEnd($)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: /^✓ done / })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '2/2 steps' })).toBeDefined()
+  // Claude skips a report only to close its last steps: the answer closes them all.
+  expect(await ui.find({ type: 'Text', text: /^✓ $/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^● $/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^○ $/ })).toBeUndefined()
+})
+
+test('done shows the time the turn ended, not the time of the report', async ($, on) => {
+  let at = 1_000_000
+  const ui = await intentPane($, on, () => at)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  at = 4_600_000
+  await turnEnd($)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: `✓ done ${new Date(4_600_000).toTimeString().slice(0, 5)}` })).toBeDefined()
+})
+
+test('an interrupted turn keeps the steps as Claude left them', async ($, on) => {
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await turnEnd($, undefined, 'aborted')
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: /^■ stopped / })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^● $/ })).toBeDefined()
+})
+
+test('/clear empties the report', async ($, on) => {
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await $.session.end({ reason: 'clear', sessionId: 'chat-1' } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'No intent yet' })).toBeDefined()
+})
+
+const composed = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], offered = [INTENT]) => {
+  const tools: string[] = []
+  on('store.keys', () => ({ value: [] }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('tool.register', (_, e) => {
+    tools.push(e.name)
+    return { value: { tool: `mcp__panel__${e.name}` } } as any
+  })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'You are Claude.', scope: 'shared' }] }) as any)
+  await $.session.start({ cwd: '/proj', surface: null, isInteractive: false })
+  const { sections } = await $.prompt.compose({ model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: [], tools: offered, outputStyle: null, traits: [] } as any)
+  return { tools, rule: sections.find(section => section.id === 'panel:intent') }
+}
+
+test('a request without the intent tool gets no rule', async ($, on) => {
+  const { rule } = await composed($, on, [])
+  expect(rule).toBeUndefined()
+})
+
+test('the intent tool and its rule are in place by default', async ($, on) => {
+  const { tools, rule } = await composed($, on)
+  expect(tools).toEqual(['intent'])
+  expect(rule?.text).toContain(INTENT)
+  expect(rule?.scope).toBe('session')
+})
+
+test('intent off: no tool, no rule', { options: { intent: false } }, async ($, on) => {
+  const { tools, rule } = await composed($, on)
+  expect(tools).toEqual([])
+  expect(rule).toBeUndefined()
+})
+
+test("the intent tool's chat rows draw nothing", async ($, on) => {
+  for (const component of ['ToolUse', 'ToolResult'] as const) {
+    const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component, props: { tool_use_id: 'u1', tool: INTENT, input: REPORT, isRunning: false, isErrored: false, isInterrupted: false, output: 'ok' }, requestId: 'u1' } as any)
+    expect(await ui.find({ type: 'Text' })).toBeUndefined()
+  }
+})
+
+
+test('parseTopics: every bullet line, no cap', () => {
+  expect(parseTopics('Here you go:\n- Intent tab\n• model choice\n* shipping\n- a\n- b')).toEqual(['Intent tab', 'model choice', 'shipping', 'a', 'b'])
+  expect(parseTopics('no bullets')).toEqual([])
+})
+
+const TOPICS = '- Intent tab for the panel\n- shipping the branch'
+// This chat's prompts in the history file, Opus answering `reply(n)`, the pane open.
+const overviewPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], reply: (n: number) => unknown = () => ({ isAnswered: true, text: TOPICS, usage: {} }), typed = ['add an intent tab', 'ship it']) => {
+  const clock = mock.clock(on)
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('fs.read', () => ({ value: '' }))
+  const lines = typed.map((display, i) => JSON.stringify({ display, timestamp: i + 1, sessionId: 'chat-1' }))
+  on('process.run', (_, e) => ran(isHistoryGrep(e.argv) ? lines.join('\n') : ''))
+  on('ui.panes', () => ({ value: [{ id: 'panel' }] }) as any)
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  on('session.end', (_, e) => ({ sessionId: e.sessionId }) as any)
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('store.keys', () => ({ value: [] }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('tool.register', (_, e) => ({ value: { tool: `mcp__panel__${e.name}` } }) as any)
+  const asks: { model: string; prompt: string }[] = []
+  on('model.complete', (_, e) => {
+    const value = reply(asks.push(e as any))
+    return (value instanceof Promise ? value.then(answer => ({ value: answer })) : { value }) as any
+  })
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  return { ui, clock, asks }
+}
+const send = ($: Parameters<TestBody>[0], text: string) => $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } })
+
+test('TOPICS: Opus groups the prompts into topics, drawn newest first', async ($, on) => {
+  const { ui, clock, asks } = await overviewPane($, on)
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await ui.drawn()
+  expect(asks).toHaveLength(1)
+  expect(asks[0]!.model).toBe('opus')
+  expect((asks[0] as any).maxTokens).toBeGreaterThanOrEqual(2000)
+  expect(asks[0]!.prompt.indexOf('add an intent tab')).toBeLessThan(asks[0]!.prompt.indexOf('ship it'))
+  expect(await ui.find({ type: 'Text', text: 'TOPICS' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Intent tab for the panel' })).toBeDefined()
+  // The newest topic is the current one, drawn first.
+  expect((await ui.findAll({ type: 'Text', text: /^(Intent tab for the panel|shipping the branch)$/ })).map(found => found.props.text ?? found.text)).toEqual(['shipping the branch', 'Intent tab for the panel'])
+  expect((await ui.find({ type: 'Text', text: 'shipping the branch' }))?.props.color).toBe('claude')
+  expect((await ui.find({ type: 'Text', text: 'Intent tab for the panel' }))?.props.color).toBe('#808286')
+})
+
+test('a report under TOPICS sits below a Now divider', async ($, on) => {
+  const { ui, clock } = await overviewPane($, on)
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'Now' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
+})
+
+test('TOPICS re-reads after a prompt only while the Overview tab shows', async ($, on) => {
+  const { ui, clock, asks } = await overviewPane($, on)
+  await send($, 'next thing')
+  await clock.settle()
+  expect(asks).toHaveLength(0)
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  expect(asks).toHaveLength(1)
+  await send($, 'another thing')
+  await clock.settle()
+  expect(asks).toHaveLength(2)
+  await $.prompt.submit({ text: '/compact', wait: false, origin: { kind: 'composer' }, command: { name: 'compact', args: '' } } as any)
+  await clock.settle()
+  expect(asks).toHaveLength(2)
+})
+
+test('TOPICS reads a prompt that starts with a path, not a command', async ($, on) => {
+  const { ui, clock, asks } = await overviewPane($, on, undefined, ['/tmp/shot.png why is this cut', '/compact'])
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  expect(asks[0]!.prompt).toContain('/tmp/shot.png why is this cut')
+  expect(asks[0]!.prompt).not.toContain('/compact')
+})
+
+test('a failed TOPICS read keeps the topics and says why', async ($, on) => {
+  const { ui, clock } = await overviewPane($, on, n => (n === 1 ? { isAnswered: true, text: TOPICS, usage: {} } : { isAnswered: false, reason: 'api-error', usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await send($, 'next thing')
+  await clock.settle()
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: "couldn't read: api-error" })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Intent tab for the panel' })).toBeDefined()
+})
+
+test('/clear empties TOPICS', async ($, on) => {
+  const { ui, clock } = await overviewPane($, on)
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await $.session.end({ reason: 'clear', sessionId: 'chat-1' } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'No intent yet' })).toBeDefined()
+})
+
+test('a reload with the Overview tab open reads TOPICS without waiting for a prompt', async ($, on) => {
+  const { ui, clock, asks } = await overviewPane($, on, () => new Promise(() => undefined))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  expect(asks).toHaveLength(1)
+  await $.session.start({ source: 'startup', cwd: '/home/me' } as any)
+  await clock.settle()
+  expect(asks).toHaveLength(2)
+})
+
+test('TOPICS keeps its wording: later reads see the current topics', async ($, on) => {
+  const { ui, clock, asks } = await overviewPane($, on)
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  expect(asks[0]!.prompt).not.toContain('word for word')
+  await send($, 'next thing')
+  await clock.settle()
+  expect(asks[1]!.prompt).toContain('word for word')
+  // No cap: the ask never limits how many topics.
+  expect(asks[1]!.prompt).not.toMatch(/1-4|with 4 already/)
+  expect(asks[1]!.prompt).toContain('- Intent tab for the panel\n- shipping the branch')
+})
+
+test('a rule from the text column sets PLAN and STEPS apart', async ($, on) => {
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT, steps: [] } as any)
+  await ui.drawn()
+  expect(await ui.find({ key: 'rule:PLAN' })).toBeDefined()
+  // No steps, no STEPS block, no rule for it.
+  expect(await ui.find({ key: 'rule:STEPS' })).toBeUndefined()
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await ui.drawn()
+  expect(await ui.find({ key: 'rule:STEPS' })).toBeDefined()
+})
+
+const colorOf = async (ui: { find: (q: any) => Promise<any> }, text: string | RegExp) => (await ui.find({ type: 'Text', text }))?.props.color
+test('the status row is colored by state: working, done, stopped', async ($, on) => {
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await ui.drawn()
+  expect(await colorOf(ui, '● working')).toBe('claude')
+  await turnEnd($, undefined, 'aborted')
+  await ui.drawn()
+  expect(await colorOf(ui, /^■ stopped /)).toBe('#8c7850')
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await turnEnd($)
+  await ui.drawn()
+  expect(await colorOf(ui, /^✓ done /)).toBe('#5d9678')
+})
+
+test("a step's mark is colored apart from its text", async ($, on) => {
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'completed' }, { text: 'plan', status: 'in_progress' }, { text: 'ship', status: 'pending' }] } as any)
+  await ui.drawn()
+  expect(await colorOf(ui, /^✓ $/)).toBe('#5d9678')
+  expect(await colorOf(ui, /^spec$/)).toBe('#808286')
+  expect(await colorOf(ui, /^● $/)).toBe('claude')
+  expect(await colorOf(ui, /^plan$/)).toBeUndefined()
+  expect(await colorOf(ui, /^○ $/)).toBe('#4f5c68')
+})
+
+const THREE = { ...REPORT, steps: [{ text: 'spec', status: 'in_progress' }, { text: 'plan', status: 'pending' }, { text: 'ship', status: 'pending' }] }
+test('a now ping marks the steps before it done and its own in progress', async ($, on) => {
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...THREE } as any)
+  expect(await $.tool.call({ tool: INTENT, now: 2 } as any)).toMatchObject({ result: 'ok' })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '1/3 steps' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^○ $/ })).toBeDefined()
+  await $.tool.call({ tool: INTENT, now: 3 } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '2/3 steps' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^○ $/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^● $/ })).toBeDefined()
+  // The report's own words stay.
+  expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
+})
+
+test('a report missing ASK or PLAN keeps the last ones', async ($, on) => {
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await $.tool.call({ tool: INTENT, steps: THREE.steps } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'write the spec' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '0/3 steps' })).toBeDefined()
+})
+
+test('a now ping with no report this turn is ignored', async ($, on) => {
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, now: 2 } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'No intent yet' })).toBeDefined()
+  await $.tool.call({ tool: INTENT, ...THREE } as any)
+  await turnEnd($)
+  await $.tool.call({ tool: INTENT, now: 1 } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '3/3 steps' })).toBeDefined()
+})
+
+test('the rule asks for a now ping with every later tool message', async ($, on) => {
+  const { rule } = await composed($, on)
+  expect(rule?.text).toContain('{"now": n}')
+})
+
+test('with a report, updating… takes the step count\'s place until TOPICS are read; TOPICS counts them', async ($, on) => {
+  let answer: (value: unknown) => void = () => undefined
+  const { ui, clock } = await overviewPane($, on, n => (n === 1 ? { isAnswered: true, text: TOPICS, usage: {} } : new Promise(resolve => (answer = resolve))))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await send($, 'next thing')
+  await clock.advance(0)
+  await ui.drawn()
+  const right = async () => (await ui.findAll({ type: 'Text', text: /^(reading…|updating…|0\/2 steps|\d+ topics|couldn't read.*)$/ })).map(found => found.props.text ?? found.text)
+  // Topics already shown: the read updates them.
+  expect(await right()).toEqual(['updating…', '2 topics'])
+  answer({ isAnswered: false, reason: 'api-error', usage: {} })
+  await clock.settle()
+  await ui.drawn()
+  // A failed read keeps the steps in place and says so on the TOPICS header.
+  expect(await right()).toEqual(['0/2 steps', "couldn't read: api-error"])
+})
+
+test('the first TOPICS read, with none shown yet, says reading…', async ($, on) => {
+  const { ui, clock } = await overviewPane($, on, () => new Promise(() => undefined))
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await ui.press({ key: 'Overview' })
+  await clock.advance(0)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'reading…' })).toBeDefined()
+})
+
+test('a now ping after an interrupt picks the stopped report back up', async ($, on) => {
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...THREE } as any)
+  await turnEnd($, undefined, 'aborted')
+  await $.tool.call({ tool: INTENT, now: 2 } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '● working' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '1/3 steps' })).toBeDefined()
 })

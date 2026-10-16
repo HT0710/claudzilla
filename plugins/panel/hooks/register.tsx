@@ -1,12 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Tab } from '../types'
+import type { Intent, Overview, Step, Tab } from '../types'
 
 const PANE = 'panel'
 const PAD = 2
-// Activity is deferred: its slot stays below, list it here to show it.
-const TABS: Tab[] = ['History', 'Git']
+const TABS: Tab[] = ['Overview', 'History', 'Git']
 const MAX_PROMPTS = 100
 // COMMITS reads this many at a time, the next page once scrolled past: git walks every commit it
 // skips (210 ms at 100k), so a read per wheel tick would lag.
@@ -31,11 +30,6 @@ const STATUS: Record<string, string> = { M: '#e5c07b', A: '#98c379', D: '#e06c75
 const SCOPE = '#808286'
 // A pushed commit's, or a staged file's: its color at 60%, as DIM's are.
 const dim = (hex: string) => `#${hex.slice(1).replace(/../g, c => Math.round(parseInt(c, 16) * 0.6).toString(16).padStart(2, '0'))}`
-const SECTIONS = [
-  ['SUMMARY', '1-2 rows'],
-  ['SECTION 1', 'list, grow'],
-  ['SECTION 2', 'last N'],
-]
 
 const tab = atom({ plugin: 'panel', key: 'tab' } as const, 'History' as Tab)
 // Content hooks flag tabs here.
@@ -50,6 +44,116 @@ const split = atom({ plugin: 'panel', key: 'split' } as const, -1)
 const scrolled = atom({ plugin: 'panel', key: 'scrolled' } as const, { changes: 0, commits: 0 })
 // The History list's, on a key of its own: a reload keeps what older code stored under `scrolled`.
 const historyTop = atom({ plugin: 'panel', key: 'historyTop' } as const, 0)
+
+const EMPTY_INTENT: Intent = { wants: '', plan: '', steps: [], at: 0, ended: false }
+// Claude's last intent report.
+const intent = atom({ plugin: 'panel', key: 'intent' } as const, EMPTY_INTENT)
+
+const EMPTY_OVERVIEW: Overview = { topics: [], running: false }
+// TOPICS: what this chat is about, read from its prompts alone.
+const overview = atom({ plugin: 'panel', key: 'overview' } as const, EMPTY_OVERVIEW)
+
+// Claude reports its own intent through this tool; the rule says when.
+const INTENT_TOOL = 'mcp__panel__intent'
+const INTENT_RULE = [
+  'Intent reporting: the user watches a side panel showing your reading of their request and your plan.',
+  `Call the \`${INTENT_TOOL}\` tool with wants, plan and steps at the start of every turn that answers a user prompt, as the first block of your message, before any other tool call in it.`,
+  'Then start every later message that calls another tool with it again as {"now": n}, n the 1-based step you are working on;',
+  'send wants, plan and steps again only when your plan changes. Never call it alone just to mark the last step done:',
+  'your answer closes it. Do not mention the tool in your reply.',
+].join(' ')
+const INTENT_SPEC = {
+  name: 'intent',
+  description: 'Report how you read the user request and your plan, for the side panel. Returns nothing useful.',
+  isDeferred: false,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      wants: { type: 'string', description: 'what the user wants, 1-2 lines; full report only' },
+      plan: { type: 'string', description: 'your approach, 1-2 lines; full report only' },
+      now: { type: 'integer', minimum: 1, description: 'progress ping: the 1-based step you are working on' },
+      steps: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: { text: { type: 'string' }, status: { enum: ['pending', 'in_progress', 'completed'] } },
+          required: ['text', 'status'],
+        },
+      },
+    },
+  },
+} as const
+const OVERVIEW_ASK = [
+  'These are the prompts a user sent in one coding-assistant chat, oldest first.',
+  'Group them into topics: the pieces of work the chat covered, oldest first, the newest work last.',
+  'Reply with only the topics, one per line, each starting "- ", at most 8 words.',
+].join(' ')
+// Regrouped from scratch, every read reworded every line; kept whole, broad topics swallowed new work
+// and went stale. Earlier lines stay, the last one follows the newest prompts (replayed over past chats).
+const OVERVIEW_KEEP = [
+  'Topics are pieces of work, not one-off questions or tool checks.',
+  'Current topics, shown to the user: keep every line but the last word for word, in order.',
+  'The last is the current work: reword it to fit the newest prompts, or keep it and add a new last topic when they start a different piece of work:',
+].join(' ')
+// Bounds the reply on a long chat; replays merged cleanly at 10 and 20.
+const OVERVIEW_CAP = 30
+const OVERVIEW_TOKENS = 2000
+// Exact counts: told only "at the limit", Opus sent 32 topics back unchanged.
+const overviewMerge = (count: number) =>
+  [
+    'Topics are pieces of work, not one-off questions or tool checks.',
+    `There are ${count} current topics, shown to the user; the reply must have at most ${OVERVIEW_CAP} lines,`,
+    'so combine the most closely related topics into fewer lines, keep the newest few lines word for word, in order,',
+    'and reword the last to fit the newest prompts or add a new last topic when they start a different piece of work:',
+  ].join(' ')
+// A reply replaces the list, so one that drops what the user saw is refused.
+const keptTopics = (shown: string[], topics: string[], merging: boolean) =>
+  merging
+    ? topics.length <= OVERVIEW_CAP && shown.slice(-4, -1).every(topic => topics.includes(topic))
+    : shown.slice(0, -1).every((topic, i) => topics[i] === topic)
+export const parseTopics = (text: string) =>
+  text
+    .split('\n')
+    .flatMap(line => /^\s*[-•*]\s+(.+)$/.exec(line)?.[1]?.trim() ?? [])
+// A newer run's seq drops an older answer; stale marks a read the hidden tab still owes, as on load.
+let overviewSeq = 0
+let overviewStale = true
+const overviewShown = async ($: EngineInterface) =>
+  (await read($, tab)) === 'Overview' && (await $.ui.panes()).some(pane => pane.id === PANE)
+// Reads only while the tab shows, so its cost follows use.
+const readOverview = async ($: EngineInterface) => {
+  overviewStale = true
+  if (!(await overviewShown($).catch(() => false))) return
+  overviewStale = false
+  const seq = ++overviewSeq
+  // Newest first from history; a paste can be long, its head says enough.
+  const prompts = (await pastPrompts($)).filter(prompt => !isCommand(prompt)).slice(0, MAX_PROMPTS).reverse()
+  if (!prompts.length) return
+  await update($, overview, now => ({ ...now, running: true }))
+  try {
+    const { topics: shown } = await read($, overview)
+    const merging = shown.length >= OVERVIEW_CAP
+    const keep = shown.length ? `\n${merging ? overviewMerge(shown.length) : OVERVIEW_KEEP}\n${shown.map(topic => `- ${topic}`).join('\n')}` : ''
+    const prompt = `${OVERVIEW_ASK}${keep}\n\nPrompts:\n${prompts.map(one => `- ${flat(one.display).slice(0, 300)}`).join('\n')}`
+    const reply = await $.model.complete({ model: 'opus', prompt, effort: 'low', maxTokens: OVERVIEW_TOKENS, timeoutMs: 20_000 })
+    if (seq !== overviewSeq) return
+    const topics = reply.isAnswered ? parseTopics(reply.text) : []
+    // A cut reply loses its last lines, the current topic among them.
+    const failed = !reply.isAnswered
+      ? reply.reason
+      : !topics.length
+        ? 'unreadable'
+        : reply.usage.output_tokens >= OVERVIEW_TOKENS
+          ? 'cut short'
+          : keptTopics(shown, topics, merging)
+            ? undefined
+            : 'dropped topics'
+    await update($, overview, now => (failed ? { ...now, running: false, failed } : { topics, running: false }))
+  } catch {
+    // complete rejects on a request the engine refuses to send (a blocked model).
+    if (seq === overviewSeq) await update($, overview, now => ({ ...now, running: false, failed: 'error' }))
+  }
+}
 
 // `typed`: history's own text, set when a paste placeholder in it was swapped for the paste.
 export type Prompt = { display: string; timestamp: number; typed?: string }
@@ -424,6 +528,7 @@ const pick = async ($: EngineInterface, next: Tab) => {
   // Picking Git reads the repo afresh: it may have changed outside this chat.
   if (next === 'Git') gitRead = logRead = undefined
   await update($, tab, () => next)
+  if (next === 'Overview' && overviewStale) $.clock.after(0, () => readOverview($))
   // Each write draws the pane; a second draw could land before the first, and the terminal
   // then dropped the next click.
   if ((await read($, notices)).includes(next)) await update($, notices, list => list.filter(one => one !== next))
@@ -531,13 +636,21 @@ export const litPrompt = (prompts: Prompt[], times: number[], pinned?: { timesta
   return at >= 0 ? at : inView(prompts, times)
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  // Off: Claude is never asked, so its prompt and tools stay as without the panel.
+  const isIntentOn = options.intent !== false
+
   on('session.start', async ($, e, next) => {
+    // A reload drops the module's runs; the atom stays, maybe mid-run, and would show reading… for good.
+    await update($, overview, now => (now.running ? { ...now, running: false } : now))
+    // A reload or resume with the tab open: read now, not at the next prompt.
+    $.clock.after(0, () => readOverview($))
     // immediate: alt+h mid-turn opens the pane now, not once the turn ends; it prints nothing.
     await $.command.register({ name: 'panel', description: 'Toggle the side panel', immediate: true })
     // Keys come back in the order first set: the oldest sessions' notes go.
     const notes = (await $.store.keys().catch(() => [])).filter(key => key.startsWith('midTurn:'))
     await Promise.all(notes.slice(0, -MID_TURN_SESSIONS).map(key => $.store.delete(key).catch(() => undefined)))
+    if (isIntentOn) await $.tool.register(INTENT_SPEC).catch(() => undefined)
 
     return next(e)
   })
@@ -552,6 +665,8 @@ export const register: Register = on => {
     const opened = await $.ui.open({ id: PANE, title: 'Panel', columns: 40 })
     // No output text: alt+h toggles often, and a chat row per toggle is noise.
     if (!opened.isPlaced) $.ui.toast('Panel waits: terminal too narrow.')
+    // Reopened on Overview: read what the closed pane missed.
+    else if (overviewStale) $.clock.after(0, () => readOverview($))
 
     return {}
   })
@@ -565,9 +680,64 @@ export const register: Register = on => {
     // The new prompt lists first: back to the top to show it.
     await update($, historyTop, () => 0)
     await update($, submitted, n => n + 1)
+    if (!e.command && !e.isMeta) $.clock.after(0, () => readOverview($))
 
     return result
   })
+
+  // Claude skips a report only to close its last steps, and its answer is often the last one: an answer
+  // closes them all; an interrupted or failed turn keeps the steps as Claude left them.
+  on('turn.complete', async ($, e, next) => {
+    const result = await next(e)
+    const close = e.reason === 'answer'
+    if (e.agentId === undefined) {
+      const at = await $.clock.now()
+      await update($, intent, now =>
+        now.wants
+          ? { ...now, ended: true, at, steps: close ? now.steps.map(step => ({ ...step, status: 'completed' as const })) : now.steps }
+          : now,
+      )
+    }
+
+    return result
+  })
+
+  if (isIntentOn) {
+    on('prompt.compose', async ($, e, next) => {
+      const { sections } = await next(e)
+      if (!e.tools.includes(INTENT_TOOL)) return { sections }
+
+      return { sections: [...sections, { id: 'panel:intent', text: INTENT_RULE, scope: 'session' }] }
+    })
+
+    // A subagent's report is answered, not drawn: the tab follows the main conversation.
+    on('tool.call', { tool: new RegExp(`^${INTENT_TOOL}$`) }, async ($, e) => {
+      const report = e as unknown as Partial<Pick<Intent, 'wants' | 'plan' | 'steps'>> & { agentId?: string; now?: unknown }
+      if (report.agentId !== undefined) return { result: 'ok' }
+      // A ping moves this turn's marks: done before it, in progress at it. One after an answer, every step
+      // done, is dropped; one after an interrupt picks the report back up, as Claude carries on with pings alone.
+      if (report.wants === undefined && typeof report.now === 'number') {
+        const current = report.now - 1
+        const status = (i: number): Step['status'] => (i < current ? 'completed' : i === current ? 'in_progress' : 'pending')
+        const isAnswered = (now: Intent) => now.ended && now.steps.every(step => step.status === 'completed')
+        await update($, intent, now =>
+          isAnswered(now) || !now.steps.length ? now : { ...now, ended: false, steps: now.steps.map((step, i) => ({ ...step, status: status(i) })) },
+        )
+      } else {
+        const at = await $.clock.now()
+        // A report missing ASK or PLAN keeps the last ones, or the tab goes blank.
+        await update($, intent, now => ({
+          wants: flat(String(report.wants ?? now.wants)),
+          plan: flat(String(report.plan ?? now.plan)),
+          steps: Array.isArray(report.steps) ? report.steps.map(step => ({ ...step, text: flat(String(step.text)) })) : [],
+          at,
+          ended: false,
+        }))
+      }
+
+      return { result: 'ok' }
+    })
+  }
 
   // Tabs switch here, not in their onPress: mid-turn, a click landing as a redraw swaps the tree
   // reached this hook but lost its onPress.
@@ -603,6 +773,18 @@ export const register: Register = on => {
     await update($, scrolled, top => ({ ...top, [zone]: Math.max(0, Math.min(top[zone] + e.by, zones[zone])) }))
 
     return {}
+  })
+
+  // /clear starts the conversation over: no report.
+  on('session.end', async ($, e, next) => {
+    if (e.reason === 'clear') {
+      // A read still running answers for the old chat.
+      overviewSeq++
+      await update($, intent, () => EMPTY_INTENT)
+      await update($, overview, () => EMPTY_OVERVIEW)
+    }
+
+    return next(e)
   })
 
   // A tool call may change the repo; the built-in read-only ones never do, and each reread is 5 git runs.
@@ -641,6 +823,12 @@ export const register: Register = on => {
   // A long reply fills the screen with no prompt row: its rows say whose turn is in view.
   on('ui.render', { component: ['AssistantMessage', 'ToolUse', 'ToolResult'] }, async ($, e, next) => {
     await see($, e.requestId, e.props.onScreen)
+    // The intent report shows in the panel, not as a chat row.
+    if (e.component !== 'AssistantMessage' && e.props.tool === INTENT_TOOL) {
+      const { Box } = $.ui.resolve(e)
+
+      return <Box />
+    }
 
     return next(e)
   })
@@ -977,20 +1165,106 @@ export const register: Register = on => {
         </Box>
       )
     } else {
-      body = SECTIONS.map(([title, hint], i) => (
-        <Box flexDirection="column" marginBottom={i < SECTIONS.length - 1 ? 1 : 0}>
-          <Box justifyContent="space-between">
-            <Text bold color={HUD.label}>{title}</Text>
-            <Text color={HUD.faint}>{hint}</Text>
+      const shown = await read($, intent)
+      const about = await read($, overview)
+      const width = e.props.bodyColumns - 2 * PAD
+      // Only the first read builds the list; every later one updates the topics shown.
+      const aboutHint = about.running ? (about.topics.length ? 'updating…' : 'reading…') : about.failed ? `couldn't read: ${about.failed}` : ''
+      const done = shown.steps.filter(step => step.status === 'completed').length
+      const stepCount = shown.steps.length ? `${done}/${shown.steps.length} steps` : ''
+      const topicCount = about.topics.length ? `${about.topics.length} topic${about.topics.length === 1 ? '' : 's'}` : ''
+      // Ended with every step closed: an answer; else interrupted or failed, as Claude left it.
+      // Working is lit as History lights the prompt in view; done is the branch row's green; stopped Git's dirty amber.
+      const [state, stateColor] = !shown.ended
+        ? ['● working', 'claude']
+        : done === shown.steps.length
+          ? [`✓ done ${clock(shown.at)}`, HUD.action]
+          : [`■ stopped ${clock(shown.at)}`, HUD.dirty]
+      const MARK = { completed: '✓', in_progress: '●', pending: '○' }
+      // The marks scan as progress on their own; done text stays readable, a step back.
+      const MARK_SHADE = { completed: HUD.action, in_progress: 'claude', pending: HUD.faint }
+      const TEXT_SHADE = { completed: SCOPE, in_progress: undefined, pending: undefined }
+      const hasAbout = about.topics.length > 0 || about.running || !!about.failed
+      const LABEL = 7
+      // Purple inline label, the text wrapping under itself.
+      const labelled = (label: string, text: string) => (
+        <Box key={label}>
+          {/* A fixed column: beside wrapping text, a padded label shrank and lost its gap. */}
+          <Box width={LABEL} flexShrink={0}>
+            <Text bold color={HUD.label}>{label}</Text>
           </Box>
-          <Text color={HUD.faint}>  {current} slot</Text>
+          <Text wrap="wrap">{text}</Text>
         </Box>
-      ))
+      )
+      // A part after ASK opens under a rule from the text column to the edge.
+      const partRule = (label: string) => (
+        <Box key={`rule:${label}`} paddingLeft={LABEL}>
+          <Text color={DIM.label}>{'─'.repeat(Math.max(0, width - LABEL))}</Text>
+        </Box>
+      )
+      // History's day line: " Now " across the row.
+      const fill = Math.max(0, width - 5)
+      body =
+        !shown.wants && !hasAbout ? (
+          // The rows under the tabs and their rule.
+          emptyNote(e.props.scroll.bodyRows - 2, 'No intent yet', <Text color={HUD.faint}>Shows once Claude starts a turn.</Text>)
+        ) : (
+          <Box flexDirection="column">
+            {shown.wants && [
+              // A TOPICS read in progress takes the step count's place: the TOPICS header counts them instead.
+              <Box key="state" justifyContent="space-between">
+                <Text color={stateColor}>{state}</Text>
+                <Text color={HUD.faint}>{about.running ? aboutHint : stepCount}</Text>
+              </Box>,
+              <Text key="rule" color={DIM.label}>{'─'.repeat(width)}</Text>,
+            ]}
+            {hasAbout && [
+              <Box key="session" justifyContent="space-between">
+                <Text bold color={HUD.label}>TOPICS</Text>
+                <Text color={HUD.faint}>{about.failed || (about.running && !shown.wants) ? aboutHint : topicCount}</Text>
+              </Box>,
+              // The newest topic is the one in progress, lit as History lights the prompt in view, and first as History lists.
+              ...about.topics.map((topic, i) => (
+                <Box key={`topic:${i}`} paddingLeft={2}>
+                  <Text wrap="wrap" color={i === about.topics.length - 1 ? 'claude' : SCOPE}>{topic}</Text>
+                </Box>
+              )).reverse(),
+            ]}
+            {shown.wants && hasAbout && (
+              <Box key="now">
+                <Text color={DIM.label}>{'─'.repeat(Math.floor(fill / 2))} </Text>
+                <Text color={HUD.label}>Now</Text>
+                <Text color={DIM.label}> {'─'.repeat(Math.ceil(fill / 2))}</Text>
+              </Box>
+            )}
+            {shown.wants && [
+              labelled('ASK', shown.wants),
+              partRule('PLAN'),
+              labelled('PLAN', shown.plan),
+              shown.steps.length > 0 && partRule('STEPS'),
+              shown.steps.length > 0 && (
+                <Box key="steps">
+                  <Box width={LABEL} flexShrink={0}>
+                    <Text bold color={HUD.label}>STEPS</Text>
+                  </Box>
+                  <Box flexDirection="column">
+                    {shown.steps.map((step, i) => (
+                      <Box key={`step:${i}`}>
+                        <Text color={MARK_SHADE[step.status]}>{MARK[step.status]} </Text>
+                        <Text color={TEXT_SHADE[step.status]}>{fit(step.text, width - LABEL - 2)}</Text>
+                      </Box>
+                    ))}
+                  </Box>
+                </Box>
+              ),
+            ]}
+          </Box>
+        )
     }
 
     return (
       <Box flexDirection="column">
-        {/* Equal slots, the last taking the odd column: a separator lands where the Git divider's grip does. */}
+        {/* Equal slots, the last taking the odd column. */}
         <Box paddingX={PAD}>
           {TABS.flatMap((one, i) => {
             const slots = e.props.bodyColumns - 2 * PAD - 3 * (TABS.length - 1)
