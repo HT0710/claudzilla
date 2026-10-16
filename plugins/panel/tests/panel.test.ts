@@ -1905,7 +1905,8 @@ test('parseTopics: every bullet line, no cap', () => {
 
 const TOPICS = '- Intent tab for the panel\n- shipping the branch'
 // This chat's prompts in the history file, Opus answering `reply(n)`, the pane open.
-const overviewPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], reply: (n: number) => unknown = () => ({ isAnswered: true, text: TOPICS, usage: {} }), typed = ['add an intent tab', 'ship it']) => {
+// The hosts a TOPICS read needs, the pane open; `asks` records each Opus request.
+const overviewHosts = (on: Parameters<TestBody>[1], reply: (n: number) => unknown = () => ({ isAnswered: true, text: TOPICS, usage: {} }), typed = ['add an intent tab', 'ship it']) => {
   const clock = mock.clock(on)
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
@@ -1924,11 +1925,26 @@ const overviewPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>
     const value = reply(asks.push(e as any))
     return (value instanceof Promise ? value.then(answer => ({ value: answer })) : { value }) as any
   })
+  return { clock, asks }
+}
+// Mounted on History, so a test picks Overview when its read should start.
+const overviewPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], reply?: (n: number) => unknown, typed?: string[]) => {
+  const { clock, asks } = overviewHosts(on, reply, typed)
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
   await ui.press({ key: 'History' })
   return { ui, clock, asks }
 }
 const send = ($: Parameters<TestBody>[0], text: string) => $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } })
+
+test('a session starting with the pane open reads TOPICS on the default tab', async ($, on) => {
+  const { clock, asks } = overviewHosts(on)
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await $.session.start({ source: 'startup', cwd: '/home/me' } as any)
+  await clock.settle()
+  await ui.drawn()
+  expect(asks).toHaveLength(1)
+  expect(await ui.find({ type: 'Text', text: 'shipping the branch' })).toBeDefined()
+})
 
 test('TOPICS: Opus groups the prompts into topics, drawn newest first', async ($, on) => {
   const { ui, clock, asks } = await overviewPane($, on)
