@@ -1,6 +1,6 @@
 # panel
 
-A side pane listing this chat's prompts, newest first.
+A side pane that opens on its Overview tab; the History tab lists this chat's prompts, newest first.
 
 - **Click a prompt:** the chat scrolls to it.
 - **`↻`:** puts the prompt back in the prompt box.
