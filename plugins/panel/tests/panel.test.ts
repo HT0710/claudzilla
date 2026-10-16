@@ -1862,35 +1862,30 @@ test('/clear empties the report', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'No intent yet' })).toBeDefined()
 })
 
-const composed = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], offered = [INTENT]) => {
+// The tools the panel registers, and the rule the intent tool's description carries.
+const registered = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]) => {
   const tools: string[] = []
+  const described: string[] = []
   on('store.keys', () => ({ value: [] }))
   on('command.register', (_, e) => ({ value: { command: e.name } }))
   on('tool.register', (_, e) => {
     tools.push(e.name)
+    described.push(e.description)
     return { value: { tool: `mcp__panel__${e.name}` } } as any
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'You are Claude.', scope: 'shared' }] }) as any)
   await $.session.start({ cwd: '/proj', surface: null, isInteractive: false })
-  const { sections } = await $.prompt.compose({ model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: [], tools: offered, outputStyle: null, traits: [] } as any)
-  return { tools, rule: sections.find(section => section.id === 'panel:intent') }
+  return { tools, rule: described[0] }
 }
 
-test('a request without the intent tool gets no rule', async ($, on) => {
-  const { rule } = await composed($, on, [])
-  expect(rule).toBeUndefined()
-})
-
 test('the intent tool and its rule are in place by default', async ($, on) => {
-  const { tools, rule } = await composed($, on)
+  const { tools, rule } = await registered($, on)
   expect(tools).toEqual(['intent'])
-  expect(rule?.text).toContain(INTENT)
-  expect(rule?.scope).toBe('session')
+  expect(rule).toContain(`Call the \`${INTENT}\` tool`)
 })
 
 test('intent off: no tool, no rule', { options: { intent: false } }, async ($, on) => {
-  const { tools, rule } = await composed($, on)
+  const { tools, rule } = await registered($, on)
   expect(tools).toEqual([])
   expect(rule).toBeUndefined()
 })
@@ -2174,8 +2169,8 @@ test('a now ping with no report this turn is ignored', async ($, on) => {
 })
 
 test('the rule asks for a now ping with every later tool message', async ($, on) => {
-  const { rule } = await composed($, on)
-  expect(rule?.text).toContain('{"now": n}')
+  const { rule } = await registered($, on)
+  expect(rule).toContain('{"now": n}')
 })
 
 test('with a report, updating… takes the step count\'s place until TOPICS are read; TOPICS counts them', async ($, on) => {

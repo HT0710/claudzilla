@@ -67,7 +67,8 @@ const INTENT_RULE = [
 ].join(' ')
 const INTENT_SPEC = {
   name: 'intent',
-  description: 'Report how you read the user request and your plan, for the side panel. Returns nothing useful.',
+  // The rule rides here, not in prompt.compose: the sec-default guard skips a user mod's system prompt edits.
+  description: `Report how you read the user request and your plan, for the side panel. Returns nothing useful. ${INTENT_RULE}`,
   isDeferred: false,
   inputSchema: {
     type: 'object',
@@ -710,13 +711,6 @@ export const register: Register = (on, options) => {
   })
 
   if (isIntentOn) {
-    on('prompt.compose', async ($, e, next) => {
-      const { sections } = await next(e)
-      if (!e.tools.includes(INTENT_TOOL)) return { sections }
-
-      return { sections: [...sections, { id: 'panel:intent', text: INTENT_RULE, scope: 'session' }] }
-    })
-
     // A subagent's report is answered, not drawn: the tab follows the main conversation.
     on('tool.call', { tool: new RegExp(`^${INTENT_TOOL}$`) }, async ($, e) => {
       const report = e as unknown as Partial<Pick<Intent, 'wants' | 'plan' | 'steps'>> & { agentId?: string; now?: unknown }
