@@ -5,6 +5,6 @@ export type Overview = { topics: string[]; running: boolean; failed?: string }
 
 declare module 'claude-code' {
   interface PluginState {
-    panel: { tab: Tab; notices: Tab[]; submitted: number; toolCalls: number; split: number; scrolled: { changes: number; commits: number }; historyTop: number; intent: Intent; overview: Overview }
+    panel: { tab: Tab; notices: Tab[]; submitted: number; toolCalls: number; split: number; scrolled: { changes: number; commits: number }; historyTop: number; topicsSplit: number; topicsTop: number; intent: Intent; overview: Overview }
   }
 }
