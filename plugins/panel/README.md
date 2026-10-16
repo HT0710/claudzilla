@@ -10,6 +10,7 @@ A side pane listing this chat's prompts, newest first.
 - **Lit prompt:** the one whose turn is on screen. Needs the fullscreen layout.
 - **Dim prompt:** rewound or compacted (a `Rewound` or `Compacted` line marks where), or not drawn in the chat yet. `↻` still works.
 - **Git tab:** the session folder's branch (`↑` ahead, `↓` behind), changed files and recent commits. The wheel scrolls the list under it. Redraws after each tool call and prompt.
+- **Overview tab:** what this chat is about (TOPICS: Opus groups your prompts, and only your prompts, into topics, after each prompt while the tab shows; past 30 it combines the most closely related), how Claude read your request (ASK), what it plans (PLAN) and its steps (STEPS), in Claude's own words: the panel adds a hidden `intent` tool and asks Claude to call it first in each turn, and again as each step completes or the plan changes. The report comes first in each message, so the tab updates before that message's other tools run; when the turn ends with an answer, every step shows done. Costs a short tool call per report. The `intent` option in `/config` turns it off from the next session.
 
 ## Install
 
