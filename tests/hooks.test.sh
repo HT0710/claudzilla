@@ -313,6 +313,13 @@ new_session; out=$(COLUMNS=100 hook UserPromptSubmit prompt=q)
 check "prompt: terminal width told" has "$out" "Terminal 100 cols: keep each table within 96 cols"
 check "prompt: width told every prompt (survives /compact)" has "$(COLUMNS=100 hook UserPromptSubmit prompt=q)" "Terminal 100 cols"
 check "prompt: no COLUMNS, no width line" [ -z "$(hook UserPromptSubmit prompt=q)" ]
+IX="$TMP/intent.jsonl"
+new_session; printf '{"type":"user","message":{"content":"why is mcp__panel__intent stale"}}\n' > "$IX"
+check "prompt: no intent call yet, no panel reminder" [ -z "$(hook UserPromptSubmit prompt=q "transcript_path=$IX")" ]
+printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__panel__intent","input":{}}]}}\n' >> "$IX"
+check "prompt: intent called, panel reminder" has "$(hook UserPromptSubmit prompt=q "transcript_path=$IX")" 'call `mcp__panel__intent`'
+: > "$IX"
+check "prompt: panel reminder kept once seen" has "$(hook UserPromptSubmit prompt=q "transcript_path=$IX")" 'call `mcp__panel__intent`'
 wide=$'| aaaaaaaaaa | b |\n|---|---|\n| c | dddddddddd |'
 for f in '```' '~~~'; do
   new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop "$f"$'\n'"$wide"$'\n'"$f" >/dev/null
