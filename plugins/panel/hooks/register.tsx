@@ -690,7 +690,9 @@ export const register: Register = (on, options) => {
     await update($, historyTop, () => 0)
     await update($, topicsTop, () => 0)
     await update($, submitted, n => n + 1)
-    if (!e.command && !e.isMeta) {
+    // A background task's result carries the last request on: Claude pings its report, not a new one, so it reopens.
+    if (e.origin.kind === 'task-notification') await update($, intent, now => (now.wants ? { ...now, ended: false } : now))
+    else if (!e.command && !e.isMeta) {
       $.clock.after(0, () => readOverview($))
       // Last turn's answered report is not this turn's: shown until Claude reports, it read as current.
       await update($, intent, now => (isAnswered(now) ? EMPTY_INTENT : now))
