@@ -20,7 +20,32 @@ const question = (s: string) => {
 // "→ I X", "and I'll X", "and I will X" or "and I run X"; plain "and I start" stays prose.
 const DOES = /(?:→\s*I|\band\s+I(?:['’]ll|\s+will|(?=\s+run\b)))\s+/.source
 // A bare `go` would match "run `go test`"; another word needs DOES right after it, or it asks a question. \x60 is a backtick.
-const SAY = new RegExp(String.raw`\bsay\s+\x60?(?:go\b|\w+\x60?,?\s+${DOES})`, 'i')
+const SAY = new RegExp(String.raw`\bsay\s+[\x60"]?(?:go\b|\w+[\x60"]?,?\s+${DOES})`, 'i')
+// Ticks would show raw; a second sentence or ", or ..." is another ask.
+const cut = (s: string) => s.replace(/`/g, '').split(/(?<=[.?])(?<!\b(?:e\.g|i\.e)\.)\s|,\s+or\b/)[0]!
+
+// Offers SAY misses, from 1338 real Next lines: the word to say is quoted, bold, or one plain word that asks no question.
+const WORD = String.raw`(?:["\x60]([^"\x60]{1,30})["\x60]|\*\*([^*]{1,30})\*\*|(?!(?:which|what|whether|when|if|so|how|where|who)\b)(\w+))`
+const VERB = String.raw`(?:say|reply)`
+// "say fold to X, or commit to Y", "say A (or B)", "reply 1, 2, or done": a choice. A fallback ("or tell me", "or I revert") is not.
+const CHOICE = new RegExp(String.raw`\b${VERB}\s+${WORD}(?:(?:\s+to\b[^,]*)?,?\s+or\s+(?!(?:tell|give|name|send|paste|I|leave|let|run|drop)\b)|\s*,\s*${WORD}\s*(?:,|\s+or\b)|\s*\(or\s+["\x60*]*\w+["\x60*]*\))`, 'i')
+const word = (m: RegExpMatchArray) => (m[1] ?? m[2] ?? m[3])!
+const asked = (next: string): string | null => {
+  let m: RegExpMatchArray | null
+  if ((m = next.match(new RegExp(String.raw`\b${VERB}\s+${WORD}\s*\(recommended\)`, 'i')))) return word(m)
+  if ((m = next.match(/\bI recommend\s+([A-Z0-9]{1,3})\b/))) return m[1]!
+  // "run X, then say go": the user acts first.
+  if (CHOICE.test(next) || /\bthen\s+say\b/i.test(next)) return null
+  if ((m = next.match(/^(?:want(?: me)? to|should I|shall I)\s+([^?]+)\?/i))) return cut(m[1]!)
+  if (/\bGo\?\s*$/.test(next)) return 'go'
+  // "say the word / yes (or ...) / finish when ready, and I'll X"
+  if ((m = next.match(new RegExp(String.raw`\b${VERB}\s+(?:the word|${WORD})(?:\s+when\b[^,]*)?\s*(?:\([^)]*\))?,?\s+${DOES}(.+)`, 'i')))) return cut(m[4]!)
+  // "approve the spec (or ...), and I'll X"; approving a tool permission is not typed.
+  if ((m = next.match(new RegExp(String.raw`^approve\b(?!\s+(?:Read|Bash|Write|Edit)\b)([^,(]*?)\s*(?:\([^)]*\))?,?(?:\s+or\s+[^,]+,)?\s+${DOES}(.+)`, 'i')))) return `approve${m[1] ? ` ${m[1].trim()}` : ''}, then ${cut(m[2]!)}`
+  // "say push to publish", "say commit.", "say commit, then push", "say "commit" when ready"
+  if ((m = next.match(new RegExp(String.raw`^${VERB}\s+${WORD}(?:\s+(?:to|when|then)\b|\s*(?:[.,→]|$))`, 'i')))) return word(m)
+  return null
+}
 
 type Decision = { topic: string; rows: Row[] | null; recommend: string; why: string; afterRecommend: boolean; options: boolean }
 
@@ -30,6 +55,8 @@ type Decision = { topic: string; rows: Row[] | null; recommend: string; why: str
 export function parse(answer: string): Offer | null {
   let picks: string | null = null
   let next: string | null = null
+  // The act of a Next line SAY misses, from asked().
+  let other: string | null = null
   let fence = ''
   const decisions: Decision[] = []
   let current: Decision | null = null
@@ -77,7 +104,8 @@ export function parse(answer: string): Offer | null {
     }
     const m = line.match(/^\*\*(Picks|Next):\*\*\s*(.+)$/)
     if (m?.[1] === 'Picks') picks = m[2]!
-    else if (m && SAY.test(m[2]!)) next = m[2]!
+    else if (m && SAY.test(m[2]!)) [next, other] = [m[2]!, null]
+    else if (m && (other = asked(m[2]!))) next = m[2]!
   }
   const lone = decisions.length === 1 && decisions[0]!.rows?.length ? decisions[0]! : null
   // A skill gate ends with its own question, so its lone decision table is the ask; a table of options with no Recommend asks nothing.
@@ -89,12 +117,11 @@ export function parse(answer: string): Offer | null {
   const rows = lone ? lone.rows!.map(row => ({ ...row, picked: row.id === chosen })) : []
   const why = lone?.why ?? ''
   // X follows the say that let the line in, not an earlier "and I'll".
-  const said = next?.slice(next.search(SAY))
+  const said = other ? undefined : next?.slice(next.search(SAY))
   const does = said?.match(new RegExp(`${DOES}(.+)$`))
-  // Ticks would show raw; a second sentence or ", or say" is another ask.
-  const act = does?.[1]!.replace(/`/g, '').split(/(?<=[.?])(?<!\b(?:e\.g|i\.e)\.)\s|,\s+or\s+say\b/)[0]
+  const act = other ?? (does && cut(does[1]!))
   // "say B and I'll X" also picks B; only the word said right before X.
-  const letter = does && said!.slice(0, does.index).match(/\b[Ss]ay\s+`?([A-Z])`?,?\s*$/)?.[1]
+  const letter = does && said!.slice(0, does.index).match(/\b[Ss]ay\s+[`"]?([A-Z])[`"]?,?\s*$/)?.[1]
   const title = lone?.topic
     ? question(lone.topic)
     : act
@@ -104,7 +131,7 @@ export function parse(answer: string): Offer | null {
         : `${next!.charAt(0).toUpperCase()}${next!.slice(1)}`
   const todo = act?.replace(/[.:]$/, '')
   // The Picks line also holds fixes the lone option would drop; go's act follows it, but "say so and I'll X" is a fallback.
-  const go = picks !== null ? (todo && /^say\s+`?go\b/i.test(said!) ? `${picks}, then ${todo}` : picks) : rows.length === 1 ? `${rows[0]!.id}: ${rows[0]!.text}` : todo ? `${letter ? `${letter}: ` : ''}${todo}` : 'go'
+  const go = picks !== null ? (todo && /^say\s+[`"]?go\b/i.test(said ?? '') ?`${picks}, then ${todo}` : picks) : rows.length === 1 ? `${rows[0]!.id}: ${rows[0]!.text}` : todo ? `${letter ? `${letter}: ` : ''}${todo}` : 'go'
   return { title, rows, why, go }
 }
 
@@ -117,10 +144,21 @@ const suggestion = (o: Offer) => {
   return pick ? answer(pick) : null
 }
 
+// A Stop hook's continuation ends the turn on its own reply ("no claim"), an assistant message right after the ask;
+// a tool call or a user message in between means the ask is stale.
+const carried = async ($: { session: { messages: () => Promise<{ role: string; text: string; toolUses: unknown[] }[]> } }) => {
+  for (const m of (await $.session.messages()).slice(0, -1).reverse()) {
+    if (m.role !== 'assistant' || m.toolUses.length) return null
+    const found = m.text ? parse(m.text) : null
+    if (found) return found
+  }
+  return null
+}
+
 export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     if (e.reason === 'answer' && !e.agentId) {
-      offer = parse(e.answer)
+      offer = parse(e.answer) ?? await carried($)
       $.ui.invalidate('ui.render')
     }
     const result = await next(e)
