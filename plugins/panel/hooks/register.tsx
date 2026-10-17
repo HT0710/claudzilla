@@ -995,7 +995,7 @@ export const register: Register = (on, options) => {
             emptyNote(
               e.props.scroll.bodyRows - 3,
               'No prompts yet',
-              <Text color={HUD.faint}>Sent prompts show here.</Text>,
+              <Text color={HUD.faint}>What you've asked Claude.</Text>,
               <Box>
                 <Text color={HUD.faint}>Click to jump, </Text>
                 <Text color={HUD.idle}>↻</Text>
@@ -1256,7 +1256,12 @@ export const register: Register = (on, options) => {
       body =
         !shown.wants && !hasAbout ? (
           // The rows under the tabs and their rule.
-          emptyNote(e.props.scroll.bodyRows - 2, 'No intent yet', <Text color={HUD.faint}>Shows once Claude starts a turn.</Text>)
+          emptyNote(
+            e.props.scroll.bodyRows - 2,
+            'Nothing here yet',
+            <Text color={HUD.faint}>What Claude is doing and</Text>,
+            <Text color={HUD.faint}>what this chat is about.</Text>,
+          )
         ) : (
           <Box flexDirection="column">
             {shown.wants && [

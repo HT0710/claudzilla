@@ -27,7 +27,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ key: 'Activity' })).toBeUndefined()
     expect(await ui.find({ key: 'Git' })).toBeDefined()
     expect(await ui.find({ key: 'History' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: 'No intent yet' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'Nothing here yet' })).toBeDefined()
   })
 }
 
@@ -349,7 +349,7 @@ test('a commit subject draws its control characters as spaces', async ($, on) =>
 test('Overview tab with nothing read yet shows a note', async ($, on) => {
   noHistory(on)
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  expect(await ui.find({ type: 'Text', text: 'No intent yet' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Nothing here yet' })).toBeDefined()
 })
 
 test('the tabs split the row in equal thirds', async ($, on) => {
@@ -1816,7 +1816,7 @@ test("a subagent's intent report is answered but not drawn", async ($, on) => {
   const ui = await intentPane($, on)
   expect(await $.tool.call({ tool: INTENT, ...REPORT, agentId: 'a1' } as any)).toMatchObject({ result: 'ok' })
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: 'No intent yet' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Nothing here yet' })).toBeDefined()
 })
 
 test("a main turn's end marks the report ended; a subagent's does not", async ($, on) => {
@@ -1859,7 +1859,7 @@ test('/clear empties the report', async ($, on) => {
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await $.session.end({ reason: 'clear', sessionId: 'chat-1' } as any)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: 'No intent yet' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Nothing here yet' })).toBeDefined()
 })
 
 test("the next prompt clears an answered report, not a stopped one", async ($, on) => {
@@ -1878,7 +1878,7 @@ test("the next prompt clears an answered report, not a stopped one", async ($, o
   await turnEnd($)
   await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } })
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: 'No intent yet' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Nothing here yet' })).toBeDefined()
 })
 
 // The tools the panel registers, and the rule the intent tool's description carries.
@@ -2033,7 +2033,7 @@ test('/clear empties TOPICS', async ($, on) => {
   await clock.settle()
   await $.session.end({ reason: 'clear', sessionId: 'chat-1' } as any)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: 'No intent yet' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Nothing here yet' })).toBeDefined()
 })
 
 test('a reload with the Overview tab open reads TOPICS without waiting for a prompt', async ($, on) => {
@@ -2195,7 +2195,7 @@ test('a now ping with no report this turn is ignored', async ($, on) => {
   const ui = await intentPane($, on)
   await $.tool.call({ tool: INTENT, now: 2 } as any)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: 'No intent yet' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Nothing here yet' })).toBeDefined()
   await $.tool.call({ tool: INTENT, ...THREE } as any)
   await turnEnd($)
   await $.tool.call({ tool: INTENT, now: 1 } as any)
