@@ -1862,6 +1862,25 @@ test('/clear empties the report', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'No intent yet' })).toBeDefined()
 })
 
+test("the next prompt clears an answered report, not a stopped one", async ($, on) => {
+  mock.clock(on)
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('fs.read', () => ({ value: '' }))
+  on('turn.complete', (_, e) => ({ text: e.answer }) as any)
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await turnEnd($, undefined, 'aborted')
+  await $.prompt.submit({ text: 'go on', wait: false, origin: { kind: 'composer' } })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: /^■ stopped / })).toBeDefined()
+  await turnEnd($)
+  await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'No intent yet' })).toBeDefined()
+})
+
 // The tools the panel registers, and the rule the intent tool's description carries.
 const registered = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]) => {
   const tools: string[] = []
