@@ -166,6 +166,41 @@ test('dragging the divider gives CHANGES more rows', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: /file9\.ts/ })).toBeUndefined()
 })
 
+test('the divider shows how far it is dragged, and resizes once let go', async ($, on) => {
+  noHistory(on)
+  const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
+  const repo = { status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' }
+  on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
+  await ui.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'divider' })
+  expect(await ui.find({ type: 'Text', text: '↓2', in: 'divider' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /file7\.ts/ })).toBeUndefined()
+
+  await ui.pointer({ type: 'up', x: 0, y: 2, button: 'left', in: 'divider' })
+  expect(await ui.find({ type: 'Text', text: /file8\.ts/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '↓2', in: 'divider' })).toBeUndefined()
+})
+
+test('a release the divider missed ends the drag at the next move', async ($, on) => {
+  noHistory(on)
+  const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
+  const repo = { status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' }
+  on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
+  await ui.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'divider' })
+  // No up came: the next move holds no button.
+  await ui.pointer({ type: 'move', x: 0, y: 2, in: 'divider' })
+
+  expect(await ui.find({ type: 'Text', text: /file8\.ts/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '↓2', in: 'divider' })).toBeUndefined()
+})
+
 test('the divider lights its grip while the pointer is over it', async ($, on) => {
   noHistory(on)
   on('process.run', (_, e) => ran(git({ status: '## main\n M file0.ts\n', log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
@@ -286,6 +321,7 @@ test('the divider drags up to the CHANGES title, and no further', async ($, on) 
   // 7 rows of CHANGES; dragged 9 rows up, past its title.
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'move', x: 0, y: -9, button: 'left', in: 'divider' })
+  expect(await ui.find({ type: 'Text', text: '↑7', in: 'divider' })).toBeDefined()
   await ui.pointer({ type: 'up', x: 0, y: -9, button: 'left', in: 'divider' })
 
   expect(await ui.find({ type: 'Text', text: /file0\.ts/ })).toBeUndefined()
@@ -309,6 +345,7 @@ test('Git tab reruns git after a tool call, not on every redraw', async ($, on) 
   // A drag redraws the pane; the repo has not changed.
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'divider' })
+  await ui.pointer({ type: 'up', x: 0, y: 2, button: 'left', in: 'divider' })
   expect(await ui.find({ type: 'Text', text: /file8\.ts/ })).toBeDefined()
   expect(runs).toBe(before)
 
