@@ -65,6 +65,8 @@ const INTENT_RULE = [
   'send wants, plan and steps again only when your plan changes. Never call it alone just to mark the last step done:',
   'your answer closes it. Do not mention the tool in your reply.',
 ].join(' ')
+// An answer closed every step; an interrupt left some open, for pings to pick back up.
+const isAnswered = (now: Intent) => now.ended && now.steps.every(step => step.status === 'completed')
 const INTENT_SPEC = {
   name: 'intent',
   // The rule rides here, not in prompt.compose: the sec-default guard skips a user mod's system prompt edits.
@@ -688,7 +690,11 @@ export const register: Register = (on, options) => {
     await update($, historyTop, () => 0)
     await update($, topicsTop, () => 0)
     await update($, submitted, n => n + 1)
-    if (!e.command && !e.isMeta) $.clock.after(0, () => readOverview($))
+    if (!e.command && !e.isMeta) {
+      $.clock.after(0, () => readOverview($))
+      // Last turn's answered report is not this turn's: shown until Claude reports, it read as current.
+      await update($, intent, now => (isAnswered(now) ? EMPTY_INTENT : now))
+    }
 
     return result
   })
@@ -720,7 +726,6 @@ export const register: Register = (on, options) => {
       if (report.wants === undefined && typeof report.now === 'number') {
         const current = report.now - 1
         const status = (i: number): Step['status'] => (i < current ? 'completed' : i === current ? 'in_progress' : 'pending')
-        const isAnswered = (now: Intent) => now.ended && now.steps.every(step => step.status === 'completed')
         await update($, intent, now =>
           isAnswered(now) || !now.steps.length ? now : { ...now, ended: false, steps: now.steps.map((step, i) => ({ ...step, status: status(i) })) },
         )
