@@ -109,7 +109,7 @@ check "render: ctx row"  grep -q '^ctx .* 42% *$' <<<"$out"
 check "render: ctx used" grep -q '^ctx .* 42%  *417k$' <<<"$(render "$used")"
 check "render: 5h row"   grep -q '^5h .* 30%  *2h0m$' <<<"$out"
 check "render: wk row"   grep -q '^wk .* 12%  *2d7h$' <<<"$out"
-check "render: profile"  grep -q 'me@example.test$' <<<"$out"
+check "render: profile"  grep -qE 'me@example\.test(  v[0-9.]+)?$' <<<"$out"
 check "render: activity" grep -q '^Opus  high  ⚑ pr .*abcdef12  up 90m$' <<<"$out"
 out=$(render "$nolim")
 check "render: no limits -> ctx only" [ "$(grep -cE '^(ctx|5h|wk) ' <<<"$out")" -eq 1 ]
@@ -137,6 +137,22 @@ git -C "$BAD" checkout -q -b $'c1\xc2\x9b31mX'
 mkdir -p "$C/sessions"; printf '{"sessionId":"sid-u","name":"n\xc2\x9d52;x"}' > "$C/sessions/1.json"
 check "render: C1 in branch and session name dropped" bash -c 'printf %s "$1" | perl -ne "exit 1 if /\xc2[\x80-\x9f]/"' _ "$(row1 "$BAD" 2>/dev/null)"
 rm -rf "$C/sessions"
+
+# claudzilla version: the last release tag, or the tag CI would cut next (.github/next-version.sh) when ahead of it
+R="$TMP/zilla"; mkdir -p "$R/claude/hud" "$R/.github"
+cp "$HUD/hud-filter.pl" "$R/claude/hud/"; cp "$REPO/.github/next-version.sh" "$R/.github/"
+g() { git -C "$R" -c user.name=t -c user.email=t@t "$@"; }
+ver() { data <<<"$full" | COLUMNS=120 perl "$R/claude/hud/hud-filter.pl" | head -1 | perl -pe 's/\e\[[0-9;]*m//g'; }
+g init -q -b main; g commit -q --allow-empty -m a
+check "render: no tags -> no version" grep -q 'me@example.test$' <<<"$(ver)"
+g tag v9.9.9
+check "render: on release tag -> tag far right" grep -q 'me@example.test  v9.9.9$' <<<"$(ver)"
+g commit -q --allow-empty -m 'docs: x'
+check "render: no release due -> last tag" grep -q 'me@example.test  v9.9.9$' <<<"$(ver)"
+g commit -q --allow-empty -m 'feat(hud): x'
+check "render: ahead with feat -> next minor" grep -q 'me@example.test  v9.10.0$' <<<"$(ver)"
+g tag backup
+check "render: non-release tag ignored" grep -q 'me@example.test  v9.10.0$' <<<"$(ver)"
 
 echo "hud: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
