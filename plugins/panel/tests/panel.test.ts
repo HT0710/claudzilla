@@ -2255,7 +2255,7 @@ test("a step's mark is colored apart from its text", async ($, on) => {
   expect(await colorOf(ui, /^✓ $/)).toBe('#5d9678')
   expect(await colorOf(ui, /^spec$/)).toBe('#808286')
   expect(await colorOf(ui, /^● $/)).toBe('claude')
-  expect(await colorOf(ui, /^plan$/)).toBeUndefined()
+  expect(await colorOf(ui, /^plan$/)).toBe('claude')
   expect(await colorOf(ui, /^○ $/)).toBe('#4f5c68')
 })
 
