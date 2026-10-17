@@ -1872,6 +1872,48 @@ test("a main turn's end marks the report ended; a subagent's does not", async ($
   expect(await ui.find({ type: 'Text', text: /^○ $/ })).toBeUndefined()
 })
 
+test('a main turn that ends on a background agent keeps the steps open', async ($, on) => {
+  let status = 'running'
+  on('agent.list', () => ({ value: [{ id: 'a1', description: 'sleep', type: 'general-purpose', status }] }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await turnEnd($)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '● working' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '0/2 steps' })).toBeDefined()
+  status = 'completed'
+  await turnEnd($)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '2/2 steps' })).toBeDefined()
+})
+
+test("an answer closes the steps past agents the turn does not wait on: a subagent's, a plugin's, a teammate, an idle one", async ($, on) => {
+  const agent = { description: 'sleep', type: 'general-purpose', status: 'running' }
+  const agents = [
+    { ...agent, id: 'a1', parentId: 'a0' },
+    { ...agent, id: 'a2', spawnedBy: 'picks' },
+    { ...agent, id: 'a3', teammateId: 'ann@team' },
+    { ...agent, id: 'a4', status: 'idle' },
+  ]
+  on('agent.list', () => ({ value: agents }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await turnEnd($)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '2/2 steps' })).toBeDefined()
+})
+
+test('an agent already running at the prompt does not hold that prompt\'s answer open', async ($, on) => {
+  on('agent.list', () => ({ value: [{ id: 'a1', description: 'sleep', type: 'general-purpose', status: 'running' }] }) as any)
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  const ui = await intentPane($, on)
+  await $.prompt.submit({ text: 'meanwhile', wait: false, origin: { kind: 'composer' } })
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await turnEnd($)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '2/2 steps' })).toBeDefined()
+})
+
 test('done shows the time the turn ended, not the time of the report', async ($, on) => {
   let at = 1_000_000
   const ui = await intentPane($, on, () => at)
