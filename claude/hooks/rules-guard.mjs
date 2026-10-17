@@ -30,6 +30,7 @@ const FLAG = {
   boxAlign: "diagram box edge misaligned",
   tableWidth: "table wider than terminal",
 };
+const INTENT_TOOL = "mcp__panel__intent";
 // Task notifications and peer-session messages arrive as prompts; their words are not the user's.
 const MACHINE_PROMPT = /^(?:<task-notification>|Another Claude session sent a message:|\[Cross-session)/;
 
@@ -115,7 +116,7 @@ const hitter = (cfg, hits) => (id, why) => { if (why && cfg.rules[id] !== "off")
 
 // Mentions inside `code` or quotes are not claims or triggers.
 const unquote = (text) => text.replace(/`[^`\n]*`|"[^"\n]*"|“[^”\n]*”/g, "");
-const fresh = () => ({ skills: [], checked: false, debug: false, debugNudged: false, edited: false, flags: [], judged: "" });
+const fresh = () => ({ skills: [], checked: false, debug: false, debugNudged: false, edited: false, flags: [], judged: "", panel: false });
 const statePath = (sid) => join(tmpdir(), "claudzilla-rules", `${String(sid).replace(/[^\w-]/g, "")}.json`);
 function load(sid) {
   try { return { ...fresh(), ...JSON.parse(readFileSync(statePath(sid), "utf8")) }; } catch { return fresh(); }
@@ -228,6 +229,11 @@ function onPrompt(d) {
   const cols = termCols();
   if (cfg.rules.tableWidth !== "off" && cols)
     lines.push(`Terminal ${cols} cols: keep each table within ${cols - TABLE_MARGIN} cols; wider → fewer columns, shorter cells, or bullets.`);
+  // The panel mod's own prompt hooks are skipped by the sec-default guard, and its rule in the tool's text fades over a
+  // long chat. A call seen once means the tool exists and intent reports are on.
+  s.panel = prev.panel || tailLines(d.transcript_path).some((l) => l.includes(`"name":"${INTENT_TOOL}"`));
+  if (s.panel && !MACHINE_PROMPT.test(p))
+    lines.push(`Side panel: call \`${INTENT_TOOL}\` with wants, plan and steps as this reply's first block, even if you call no other tool.`);
   const typed = p.match(/^\/([\w:-]+)/);
   if (typed) s.skills.push(typed[1]);
   else if (!MACHINE_PROMPT.test(p)) {
