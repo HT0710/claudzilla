@@ -1,0 +1,28 @@
+{
+  "core": {
+    "links": ["CLAUDE.md", "RTK.md", "rules", "hooks/rules-guard.mjs", "hooks/trace.mjs", "hooks/trace.pl", "hooks/md-display.pl", "skills/pr", "skills/rule-review"],
+    "hooks": ["rules-guard.mjs", "trace.mjs", "md-display.pl", "rule-review/scan.mjs"],
+    "keys": ["env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "extraKnownMarketplaces.claude-plugins-official"],
+    "plugins": ["superpowers@claude-plugins-official"],
+    "rest": true
+  },
+  "hud": {
+    "links": ["hud", "themes"],
+    "keys": ["statusLine", "theme", "env.COLORTERM", "env.CLAUDE_CODE_TMUX_TRUECOLOR"]
+  },
+  "rtk": { "hooks": ["rtk hook claude"] },
+  "caveman": {
+    "keys": ["env.CAVEMAN_DEFAULT_MODE", "extraKnownMarketplaces.caveman"],
+    "plugins": ["caveman@caveman"]
+  },
+  "ponytail": {
+    "keys": ["env.PONYTAIL_DEFAULT_MODE", "extraKnownMarketplaces.ponytail"],
+    "plugins": ["ponytail@ponytail"]
+  },
+  "dividers": { "plugins": ["response-dividers@claudzilla"] },
+  "panel": { "plugins": ["panel@claudzilla"] },
+  "picks": { "plugins": ["picks@claudzilla"] },
+  "toast": { "plugins": ["update-toast@claudzilla"] },
+  "attribution": { "plugins": ["attribution@claudzilla"] },
+  "updater": { "links": ["hooks/claudzilla-update.sh", "skills/claudzilla-report"], "hooks": ["claudzilla-update.sh"] }
+}
