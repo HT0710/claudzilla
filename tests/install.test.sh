@@ -314,8 +314,9 @@ cp "$REPO/claude/hooks/claudzilla-update.sh" "$REPO/claude/hooks/rules-guard.mjs
 ln -s "$S/clone/claude/hooks/claudzilla-update.sh" "$S/home/.claude/hooks/claudzilla-update.sh"
 g -C "$U/seed" commit --allow-empty -m ten; g -C "$U/seed" push origin main
 sgd=$(git -C "$S/clone" rev-parse --absolute-git-dir)
+touch "$sgd/FETCH_HEAD"   # an older curl install that fetched today: shallow alone must trigger the fetch
 clean_env HOME="$S/home" sh "$S/home/.claude/hooks/claudzilla-update.sh" >/dev/null
-for i in $(seq 20); do [ -f "$sgd/FETCH_HEAD" ] && [ ! -d "$sgd/claudzilla-update.lock" ] && break; sleep 0.5; done
+for i in $(seq 20); do [ ! -f "$sgd/shallow" ] && [ ! -d "$sgd/claudzilla-update.lock" ] && break; sleep 0.5; done
 check "shallow: background fetch unshallows" [ ! -f "$sgd/shallow" ]
 check "shallow: background fetch gets tags" git -C "$S/clone" rev-parse -q --verify v1.2.0
 check "shallow: untagged commit is no update" [ "$(git -C "$S/clone" log -1 --format=%s)" = nine ]
