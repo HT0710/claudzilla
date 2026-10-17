@@ -46,6 +46,21 @@ if ($SID) {
 my $cwd;
 if (my $e = $META_CWD) { my $h = $ENV{HOME} // ''; utf8::decode($h); $e =~ s/^\Q$h\E(?=\/|$)/~/ if $h; $cwd = $e; }
 my $profile = $f{profile};
+# claudzilla version from the clone this script links into: the last release tag, or, when the
+# clone runs ahead of it, the tag CI would cut next (same script as .github/workflows/test.yml)
+my $ver;
+{   use Cwd 'abs_path';
+    my ($hd) = (abs_path($0) // '') =~ m{^(.*)/};
+    $hd =~ s/'/'\\''/g if defined $hd;
+    my $last = defined $hd ? `git -C '$hd' describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null` // '' : '';
+    $last =~ s/\s+$//;
+    if (length $last) {
+        (my $q = $last) =~ s/'/'\\''/g;
+        my $next = `git -C '$hd' log --format='%s%n%b' '$q..HEAD' 2>/dev/null | sh '$hd/../../.github/next-version.sh' '$q' 2>/dev/null` // '';
+        $next =~ s/\s+$//;
+        $ver = clean(length $next ? $next : $last);
+    }
+}
 # branch + dirty from the session cwd; blank when not a repo
 my ($branch, $dirty);
 my $churn = '';
@@ -158,9 +173,11 @@ sub cwd_str {
         my $l = cwd_str($path);
         for my $o (@opt) { $l .= $o->[1]->($o->[0]) if defined $o->[0] }
         my $r = $p ne '' ? "\e[38;2;95;158;168m$p\e[0m" : '';
+        $r .= ($r ne '' ? $dim->('  ') : '') . "\e[38;2;157;101;84m$ver\e[0m" if defined $ver;
         return ($l, $r);
     };
     my $fits = sub { fits($build->()) };
+    if (!$fits->()) { $ver = undef }                         # version first
     if (!$fits->()) { $p =~ s/\@.*// }                       # profile: local part only
     if (!$fits->()) { $p = '' }                              # ...then drop it
     for my $i (2,1,0) { last if $fits->(); $opt[$i][0] = undef }   # churn, dirty, branch
