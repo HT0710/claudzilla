@@ -26,8 +26,8 @@ const Divider: ClientModule<{ split: number; label?: string }, { grabbed?: numbe
   const word = by ? `${by > 0 ? '↓' : '↑'}${Math.abs(by)}` : label && !surface.state?.isOver ? label : '⇕'
   const isLit = label ? surface.state?.grabbed !== undefined : surface.state?.isOver
   const side = Math.max(0, surface.columns - word.length - 2)
-  // History's day-line purple (register.tsx DIM.label); a label, and the lit grip as History's ↑ to the
-  // top under the pointer, in its word's (HUD.label).
+  // History's day-line purple (register.tsx DIM.label), as the ↑ to a zone's top; a label, and the lit
+  // grip, in its word's (HUD.label).
   return (
     <Box>
       <Text color="#625a7e">{'─'.repeat(Math.floor(side / 2))} </Text>
