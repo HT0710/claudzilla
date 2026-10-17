@@ -57,14 +57,15 @@ elif [ -n "$user" ]; then
   printf '{"systemMessage":"%s"}\n' "$(json "$user")"
 fi
 
-stale=$([ -z "$(find "$gd/FETCH_HEAD" -mmin -1440 2>/dev/null)" ] && echo 1)
+stale=$({ [ -f "$gd/shallow" ] || [ -z "$(find "$gd/FETCH_HEAD" -mmin -1440 2>/dev/null)" ]; } && echo 1)
 [ -n "$stale" ] || { [ "$auto" = true ] && [ "${n:-0}" -gt 0 ]; } || exit 0
 find "$lock" -maxdepth 0 -mmin +60 -exec rmdir {} \; 2>/dev/null   # left by a killed job
 (
   mkdir "$lock" 2>/dev/null || exit 0   # another session's job is running
   trap '' HUP   # Claude exiting mid-install must not leave a half install and a stuck lock
   trap 'rmdir "$lock"' EXIT
-  [ -z "$stale" ] || GIT_TERMINAL_PROMPT=0 git -C "$repo" fetch -q
+  # A curl install is a --depth 1 clone: no tags until its history is fetched.
+  [ -z "$stale" ] || GIT_TERMINAL_PROMPT=0 git -C "$repo" fetch -q $([ -f "$gd/shallow" ] && echo --unshallow --tags)
   [ "$auto" = true ] && [ "$(behind)" -gt 0 ] 2>/dev/null && [ -z "$(dirty)" ] || exit 0
   to=$(ver --match 'v[0-9]*' "$(rel)"); emit live "claudzilla: updating to $to"
   if { git -C "$repo" merge -q --ff-only "$to" && bash "$repo/install.sh"; } >"$log" 2>&1
