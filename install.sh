@@ -10,7 +10,6 @@ DIR="${CLAUDZILLA_DIR:-$HOME/claudzilla}"
 DEST="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 NODE_MAJOR="${NODE_MAJOR:-24}"
 OFFLINE="${CLAUDZILLA_OFFLINE:-0}"   # 1 = skip node/rtk/plugins (tests)
-LINKS="CLAUDE.md RTK.md rules themes hud hooks/claudzilla-update.sh hooks/rules-guard.mjs hooks/trace.mjs hooks/trace.pl hooks/md-display.pl skills/pr skills/rule-review skills/claudzilla-report"
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" 2>/dev/null && pwd || pwd)"
 BACKUP="$DEST/.claudzilla-backup/$(date +%Y%m%d-%H%M%S)"
@@ -44,8 +43,8 @@ link() {  # $DEST/$1 -> $REPO/claude/$1
 # .claudzilla-base.json records the last base applied, so entries claudzilla
 # stops shipping get removed. Repeated copies of a base entry collapse.
 # settings.overrides.json (machine-local, never in the repo) wins over both.
-merge_settings() {
-  local dst="$DEST/settings.json" tmp="$DEST/.settings.json.claudzilla" rec="$DEST/.claudzilla-base.json"
+merge_settings() {  # $1: base to apply
+  local base="$1" dst="$DEST/settings.json" tmp="$DEST/.settings.json.claudzilla" rec="$DEST/.claudzilla-base.json"
   node -e '
 const fs=require("fs"),[base,dst,out,over,rec]=process.argv.slice(1);
 const read=p=>fs.existsSync(p)?JSON.parse(fs.readFileSync(p,"utf8")):{};
@@ -69,38 +68,200 @@ const prune=(mine,old,repo)=>{
 let old=null;try{old=JSON.parse(fs.readFileSync(rec,"utf8"))}catch{}
 const b=read(base),d=read(dst);
 fs.writeFileSync(out,JSON.stringify(merge(merge(old?prune(d,old,b):d,b),read(over)),null,2)+"\n")' \
-    "$REPO/settings.base.json" "$dst" "$tmp" "$DEST/settings.overrides.json" "$rec"
+    "$base" "$dst" "$tmp" "$DEST/settings.overrides.json" "$rec"
   if [ -f "$dst" ] && cmp -s "$tmp" "$dst"; then rm -f "$tmp"
   else
     [ -f "$dst" ] && save settings.json
     mv "$tmp" "$dst"
     echo "settings.json merged"
   fi
-  cmp -s "$REPO/settings.base.json" "$rec" || cp "$REPO/settings.base.json" "$rec"
+  cmp -s "$base" "$rec" || cp "$base" "$rec"
 }
+
+# Run before any link is touched: merge_settings throws on a settings file it cannot parse.
+check_settings() {
+  local f
+  f=$(node -e '
+const fs=require("fs");for(const f of process.argv.slice(1))if(fs.existsSync(f))try{JSON.parse(fs.readFileSync(f,"utf8"))}catch{console.log(f);process.exit(1)}' \
+    "$DEST/settings.json" "$DEST/settings.overrides.json") ||
+    { echo "claudzilla: $f is not valid JSON - fix or remove it, then re-run" >&2; exit 1; }
+}
+
+# parts.json maps every link, setting and hook to a part; updater ships always.
+ALL_PARTS=""
+all_parts() { node -p 'Object.keys(require(process.argv[1])).filter(p=>p!="updater").join(" ")' "$REPO/parts.json"; }
+
+part_links() {  # $@: parts; prints their links plus the updater's
+  node -p 'const m=require(process.argv[1]);[...process.argv.slice(2),"updater"].flatMap(p=>m[p].links||[]).join(" ")' "$REPO/parts.json" "$@"
+}
+
+# Prints the base to apply for the picked parts: the repo file itself when all are picked.
+base_for() {
+  local out="$DEST/.settings.base.claudzilla" p
+  for p in $ALL_PARTS; do case " $* " in *" $p "*) ;; *) p=; break ;; esac; done
+  [ -z "$p" ] || { echo "$REPO/settings.base.json"; return 0; }
+  node -e '
+const fs=require("fs"),[man,basef,out,...picked]=process.argv.slice(1);
+const m=JSON.parse(fs.readFileSync(man,"utf8")),b=JSON.parse(fs.readFileSync(basef,"utf8"));
+const on=new Set([...picked,"updater"]),off=Object.keys(m).filter(p=>!on.has(p));
+const claimed=new Set(Object.values(m).flatMap(p=>p.keys||[])),box=["env","extraKnownMarketplaces","enabledPlugins","hooks"];
+const del=path=>{const s=path.split(".");let o=b;for(const k of s.slice(0,-1)){o=o?.[k]}if(o)delete o[s.at(-1)]};
+for(const p of off){for(const k of m[p].keys||[])del(k);for(const k of m[p].plugins||[])del("enabledPlugins."+k);
+  for(const ev in b.hooks||{})b.hooks[ev]=b.hooks[ev].filter(e=>!e.hooks.some(h=>(m[p].hooks||[]).some(s=>h.command.includes(s))))}
+if(!on.has("core"))for(const k in b)if(!claimed.has(k)&&!box.includes(k))delete b[k];
+for(const ev in b.hooks||{})if(!b.hooks[ev].length)delete b.hooks[ev];
+for(const k of box)if(b[k]&&!Object.keys(b[k]).length)delete b[k];
+fs.writeFileSync(out,JSON.stringify(b,null,2)+"\n")' "$REPO/parts.json" "$REPO/settings.base.json" "$out" "$@"
+  echo "$out"
+}
+
+# Flags set these; resolve_parts turns them into PICKED. CHOSEN = this run changed the choice.
+TTY="${CLAUDZILLA_TTY:-/dev/tty}"
+has_tty() { { : <"$TTY"; } 2>/dev/null; }
+MODE=install YES=0 ADD="" REMOVE="" CUSTOM=0 FULL=0 PICKED="" FORM=skip CHOSEN=0 FONT_NEW=0
+
+parse_args() {
+  local a list p
+  while [ $# -gt 0 ]; do
+    a=$1; shift
+    case $a in
+      --full) FULL=1 ;; --custom) CUSTOM=1 ;; --yes) YES=1 ;; --uninstall) MODE=uninstall ;;
+      --add|--remove)
+        [ $# -gt 0 ] || { echo "claudzilla: $a needs a part list - parts: $ALL_PARTS" >&2; exit 1; }
+        list=${1//,/ }; shift
+        for p in $list; do case " $ALL_PARTS " in *" $p "*) ;; *) echo "claudzilla: unknown part '$p' - parts: $ALL_PARTS" >&2; exit 1 ;; esac; done
+        if [ "$a" = --add ]; then ADD="${ADD:+$ADD }$list"; else REMOVE="${REMOVE:+$REMOVE }$list"; fi ;;
+      *) echo "claudzilla: unknown flag '$a' - flags: --full --custom --add --remove --uninstall --yes" >&2; exit 1 ;;
+    esac
+  done
+}
+
+# Saved choice (claudzilla.json "install": {"skip":[..]} or {"only":[..]}; none = Full), then the flags.
+resolve_parts() {
+  local out fresh=0
+  [ -f "$DEST/.claudzilla-base.json" ] || fresh=1
+  out=$(node -e '
+const fs=require("fs"),[cfg,all,fresh,full,add,rem]=process.argv.slice(1),A=all.split(" "),W=s=>s.split(" ").filter(Boolean);
+let ins;try{ins=JSON.parse(fs.readFileSync(cfg,"utf8")).install}catch{}
+const L=v=>Array.isArray(v)?v.filter(p=>A.includes(p)):[];
+for(const k of ["only","skip"])if(ins&&typeof ins=="object"&&k in ins&&!Array.isArray(ins[k]))process.exit(2);
+if(ins?.only?.length&&!L(ins.only).length)process.exit(2);
+let form=ins?.only?"only":"skip",pick=ins?.only?L(ins.only):ins?.skip?A.filter(p=>!L(ins.skip).includes(p)):A;
+if(full==="1"){pick=A;form="skip"}
+else if(fresh==="1"&&!ins&&add){pick=[];form="only"}
+const set=new Set(pick);for(const p of W(add))set.add(p);for(const p of W(rem))set.delete(p);
+console.log(form+" "+A.filter(p=>set.has(p)).join(" "))' "$DEST/claudzilla.json" "$ALL_PARTS" "$fresh" "$FULL" "$ADD" "$REMOVE") ||
+    { echo "claudzilla: saved choice names no known part - fix \"install\" in $DEST/claudzilla.json or run --full" >&2; exit 1; }
+  read -r FORM PICKED <<<"$out"
+  if [ "$FULL" = 1 ] || [ -n "$ADD$REMOVE" ]; then CHOSEN=1; save_choice; fi
+}
+
+save_choice() {  # PICKED + FORM -> "install" key; every part picked clears it; other keys stay
+  local f="$DEST/claudzilla.json" tmp="$DEST/.claudzilla.json.claudzilla" rc=0
+  node -e '
+const fs=require("fs"),[f,out,all,picked,form]=process.argv.slice(1),A=all.split(" "),P=picked.split(" ").filter(Boolean);
+let j={};if(fs.existsSync(f))try{j=JSON.parse(fs.readFileSync(f,"utf8"))}catch{process.exit(2)}
+if(!j||typeof j!="object"||Array.isArray(j))process.exit(2);
+const before=JSON.stringify(j);
+if(A.every(p=>P.includes(p)))delete j.install;
+else j.install=form==="only"?{only:P}:{skip:A.filter(p=>!P.includes(p))};
+if(JSON.stringify(j)===before)process.exit(3);
+fs.writeFileSync(out,JSON.stringify(j,null,2)+"\n")' "$f" "$tmp" "$ALL_PARTS" "$PICKED" "$FORM" || rc=$?
+  case $rc in
+    0) mv "$tmp" "$f" ;;
+    3) ;;
+    *) echo "claudzilla: $f is not a JSON object - fix or remove it, then re-run" >&2; exit 1 ;;
+  esac
+}
+
+unlink_part() {  # $1: part; drops its links only while they still point into this repo
+  local f
+  for f in $(node -p '(require(process.argv[1])[process.argv[2]].links||[]).join(" ")' "$REPO/parts.json" "$1"); do
+    case "$(readlink "$DEST/$f" 2>/dev/null || true)" in "$REPO/claude/"*) rm -f "$DEST/$f" ;; esac
+  done
+}
+
+# Claude's Bash tool has no terminal: print what Claude should ask, change nothing.
+claude_stop() {
+  cat <<EOF
+claudzilla: no terminal to ask which parts to install.
+Claude: ask the user with AskUserQuestion: "Full (recommended)" or "Custom".
+  Full: run $REPO/install.sh --full
+  Custom: one AskUserQuestion call with three multiSelect questions, ticked = install:
+    Screen: hud panel picks
+    Replies: caveman ponytail dividers
+    Background: rtk toast attribution
+  Then run $REPO/install.sh --full --remove <unticked parts, comma-separated> (all ticked: --full).
+core (rules, hooks, settings) is always installed.
+Parts:
+  hud - statusline
+  panel - side panel
+  picks - suggested next steps
+  caveman - terse replies
+  ponytail - smallest-change coding
+  dividers - response dividers
+  rtk - token-saving command filter
+  toast - update notice
+  attribution - commit credit
+EOF
+  exit 2
+}
+
+# Full (default) or Custom; Custom is Full minus the unticked parts (skip form).
+menu() {
+  local g p n=0 ans on="" mode=1
+  [ "$CUSTOM" = 1 ] && mode=2
+  exec 3<"$TTY"   # one open: a file stand-in must not rewind between prompts
+  for p in $PICKED; do on="$on $p "; done
+  if [ "$mode" = 1 ]; then
+    printf 'claudzilla: install\n  1) Full (recommended)\n  2) Custom\n> '
+    read -r ans <&3 || true; [ "${ans:-1}" = 2 ] && mode=2
+  fi
+  if [ "$mode" = 2 ]; then
+    for g in "Screen:hud panel picks" "Replies:caveman ponytail dividers" "Background:rtk toast attribution"; do
+      echo "${g%%:*}"
+      for p in ${g#*:}; do n=$((n+1)); case "$on" in *" $p "*) echo "  $n) [x] $p" ;; *) echo "  $n) [ ] $p" ;; esac; done
+    done
+    printf 'numbers to toggle, space separated (Enter keeps these): '
+    read -r ans <&3 || true
+    n=0
+    for p in hud panel picks caveman ponytail dividers rtk toast attribution; do
+      n=$((n+1)); case " $ans " in *" $n "*) case "$on" in *" $p "*) on="${on/ $p / }" ;; *) on="$on $p " ;; esac ;; esac
+    done
+  else on=" $ALL_PARTS "; fi
+  PICKED=core; for p in $ALL_PARTS; do [ "$p" = core ] || case "$on" in *" $p "*) PICKED="$PICKED $p" ;; esac; done
+  exec 3<&-
+  FORM=skip CHOSEN=1; save_choice
+}
+
+picked() { case " $PICKED " in *" $1 "*) ;; *) return 1 ;; esac; }
 
 # alt+h toggles the panel, alt+k focuses the band (the picks card), alt+g toggles
 # the guide. Each is left alone if the user chose: the key under any alias in
 # Chat or Global (null unbinds), the action on another key, or a symlink (a
 # dotfiles tool owns it).
 keybindings() {
-  local dst="$DEST/keybindings.json" tmp="$DEST/.keybindings.json.claudzilla" rc=0 added
+  local dst="$DEST/keybindings.json" tmp="$DEST/.keybindings.json.claudzilla" rc=0 added verb
   added=$(node -e '
-const fs=require("fs"),[dst,out]=process.argv.slice(1);
+const fs=require("fs"),[dst,out,picked]=process.argv.slice(1),has=p=>picked.split(" ").includes(p);
 const isObj=v=>v&&typeof v=="object"&&!Array.isArray(v);
 let j={bindings:[]};
 if(fs.existsSync(dst))try{j=JSON.parse(fs.readFileSync(dst,"utf8"))}catch{process.exit(2)}
 if(!isObj(j)||!Array.isArray(j.bindings)||!j.bindings.every(b=>isObj(b)&&isObj(b.bindings)))process.exit(2);
 const chat=j.bindings.filter(b=>b.context==="Chat");
+const keys=[["h","command:panel","panel"],["k","abovePrompt:focus","picks"],["g","command:claudzilla","core"]],msg=[];
+for(const[k,a,p]of keys)if(!has(p))for(const b of chat)if(b.bindings[`alt+${k}`]===a){delete b.bindings[`alt+${k}`];msg.push(`alt+${k} removed`)}
+j.bindings=j.bindings.filter(b=>b.context!=="Chat"||Object.keys(b.bindings).length||!msg.length);
 const own=(k,a)=>j.bindings.some(b=>(["Chat","Global"].includes(b.context)&&Object.keys(b.bindings).some(x=>new RegExp(`^(alt|opt|option|meta)\\+${k}$`,"i").test(x)))||Object.values(b.bindings).includes(a));
-const add=[["h","command:panel"],["k","abovePrompt:focus"],["g","command:claudzilla"]].filter(([k,a])=>!own(k,a));
-if(!add.length)process.exit(3);
-if(!chat.length)j.bindings.push(chat[0]={context:"Chat",bindings:{}});
-for(const[k,a]of add)chat[0].bindings[`alt+${k}`]=a;
+const add=keys.filter(([k,a,p])=>has(p)&&!own(k,a));
+if(!add.length&&!msg.length)process.exit(3);
+if(add.length){let c=j.bindings.find(b=>b.context==="Chat");if(!c)j.bindings.push(c={context:"Chat",bindings:{}});
+  for(const[k,a]of add){c.bindings[`alt+${k}`]=a;msg.push(`alt+${k} -> ${a}`)}}
 fs.writeFileSync(out,JSON.stringify(j,null,2)+"\n");
-console.log(add.map(([k,a])=>`alt+${k} -> ${a}`).join(", "))' "$dst" "$tmp") || rc=$?
+console.log(msg.join(", "))' "$dst" "$tmp" "$PICKED") || rc=$?
   case $rc in
-    0) if [ -L "$dst" ]; then rm -f "$tmp"; echo "claudzilla: $dst is a symlink - add alt+h (/panel), alt+k (card focus) and alt+g (/claudzilla) yourself (see CONFIGURATION.md)" >&2
+    0) if [ -L "$dst" ]; then rm -f "$tmp"; verb=add; case "$added" in *"->"*) ;; *) verb=remove ;; esac
+         echo "claudzilla: $dst is a symlink - $verb alt+h (/panel), alt+k (card focus) and alt+g (/claudzilla) yourself (see CONFIGURATION.md)" >&2
        else [ -f "$dst" ] && save keybindings.json
          mv "$tmp" "$dst"; echo "keybindings: $added"; fi ;;
     3) ;;
@@ -123,8 +284,9 @@ for (const id of fresh) s[id] = now;
 if (fresh.length) writeFileSync(process.env.STAMPS, `${JSON.stringify(s, null, 2)}\n`);' </dev/null
 }
 
-# node runs the statusline + this script's JSON merge; rtk backs the Bash hook.
+# node runs the statusline + this script's JSON merge; rtk (deps_rtk) backs the Bash hook.
 # No sudo: official node build (SHA-256 checked) into ~/.local.
+NODE_NEW_DIR="" NODE_NEW_LINK=""
 deps() {
   export PATH="$HOME/.local/bin:$PATH"
   local c; for c in curl tar; do command -v "$c" >/dev/null || { echo "claudzilla: $c is required" >&2; exit 1; }; done
@@ -139,27 +301,79 @@ deps() {
     tmp="$(mktemp -d)"; curl -fsSL "$base/$file" -o "$tmp/$file"
     got="$( (sha256sum "$tmp/$file" 2>/dev/null || shasum -a 256 "$tmp/$file") | cut -d' ' -f1)"
     [ "$got" = "$sum" ] || { rm -rf "$tmp"; echo "claudzilla: node checksum mismatch" >&2; exit 1; }
-    dir="$HOME/.local/share/${file%.tar.gz}"; mkdir -p "$dir" "$HOME/.local/bin"
+    dir="$HOME/.local/share/${file%.tar.gz}"
+    # Only what did not exist is ours; main records these once $DEST is validated and created.
+    [ -e "$dir" ] || NODE_NEW_DIR="$dir"; [ -e "$HOME/.local/bin/node" ] || [ -L "$HOME/.local/bin/node" ] || NODE_NEW_LINK="$HOME/.local/bin/node"
+    mkdir -p "$dir" "$HOME/.local/bin"
     tar xzf "$tmp/$file" -C "$dir" --strip-components=1; rm -rf "$tmp"
     ln -sf "$dir/bin/node" "$HOME/.local/bin/node"
     echo "node $(node --version) -> $HOME/.local/bin/node"
   fi
-  command -v rtk >/dev/null || curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh
 }
 
+# After flag validation: a bad flag must not reach the network.
+deps_rtk() {
+  command -v rtk >/dev/null && return 0
+  curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh
+  ! command -v rtk >/dev/null || record_or_warn files "$(command -v rtk)"
+}
+
+# What claudzilla itself added, for --uninstall to undo. rcLines value is file|line.
+# winFonts value is file|registry value name.
+record() {  # $1: kind, $2: value, $3: "del" removes it; adds skip duplicates
+  local f="$DEST/.claudzilla-installed.json"
+  node -e '
+const fs=require("fs"),[f,kind,val,del]=process.argv.slice(1);
+const r={files:[],rcLines:[],plugins:[],marketplaces:[],winFonts:[],wtFont:[]};
+if(fs.existsSync(f))Object.assign(r,JSON.parse(fs.readFileSync(f,"utf8")));
+if(!Array.isArray(r[kind]))process.exit(1);
+const v=kind=="rcLines"?(([file,...l])=>({file,line:l.join("|")}))(val.split("|")):kind=="winFonts"?(([file,...l])=>({file,reg:l.join("|")}))(val.split("|")):val;
+const same=x=>JSON.stringify(x)==JSON.stringify(v);
+if(del)r[kind]=r[kind].filter(x=>!same(x));else if(!r[kind].some(same))r[kind].push(v);
+fs.writeFileSync(f+".tmp",JSON.stringify(r,null,2)+"\n")' "$f" "$1" "$2" "${3:-}" && mv "$f.tmp" "$f"
+}
+
+# A bad record must not abort the install.
+record_or_warn() { record "$@" || echo "claudzilla: could not update the install record" >&2; }
+
+# Third-party plugins/marketplaces are recorded only when absent before this run; claudzilla's own never are,
+# nor is claude-plugins-official (the user's other official plugins live there).
+# Unpicked plugins are uninstalled, not disabled: install skips present plugins, so a disabled one would never come back enabled.
 plugins() {
   command -v claude >/dev/null || { echo "plugins skipped: install Claude Code, then re-run install.sh" >&2; return 0; }
-  local m p
-  for m in $(node -e 'for(const m of Object.values(require(process.argv[1]).extraKnownMarketplaces||{}))console.log((m.source.repo||m.source.url)+(m.source.ref?"#"+m.source.ref:""))' "$REPO/settings.base.json"); do
-    claude plugin marketplace add "$m" >/dev/null 2>&1 && echo "marketplace: $m" || echo "  ! $m failed - retry: claude plugin marketplace add $m" >&2
-  done
+  local ids='try{for(const p of JSON.parse(require("fs").readFileSync(0,"utf8")))console.log(p.id||p.name)}catch{process.exit(1)}'
+  local have_p have_m plan k a b ours=0 trust=1
+  # A list we cannot read must not make everything look new: record nothing, still install.
+  have_p=$(claude plugin list --json </dev/null 2>/dev/null | node -e "$ids" 2>/dev/null) || trust=0
+  have_m=$(claude plugin marketplace list --json </dev/null 2>/dev/null | node -e "$ids" 2>/dev/null) || trust=0
+  [ "$trust" = 1 ] || echo "claudzilla: cannot read claude's plugin lists - installing, but not recording plugins as ours" >&2
+  plan=$(node -e '
+const m=require(process.argv[1]),b=require(process.argv[2]),on=new Set([...process.argv.slice(3),"updater"]),seen=new Set();
+for(const[p,v]of Object.entries(m))for(const id of v.plugins||[]){
+  if(!on.has(p)){console.log("D",id);continue}
+  console.log("P",id);const n=id.split("@")[1],s=(b.extraKnownMarketplaces||{})[n]?.source;
+  if(n!="claudzilla"&&s&&!seen.has(n)){seen.add(n);console.log("M",n,(s.repo||s.url)+(s.ref?"#"+s.ref:""))}}' "$REPO/parts.json" "$REPO/settings.base.json" $PICKED)
+  while read -r k a b; do case $k in
+    M) case $'\n'"$have_m"$'\n' in *$'\n'"$a"$'\n'*) ;; *)
+         if claude plugin marketplace add "$b" >/dev/null 2>&1 </dev/null; then echo "marketplace: $b"; [ "$trust" = 0 ] || [ "$a" = claude-plugins-official ] || record_or_warn marketplaces "$a"
+         else echo "  ! $b failed - retry: claude plugin marketplace add $b" >&2; fi ;; esac ;;
+    P) case $a in *@claudzilla) ours=1 ;; esac ;;
+  esac; done <<<"$plan"
   # claudzilla's own plugins load in place from this clone, so a pull updates them; no version bump.
-  claude plugin marketplace add "$REPO" >/dev/null 2>&1 && echo "marketplace: $REPO" || true
-  claude plugin marketplace update >/dev/null 2>&1 || true
-  # install skips plugins already present; update moves them to the version the marketplace offers (the `ref` tag when pinned).
-  for p in $(node -e 'for(const[k,v]of Object.entries(require(process.argv[1]).enabledPlugins||{}))if(v)console.log(k)' "$REPO/settings.base.json"); do
-    claude plugin install "$p" && claude plugin update "$p" >/dev/null || echo "  ! $p failed - retry: claude plugin install $p && claude plugin update $p" >&2
-  done
+  if [ "$ours" = 1 ]; then claude plugin marketplace add "$REPO" >/dev/null 2>&1 </dev/null && echo "marketplace: $REPO" || true; fi
+  claude plugin marketplace update >/dev/null 2>&1 </dev/null || true
+  while read -r k a b; do case $k in
+    P) case $'\n'"$have_p"$'\n' in *$'\n'"$a"$'\n'*) had=1 ;; *) had=0 ;; esac
+       # install skips plugins already present; update moves them to the version the marketplace offers (the `ref` tag when pinned).
+       if claude plugin install "$a" </dev/null && claude plugin update "$a" >/dev/null </dev/null; then
+         [ "$had" = 1 ] || [ "$trust" = 0 ] || case $a in *@claudzilla) ;; *) record_or_warn plugins "$a" ;; esac
+       else echo "  ! $a failed - retry: claude plugin install $a && claude plugin update $a" >&2; fi ;;
+    D) case $a in
+         *@claudzilla) case $'\n'"$have_p"$'\n' in *$'\n'"$a"$'\n'*) claude plugin uninstall "$a" >/dev/null 2>&1 </dev/null || true ;; esac ;;
+         *) node -e 'process.exit((require(process.argv[1]).plugins||[]).includes(process.argv[2])?0:1)' "$DEST/.claudzilla-installed.json" "$a" 2>/dev/null \
+              && { ! claude plugin uninstall "$a" >/dev/null 2>&1 </dev/null || record_or_warn plugins "$a" del; } ;;
+       esac ;;
+  esac; done <<<"$plan"
 }
 
 # Claude Code picks colour depth before settings.json env applies, and WSL
@@ -171,6 +385,7 @@ truecolor() {
     if [ -w "$rc" ]; then
       [ -z "$(tail -c1 "$rc")" ] || echo >> "$rc"
       echo 'export COLORTERM=truecolor' >> "$rc"; echo "COLORTERM=truecolor -> $rc (open a new shell)"
+      record_or_warn rcLines "$rc|export COLORTERM=truecolor"
     else echo "claudzilla: $rc is read-only - add 'export COLORTERM=truecolor' yourself" >&2; fi
   done
 }
@@ -192,12 +407,13 @@ font() {
       case "$(fc-list : family 2>/dev/null)" in *'MesloLGS N'*) return 0 ;; esac
       for f in "$dir"/MesloLGS{\ NF,NerdFont}* /Library/Fonts/MesloLGS{\ NF,NerdFont}*; do [ -e "$f" ] && return 0; done
     fi
-    if ! { : </dev/tty; } 2>/dev/null; then   # no terminal, e.g. Claude ran the install: let Claude ask in a dialog
+    if [ "$FONT_NEW" = 1 ]; then ans=yes   # HUD newly chosen this run = the "y" answer, after the guard above
+    elif ! has_tty; then   # no terminal, e.g. Claude ran the install: let Claude ask in a dialog
       echo "font: $FONT_FACE not installed - no terminal to ask. Claude: ask the user with AskUserQuestion (install the recommended font, or use basic statusline symbols), then run: CLAUDZILLA_FONT=yes $REPO/install.sh (or CLAUDZILLA_FONT=no)"
       return 0
     fi
     printf 'claudzilla: install font %s so the statusline draws its symbols (recommended)? [Y/n] ' "$FONT_FACE"
-    read -r ans </dev/tty || true; ans="${ans:-y}"
+    read -r ans <"$TTY" || true; ans="${ans:-y}"
   fi
   case "$ans" in [nN]*|0|false|off)
     : > "$basic"; echo "font: skipped - statusline uses basic symbols (re-run with CLAUDZILLA_FONT=yes to install)"; return 0 ;;
@@ -214,6 +430,7 @@ font() {
     got="$( (sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp") | cut -d' ' -f1)" || true
     if [ "$got" != "$sum" ]; then rm -f "$tmp"; echo "font: $FONT_FACE $style checksum mismatch - skipped" >&2; return 0; fi
     mv "$tmp" "$f" || { rm -f "$tmp"; echo "font: cannot write $f" >&2; return 0; }; new=1
+    record_or_warn files "$f"
   done <<'EOF'
 d97946186e97f8d7c0139e8983abf40a1d2d086924f2c5dbf1c29bd8f2c6e57d|Regular
 b6c0199cf7c7483c8343ea020658925e6de0aeb318b89908152fcb4d19226003|Bold
@@ -234,7 +451,7 @@ font_windows() {  # $1: dir holding the .ttf files
   for f in "$1/$FONT_FACE"*.ttf; do
     n="$(basename "$f")"
     # reg add is idempotent: re-run repairs an earlier failed registration
-    { [ -f "$win/$n" ] || { cp "$f" "$win/" && copied=1; }; } && reg.exe add 'HKCU\Software\Microsoft\Windows NT\CurrentVersion\Fonts' /v "${n%.ttf} (TrueType)" /t REG_SZ /d "$(wslpath -w "$win/$n")" /f >/dev/null 2>&1 ||
+    { [ -f "$win/$n" ] || { cp "$f" "$win/" && copied=1 && record_or_warn winFonts "$win/$n|${n%.ttf} (TrueType)"; }; } && reg.exe add 'HKCU\Software\Microsoft\Windows NT\CurrentVersion\Fonts' /v "${n%.ttf} (TrueType)" /t REG_SZ /d "$(wslpath -w "$win/$n")" /f >/dev/null 2>&1 ||
       echo "font: could not register $n on Windows" >&2
   done
   # Windows Terminal: set the default face only when the user hasn't picked one. Exit 0 set, 3 already ours, else leave alone.
@@ -248,23 +465,179 @@ const d=pr.defaults??={},cur=d.font?.face??d.fontFace;
 if(cur)process.exit(cur===face?3:2);
 try{fs.mkdirSync(path.dirname(bak),{recursive:true});fs.copyFileSync(p,bak);
 (d.font??={}).face=face;fs.writeFileSync(p,JSON.stringify(j,null,4)+"\n")}catch{process.exit(2)}' "$wt" "$BACKUP/windows-terminal/${wt#"$la"/}" "$FONT_FACE"
-    then set=1; echo "font: Windows Terminal font -> $FONT_FACE (restart it; sign out and in if the font is missing)"
+    then set=1; record_or_warn wtFont "$wt"; echo "font: Windows Terminal font -> $FONT_FACE (restart it; sign out and in if the font is missing)"
     elif [ $? = 3 ]; then set=1; fi
   done
   [ "$set" = 1 ] || [ "$copied" = 0 ] || echo "font: set your terminal font to $FONT_FACE"
 }
 
+# Removes what the record lists, one entry at a time; exit 1 if any entry was malformed.
+# Prints "R <reg value>" per Windows font file deleted, "N <path>" per path refused (never a command),
+# "C <text>" per manual step. files and rcLines must resolve under $HOME; Windows paths sit outside it,
+# so those need an absolute path, the expected name and a parent dir named Fonts / a settings.json.
+undo_record() {
+  node -e '
+const fs=require("fs"),path=require("path"),[rec,home]=process.argv.slice(1);
+const warn=m=>console.error("claudzilla: "+m);let bad=0;
+let r;try{r=JSON.parse(fs.readFileSync(rec,"utf8"));if(!r||typeof r!="object"||Array.isArray(r))throw 0}catch{warn("install record unreadable");process.exit(1)}
+const homeOk=typeof home=="string"&&home!==""&&home!=="/";
+if(!homeOk)warn("HOME is empty or / - refusing every deletion");
+const A=k=>Array.isArray(r[k])?r[k]:[],abs=p=>typeof p=="string"&&path.isAbsolute(p),inHome=p=>homeOk&&abs(p)&&path.resolve(p).startsWith(home+"/");
+const each=(k,fn)=>{for(const e of A(k))try{fn(e)}catch{bad=1;warn("bad "+k+" entry in the install record - skipped")}};
+const refuse=(f,why)=>{console.log("N\t"+f);warn("refused "+f+" ("+why+") - not touched")};
+each("files",f=>{if(typeof f!="string")throw 0;
+  if(!inHome(f))return refuse(f,"outside "+home);
+  try{fs.rmSync(path.resolve(f),{recursive:true,force:true})}catch{console.log("N\t"+f);warn("cannot remove "+f)}});
+each("rcLines",({file,line})=>{if(!abs(file)||typeof line!="string")throw 0;
+  const hint="remove the line \x27"+line+"\x27 from "+file;
+  if(!inHome(file)){console.log("C\t"+hint);warn("refused to edit "+file+" (outside "+home+")");return}
+  try{const t=fs.readFileSync(file,"utf8").split("\n"),i=t.lastIndexOf(line);if(i>=0){t.splice(i,1);fs.writeFileSync(file,t.join("\n"))}}
+  catch{console.log("C\t"+hint);warn("cannot edit "+file)}});
+const okWin=(f,name)=>homeOk&&abs(f)&&name.test(path.basename(f));
+each("winFonts",({file,reg})=>{if(typeof reg!="string"||!abs(file))throw 0;
+  if(!okWin(file,/^MesloLGS NF .*\.ttf$/)||path.basename(path.dirname(file))!=="Fonts")return refuse(file,"not a MesloLGS NF file in a Fonts folder");
+  try{fs.rmSync(file,{force:true});console.log("R\t"+reg)}catch{console.log("C\tdelete "+file+" yourself");warn("cannot remove "+file)}});
+each("wtFont",f=>{if(!abs(f))throw 0;
+  if(!okWin(f,/^settings\.json$/))return refuse(f,"not a settings.json");
+  try{const j=JSON.parse(fs.readFileSync(f,"utf8")),d=j.profiles?.defaults;
+    if(d?.font?.face==="MesloLGS NF"){delete d.font.face;if(!Object.keys(d.font).length)delete d.font;fs.writeFileSync(f,JSON.stringify(j,null,4)+"\n")}}
+  catch{console.log("C\tset the terminal font yourself in "+f);warn("cannot edit "+f)}});
+process.exit(bad)' "$DEST/.claudzilla-installed.json" "$HOME"
+}
+
+# What --uninstall deletes outside $DEST, from the record; shown before the confirm.
+record_summary() {
+  node -e '
+const fs=require("fs");let r;try{r=JSON.parse(fs.readFileSync(process.argv[1],"utf8"))}catch{process.exit(0)}
+const A=k=>Array.isArray(r&&r[k])?r[k]:[],o=[];
+for(const f of A("files"))o.push("  "+f+(/\/node-v[^\/]*$/.test(String(f))?" (node dir: includes globally installed npm packages)":""));
+for(const e of A("rcLines"))o.push("  line \x27"+e?.line+"\x27 in "+e?.file);
+for(const e of A("winFonts"))o.push("  Windows font "+e?.file+" and its registry value");
+for(const f of A("wtFont"))o.push("  Windows Terminal font setting in "+f);
+for(const p of A("plugins"))o.push("  plugin "+p);
+for(const m of A("marketplaces"))o.push("  marketplace "+m);
+if(o.length)console.log("It also deletes, outside the config dir (installed by claudzilla):\n"+o.join("\n"))' "$DEST/.claudzilla-installed.json" 2>/dev/null || true
+}
+
+rm_cmd() { if [ -d "$1" ] && [ ! -L "$1" ]; then printf '  rm -rf %q\n' "$1"; else printf '  rm -f %q\n' "$1"; fi; }
+
+# Part plugins/marketplaces claude lists but the record never held ($1 ids, $2 marketplaces to be removed): printed as commands, not run.
+unrecorded_plugins() {
+  local ids='try{for(const p of JSON.parse(require("fs").readFileSync(0,"utf8")))console.log(p.id||p.name)}catch{}' hp hm cand k a
+  hp=$(claude plugin list --json </dev/null 2>/dev/null | node -e "$ids" 2>/dev/null) || true
+  hm=$(claude plugin marketplace list --json </dev/null 2>/dev/null | node -e "$ids" 2>/dev/null) || true
+  cand=$(node -e '
+const m=require(process.argv[1]),b=require(process.argv[2]);
+for(const v of Object.values(m))for(const id of v.plugins||[])if(!id.endsWith("@claudzilla"))console.log("P",id);
+for(const n of Object.keys(b.extraKnownMarketplaces||{}))if(n!="claudzilla"&&n!="claude-plugins-official")console.log("M",n)' "$REPO/parts.json" "$REPO/settings.base.json")
+  while read -r k a; do case $k in
+    P) case $'\n'"$hp"$'\n' in *$'\n'"$a"$'\n'*) case " $1 " in *" $a "*) ;; *) echo "  claude plugin uninstall $a" ;; esac ;; esac ;;
+    M) case $'\n'"$hm"$'\n' in *$'\n'"$a"$'\n'*) case " $2 " in *" $a "*) ;; *) echo "  claude plugin marketplace remove $a" ;; esac ;; esac ;;
+  esac; done <<<"$cand"
+}
+
+# Everything the installer added, undone. Leftovers (not ours to delete) are printed last with their rm commands.
+uninstall() {
+  local rec="$DEST/.claudzilla-installed.json" p f k v lo="" nt="" cl="" ans fd="$HOME/.local/share/fonts" ids out wl bad=0
+  if [ "$YES" != 1 ]; then
+    has_tty || { echo "claudzilla: --uninstall removes claudzilla from $DEST. Claude: ask the user to confirm, then run $REPO/install.sh --uninstall --yes"; record_summary; exit 2; }
+    record_summary
+    printf 'claudzilla: remove claudzilla from %s? [y/N] ' "$DEST"
+    read -r ans <"$TTY" || true
+    case "$ans" in [yY]|[yY][eE][sS]) ;; *) echo "uninstall cancelled"; exit 0 ;; esac
+  fi
+  [ -d "$DEST" ] || { echo "claudzilla: nothing in $DEST"; return 0; }
+  check_settings
+  if [ -f "$DEST/.claudzilla-base.json" ] && [ -f "$DEST/settings.json" ]; then echo '{}' > "$DEST/.settings.base.claudzilla"; merge_settings "$DEST/.settings.base.claudzilla"; rm -f "$DEST/.settings.base.claudzilla"; fi
+  for p in $ALL_PARTS updater; do unlink_part "$p"; done
+  PICKED="" keybindings
+  ids=$(node -p 'Object.values(require(process.argv[1])).flatMap(p=>p.plugins||[]).filter(i=>i.endsWith("@claudzilla")).join(" ")' "$REPO/parts.json")
+  ids="$ids $(node -p 'try{(require(process.argv[1]).plugins||[]).join(" ")}catch{""}' "$rec" 2>/dev/null)"
+  k="claudzilla"; for v in $(node -p 'try{(require(process.argv[1]).marketplaces||[]).join(" ")}catch{""}' "$rec" 2>/dev/null); do [ "$v" = claude-plugins-official ] || k="$k $v"; done
+  if [ "$OFFLINE" != 1 ] && command -v claude >/dev/null; then
+    v="$(unrecorded_plugins "$ids" "$k")"; [ -z "$v" ] || lo="$v"$'\n'
+    for v in $ids; do claude plugin uninstall "$v" >/dev/null 2>&1 </dev/null || true; done
+    for v in $k; do claude plugin marketplace remove "$v" >/dev/null 2>&1 </dev/null || true; done
+  else
+    for v in $ids; do cl="$cl  claude plugin uninstall $v"$'\n'; done
+    for v in $k; do cl="$cl  claude plugin marketplace remove $v"$'\n'; done
+  fi
+  if [ -f "$rec" ]; then
+    out=$(undo_record) || { bad=1; echo "claudzilla: install record problems - record kept at $rec" >&2; }
+    while IFS=$'\t' read -r k v; do case $k in
+      R) ! command -v reg.exe >/dev/null || reg.exe delete 'HKCU\Software\Microsoft\Windows NT\CurrentVersion\Fonts' /v "$v" /f >/dev/null 2>&1 </dev/null || true ;;
+      N) nt="$nt  $v"$'\n' ;;
+      C) lo="$lo  $v"$'\n' ;;
+    esac; done <<<"$out"
+  fi
+  rm -rf "$DEST/.claudzilla-base.json" "$DEST/.claudzilla-rules.json" "$DEST/.claudzilla-basic-glyphs" "$DEST/claudzilla-reports"; [ "$bad" = 1 ] || rm -f "$rec"
+  [ -f "$DEST/CLAUDE.local.md" ] && [ ! -s "$DEST/CLAUDE.local.md" ] && rm -f "$DEST/CLAUDE.local.md"
+  node -e '
+const fs=require("fs"),f=process.argv[1];let j;try{j=JSON.parse(fs.readFileSync(f,"utf8"))}catch{process.exit(0)}
+if(!j||typeof j!="object"||Array.isArray(j)||!("install" in j))process.exit(0);
+delete j.install;if(Object.keys(j).length)fs.writeFileSync(f,JSON.stringify(j,null,2)+"\n");else fs.rmSync(f)' "$DEST/claudzilla.json"
+  echo "claudzilla uninstalled from $DEST"
+  # Found but never recorded (installed before the record, or by the user): print, never delete.
+  [ "$(uname -s)" != Darwin ] || fd="$HOME/Library/Fonts"
+  for f in "$HOME/.local/bin/node" "$(command -v rtk 2>/dev/null || true)" "$fd"/MesloLGS\ NF*; do
+    [ -n "$f" ] && { [ -e "$f" ] || [ -L "$f" ]; } || continue
+    case "$lo" in *"$(rm_cmd "$f")"*) ;; *) lo="$lo$(rm_cmd "$f")"$'\n' ;; esac
+  done
+  for f in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    v="  remove the line 'export COLORTERM=truecolor' from $f"
+    [ ! -f "$f" ] || ! grep -qx 'export COLORTERM=truecolor' "$f" || case "$lo" in *"$v"*) ;; *) lo="$lo$v"$'\n' ;; esac
+  done
+  if [ -n "${WSL_DISTRO_NAME:-}" ] && wl="$(cmd.exe /c 'echo %LOCALAPPDATA%' 2>/dev/null | tr -d '\r')" && [ -n "$wl" ] && wl="$(wslpath -u "$wl" 2>/dev/null)" && [ -n "$wl" ]; then
+    for f in "$wl/Microsoft/Windows/Fonts"/MesloLGS\ NF*; do
+      [ -e "$f" ] || continue
+      case "$lo" in *"$(rm_cmd "$f")"*) ;; *) lo="$lo$(rm_cmd "$f")"$'\n' ;; esac
+    done
+  fi
+  [ ! -e "$DEST/.claudzilla-backup" ] || lo="$lo$(rm_cmd "$DEST/.claudzilla-backup")"$'\n'
+  lo="$lo$(printf '  rm -rf %q' "$REPO")"$'\n'
+  [ -z "$cl" ] || printf 'Leftovers - claude is not available here, run:\n%s' "$cl"
+  printf 'Leftovers - not removed, delete yourself if unwanted:\n%s' "$lo"
+  [ -z "$nt" ] || printf 'Not touched (outside claudzilla'"'"'s reach), check by hand:\n%s' "$nt"
+  [ "$bad" = 0 ] || exit 1
+}
+
 main() {
-  mkdir -p "$DEST"
-  [ "$OFFLINE" = 1 ] || deps
+  local base f p a flagged=0 custom=0 fresh=0 ran=0 un=0 other=0 val=0
+  [ -f "$DEST/.claudzilla-base.json" ] || fresh=1
+  for a; do
+    [ "$val" = 0 ] || { val=0; continue; }
+    case $a in
+      --custom) custom=1; other=1 ;; --full) flagged=1; other=1 ;; --add|--remove) flagged=1; other=1; val=1 ;;
+      --uninstall) flagged=1; un=1 ;; --yes) ;;
+      *) echo "claudzilla: unknown flag '$a' - flags: --full --custom --add --remove --uninstall --yes" >&2; exit 1 ;;
+    esac
+  done
+  [ "$un$other" != 11 ] || { echo "claudzilla: --uninstall cannot be combined with --full, --custom, --add or --remove" >&2; exit 1; }
+  if [ "$un" = 0 ] && ! has_tty && { [ "$custom" = 1 ] || { [ "$flagged" = 0 ] && [ "$fresh" = 1 ]; }; }; then claude_stop; fi
+  export PATH="$HOME/.local/bin:$PATH"   # claudzilla's own node lives here; uninstall skips deps
+  [ "$OFFLINE" = 1 ] || [ "$un" = 1 ] || deps
   command -v node >/dev/null || { echo "claudzilla: node is required" >&2; exit 1; }
-  for f in $LINKS; do link "$f"; done
-  [ -e "$DEST/CLAUDE.local.md" ] || : > "$DEST/CLAUDE.local.md"
-  merge_settings
+  ALL_PARTS="$(all_parts)"
+  parse_args "$@"
+  [ "$MODE" != uninstall ] || { uninstall; return 0; }
+  mkdir -p "$DEST"
+  resolve_parts
+  [ -z "$NODE_NEW_DIR" ] || record_or_warn files "$NODE_NEW_DIR"; [ -z "$NODE_NEW_LINK" ] || record_or_warn files "$NODE_NEW_LINK"
+  if [ "$CUSTOM" = 1 ] || { [ "$fresh" = 1 ] && [ "$CHOSEN" = 0 ] && [ -z "$ADD$REMOVE" ]; }; then menu; ran=1; fi
+  # The font question is auto-answered only when the HUD is newly chosen this run.
+  case " $ADD " in *" hud "*) ran=1 ;; esac
+  if picked hud && { [ "$FULL" = 1 ] || [ "$ran" = 1 ] || { [ "$fresh" = 1 ] && [ "$CHOSEN" = 1 ]; }; }; then FONT_NEW=1; fi
+  [ "$OFFLINE" = 1 ] || ! picked rtk || deps_rtk
+  check_settings
+  for f in $(part_links $PICKED); do link "$f"; done
+  if picked core; then [ -e "$DEST/CLAUDE.local.md" ] || : > "$DEST/CLAUDE.local.md"; fi
+  base=$(base_for $PICKED) || exit 1
+  merge_settings "$base"
+  rm -f "$DEST/.settings.base.claudzilla"
+  for p in $ALL_PARTS; do picked "$p" || unlink_part "$p"; done
   keybindings
-  truecolor
-  font
-  stamp_rules || echo "claudzilla: rule dates not saved - /rule-review skips undated rules until the next install" >&2
+  if picked hud; then truecolor; font; fi
+  if picked core; then stamp_rules || echo "claudzilla: rule dates not saved - /rule-review skips undated rules until the next install" >&2; fi
   [ "$OFFLINE" = 1 ] || plugins
   [ -d "$BACKUP" ] && echo "replaced files backed up -> $BACKUP"
   [ "$OFFLINE" = 1 ] || case ":$ORIG_PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "note: add ~/.local/bin to PATH (node/rtk live there)" ;; esac
