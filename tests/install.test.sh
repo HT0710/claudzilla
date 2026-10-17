@@ -305,6 +305,17 @@ check "release: non-release tag is no target" grep -q 'merge --ff-only v1.2.0' <
 rm "$U/home/.claude/claudzilla.json"; g -C "$U/clone" pull --ff-only
 check "release: ahead of tag is no update" [ -z "$(notice)" ]
 check "release: ahead of tag keeps HEAD" [ "$(git -C "$U/clone" log -1 --format=%s)" = nine ]
+# A curl install is a --depth 1 clone with no tags: the background fetch fills in history, so it still waits for a tag.
+S="$TMP/shallow"; g clone --depth 1 "file://$U/origin.git" "$S/clone"; mkdir -p "$S/clone/claude/hooks" "$S/home/.claude/hooks"
+cp "$REPO/claude/hooks/claudzilla-update.sh" "$REPO/claude/hooks/rules-guard.mjs" "$S/clone/claude/hooks/"
+ln -s "$S/clone/claude/hooks/claudzilla-update.sh" "$S/home/.claude/hooks/claudzilla-update.sh"
+g -C "$U/seed" commit --allow-empty -m ten; g -C "$U/seed" push origin main
+sgd=$(git -C "$S/clone" rev-parse --absolute-git-dir)
+clean_env HOME="$S/home" sh "$S/home/.claude/hooks/claudzilla-update.sh" >/dev/null
+for i in $(seq 20); do [ -f "$sgd/FETCH_HEAD" ] && [ ! -d "$sgd/claudzilla-update.lock" ] && break; sleep 0.5; done
+check "shallow: background fetch unshallows" [ ! -f "$sgd/shallow" ]
+check "shallow: background fetch gets tags" git -C "$S/clone" rev-parse -q --verify v1.2.0
+check "shallow: untagged commit is no update" [ "$(git -C "$S/clone" log -1 --format=%s)" = nine ]
 for i in $(seq 150); do printf '0\tlive\tx%s\n' "$i"; done > "$ev"; notice >/dev/null
 check "events: trimmed past 100 lines" [ "$(wc -l < "$ev" | tr -d ' ')" -le 22 ]
 check "events: trim keeps the newest" grep -qF $'0\tlive\tx150' "$ev"
