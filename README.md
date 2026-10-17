@@ -21,6 +21,36 @@ curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh |
 
 **Requires:** `git`, `curl`, `tar`, `perl` and [Claude Code](https://claude.com/claude-code). Missing `node` or [`rtk`](https://github.com/rtk-ai/rtk) is installed to `~/.local` without sudo; keep `~/.local/bin` on your `PATH`. Native Windows is not supported; use WSL.
 
+On a fresh install it asks **Full (recommended)** or **Custom**; re-runs keep your saved choice. Full installs every part; Custom lets you untick parts. Run by Claude (no terminal), it stops and prints the questions for Claude to ask you. A fresh `--add hud` installs only `hud` plus the updater (no rules, no core settings).
+
+| flag | does |
+|---|---|
+| `--full` | install every part |
+| `--custom` | pick parts from the menu |
+| `--add a,b` | add parts to your install |
+| `--remove a,b` | remove parts from your install |
+| `--uninstall` | remove claudzilla (asks first) |
+| `--yes` | skip the `--uninstall` confirmation |
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh | bash -s -- --add hud
+```
+
+| part | covers |
+|---|---|
+| `core` | rules, hooks, settings, `pr` and `rule-review` skills |
+| `hud` | statusline, themes, MesloLGS NF font |
+| `rtk` | token-saving command filter |
+| `caveman` | terse replies |
+| `ponytail` | smallest-change coding |
+| `dividers` | response dividers |
+| `panel` | side panel |
+| `picks` | suggested next steps |
+| `toast` | update notice |
+| `attribution` | commit credit |
+
+`core` is not in the menu; `--add` and `--remove` accept it. The updater always ships. Your choice is saved, see [How install works](CONFIGURATION.md#how-install-works).
+
 Safe to re-run. Anything replaced is backed up to `~/.claude/.claudzilla-backup/`.
 
 ## What you get
@@ -99,12 +129,10 @@ cd ~/claudzilla && git pull && ./install.sh
 ## Uninstall
 
 ```bash
-find ~/.claude -maxdepth 2 -lname "$HOME/claudzilla/*" -delete
-claude plugin marketplace remove claudzilla
-rm -rf ~/.claude/.claudzilla-rules.json ~/.claude/.claudzilla-base.json ~/.claude/claudzilla-reports
+~/claudzilla/install.sh --uninstall
 ```
 
-Then remove claudzilla's hooks and `statusLine` from `~/.claude/settings.json` (or restore it from `~/.claude/.claudzilla-backup/`), otherwise they point at deleted scripts.
+Removes claudzilla's links, settings entries, plugins and record from `~/.claude`, then lists what it left (node, rtk, fonts, the clone) with the commands to delete them. Claude runs it with `--yes` after you confirm.
 
 ## Credits
 

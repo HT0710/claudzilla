@@ -19,7 +19,11 @@ settings.base.json     ──merge────▶  ~/.claude/settings.json  your
 - **Merged:** `settings.json` (Claude Code rewrites it). Repo values win, and extras you add on a machine are kept.
 - **Plugin:** `panel` installs from this clone as a local marketplace, so it loads in place and updates with the repo. caveman and ponytail stay on the `ref` tag in `settings.base.json`; change the tag to upgrade.
 - **WSL:** adds `export COLORTERM=truecolor` to existing `~/.bashrc` / `~/.zshrc` that don't set COLORTERM, else the theme falls back to 256 colours.
-- **Font:** unless MesloLGS NF is already installed, asks (in the terminal, or as a Claude question when Claude runs the install) to install MesloLGS NF (draws the statusline symbols) to `~/.local/share/fonts` or `~/Library/Fonts`. On WSL it also installs it on Windows and sets it in Windows Terminal unless you picked a font. Elsewhere, set it as your terminal font. Say no and the statusline uses basic symbols; `CLAUDZILLA_FONT=yes` or `no` answers without asking.
+- **Font:** unless MesloLGS NF is already installed, asks (in the terminal, or as a Claude question when Claude runs the install; not when `hud` is chosen this run) to install MesloLGS NF (draws the statusline symbols) to `~/.local/share/fonts` or `~/Library/Fonts`. On WSL it also installs it on Windows and sets it in Windows Terminal unless you picked a font. Elsewhere, set it as your terminal font. Say no and the statusline uses basic symbols; `CLAUDZILLA_FONT=yes` or `no` answers without asking.
+- **Saved choice:** `install` key in `~/.claude/claudzilla.json`. `{"skip":[...]}` = Full minus those parts; new parts reach these installs. `{"only":[...]}` = just those parts; new parts stay out. No key = Full. `--full` clears it; `--add` / `--remove` edit it. Other keys stay.
+- **Record:** `~/.claude/.claudzilla-installed.json` lists what install added outside `~/.claude` (node, rc lines, plugins, marketplaces, Windows fonts, the Windows Terminal font). `--uninstall` undoes only those.
+- **Theme:** with `hud` installed, a `"theme"` in `settings.overrides.json` wins over claudzilla's.
+- **Font and `hud`:** newly choosing `hud` (Full, Custom, `--add hud`) installs the font without asking, unless MesloLGS NF is already installed (on WSL it is still copied to Windows).
 - **Safe to re-run:** anything replaced is backed up to `~/.claude/.claudzilla-backup/<timestamp>/`.
 
 ## Machine-local files
