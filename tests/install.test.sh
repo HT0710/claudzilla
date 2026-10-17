@@ -47,6 +47,9 @@ check "fresh: settings == base" [ "$(q "$H/.claude/settings.json" '')" = "$(q "$
 check "fresh: permissions ask by default" [ "$(q "$H/.claude/settings.json" .permissions.defaultMode)" = '"default"' ]
 check "fresh: no bypass-prompt skip" [ "$(q "$H/.claude/settings.json" .skipDangerousModePermissionPrompt)" = undefined ]
 check "fresh: update hook in settings" grep -q 'claudzilla-update.sh' "$H/.claude/settings.json"
+ssMatcher() { node -e 'const [p,re,m]=process.argv.slice(1),e=require(p).hooks.SessionStart.filter(x=>x.hooks.some(h=>new RegExp(re).test(h.command)));process.exit(e.length===1&&e[0].matcher===m?0:1)' "$H/.claude/settings.json" "$1" "$2"; }
+check "fresh: update hook runs on startup and /clear" ssMatcher claudzilla-update 'startup|clear'
+check "fresh: rule-review nudge stays startup only" ssMatcher 'rule-review/scan' startup
 check "fresh: nudge hook in settings" grep -q 'rule-review/scan.mjs\\" --nudge' "$H/.claude/settings.json"
 nudge_cmd=$(node -p 'require(process.argv[1]).hooks.SessionStart.flatMap(e=>e.hooks).find(h=>h.command.includes("--nudge")).command' "$H/.claude/settings.json" 2>/dev/null)
 mkdir -p "$H/.claude/projects"
