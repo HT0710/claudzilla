@@ -702,8 +702,10 @@ export const register: Register = (on, options) => {
     else if (!e.command && !e.isMeta) {
       earlierAgents = new Set(await runningAgents($))
       $.clock.after(0, () => readOverview($))
-      // Last turn's answered report is not this turn's: shown until Claude reports, it read as current.
-      await update($, intent, now => (isAnswered(now) ? EMPTY_INTENT : now))
+      // Last turn's answered report is not this turn's: shown as it was, it read as current. Dimmed, planning… until Claude reports.
+      await update($, intent, now =>
+        isAnswered(now) ? { ...now, ended: false, waiting: true } : !now.wants ? { ...EMPTY_INTENT, waiting: true } : now,
+      )
     }
 
     return result
@@ -718,10 +720,15 @@ export const register: Register = (on, options) => {
       // A turn that ends on a background agent it started is not answered yet: the agent's result reopens it.
       if (close && (await runningAgents($)).some(id => !earlierAgents.has(id))) return result
       const at = await $.clock.now()
+      // No report this turn: done if answered; stopped has no steps to keep, so it shows nothing.
       await update($, intent, now =>
-        now.wants
-          ? { ...now, ended: true, at, steps: close ? now.steps.map(step => ({ ...step, status: 'completed' as const })) : now.steps }
-          : now,
+        now.waiting
+          ? close
+            ? { ...EMPTY_INTENT, ended: true, at }
+            : EMPTY_INTENT
+          : now.wants
+            ? { ...now, ended: true, at, steps: close ? now.steps.map(step => ({ ...step, status: 'completed' as const })) : now.steps }
+            : now,
       )
     }
 
@@ -734,12 +741,12 @@ export const register: Register = (on, options) => {
       const report = e as unknown as Partial<Pick<Intent, 'wants' | 'plan' | 'steps'>> & { agentId?: string; now?: unknown }
       if (report.agentId !== undefined) return { result: 'ok' }
       // A ping moves this turn's marks: done before it, in progress at it. One after an answer, every step
-      // done, is dropped; one after an interrupt picks the report back up, as Claude carries on with pings alone.
+      // done or dimmed for a new prompt, is dropped; one after an interrupt picks the report back up, as Claude carries on with pings alone.
       if (report.wants === undefined && typeof report.now === 'number') {
         const current = report.now - 1
         const status = (i: number): Step['status'] => (i < current ? 'completed' : i === current ? 'in_progress' : 'pending')
         await update($, intent, now =>
-          isAnswered(now) || !now.steps.length ? now : { ...now, ended: false, steps: now.steps.map((step, i) => ({ ...step, status: status(i) })) },
+          isAnswered(now) || now.waiting || !now.steps.length ? now : { ...now, ended: false, steps: now.steps.map((step, i) => ({ ...step, status: status(i) })) },
         )
       } else {
         const at = await $.clock.now()
@@ -1210,18 +1217,21 @@ export const register: Register = (on, options) => {
           : [`■ stopped ${clock(shown.at)}`, HUD.dirty]
       const MARK = { completed: '✓', in_progress: '●', pending: '○' }
       // The marks scan as progress on their own; done text stays readable, a step back.
+      // Last turn's report, waiting on this turn's, is dimmed whole.
       const MARK_SHADE = { completed: HUD.action, in_progress: 'claude', pending: HUD.faint }
       const TEXT_SHADE = { completed: SCOPE, in_progress: undefined, pending: undefined }
+      const shade = (color?: string) => (shown.waiting ? HUD.faint : color)
       const hasAbout = about.topics.length > 0 || about.running || !!about.failed
+      const hasReport = !!(shown.wants || shown.waiting || shown.ended)
       const LABEL = 7
       // Purple inline label, the text wrapping under itself.
-      const labelled = (label: string, text: string) => (
+      const labelled = (label: string, text: string, color?: string) => (
         <Box key={label}>
           {/* A fixed column: beside wrapping text, a padded label shrank and lost its gap. */}
           <Box width={LABEL} flexShrink={0}>
             <Text bold color={HUD.label}>{label}</Text>
           </Box>
-          <Text wrap="wrap">{text}</Text>
+          <Text wrap="wrap" color={color}>{text}</Text>
         </Box>
       )
       // A part after ASK opens under a rule from the text column to the edge.
@@ -1268,7 +1278,7 @@ export const register: Register = (on, options) => {
         </Box>
       ))
       body =
-        !shown.wants && !hasAbout ? (
+        !hasReport && !hasAbout ? (
           // The rows under the tabs and their rule.
           emptyNote(
             e.props.scroll.bodyRows - 2,
@@ -1278,11 +1288,12 @@ export const register: Register = (on, options) => {
           )
         ) : (
           <Box flexDirection="column">
-            {shown.wants && [
+            {hasReport && [
               // A TOPICS read in progress takes the step count's place: the TOPICS header counts them instead.
+              // Before Claude's report, planning… holds it, and the TOPICS header keeps the hint.
               <Box key="state" justifyContent="space-between">
                 <Text color={stateColor}>{state}</Text>
-                <Text color={HUD.faint}>{about.running ? aboutHint : stepCount}</Text>
+                <Text color={HUD.faint}>{shown.waiting ? 'planning…' : about.running ? aboutHint : stepCount}</Text>
               </Box>,
               <Text key="rule" color={DIM.label}>{'─'.repeat(width)}</Text>,
             ]}
@@ -1290,7 +1301,7 @@ export const register: Register = (on, options) => {
               <Box key="session" justifyContent="space-between">
                 <Text bold color={HUD.label}>TOPICS</Text>
                 {/* Cut to one row beside its title: the zone under it starts on a fixed row. */}
-                <Text color={HUD.faint}>{fit((shown.wants && about.running ? '' : aboutHint) || topicCount, Math.max(1, width - 7))}</Text>
+                <Text color={HUD.faint}>{fit((hasReport && !shown.waiting && about.running ? '' : aboutHint) || topicCount, Math.max(1, width - 7))}</Text>
               </Box>,
               ...(zoned
                 ? [
@@ -1312,9 +1323,9 @@ export const register: Register = (on, options) => {
                 </Box>
               ))}
             {shown.wants && [
-              labelled('ASK', shown.wants),
+              labelled('ASK', shown.wants, shade()),
               partRule('PLAN'),
-              labelled('PLAN', shown.plan),
+              labelled('PLAN', shown.plan, shade()),
               shown.steps.length > 0 && partRule('STEPS'),
               shown.steps.length > 0 && (
                 <Box key="steps">
@@ -1324,8 +1335,8 @@ export const register: Register = (on, options) => {
                   <Box flexDirection="column">
                     {shown.steps.map((step, i) => (
                       <Box key={`step:${i}`}>
-                        <Text color={MARK_SHADE[step.status]}>{MARK[step.status]} </Text>
-                        <Text color={TEXT_SHADE[step.status]}>{fit(step.text, width - LABEL - 2)}</Text>
+                        <Text color={shade(MARK_SHADE[step.status])}>{MARK[step.status]} </Text>
+                        <Text color={shade(TEXT_SHADE[step.status])}>{fit(step.text, width - LABEL - 2)}</Text>
                       </Box>
                     ))}
                   </Box>
