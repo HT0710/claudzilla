@@ -1989,7 +1989,7 @@ test('/clear empties the report', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'Nothing here yet' })).toBeDefined()
 })
 
-test("the next prompt clears an answered report, not a stopped one", async ($, on) => {
+test("the next prompt dims an answered report, not a stopped one", async ($, on) => {
   mock.clock(on)
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
@@ -2004,6 +2004,61 @@ test("the next prompt clears an answered report, not a stopped one", async ($, o
   expect(await ui.find({ type: 'Text', text: /^■ stopped / })).toBeDefined()
   await turnEnd($)
   await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '● working' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'planning…' })).toBeDefined()
+  for (const text of ['a third tab', 'write the spec', /^✓ $/, /^spec$/]) expect(await colorOf(ui, text)).toBe('#4f5c68')
+})
+
+test("a dimmed report waits for Claude's next one: a ping leaves it, a turn without a report drops it", async ($, on) => {
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await turnEnd($)
+  await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } })
+  await $.tool.call({ tool: INTENT, now: 2 } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'planning…' })).toBeDefined()
+  expect(await colorOf(ui, /^✓ $/)).toBe('#4f5c68')
+  await turnEnd($)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: /^✓ done / })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeUndefined()
+  await $.prompt.submit({ text: 'again', wait: false, origin: { kind: 'composer' } })
+  await $.tool.call({ tool: INTENT, ...REPORT, wants: 'a fourth tab' } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'planning…' })).toBeUndefined()
+  expect(await colorOf(ui, 'a fourth tab')).toBeUndefined()
+})
+
+test('a prompt shows working until Claude reports', async ($, on) => {
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  const ui = await intentPane($, on)
+  await $.prompt.submit({ text: 'hi', wait: false, origin: { kind: 'composer' } })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '● working' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'planning…' })).toBeDefined()
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'planning…' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: '0/2 steps' })).toBeDefined()
+})
+
+test('a turn that ends without a report shows done', async ($, on) => {
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  const ui = await intentPane($, on)
+  await $.prompt.submit({ text: 'hi', wait: false, origin: { kind: 'composer' } })
+  await turnEnd($)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: /^✓ done / })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'planning…' })).toBeUndefined()
+})
+
+test('a turn interrupted before a report shows nothing', async ($, on) => {
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  const ui = await intentPane($, on)
+  await $.prompt.submit({ text: 'hi', wait: false, origin: { kind: 'composer' } })
+  await turnEnd($, undefined, 'aborted')
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: 'Nothing here yet' })).toBeDefined()
 })
@@ -2048,6 +2103,17 @@ test('intent off: no tool, no rule', { options: { intent: false } }, async ($, o
   const { tools, rule } = await registered($, on)
   expect(tools).toEqual([])
   expect(rule).toBeUndefined()
+})
+
+test('intent off: a prompt shows no planning…, and its end no done', { options: { intent: false } }, async ($, on) => {
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  const ui = await intentPane($, on)
+  await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'planning…' })).toBeUndefined()
+  await turnEnd($)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: /^✓ done/ })).toBeUndefined()
 })
 
 test("the intent tool's chat rows draw nothing", async ($, on) => {
