@@ -88,11 +88,51 @@ test('parse: "say <word> and I\'ll X" gives X; an option letter gives "B: X"', (
   // X is what follows the say, not an earlier "and I'll".
   expect(parse("**Next:** once it lands and I'll rerun CI. Say push and I'll push.")?.go).toBe('push')
   expect(parse("**Next:** Say B and I'll brainstorm it.")?.go).toBe('B: brainstorm it')
+  // Double quotes read like backticks.
+  expect(parse('**Next:** say "push" and I\'ll run fix 3: push the branch.')?.go).toBe('run fix 3: push the branch')
+  expect(parse('**Next:** if it still shows, say "B" and I\'ll hide that row too.')?.go).toBe('B: hide that row too')
 })
 
-test('parse: the go detail stops at its first sentence or ", or say"', () => {
+test('parse: other offers in a Next line give the act, or the word to say', () => {
+  const go = (next: string) => parse(`**Next:** ${next}`)?.go
+  expect(go('want me to tell `claudzilla-28` to rebase onto `main`?')).toBe('tell claudzilla-28 to rebase onto main')
+  expect(parse('**Next:** want me to tell `claudzilla-28` to rebase onto `main`?')?.title).toBe('Tell claudzilla-28 to rebase onto main?')
+  expect(go('Should I add track F to the HTML? That covers the phase table.')).toBe('add track F to the HTML')
+  expect(go("say the word and I'll run the probe.")).toBe('run the probe')
+  expect(go("say yes (or drop items by number), and I'll build it with TDD.")).toBe('build it with TDD')
+  expect(go("say finish when you're ready to ship the fix, and I'll commit it, push and open the PR.")).toBe('commit it, push and open the PR')
+  expect(go("approve the spec (or tell me what to change), and I'll run `writing-plans`.")).toBe('approve the spec, then run writing-plans')
+  expect(go('say **push** to publish both commits.')).toBe('push')
+  expect(go('say commit.')).toBe('commit')
+  expect(go('say "commit" when you want it committed.')).toBe('commit')
+  expect(go('say commit, or tell me to revert.')).toBe('commit')
+  expect(go('reply `go` to accept Decision 1B and the values above.')).toBe('go')
+  expect(go("say native (recommended) or subagent and I'll start Task 1.")).toBe('native')
+  expect(go('pick A or B for where it goes; I recommend A, keeping it below `/compact`.')).toBe('A')
+  expect(go('same seed, same 20 charts, ~$0.15. Go?')).toBe('go')
+})
+
+test('parse: a later Next line that asks nothing keeps the earlier ask', () => {
+  expect(parse('**Next:** want me to run the probe?\n\n**Next:** read the log first.')?.go).toBe('run the probe')
+})
+
+test('parse: a choice, a step the user takes first, or a permission asks nothing', () => {
+  for (const next of [
+    'say fold to put it in `b529b62`, or commit to make it its own fix commit.',
+    'say commit, or push with a PR.',
+    'reply `1`, `2`, `both`, or `done`.',
+    'run `/reload-plugins`, then say "show me card" and I\'ll send one.',
+    'approve Read/Bash for this session, or tell me the path. I\'ll count the lines.',
+    'allow Bash and I\'ll re-run the tests.',
+    'say which one to start on and I\'ll investigate it.',
+  ]) expect(parse(`**Next:** ${next}`)).toBeNull()
+})
+
+test('parse: the go detail stops at its first sentence or ", or"', () => {
   expect(parse("**Next:** say ship and I'll commit, push and merge it. A one-file diff skips the review.")?.go).toBe('commit, push and merge it')
   expect(parse("**Next:** say B and I'll brainstorm it, or say A to drop it.")?.go).toBe('B: brainstorm it')
+  expect(parse("**Next:** say `go` and I'll apply 2B, or name a different choice.")?.go).toBe('apply 2B')
+  expect(parse("**Next:** say commit and I'll fold this into `4f0af36`, or tell me the shorter wording first.")?.go).toBe('fold this into 4f0af36')
   expect(parse("**Next:** say go and I'll run `brainstorming`. Or say \"measure first\".")?.title).toBe('Run brainstorming?')
   expect(parse("**Next:** say go and I'll edit `a.md` and `b.ts`.")?.go).toBe('edit a.md and b.ts')
   expect(parse("**Next:** say go and I'll run it (or run `! make` yourself).")?.go).toBe('run it (or run ! make yourself)')
@@ -117,7 +157,6 @@ test('parse: Next needs "say go" or "say <word> and I\'ll X"', () => {
   // A word other than go needs the "and I'll X" right after it.
   expect(parse('**Next:** say whether to fold these in.')).toBeNull()
   expect(parse("**Next:** say A (or B) and I'll start.")).toBeNull()
-  expect(parse("**Next:** say the word and I'll run the probe.")).toBeNull()
   expect(parse('plain reply')).toBeNull()
 })
 
@@ -230,6 +269,24 @@ test('rows with none picked: no suggestion, as the card has no go row', async ($
   await $.turn.complete(done(LETTERS.replace('**Recommend: A**', '**Recommend: Z**')))
   await $.prompt.suggest({ text: 'run the tests', origin: { kind: 'suggestion' } } as any)
   expect(shown).toEqual(['run the tests'])
+})
+
+test('a Stop hook continuation with no ask keeps the ask before it, unless a tool ran since', async ($, on) => {
+  const shown: string[] = []
+  let transcript: object[] = []
+  engine(on)
+  on('prompt.suggest', (_: any, e: any) => { shown.push(e.text); return { isShown: true } })
+  on('session.messages', () => ({ value: transcript }) as any)
+  const ask = { role: 'assistant', text: "**Next:** say go and I'll delete note.txt.", toolUses: [] }
+  const last = { role: 'assistant', text: 'no claim', toolUses: [] }
+  transcript = [{ role: 'user', text: 'make note.txt', toolUses: [] }, ask, last]
+  await $.turn.complete(done('no claim'))
+  const tool = { role: 'assistant', text: '', toolUses: [{ id: 'u1', name: 'Bash', input: {} }] }
+  transcript = [ask, tool, { role: 'user', text: '', toolUses: [], toolResults: [] }, last]
+  await $.turn.complete(done('no claim'))
+  transcript = [{ role: 'user', text: 'thanks', toolUses: [] }, last]
+  await $.turn.complete(done('no claim'))
+  expect(shown).toEqual(['delete note.txt'])
 })
 
 test('no Why under Recommend: no footer line', async ($, on) => {
