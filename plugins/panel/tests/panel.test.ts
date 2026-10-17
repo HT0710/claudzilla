@@ -1918,6 +1918,20 @@ test("the next prompt clears an answered report, not a stopped one", async ($, o
   expect(await ui.find({ type: 'Text', text: 'Nothing here yet' })).toBeDefined()
 })
 
+test("a background task's result carries the report on: kept, its ping moves the steps", async ($, on) => {
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await turnEnd($)
+  await $.prompt.submit({ text: '<task-notification>', wait: false, origin: { kind: 'task-notification' } })
+  await $.tool.call({ tool: INTENT, now: 2 } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '● working' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '1/2 steps' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^● $/ })).toBeDefined()
+})
+
 // The tools the panel registers, and the rule the intent tool's description carries.
 const registered = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]) => {
   const tools: string[] = []
@@ -2041,6 +2055,9 @@ test('TOPICS re-reads after a prompt only while the Overview tab shows', async (
   await clock.settle()
   expect(asks).toHaveLength(2)
   await $.prompt.submit({ text: '/compact', wait: false, origin: { kind: 'composer' }, command: { name: 'compact', args: '' } } as any)
+  await clock.settle()
+  expect(asks).toHaveLength(2)
+  await $.prompt.submit({ text: '<task-notification>', wait: false, origin: { kind: 'task-notification' } })
   await clock.settle()
   expect(asks).toHaveLength(2)
 })
