@@ -33,6 +33,7 @@ check "content: CLAUDE.md covers new Python projects" grep -q "New Python projec
 check "content: hook cites superpowers.md by section" bash -c "grep -q 'superpowers.md Order' '$REPO/claude/hooks/rules-guard.mjs' && grep -q '^## Order' '$REPO/claude/rules/superpowers.md' && ! grep -q 'superpowers.md:[0-9]' '$REPO/claude/hooks/rules-guard.mjs'"
 check "content: no CodeGraph section" bash -c "! grep -qi codegraph '$REPO/claude/CLAUDE.md'"
 check "content: reviewNudge not documented under rules" bash -c "! grep -q '^| \`reviewNudge\`' '$REPO/CONFIGURATION.md'"
+check "content: README documents every parse_args flag" bash -c "for f in \$(sed -n '/^parse_args/,/^}/p' '$REPO/install.sh' | grep -oE -e '--[a-z]+' | sort -u); do grep -q -e \"\\\`\$f\" '$REPO/README.md' || { echo missing \$f; exit 1; }; done"
 check "content: no omc" bash -c "! grep -rqi omc '$REPO/claude' '$REPO/settings.base.json' '$REPO/README.md' '$REPO/CONFIGURATION.md'"
 
 # --- parts ---
