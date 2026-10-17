@@ -680,6 +680,7 @@ test('⤓ latest reads the chat file\'s tail, and says so when no row of it scro
   noHistory(on)
   on('process.run', (_, e) => {
     runs.push(e.argv.join(' '))
+    if (isHistoryGrep(e.argv)) return ran(JSON.stringify({ display: 'go', timestamp: 1, sessionId: 'chat-1' }))
     return ran(e.argv[0] === 'find' ? '/home/me/projects/p/chat-1.jsonl\n' : e.argv[0] === 'tail' ? chatTail : '')
   })
   on('ui.toast', (_, e) => {
@@ -736,6 +737,16 @@ test('a repeated prompt resolves to the transcript copy sent nearest its time', 
 
   expect(nearestId(transcript, { display: 'go', timestamp: at('2026-10-10T10:00:00Z') })).toBe('right')
   expect(nearestId(transcript, { display: 'stop', timestamp: at('2026-10-10T10:00:00Z') })).toBeUndefined()
+})
+
+test('an empty History hides the rewind and latest buttons', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'History' })
+
+  expect(await ui.find({ type: 'Text', text: 'No prompts yet' })).toBeDefined()
+  expect(await ui.find({ key: 'rewind' })).toBeUndefined()
+  expect(await ui.find({ key: 'latest' })).toBeUndefined()
 })
 
 test('the rewind button opens the /rewind picker', async ($, on) => {

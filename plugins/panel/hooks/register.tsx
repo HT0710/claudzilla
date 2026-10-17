@@ -994,22 +994,24 @@ export const register: Register = (on, options) => {
       const [left, right] = flanks('↑', '─')
       body = (
         <Box flexDirection="column">
-          <Box justifyContent="space-between">
-            <Box>
-              <Button key="rewind" plain onPress={rewind}>
-                <Text color={HUD.action}>⟲ rewind</Text>
-              </Button>
-              <Text>  </Text>
-              <Button key="latest" plain onPress={latest}>
-                <Text color={HUD.latest}>⤓ latest</Text>
-              </Button>
+          {prompts.length > 0 && (
+            <Box justifyContent="space-between">
+              <Box>
+                <Button key="rewind" plain onPress={rewind}>
+                  <Text color={HUD.action}>⟲ rewind</Text>
+                </Button>
+                <Text>  </Text>
+                <Button key="latest" plain onPress={latest}>
+                  <Text color={HUD.latest}>⤓ latest</Text>
+                </Button>
+              </Box>
+              {counted && <Text color={HUD.faint}>{counted}</Text>}
             </Box>
-            {counted && <Text color={HUD.faint}>{counted}</Text>}
-          </Box>
-          {/* The rows under the tabs, their rule and the header. */}
+          )}
+          {/* The rows under the tabs and their rule. */}
           {prompts.length === 0 &&
             emptyNote(
-              e.props.scroll.bodyRows - 3,
+              e.props.scroll.bodyRows - 2,
               'No prompts yet',
               <Text color={HUD.faint}>What you've asked Claude.</Text>,
               <Box>
