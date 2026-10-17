@@ -1222,10 +1222,10 @@ export const register: Register = (on, options) => {
           ? [`✓ done ${clock(shown.at)}`, HUD.action]
           : [`■ stopped ${clock(shown.at)}`, HUD.dirty]
       const MARK = { completed: '✓', in_progress: '●', pending: '○' }
-      // The marks scan as progress on their own; done text stays readable, a step back.
+      // The marks scan as progress on their own; done text stays readable, a step back; the current step is lit.
       // Last turn's report, waiting on this turn's, is dimmed whole.
       const MARK_SHADE = { completed: HUD.action, in_progress: 'claude', pending: HUD.faint }
-      const TEXT_SHADE = { completed: SCOPE, in_progress: undefined, pending: undefined }
+      const TEXT_SHADE = { completed: SCOPE, in_progress: 'claude', pending: undefined }
       const shade = (color?: string) => (shown.waiting ? HUD.faint : color)
       const hasAbout = about.topics.length > 0 || about.running || !!about.failed
       const hasReport = !!(shown.wants || shown.waiting || shown.ended)
