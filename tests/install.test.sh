@@ -11,7 +11,9 @@ clean_env() { env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME "$@"; }   # never reac
 run_install() { clean_env HOME="$1" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" >"$1/install.log" 2>&1; }
 new_home() { mktemp -d "$TMP/home.XXXX"; }
 notty() { perl -MPOSIX -e 'if (fork) { wait; exit $? >> 8 } POSIX::setsid(); exec @ARGV' "$@"; }   # run with no controlling terminal
+seedbase() { mkdir -p "$1/.claude"; cp "$REPO/settings.base.json" "$1/.claude/.claudzilla-base.json"; }   # marks the home as an existing install
 export CLAUDZILLA_FONT_URL="file://$TMP/nofont"   # never hit the network; font cases override
+export CLAUDZILLA_TTY=/dev/null   # menu reads EOF = Full, so fresh cases need no terminal
 export CLAUDZILLA_FONT=yes   # answer the font prompt; declined case overrides
 
 # --- content ---
@@ -31,7 +33,14 @@ check "content: CLAUDE.md covers new Python projects" grep -q "New Python projec
 check "content: hook cites superpowers.md by section" bash -c "grep -q 'superpowers.md Order' '$REPO/claude/hooks/rules-guard.mjs' && grep -q '^## Order' '$REPO/claude/rules/superpowers.md' && ! grep -q 'superpowers.md:[0-9]' '$REPO/claude/hooks/rules-guard.mjs'"
 check "content: no CodeGraph section" bash -c "! grep -qi codegraph '$REPO/claude/CLAUDE.md'"
 check "content: reviewNudge not documented under rules" bash -c "! grep -q '^| \`reviewNudge\`' '$REPO/CONFIGURATION.md'"
+check "content: README documents every parse_args flag" bash -c "for f in \$(sed -n '/^parse_args/,/^}/p' '$REPO/install.sh' | grep -oE -e '--[a-z]+' | sort -u); do grep -q -e \"\\\`\$f\" '$REPO/README.md' || { echo missing \$f; exit 1; }; done"
 check "content: no omc" bash -c "! grep -rqi omc '$REPO/claude' '$REPO/settings.base.json' '$REPO/README.md' '$REPO/CONFIGURATION.md'"
+
+# --- parts ---
+check "parts: every base key/hook/plugin claimed exactly once" node "$REPO/tests/parts-check.mjs" "$REPO"
+check "parts: links == old LINKS set" [ "$(node -p 'Object.values(require(process.argv[1])).flatMap(p=>p.links||[]).sort().join(" ")' "$REPO/parts.json")" = "CLAUDE.md RTK.md hooks/claudzilla-update.sh hooks/md-display.pl hooks/rules-guard.mjs hud rules skills/pr skills/rule-review themes" ]
+H=$(new_home); run_install "$H"; cp -a "$H/.claude" "$H/before"; run_install "$H"
+check "existing: re-run byte-identical" diff -r --exclude=.claudzilla-backup "$H/before" "$H/.claude"
 
 # --- fresh machine ---
 H=$(new_home); run_install "$H"; rc=$?
@@ -197,6 +206,97 @@ check "keys: symlink kept" [ "$(readlink "$K/.claude/keybindings.json")" = "$K/d
 check "keys: symlink target untouched" cmp -s "$K/dots/kb.json" "$K/k0"
 check "keys: symlink warns" grep -q 'symlink' "$K/install.log"
 
+# --- install modes: --full, --add, --remove ---
+inst() { local h=$1; shift; clean_env HOME="$h" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" "$@" >"$h/install.log" 2>&1; }
+A=$(new_home); inst "$A" --add hud
+check "add: hud linked" [ -L "$A/.claude/hud" ]
+check "add: no rules" [ ! -e "$A/.claude/rules" ]
+check "add: updater linked" [ -L "$A/.claude/hooks/claudzilla-update.sh" ]
+check "add: only saved" [ "$(q "$A/.claude/claudzilla.json" .install)" = '{"only":["hud"]}' ]
+inst "$A" --add panel
+check "add: stacks" [ "$(q "$A/.claude/claudzilla.json" .install.only)" = '["hud","panel"]' ]
+check "add: alt+h with panel" [ "$(key "$A" Chat alt+h)" = '"command:panel"' ]
+check "add: no alt+k without picks" [ "$(key "$A" Chat alt+k)" = undefined ]
+inst "$A" --remove hud
+check "remove: hud unlinked" [ ! -e "$A/.claude/hud" ]
+check "remove: statusLine gone" [ "$(q "$A/.claude/settings.json" .statusLine)" = undefined ]
+R=$(new_home); inst "$R" --remove rtk
+check "remove fresh: skip saved" [ "$(q "$R/.claude/claudzilla.json" .install)" = '{"skip":["rtk"]}' ]
+check "remove fresh: rtk hook absent" bash -c "! grep -q 'rtk hook' '$R/.claude/settings.json'"
+check "remove fresh: rules-guard hooks kept" bash -c "grep -q 'rules-guard' '$R/.claude/settings.json' && [ \"\$(node -p 'require(process.argv[1]).hooks.PreToolUse.length' '$R/.claude/settings.json')\" -ge 2 ]"
+inst "$R"; check "saved: re-run keeps skip" bash -c "! grep -q 'rtk hook' '$R/.claude/settings.json'"
+inst "$R" --full; check "full: clears install key" [ "$(q "$R/.claude/claudzilla.json" .install)" = undefined ]
+X=$(new_home); inst "$X" --add nope; rc=$?
+check "unknown part: exit 1" [ "$rc" -eq 1 ]; check "unknown part: no change" [ ! -e "$X/.claude" ]
+B=$(new_home); (cd "$B" && clean_env HOME="$B" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_REPO="$REPO" bash -s -- --add hud < "$REPO/install.sh" >"$B/install.log" 2>&1)
+check "bootstrap: flags forwarded" [ ! -e "$B/.claude/rules" ]
+J=$(new_home); mkdir -p "$J/.claude"; echo '{"rulesGuard":{"allowMain":true}}' > "$J/.claude/claudzilla.json"; inst "$J" --remove rtk
+check "save: keeps rulesGuard" [ "$(q "$J/.claude/claudzilla.json" .rulesGuard.allowMain)" = true ]
+I=$(new_home); mkdir -p "$I/.claude"; echo '{bad' > "$I/.claude/claudzilla.json"; inst "$I" --remove rtk; rc=$?
+check "save: invalid json exit 1, untouched" bash -c "[ $rc -eq 1 ] && [ \"\$(cat '$I/.claude/claudzilla.json')\" = '{bad' ]"
+D=$(new_home); inst "$D" --remove rtk
+node -e 'const f=process.argv[1],j=require(f);j.install.skip=["rtk","gone"];require("fs").writeFileSync(f,JSON.stringify(j))' "$D/.claude/claudzilla.json"; inst "$D"; rc=$?
+check "saved: dropped part ignored" [ "$rc" -eq 0 ]
+E=$(new_home); inst "$E"
+node -e 'const f=process.argv[1],j=require(f);j.statusLine.command="mine";require("fs").writeFileSync(f,JSON.stringify(j))' "$E/.claude/settings.json"; inst "$E" --remove hud
+check "remove: user-edited key kept" [ "$(q "$E/.claude/settings.json" .statusLine.command)" = '"mine"' ]
+
+# Bad flag on a real run: no rtk download, nothing under ~/.local.
+S="$TMP/stub"; mkdir -p "$S/bin"; printf '#!/bin/sh\necho "$@" >> "%s/curl.log"\nexit 1\n' "$S" > "$S/bin/curl"; chmod +x "$S/bin/curl"
+ln -s "$(command -v node)" "$S/bin/node"
+N=$(new_home); clean_env HOME="$N" PATH="$S/bin:/usr/bin:/bin" bash "$REPO/install.sh" --add nope >"$N/install.log" 2>&1; rc=$?
+check "unknown part online: exit 1" [ "$rc" -eq 1 ]
+check "unknown part online: curl never called" [ ! -e "$S/curl.log" ]
+check "unknown part online: nothing written" bash -c "[ ! -e '$N/.claude' ] && [ ! -e '$N/.local' ]"
+# Node + rtk: recorded when this run installed them; present or unpicked = nothing.
+OB="$TMP/onb"; mkdir -p "$OB/bin" "$OB/pkg/bin"
+printf '#!/bin/sh\nexec %s "$@"\n' "$(command -v node)" > "$OB/pkg/bin/node"; chmod +x "$OB/pkg/bin/node"
+case "$(uname -m)" in aarch64|arm64) NA=arm64 ;; *) NA=x64 ;; esac
+case "$(uname -s)" in Darwin) NOS=darwin ;; *) NOS=linux ;; esac
+NF="node-v1.0.0-$NOS-$NA.tar.gz"; tar czf "$OB/$NF" -C "$OB" pkg
+SUM="$( (sha256sum "$OB/$NF" 2>/dev/null || shasum -a 256 "$OB/$NF") | cut -d' ' -f1)"
+cat > "$OB/bin/curl" <<'S'
+#!/bin/sh
+echo "$*" >> "$LOG"
+case "$*" in
+  *SHASUMS256*) echo "$SUM  $NF" ;;
+  *"$NF"*) while [ $# -gt 0 ]; do [ "$1" = -o ] && o=$2; shift; done; cp "$OB/$NF" "$o" ;;
+  *rtk-ai*) echo 'mkdir -p "$HOME/.local/bin"; printf "#!/bin/sh\n" > "$HOME/.local/bin/rtk"; chmod +x "$HOME/.local/bin/rtk"' ;;
+  *) exit 1 ;;
+esac
+S
+chmod +x "$OB/bin/curl"
+online() { local h=$1; shift; clean_env HOME="$h" LOG="$h/curl.log" OB="$OB" SUM="$SUM" NF="$NF" PATH="$OB/bin:/usr/bin:/bin" bash "$REPO/install.sh" "$@" >"$h/install.log" 2>&1; }
+O=$(new_home); online "$O"; rc=$?
+check "deps: online install exit 0" [ "$rc" -eq 0 ]
+check "deps: node dir, link and rtk recorded" [ "$(q "$O/.claude/.claudzilla-installed.json" .files)" = "[\"$O/.local/share/node-v1.0.0-$NOS-$NA\",\"$O/.local/bin/node\",\"$O/.local/bin/rtk\"]" ]
+online "$O"
+check "deps: re-run records nothing new" [ "$(q "$O/.claude/.claudzilla-installed.json" .files.length)" = 3 ]
+O2=$(new_home); online "$O2" --remove rtk
+check "deps: rtk not picked, not downloaded" bash -c "! grep -q rtk-ai '$O2/curl.log' && [ ! -e '$O2/.local/bin/rtk' ]"
+check "deps: node still recorded without rtk" [ "$(q "$O2/.claude/.claudzilla-installed.json" .files.length)" = 2 ]
+O3=$(new_home); mkdir -p "$O3/.local/bin"; printf '#!/bin/sh\n' > "$O3/.local/bin/rtk"; chmod +x "$O3/.local/bin/rtk"; online "$O3"
+check "deps: rtk already present not recorded" bash -c "! grep -q '/rtk' '$O3/.claude/.claudzilla-installed.json'"
+O4=$(new_home); mkdir -p "$O4/.claude"; echo '{bad' > "$O4/.claude/.claudzilla-installed.json"; online "$O4"; rc=$?
+check "deps: corrupt record warns, install exits 0" bash -c "[ $rc -eq 0 ] && grep -q 'could not update the install record' '$O4/install.log'"
+N5=$(new_home); online "$N5" --add nope; rc=$?
+check "deps: bad flag, no node: exit 1, DEST absent" bash -c "[ $rc -eq 1 ] && [ ! -e '$N5/.claude' ]"
+O6=$(new_home); mkdir -p "$O6/.local/share/node-v1.0.0-$NOS-$NA" "$O6/.local/bin"; ln -s /nonexistent "$O6/.local/bin/node"; online "$O6"
+check "deps: existing node dir and link not recorded" [ "$(q "$O6/.claude/.claudzilla-installed.json" .files)" = "[\"$O6/.local/bin/rtk\"]" ]
+mkdir -p "$OB/cl"; printf '#!/bin/sh\ncase "$*" in *"list --json"*) echo "[]" ;; esac\nexit 0\n' > "$OB/cl/claude"; chmod +x "$OB/cl/claude"
+O7=$(new_home); mkdir -p "$O7/.claude"; echo '{bad' > "$O7/.claude/.claudzilla-installed.json"
+clean_env HOME="$O7" LOG="$O7/curl.log" OB="$OB" SUM="$SUM" NF="$NF" PATH="$OB/cl:$OB/bin:/usr/bin:/bin" bash "$REPO/install.sh" >"$O7/install.log" 2>&1; rc=$?
+check "plugins: corrupt record warns, install exits 0" bash -c "[ $rc -eq 0 ] && grep -q 'could not update the install record' '$O7/install.log' && grep -q 'claudzilla installed' '$O7/install.log'"
+for bad in '{"only":["gone"]}' '{"only":"hud"}' '{"skip":"rtk"}'; do
+  Y=$(new_home); inst "$Y"; echo "{\"install\":$bad}" > "$Y/.claude/claudzilla.json"; cp -a "$Y/.claude" "$Y/before"; inst "$Y"; rc=$?
+  check "bad saved choice $bad: exit 1" [ "$rc" -eq 1 ]
+  check "bad saved choice $bad: message" grep -q 'saved choice names no known part' "$Y/install.log"
+  check "bad saved choice $bad: no change" diff -r --exclude=.claudzilla-backup "$Y/before" "$Y/.claude"
+done
+Z=$(new_home); inst "$Z"; echo '{"install":{"only":[]}}' > "$Z/.claude/claudzilla.json"; inst "$Z"; rc=$?
+check "only []: valid, exit 0" [ "$rc" -eq 0 ]
+check "only []: core unlinked, updater kept" bash -c "[ ! -e '$Z/.claude/rules' ] && [ -L '$Z/.claude/hooks/claudzilla-update.sh' ]"
+
 # --- curl | bash bootstrap (clones committed HEAD of $REPO) ---
 H=$(new_home)
 (cd "$H" && clean_env HOME="$H" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_REPO="$REPO" bash < "$REPO/install.sh" >"$H/install.log" 2>&1); rc=$?
@@ -339,6 +439,8 @@ check "wsl: rc without trailing newline keeps last line" [ "$(cat "$T/.bashrc")"
 R=$(new_home); echo 'alias x=y' > "$R/.bashrc"; chmod 444 "$R/.bashrc"; wsl_install "$R"; rc=$?
 check "wsl: read-only rc does not abort install" [ "$rc" -eq 0 ]
 check "wsl: read-only rc gets a manual hint" grep -q "export COLORTERM=truecolor' yourself" "$R/install.log"
+check "wsl: appended rc line recorded" [ "$(q "$W/.claude/.claudzilla-installed.json" .rcLines)" = "[{\"file\":\"$W/.bashrc\",\"line\":\"export COLORTERM=truecolor\"}]" ]
+check "wsl: read-only rc not recorded" bash -c "! grep -q bashrc '$R/.claude/.claudzilla-installed.json' 2>/dev/null"
 
 # --- font ---
 FD=".local/share/fonts"; STYLES=("Regular" "Bold" "Italic" "Bold Italic")
@@ -354,6 +456,21 @@ check "font: unreachable warned" grep -q 'font: download failed' "$U2/install.lo
 mkdir -p "$TMP/linux" "$TMP/darwin"; printf '#!/bin/sh\necho Linux\n' > "$TMP/linux/uname"; printf '#!/bin/sh\necho Darwin\n' > "$TMP/darwin/uname"; chmod +x "$TMP/linux/uname" "$TMP/darwin/uname"
 P=$(new_home); seed_fonts "$P"; clean_env HOME="$P" CLAUDZILLA_OFFLINE=1 PATH="$TMP/linux:$PATH" bash "$REPO/install.sh" >"$P/install.log" 2>&1
 check "font: present fonts not re-downloaded" bash -c "! grep -q 'font:' '$P/install.log'"
+check "font: seeded fonts not recorded" bash -c "! grep -q ttf '$P/.claude/.claudzilla-installed.json' 2>/dev/null"
+# good fonts: file:// source + a sha256sum stub that returns the pinned sums in download order
+mkdir -p "$TMP/goodfont" "$TMP/sha"; for s in "${STYLES[@]}"; do echo good > "$TMP/goodfont/MesloLGS NF $s.ttf"; done
+cat > "$TMP/sha/sha256sum" <<'S'
+#!/bin/sh
+n=$(cat "$SHAN" 2>/dev/null || echo 0); echo $((n+1)) > "$SHAN"
+set -- d97946186e97f8d7c0139e8983abf40a1d2d086924f2c5dbf1c29bd8f2c6e57d b6c0199cf7c7483c8343ea020658925e6de0aeb318b89908152fcb4d19226003 6f357bcbe2597704e157a915625928bca38364a89c22a4ac36e7a116dcd392ef 56b4131adecec052c4b324efb818dd326d586dbc316fc68f98f1cae2eb8d1220
+shift $n; echo "$1  -"
+S
+chmod +x "$TMP/sha/sha256sum"
+G=$(new_home); clean_env HOME="$G" SHAN="$G/shan" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT_URL="file://$TMP/goodfont" PATH="$TMP/sha:$TMP/linux:$PATH" bash "$REPO/install.sh" >"$G/install.log" 2>&1
+check "font: new fonts recorded" [ "$(q "$G/.claude/.claudzilla-installed.json" .files)" = "[\"$G/$FD/MesloLGS NF Regular.ttf\",\"$G/$FD/MesloLGS NF Bold.ttf\",\"$G/$FD/MesloLGS NF Italic.ttf\",\"$G/$FD/MesloLGS NF Bold Italic.ttf\"]" ]
+rm "$G/$FD/MesloLGS NF Bold.ttf"; echo 1 > "$G/shan"
+clean_env HOME="$G" SHAN="$G/shan" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT_URL="file://$TMP/goodfont" PATH="$TMP/sha:$TMP/linux:$PATH" bash "$REPO/install.sh" >"$G/install.log" 2>&1
+check "font: re-download not recorded twice" [ "$(q "$G/.claude/.claudzilla-installed.json" .files.length)" = 4 ]
 D=$(new_home); clean_env HOME="$D" CLAUDZILLA_OFFLINE=1 PATH="$TMP/darwin:$PATH" bash "$REPO/install.sh" >"$D/install.log" 2>&1
 check "font: macOS targets ~/Library/Fonts" grep -q 'Library/Fonts' "$D/install.log"
 
@@ -387,7 +504,13 @@ check "wsl font: Windows Terminal settings backed up" bash -c "find '$X/.claude/
 : > "$X/reg.log"; wsl_font "$X" ''
 check "wsl font: re-run re-registers (repairs)" [ "$(wc -l < "$X/reg.log" | tr -d ' ')" = 4 ]
 check "wsl font: re-run is quiet" bash -c "! grep -q 'font:' '$X/install.log'"
+check "wsl font: copies recorded with registry name" [ "$(q "$X/.claude/.claudzilla-installed.json" .winFonts)" = "[$(for s in "Bold Italic" Bold Italic Regular; do printf '{"file":"%s/win/Microsoft/Windows/Fonts/MesloLGS NF %s.ttf","reg":"MesloLGS NF %s (TrueType)"},' "$X" "$s" "$s"; done | sed 's/,$//')]" ]
+check "wsl font: Windows Terminal path recorded" [ "$(q "$X/.claude/.claudzilla-installed.json" .wtFont)" = "[\"$X/win/$WTREL\"]" ]
 check "wsl font: re-run copies nothing new" [ "$(ls "$X/win/Microsoft/Windows/Fonts" | wc -l | tr -d ' ')" = 4 ]
+Y0=$(new_home); mkdir -p "$Y0/win/Microsoft/Windows/Fonts"; for s in "${STYLES[@]}"; do echo x > "$Y0/win/Microsoft/Windows/Fonts/MesloLGS NF $s.ttf"; done
+wsl_font "$Y0" '{"profiles":{"defaults":{"font":{"face":"MesloLGS NF"}}}}'
+check "wsl font: Windows fonts already there not recorded" bash -c "! grep -q 'Fonts/MesloLGS' '$Y0/.claude/.claudzilla-installed.json' 2>/dev/null"
+check "wsl font: Windows Terminal already ours not recorded" bash -c "! grep -q settings.json '$Y0/.claude/.claudzilla-installed.json' 2>/dev/null"
 Y=$(new_home); wsl_font "$Y" '{"profiles":{"defaults":{"font":{"face":"Fira Code"}}}}'
 check "wsl font: user's own face kept" [ "$(q "$Y/win/$WTREL" .profiles.defaults.font.face)" = '"Fira Code"' ]
 check "wsl font: own face gets a hint" grep -q 'MesloLGS NF' "$Y/install.log"
@@ -406,7 +529,7 @@ check "font declined: exit 0" [ "$rc" -eq 0 ]
 check "font declined: basic-glyph marker" [ -f "$K/.claude/.claudzilla-basic-glyphs" ]
 check "font declined: no download" bash -c "! grep -q 'download failed' '$K/install.log'"
 check "font declined: says how to undo" grep -q 'CLAUDZILLA_FONT=yes' "$K/install.log"
-notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_FONT HOME="$K" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" >"$K/install.log" 2>&1 </dev/null
+notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY -u CLAUDZILLA_FONT HOME="$K" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" >"$K/install.log" 2>&1 </dev/null
 check "font declined: not asked again" bash -c "! grep -q 'font:' '$K/install.log'"
 clean_env HOME="$K" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT=yes bash "$REPO/install.sh" >"$K/install.log" 2>&1
 check "font declined: yes later clears marker" [ ! -e "$K/.claude/.claudzilla-basic-glyphs" ]
@@ -414,23 +537,258 @@ check "font declined: yes later clears marker" [ ! -e "$K/.claude/.claudzilla-ba
 # no terminal (Claude's Bash tool): don't guess, hand the question to Claude
 # fc-list stubs: the host's own fonts must not decide these cases
 mkdir -p "$TMP/nofc" "$TMP/fc"; printf '#!/bin/sh\n' > "$TMP/nofc/fc-list"; printf '#!/bin/sh\necho "MesloLGS Nerd Font Mono"\n' > "$TMP/fc/fc-list"; chmod +x "$TMP/nofc/fc-list" "$TMP/fc/fc-list"
-Q=$(new_home); notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_FONT HOME="$Q" CLAUDZILLA_OFFLINE=1 PATH="$TMP/nofc:$PATH" bash "$REPO/install.sh" >"$Q/install.log" 2>&1 </dev/null; rc=$?
+Q=$(new_home); seedbase "$Q"; notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY -u CLAUDZILLA_FONT HOME="$Q" CLAUDZILLA_OFFLINE=1 PATH="$TMP/nofc:$PATH" bash "$REPO/install.sh" >"$Q/install.log" 2>&1 </dev/null; rc=$?
 check "font no tty: exit 0" [ "$rc" -eq 0 ]
 check "font no tty: nothing downloaded" bash -c "! grep -q 'download failed' '$Q/install.log'"
 check "font no tty: not recorded as declined" [ ! -e "$Q/.claude/.claudzilla-basic-glyphs" ]
 check "font no tty: tells Claude to ask via AskUserQuestion" grep -q "AskUserQuestion.*CLAUDZILLA_FONT=yes $REPO/install.sh" "$Q/install.log"
 # installed another way (Nerd Fonts release name): don't ask
-N=$(new_home); mkdir -p "$N/$FD"; echo x > "$N/$FD/MesloLGSNerdFont-Regular.ttf"
-notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_FONT HOME="$N" CLAUDZILLA_OFFLINE=1 PATH="$TMP/nofc:$TMP/linux:$PATH" bash "$REPO/install.sh" >"$N/install.log" 2>&1 </dev/null
+N=$(new_home); seedbase "$N"; mkdir -p "$N/$FD"; echo x > "$N/$FD/MesloLGSNerdFont-Regular.ttf"
+notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY -u CLAUDZILLA_FONT HOME="$N" CLAUDZILLA_OFFLINE=1 PATH="$TMP/nofc:$TMP/linux:$PATH" bash "$REPO/install.sh" >"$N/install.log" 2>&1 </dev/null
 check "font: installed another way, not asked" bash -c "! grep -q 'font:' '$N/install.log'"
-FC=$(new_home); notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_FONT HOME="$FC" CLAUDZILLA_OFFLINE=1 PATH="$TMP/fc:$TMP/linux:$PATH" bash "$REPO/install.sh" >"$FC/install.log" 2>&1 </dev/null
+FC=$(new_home); seedbase "$FC"; notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY -u CLAUDZILLA_FONT HOME="$FC" CLAUDZILLA_OFFLINE=1 PATH="$TMP/fc:$TMP/linux:$PATH" bash "$REPO/install.sh" >"$FC/install.log" 2>&1 </dev/null
 check "font: fontconfig has it, not asked" bash -c "! grep -q 'font:' '$FC/install.log'"
-M=$(new_home); mkdir -p "$M/$FD"; echo x > "$M/$FD/MesloLGS-Regular.ttf"
-notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_FONT HOME="$M" CLAUDZILLA_OFFLINE=1 PATH="$TMP/nofc:$TMP/linux:$PATH" bash "$REPO/install.sh" >"$M/install.log" 2>&1 </dev/null
+M=$(new_home); seedbase "$M"; mkdir -p "$M/$FD"; echo x > "$M/$FD/MesloLGS-Regular.ttf"
+notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY -u CLAUDZILLA_FONT HOME="$M" CLAUDZILLA_OFFLINE=1 PATH="$TMP/nofc:$TMP/linux:$PATH" bash "$REPO/install.sh" >"$M/install.log" 2>&1 </dev/null
 check "font: plain Meslo (no Nerd glyphs) still asked" grep -q 'AskUserQuestion' "$M/install.log"
-W=$(new_home); notty env -u CLAUDE_CONFIG_DIR -u CLAUDZILLA_FONT HOME="$W" WSL_DISTRO_NAME=Ubuntu CLAUDZILLA_OFFLINE=1 PATH="$TMP/fc:$WB:$PATH" bash "$REPO/install.sh" >"$W/install.log" 2>&1 </dev/null
+W=$(new_home); seedbase "$W"; notty env -u CLAUDE_CONFIG_DIR -u CLAUDZILLA_TTY -u CLAUDZILLA_FONT HOME="$W" WSL_DISTRO_NAME=Ubuntu CLAUDZILLA_OFFLINE=1 PATH="$TMP/fc:$WB:$PATH" bash "$REPO/install.sh" >"$W/install.log" 2>&1 </dev/null
 check "wsl font: Linux-side font still asked (Windows needs it)" grep -q 'AskUserQuestion' "$W/install.log"
 O=$(new_home); clean_env HOME="$O" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT=off bash "$REPO/install.sh" >/dev/null 2>&1
 check "font: CLAUDZILLA_FONT=off declines" [ -f "$O/.claude/.claudzilla-basic-glyphs" ]
+
+# symlinked keybindings.json on a removal: the warning says remove, not add
+K=$(new_home); mkdir -p "$K/dots"; inst "$K"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+h":"command:panel","alt+k":"abovePrompt:focus"}}]}' > "$K/dots/kb.json"
+rm -f "$K/.claude/keybindings.json"; ln -s "$K/dots/kb.json" "$K/.claude/keybindings.json"; inst "$K" --remove panel
+check "keys: symlink on removal says remove" grep -q 'symlink - remove alt+h' "$K/install.log"
+# bad flag with no terminal: the flag error, not the ask-the-user stop
+K=$(new_home); notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY HOME="$K" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" --bogus >"$K/install.log" 2>&1 </dev/null; rc=$?
+check "bad flag no tty: exit 1, flag error, no change" bash -c "[ $rc -eq 1 ] && grep -q \"unknown flag '--bogus'\" '$K/install.log' && ! grep -q AskUserQuestion '$K/install.log' && [ ! -e '$K/.claude' ]"
+# unparseable settings.json: exit 1 with a claudzilla message, nothing unlinked, no temp left
+for fl in "--remove hud" "--uninstall --yes"; do
+  K=$(new_home); inst "$K"; echo '{bad' > "$K/.claude/settings.json"; inst "$K" $fl; rc=$?
+  check "bad settings ($fl): exit 1" [ "$rc" -eq 1 ]
+  check "bad settings ($fl): links kept" bash -c "[ -L '$K/.claude/hud' ] && [ -L '$K/.claude/rules' ]"
+  check "bad settings ($fl): claudzilla message, no node stack" bash -c "grep -q '^claudzilla: .*settings.json' '$K/install.log' && ! grep -qE 'SyntaxError|    at ' '$K/install.log'"
+  check "bad settings ($fl): no temp base left" bash -c "! ls -a '$K/.claude' | grep -q 'claudzilla\$'"
+done
+# --- menu / Claude run ---
+M=$(new_home); printf '2\n7 6\n' > "$M/ans"; clean_env HOME="$M" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_TTY="$M/ans" bash "$REPO/install.sh" >"$M/install.log" 2>&1
+check "menu: custom skip saved" [ "$(q "$M/.claude/claudzilla.json" .install.skip)" = '["rtk","dividers"]' ]
+C=$(new_home); notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY HOME="$C" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" >"$C/install.log" 2>&1 </dev/null; rc=$?
+check "claude run: exit 2" [ "$rc" -eq 2 ]
+check "claude run: nothing written" [ ! -e "$C/.claude" ]
+check "claude run: tells Claude to ask" grep -q 'AskUserQuestion.*multiSelect' "$C/install.log"
+check "claude run: names --full and --remove" bash -c "grep -q -e '--full' '$C/install.log' && grep -q -e '--full --remove <unticked' '$C/install.log'"
+F=$(new_home); notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY -u CLAUDZILLA_FONT HOME="$F" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT_URL="file://$TMP/badfont" bash "$REPO/install.sh" --full >"$F/install.log" 2>&1 </dev/null
+check "full no tty: font step runs without asking (hud chosen this run)" bash -c "grep -q 'checksum mismatch' '$F/install.log' && ! grep -q AskUserQuestion '$F/install.log'"
+PARTS=$(node -p 'Object.keys(require(process.argv[1])).filter(p=>p!="updater").join(" ")' "$REPO/parts.json")
+stop_lists() { local p; grep -q 'Full (recommended)' "$1" && grep -q Custom "$1" && grep -q -e '--full' "$1" && grep -q -e '--remove' "$1" || return 1; for p in $PARTS; do grep -qw "$p" "$1" || return 1; done; }
+check "claude run: asks Full or Custom, lists every part" stop_lists "$C/install.log"
+# --full --remove x = Full minus x, whatever was saved before
+L=$(new_home); inst "$L" --full --remove rtk
+check "full+remove fresh: skip only x" [ "$(q "$L/.claude/claudzilla.json" .install)" = '{"skip":["rtk"]}' ]
+inst "$L" --full --remove panel
+check "full+remove over saved skip: replaces, not stacks" [ "$(q "$L/.claude/claudzilla.json" .install)" = '{"skip":["panel"]}' ]
+check "full+remove over saved skip: rtk linked back" bash -c "grep -q 'rtk hook' '$L/.claude/settings.json'"
+L=$(new_home); inst "$L" --add hud; inst "$L" --full --remove panel
+check "full+remove over saved only: skip only x" [ "$(q "$L/.claude/claudzilla.json" .install)" = '{"skip":["panel"]}' ]
+check "full+remove over saved only: rules back" [ -L "$L/.claude/rules" ]
+Y=$(new_home); seedbase "$Y"; cp -a "$Y/.claude" "$Y/copy"; notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY HOME="$Y" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" --custom >"$Y/install.log" 2>&1 </dev/null; rc=$?
+check "custom no tty: exit 2" [ "$rc" -eq 2 ]
+check "custom no tty: DEST unchanged" diff -r "$Y/copy" "$Y/.claude"
+R=$(new_home); seedbase "$R"; notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY -u CLAUDZILLA_FONT HOME="$R" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT_URL="file://$TMP/badfont" PATH="$TMP/nofc:$PATH" bash "$REPO/install.sh" --remove rtk >"$R/install.log" 2>&1 </dev/null
+check "remove on existing: no font download" bash -c "! grep -q 'checksum mismatch' '$R/install.log'"
+check "remove on existing: font hint kept" grep -q AskUserQuestion "$R/install.log"
+G=$(new_home); seedbase "$G"; notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY -u CLAUDZILLA_FONT HOME="$G" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT_URL="file://$TMP/badfont" PATH="$TMP/fc:$TMP/linux:$PATH" bash "$REPO/install.sh" --full >"$G/install.log" 2>&1 </dev/null
+check "full with font installed another way: no download" bash -c "! grep -q 'checksum mismatch' '$G/install.log'"
+
+# --- plugins per part + ownership record ---
+new_stub() {  # fake claude logs argv, prints list/mlist; fake rtk keeps deps offline
+  local d; d=$(mktemp -d "$TMP/stub.XXXX")
+  printf '#!/bin/sh\necho "$*" >> "$(dirname "$0")/log"\ncase "$1 $2 $3" in "plugin list"*) cat "$(dirname "$0")/list" ;; "plugin marketplace list") cat "$(dirname "$0")/mlist" ;; esac\n' > "$d/claude"
+  printf '#!/bin/sh\n' > "$d/rtk"; chmod +x "$d/claude" "$d/rtk"; echo '[]' > "$d/list"; echo '[]' > "$d/mlist"; : > "$d/log"; echo "$d"
+}
+pinst() { local h=$1 s=$2; shift 2; clean_env HOME="$h" CLAUDZILLA_OFFLINE=0 PATH="$s:$PATH" bash "$REPO/install.sh" "$@" >"$h/install.log" 2>&1; }
+S=$(new_stub); H=$(new_home); seedbase "$H"; echo '[{"id":"panel@claudzilla"}]' > "$S/list"; pinst "$H" "$S" --remove panel
+check "plugins: remove panel uninstalls it" grep -q 'plugin uninstall panel@claudzilla' "$S/log"
+S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S" --remove panel
+check "plugins: unpicked but not installed: no uninstall call" bash -c "! grep -q 'plugin uninstall' '$S/log'"
+S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S"
+check "plugins: re-run with all picked: no uninstall call" bash -c "! grep -q 'plugin uninstall' '$S/log'"
+S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S" --remove panel
+check "plugins: kept part still installed" grep -q 'plugin install picks@claudzilla' "$S/log"
+check "plugins: removed panel not installed" bash -c "! grep -q 'plugin install panel@claudzilla' '$S/log'"
+S=$(new_stub); H=$(new_home); pinst "$H" "$S" --remove rtk,caveman,ponytail,dividers,panel,picks,toast,attribution
+check "plugins: only core+hud installs just superpowers" [ "$(grep 'plugin install' "$S/log")" = 'plugin install superpowers@claude-plugins-official' ]
+check "plugins: unpicked third-party not recorded-uninstalled" bash -c "! grep -q 'plugin uninstall caveman' '$S/log'"
+check "plugins: no claudzilla marketplace without own plugins" bash -c "! grep -q 'marketplace add $REPO' '$S/log'"
+S=$(new_stub); H=$(new_home); echo '[{"id":"caveman@caveman"}]' > "$S/list"; echo '[{"name":"caveman"}]' > "$S/mlist"; pinst "$H" "$S"
+R="$H/.claude/.claudzilla-installed.json"
+check "record: new superpowers+ponytail recorded, pre-existing caveman not" [ "$(q "$R" .plugins)" = '["superpowers@claude-plugins-official","ponytail@ponytail"]' ]
+check "record: pre-existing caveman marketplace not recorded" bash -c "[ \"\$(node -p 'require(process.argv[1]).marketplaces.includes(\"caveman\")' '$R')\" = false ] && node -p 'require(process.argv[1]).marketplaces.includes(\"ponytail\")' '$R' | grep -q true"
+check "record: claudzilla plugins never recorded" bash -c "! grep -q claudzilla '$R'"
+check "record: shape has every key" [ "$(node -p 'Object.keys(require(process.argv[1])).join()' "$R")" = 'files,rcLines,plugins,marketplaces,winFonts,wtFont' ]
+check "plugins: claudzilla marketplace added" grep -q "marketplace add $REPO" "$S/log"
+pinst "$H" "$S"
+check "record: re-run adds no duplicates" [ "$(q "$R" .plugins.length)" = 2 ]
+: > "$S/log"; pinst "$H" "$S" --remove caveman,ponytail
+check "plugins: unpicked recorded third-party uninstalled" grep -q 'plugin uninstall ponytail@ponytail' "$S/log"
+check "plugins: unpicked pre-existing third-party kept" bash -c "! grep -q 'plugin uninstall caveman@caveman' '$S/log'"
+
+# unreadable list: install as usual, record nothing
+S=$(new_stub); H=$(new_home); printf '#!/bin/sh\necho "$*" >> "$(dirname "$0")/log"\ncase "$1 $2" in "plugin list") exit 1 ;; esac\n' > "$S/claude"; pinst "$H" "$S"
+check "record: failing list still installs" grep -q 'plugin install ponytail@ponytail' "$S/log"
+check "record: failing list records nothing" [ ! -e "$H/.claude/.claudzilla-installed.json" ]
+check "record: failing list warns" grep -q 'cannot read claude' "$H/install.log"
+S=$(new_stub); H=$(new_home); echo 'not json' > "$S/list"; pinst "$H" "$S"
+check "record: unparseable list records nothing" [ ! -e "$H/.claude/.claudzilla-installed.json" ]
+# removing a recorded plugin drops its record entry
+check "record: removed plugin's entry gone, others kept" [ "$(q "$R" .plugins)" = '["superpowers@claude-plugins-official"]' ]
+
+# --- uninstall ---
+uninst() { local h=$1; shift; clean_env HOME="$h" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" --uninstall "$@" >"$h/u.log" 2>&1; }
+U=$(new_home); inst "$U" --remove rtk; mkdir -p "$U/.claude/skills/mine"; echo x > "$U/.claude/skills/mine/SKILL.md"; echo mine > "$U/.claude/CLAUDE.local.md"
+mkdir -p "$U/.claude/.claudzilla-backup/x"
+node -e 'const f=process.argv[1]+"/.claude/",fs=require("fs"),s=require(f+"settings.json"),c=require(f+"claudzilla.json");s.model="mine";c.keep=1;fs.writeFileSync(f+"settings.json",JSON.stringify(s));fs.writeFileSync(f+"claudzilla.json",JSON.stringify(c))' "$U"
+inst "$U" --uninstall --yes; rc=$?
+check "uninstall: exit 0" [ "$rc" -eq 0 ]
+check "uninstall: no links into repo" bash -c "! find '$U/.claude' -lname '$REPO/*' | grep -q ."
+check "uninstall: edited key kept" [ "$(q "$U/.claude/settings.json" .model)" = '"mine"' ]
+check "uninstall: hooks gone" [ "$(q "$U/.claude/settings.json" .hooks)" = undefined ]
+check "uninstall: state gone" bash -c "! ls -a '$U/.claude' | grep -E '^\.claudzilla-(base|rules|installed|basic)'"
+check "uninstall: own skill kept" [ "$(cat "$U/.claude/skills/mine/SKILL.md")" = x ]
+check "uninstall: non-empty CLAUDE.local.md kept" [ "$(cat "$U/.claude/CLAUDE.local.md")" = mine ]
+check "uninstall: install key gone, other keys kept" [ "$(cat "$U/.claude/claudzilla.json" | node -p 'JSON.stringify(JSON.parse(require("fs").readFileSync(0,"utf8")))')" = '{"keep":1}' ]
+check "uninstall: backup kept" [ -d "$U/.claude/.claudzilla-backup/x" ]
+check "uninstall: prints clone rm" grep -q "rm -rf $REPO" "$U/install.log"
+check "uninstall: prints backup rm" grep -q "rm -rf $U/.claude/.claudzilla-backup" "$U/install.log"
+V=$(new_home); inst "$V"; inst "$V" --uninstall --yes
+check "uninstall: empty CLAUDE.local.md removed" [ ! -e "$V/.claude/CLAUDE.local.md" ]
+check "uninstall: keybindings gone" bash -c "! grep -qE 'alt\+[hk]' '$V/.claude/keybindings.json' 2>/dev/null"
+V2=$(new_home); inst "$V2" --remove rtk; inst "$V2" --uninstall --yes
+check "uninstall: claudzilla.json removed when only install key" [ ! -e "$V2/.claude/claudzilla.json" ]
+N=$(new_home); inst "$N"; notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY HOME="$N" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" --uninstall >"$N/u.log" 2>&1 </dev/null; rc=$?
+check "uninstall no tty: exit 2, kept" bash -c "[ $rc -eq 2 ] && [ -L '$N/.claude/rules' ]"
+check "uninstall no tty: says run with --yes" grep -q 'install.sh --uninstall --yes' "$N/u.log"
+echo n > "$TMP/ans"; C=$(new_home); inst "$C"; cp -a "$C/.claude" "$C/before"
+clean_env HOME="$C" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_TTY="$TMP/ans" bash "$REPO/install.sh" --uninstall >"$C/u.log" 2>&1; rc=$?
+check "uninstall: n cancels, exit 0, no change" bash -c "[ $rc -eq 0 ] && grep -q 'uninstall cancelled' '$C/u.log' && diff -r '$C/before' '$C/.claude'"
+echo y > "$TMP/ans"; clean_env HOME="$C" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_TTY="$TMP/ans" bash "$REPO/install.sh" --uninstall >"$C/u.log" 2>&1
+check "uninstall: y at the prompt proceeds" [ ! -e "$C/.claude/rules" ]
+for fl in "--add hud" "--remove rtk" --full --custom; do
+  C=$(new_home); inst "$C"; cp -a "$C/.claude" "$C/before"; clean_env HOME="$C" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" --uninstall $fl >"$C/u.log" 2>&1; rc=$?
+  check "uninstall + $fl: exit 1, no change" bash -c "[ $rc -eq 1 ] && diff -r '$C/before' '$C/.claude'"
+done
+
+# recorded items: removed; unrecorded and outside-HOME ones kept
+W=$(new_home); inst "$W"; D="$W/.local/share/fonts"; WF="$W/win/Microsoft/Windows/Fonts"
+mkdir -p "$W/.local/share/node-v9" "$W/.local/bin" "$D" "$WF" "$W/win/a" "$W/win/b"
+echo n > "$W/.local/share/node-v9/x"; ln -s "$W/.local/share/node-v9/x" "$W/.local/bin/node"
+echo x > "$D/MesloLGS NF Regular.ttf"; echo x > "$D/MesloLGS NF Bold.ttf"; echo x > "$WF/MesloLGS NF Regular.ttf"
+OUT="$TMP/outside.$$"; echo x > "$OUT"
+printf 'alias a=b\nexport COLORTERM=truecolor\nalias c=d\n' > "$W/.bashrc"; printf 'alias z=y\n' > "$W/.zshrc"
+echo '{"profiles":{"defaults":{"font":{"face":"MesloLGS NF"},"opacity":90}}}' > "$W/win/a/settings.json"
+echo '{"profiles":{"defaults":{"font":{"face":"Fira Code"}}}}' > "$W/win/b/settings.json"
+node -e 'const [h,out]=process.argv.slice(1);require("fs").writeFileSync(h+"/.claude/.claudzilla-installed.json",JSON.stringify({files:[h+"/.local/share/node-v9",h+"/.local/bin/node",h+"/.local/share/fonts/MesloLGS NF Regular.ttf",out,h+"/gone"],
+ rcLines:[{file:h+"/.bashrc",line:"export COLORTERM=truecolor"},{file:h+"/.zshrc",line:"export COLORTERM=truecolor"}],plugins:[],marketplaces:[],
+ winFonts:[{file:h+"/win/Microsoft/Windows/Fonts/MesloLGS NF Regular.ttf",reg:"MesloLGS NF Regular (TrueType)"}],wtFont:[h+"/win/a/settings.json",h+"/win/b/settings.json"]}))' "$W" "$OUT"
+clean_env HOME="$W" REGLOG="$W/reg.log" PATH="$WB:$PATH" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" --uninstall --yes >"$W/install.log" 2>&1
+check "uninstall rec: node dir and link gone" bash -c "[ ! -e '$W/.local/share/node-v9' ] && [ ! -L '$W/.local/bin/node' ]"
+check "uninstall rec: recorded font gone, unrecorded kept" bash -c "[ ! -e '$D/MesloLGS NF Regular.ttf' ] && [ -f '$D/MesloLGS NF Bold.ttf' ]"
+check "uninstall rec: unrecorded font listed" grep -q "rm .*MesloLGS.*Bold.ttf" "$W/install.log"
+check "uninstall rec: outside-HOME path kept, refused, listed without a command" bash -c "[ -f '$OUT' ] && grep -q 'refused.*outside' '$W/install.log' && grep -q 'Not touched' '$W/install.log' && grep -q '$(basename "$OUT")' '$W/install.log' && ! grep -q 'rm .*$(basename "$OUT")' '$W/install.log'"
+check "uninstall rec: rc line removed, rest intact" [ "$(cat "$W/.bashrc")" = $'alias a=b\nalias c=d' ]
+check "uninstall rec: rc without the line untouched" [ "$(cat "$W/.zshrc")" = 'alias z=y' ]
+check "uninstall rec: Windows font file gone" [ ! -e "$WF/MesloLGS NF Regular.ttf" ]
+check "uninstall rec: registry value deleted" grep -q 'delete HKCU.*Fonts /v MesloLGS NF Regular (TrueType) /f' "$W/reg.log"
+check "uninstall rec: WT face removed, rest kept" bash -c "[ \"\$(node -p 'JSON.stringify(require(process.argv[1]).profiles.defaults)' '$W/win/a/settings.json')\" = '{\"opacity\":90}' ]"
+check "uninstall rec: WT other face kept" [ "$(q "$W/win/b/settings.json" .profiles.defaults.font.face)" = '"Fira Code"' ]
+check "uninstall rec: gone record" [ ! -e "$W/.claude/.claudzilla-installed.json" ]
+
+# plugins: claudzilla's always, recorded third-party only; unrecorded node/rtk listed, not deleted
+S=$(new_stub); H=$(new_home); inst "$H"; mkdir -p "$H/.local/bin"; echo x > "$H/.local/bin/node"
+echo '{"files":[],"rcLines":[],"plugins":["ponytail@ponytail"],"marketplaces":["ponytail"],"winFonts":[],"wtFont":[]}' > "$H/.claude/.claudzilla-installed.json"
+clean_env HOME="$H" CLAUDZILLA_OFFLINE=0 PATH="$S:$PATH" bash "$REPO/install.sh" --uninstall --yes >"$H/install.log" 2>&1; rc=$?
+check "uninstall plugins: exit 0" [ "$rc" -eq 0 ]
+check "uninstall plugins: claudzilla plugins removed" bash -c "for p in panel picks update-toast attribution response-dividers; do grep -q \"plugin uninstall \$p@claudzilla\" '$S/log' || exit 1; done"
+check "uninstall plugins: claudzilla marketplace removed" grep -q 'plugin marketplace remove claudzilla' "$S/log"
+check "uninstall plugins: recorded third-party removed" bash -c "grep -q 'plugin uninstall ponytail@ponytail' '$S/log' && grep -q 'plugin marketplace remove ponytail' '$S/log'"
+check "uninstall plugins: unrecorded third-party kept" bash -c "! grep -qE 'uninstall (caveman|superpowers)|remove (caveman|claude-plugins-official)' '$S/log'"
+check "uninstall plugins: unrecorded node kept and listed" bash -c "[ -f '$H/.local/bin/node' ] && grep -q 'rm .*$H/.local/bin/node' '$H/install.log'"
+check "uninstall plugins: rtk on PATH kept and listed" bash -c "[ -f '$S/rtk' ] && grep -q 'rm .*$S/rtk' '$H/install.log'"
+H=$(new_home); inst "$H"; SB=$(mktemp -d "$TMP/nocl.XXXX"); for t in node bash env sh cat rm mkdir dirname readlink date uname perl find sed grep cmp mv tail cp ls; do ln -s "$(command -v $t)" "$SB/$t" 2>/dev/null; done
+clean_env HOME="$H" CLAUDZILLA_OFFLINE=0 PATH="$SB" "$SB/bash" "$REPO/install.sh" --uninstall --yes >"$H/install.log" 2>&1; rc=$?
+check "uninstall no claude: leftovers with commands" bash -c "[ $rc -eq 0 ] && grep -q 'claude plugin marketplace remove claudzilla' '$H/install.log'"
+
+# claude-plugins-official is the user's: never recorded, never removed
+S=$(new_stub); H=$(new_home); pinst "$H" "$S"
+check "official marketplace: added but not recorded" bash -c "grep -q 'marketplace add anthropics/claude-plugins-official' '$S/log' && [ \"\$(node -p 'require(process.argv[1]).marketplaces.includes(\"claude-plugins-official\")' '$H/.claude/.claudzilla-installed.json')\" = false ]"
+S=$(new_stub); H=$(new_home); inst "$H"
+echo '{"files":[],"rcLines":[],"plugins":[],"marketplaces":["claude-plugins-official","ponytail"],"winFonts":[],"wtFont":[]}' > "$H/.claude/.claudzilla-installed.json"
+clean_env HOME="$H" CLAUDZILLA_OFFLINE=0 PATH="$S:$PATH" bash "$REPO/install.sh" --uninstall --yes >"$H/install.log" 2>&1
+check "official marketplace: seeded record, uninstall never removes it" bash -c "! grep -q 'marketplace remove claude-plugins-official' '$S/log' && grep -q 'marketplace remove ponytail' '$S/log'"
+# unrecorded part plugins/marketplaces and the rc line are listed, never removed
+S=$(new_stub); H=$(new_home); inst "$H"; echo '[{"id":"caveman@caveman"},{"id":"ponytail@ponytail"},{"id":"mine@other"}]' > "$S/list"; echo '[{"name":"caveman"},{"name":"claude-plugins-official"},{"name":"ponytail"}]' > "$S/mlist"
+echo '{"files":[],"rcLines":[],"plugins":["ponytail@ponytail"],"marketplaces":["ponytail"],"winFonts":[],"wtFont":[]}' > "$H/.claude/.claudzilla-installed.json"
+printf 'alias a=b\nexport COLORTERM=truecolor\n' > "$H/.bashrc"
+clean_env HOME="$H" CLAUDZILLA_OFFLINE=0 PATH="$S:$PATH" bash "$REPO/install.sh" --uninstall --yes >"$H/install.log" 2>&1
+check "uninstall leftovers: unrecorded part plugin listed, not removed" bash -c "grep -q 'claude plugin uninstall caveman@caveman' '$H/install.log' && ! grep -q 'plugin uninstall caveman' '$S/log'"
+check "uninstall leftovers: unrecorded marketplace listed, not removed" bash -c "grep -q 'claude plugin marketplace remove caveman' '$H/install.log' && ! grep -q 'marketplace remove caveman' '$S/log'"
+check "uninstall leftovers: recorded and foreign ones not listed" bash -c "! grep -E '^  claude plugin (uninstall (ponytail|mine)|marketplace remove (ponytail|claude-plugins-official))' '$H/install.log'"
+check "uninstall leftovers: unrecorded rc line listed, kept" bash -c "grep -q \"remove the line 'export COLORTERM=truecolor' from $H/.bashrc\" '$H/install.log' && grep -q '^export COLORTERM=truecolor\$' '$H/.bashrc'"
+# WSL: unrecorded MesloLGS NF in the Windows fonts dir is listed
+WX="$TMP/winlist"; mkdir -p "$WX"; cp "$TMP/linux/uname" "$WX/"; printf '#!/bin/sh\necho C:\\\\u\n' > "$WX/cmd.exe"; printf '#!/bin/sh\necho "$WINLA"\n' > "$WX/wslpath"; chmod +x "$WX"/*
+H=$(new_home); inst "$H"; mkdir -p "$H/win/Microsoft/Windows/Fonts"; echo x > "$H/win/Microsoft/Windows/Fonts/MesloLGS NF Bold.ttf"
+clean_env HOME="$H" WSL_DISTRO_NAME=Ubuntu WINLA="$H/win" PATH="$WX:$PATH" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" --uninstall --yes >"$H/install.log" 2>&1
+check "uninstall leftovers: unrecorded Windows font listed, kept" bash -c "grep -q 'rm .*Windows/Fonts/MesloLGS.*Bold.ttf' '$H/install.log' && [ -f '$H/win/Microsoft/Windows/Fonts/MesloLGS NF Bold.ttf' ]"
+
+
+# --- uninstall: review fixes ---
+minpath() { local d t; d=$(mktemp -d "$TMP/min.XXXX"); for t in bash env sh cat rm mkdir dirname readlink date uname perl find sed grep cmp mv tail cp ls tr basename; do ln -s "$(command -v $t)" "$d/$t" 2>/dev/null; done; echo "$d"; }
+# I1: only node is claudzilla's own, under ~/.local/bin; I4: online run never downloads
+H=$(new_home); inst "$H"; SB=$(minpath); mkdir -p "$H/.local/bin" "$TMP/cs.$$"; ln -s "$(command -v node)" "$H/.local/bin/node"
+printf '#!/bin/sh\necho "$@" >> "%s/curl.log"\nexit 1\n' "$TMP/cs.$$" > "$SB/curl"; chmod +x "$SB/curl"
+clean_env HOME="$H" CLAUDZILLA_OFFLINE=0 PATH="$SB" "$SB/bash" "$REPO/install.sh" --uninstall --yes >"$H/install.log" 2>&1; rc=$?
+check "uninstall: only claudzilla's own node on PATH: exit 0" bash -c "[ $rc -eq 0 ] && [ ! -e '$H/.claude/.claudzilla-base.json' ]"
+# curl check needs NO node on PATH: deps would run and reach curl (exit 1, node is required) if uninstall did not skip it
+H=$(new_home); inst "$H"; SB=$(minpath); ln -s "$(command -v tar)" "$SB/tar"; CS="$TMP/cs2.$$"; mkdir -p "$CS"
+printf '#!/bin/sh\necho "$@" >> "%s/curl.log"\nexit 1\n' "$CS" > "$SB/curl"; chmod +x "$SB/curl"
+clean_env HOME="$H" CLAUDZILLA_OFFLINE=0 PATH="$SB" "$SB/bash" "$REPO/install.sh" --uninstall --yes >"$H/install.log" 2>&1; rc=$?
+check "uninstall: no node anywhere: exit 1, node is required, curl never called" bash -c "[ $rc -eq 1 ] && grep -q 'node is required' '$H/install.log' && [ ! -e '$CS/curl.log' ]"
+# wtFont entry that cannot be edited: not a record error
+H=$(new_home); inst "$H"; mkdir -p "$H/w"; echo '{bad' > "$H/w/settings.json"
+echo '{"files":[],"rcLines":[],"plugins":[],"marketplaces":[],"winFonts":[],"wtFont":["'"$H"'/w/settings.json","'"$H"'/w/gone/settings.json"]}' > "$H/.claude/.claudzilla-installed.json"
+inst "$H" --uninstall --yes; rc=$?
+check "uninstall wtFont unparseable/missing: exit 0, record deleted, hints" bash -c "[ $rc -eq 0 ] && [ ! -e '$H/.claude/.claudzilla-installed.json' ] && grep -q 'set the terminal font yourself in $H/w/settings.json' '$H/install.log' && grep -q 'yourself in $H/w/gone/settings.json' '$H/install.log'"
+# S1 + M3: rc line outside HOME refused and listed as a manual step; empty HOME refuses everything
+H=$(new_home); inst "$H"; RCO="$TMP/rcout.$$"; printf 'a\nexport FOO=1\n' > "$RCO"; echo x > "$TMP/keep.$$"
+node -e 'require("fs").writeFileSync(process.argv[1]+"/.claude/.claudzilla-installed.json",JSON.stringify({files:[],rcLines:[{file:process.argv[2],line:"export FOO=1"}],plugins:[],marketplaces:[],winFonts:[],wtFont:[]}))' "$H" "$RCO"
+inst "$H" --uninstall --yes
+check "uninstall rc outside HOME: refused, untouched" bash -c "[ \"\$(cat '$RCO')\" = \$'a\nexport FOO=1' ] && grep -q 'refused to edit' '$H/install.log'"
+check "uninstall rc outside HOME: listed as manual step, no rm" bash -c "grep -q \"remove the line 'export FOO=1' from $RCO\" '$H/install.log' && ! grep -q 'rm .*rcout' '$H/install.log'"
+H=$(new_home); inst "$H"
+node -e 'require("fs").writeFileSync(process.argv[1]+"/.claude/.claudzilla-installed.json",JSON.stringify({files:[process.argv[2]],rcLines:[],plugins:[],marketplaces:[],winFonts:[],wtFont:[]}))' "$H" "$TMP/keep.$$"
+clean_env HOME="" DEST="$H/.claude" CLAUDE_CONFIG_DIR="$H/.claude" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" --uninstall --yes >"$H/install.log" 2>&1
+check "uninstall: empty HOME deletes nothing from record" bash -c "[ -f '$TMP/keep.$$' ] && grep -q 'refusing every deletion' '$H/install.log'"
+# I2: malformed entry; valid ones still handled; record kept; non-zero
+H=$(new_home); inst "$H"; WF="$H/win/Microsoft/Windows/Fonts"; mkdir -p "$WF"; echo x > "$WF/MesloLGS NF Regular.ttf"; echo x > "$WF/MesloLGS NF Bold.ttf"; printf 'k\nexport A=1\n' > "$H/.bashrc"
+node -e 'const h=process.argv[1];require("fs").writeFileSync(h+"/.claude/.claudzilla-installed.json",JSON.stringify({files:[],rcLines:[null,{file:h+"/.bashrc",line:"export A=1"}],plugins:[],marketplaces:[],
+ winFonts:[{file:h+"/win/Microsoft/Windows/Fonts/MesloLGS NF Regular.ttf",reg:"R1"},{file:h+"/win/Microsoft/Windows/Fonts/MesloLGS NF Bold.ttf",reg:"R2"}],wtFont:[]}))' "$H"
+RB="$TMP/regin"; mkdir -p "$RB"; cp "$WB/uname" "$RB/"; printf '#!/bin/sh\ncat >/dev/null\nprintf "%%s\\n" "$*" >> "$REGLOG"\n' > "$RB/reg.exe"; chmod +x "$RB/reg.exe"
+clean_env HOME="$H" REGLOG="$H/reg.log" PATH="$RB:$PATH" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" --uninstall --yes >"$H/install.log" 2>&1; rc=$?
+check "uninstall bad entry: non-zero, record kept" bash -c "[ $rc -ne 0 ] && [ -f '$H/.claude/.claudzilla-installed.json' ]"
+check "uninstall bad entry: valid entries still handled" bash -c "[ \"\$(cat '$H/.bashrc')\" = k ] && [ ! -e '$WF/MesloLGS NF Bold.ttf' ]"
+check "uninstall: every font's registry value deleted despite stdin-reading reg.exe" bash -c "grep -q '/v R1 ' '$H/reg.log' && grep -q '/v R2 ' '$H/reg.log'"
+# M1: Windows font entry must be absolute, in a Fonts dir
+H=$(new_home); inst "$H"; mkdir -p "$H/other"; echo x > "$H/other/MesloLGS NF Regular.ttf"
+node -e 'const h=process.argv[1];require("fs").writeFileSync(h+"/.claude/.claudzilla-installed.json",JSON.stringify({files:[],rcLines:[],plugins:[],marketplaces:[],winFonts:[{file:h+"/other/MesloLGS NF Regular.ttf",reg:"X"},{file:"MesloLGS NF Bold.ttf",reg:"Y"}],wtFont:[]}))' "$H"
+(cd "$H" && echo x > "MesloLGS NF Bold.ttf"; clean_env HOME="$H" PATH="$RB:$PATH" REGLOG="$H/reg.log" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" --uninstall --yes >"$H/install.log" 2>&1)
+check "uninstall: win font outside a Fonts dir / relative kept" bash -c "[ -f '$H/other/MesloLGS NF Regular.ttf' ] && [ -f '$H/MesloLGS NF Bold.ttf' ]"
+# I3: listing before the prompt and in the no-terminal message
+H=$(new_home); inst "$H"; echo '{"files":["'"$H"'/.local/share/node-v9"],"rcLines":[{"file":"'"$H"'/.bashrc","line":"export COLORTERM=truecolor"}],"plugins":["ponytail@ponytail"],"marketplaces":["ponytail"],"winFonts":[{"file":"'"$H"'/w/Fonts/MesloLGS NF Regular.ttf","reg":"r"}],"wtFont":["'"$H"'/w/settings.json"]}' > "$H/.claude/.claudzilla-installed.json"
+echo n > "$TMP/ans"; clean_env HOME="$H" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_TTY="$TMP/ans" bash "$REPO/install.sh" --uninstall >"$H/u.log" 2>&1
+check "uninstall prompt: lists what goes outside the config dir" bash -c "grep -q 'npm packages' '$H/u.log' && grep -q 'export COLORTERM=truecolor' '$H/u.log' && grep -q 'Windows font' '$H/u.log' && grep -q 'Windows Terminal font' '$H/u.log' && grep -q 'plugin ponytail@ponytail' '$H/u.log' && grep -q 'marketplace ponytail' '$H/u.log'"
+notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY HOME="$H" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" --uninstall >"$H/u.log" 2>&1 </dev/null; rc=$?
+check "uninstall no tty: message lists them too" bash -c "[ $rc -eq 2 ] && grep -q 'npm packages' '$H/u.log' && grep -q 'plugin ponytail@ponytail' '$H/u.log'"
 
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
