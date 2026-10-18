@@ -245,7 +245,7 @@ test('one decision: plain rows, no tradeoffs; each drafts its id and option', as
   on('prompt.fill', (_: any, e: any) => { filled.push(e.text); return { isFilled: true } })
   await $.turn.complete(done(LONE))
   const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
-  expect(await labels(ui)).toEqual(['merge to main locally', 'push + PR', 'keep the branch as-is', 'type your own…'])
+  expect(await labels(ui)).toEqual(['merge to main locally', 'push + PR', 'keep the branch as-is', 'go ahead, except…'])
   expect((await ui.findAll({ type: 'Button' })).every((b: any) => b.props.plain)).toBe(true)
   // The reply's table, just above, already holds them.
   expect(await ui.find({ type: 'Text', text: /CI runs/ })).toBeUndefined()
@@ -262,13 +262,13 @@ test('a press puts its id and option in the prompt box, unsent, so the box clear
   on('prompt.fill', (_: any, e: any) => { filled.push(e.text); return { isFilled: true } })
   await $.turn.complete(done(LETTERS))
   const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
-  expect(await labels(ui)).toEqual(['no retry', 'retry', 'type your own…'])
+  expect(await labels(ui)).toEqual(['no retry', 'retry', 'go ahead, except…'])
   await ui.press({ key: 'pick:B' })
   expect(filled).toEqual(['B: retry'])
   expect(sent).toEqual([])
 })
 
-test('type your own… drafts "go, but "', async ($, on) => {
+test('go ahead, except… drafts "go, but "', async ($, on) => {
   const filled: string[] = []
   engine(on)
   on('prompt.fill', (_: any, e: any) => { filled.push(e.text); return { isFilled: true } })
