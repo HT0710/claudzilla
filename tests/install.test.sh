@@ -620,9 +620,9 @@ S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S" --remove panel
 check "plugins: kept part still installed" grep -q 'plugin install picks@claudzilla' "$S/log"
 check "plugins: removed panel not installed" bash -c "! grep -q 'plugin install panel@claudzilla' '$S/log'"
 S=$(new_stub); H=$(new_home); pinst "$H" "$S" --remove rtk,caveman,ponytail,dividers,panel,picks,toast,attribution
-check "plugins: only core+hud installs just superpowers" [ "$(grep 'plugin install' "$S/log")" = 'plugin install superpowers@claude-plugins-official' ]
+check "plugins: only core+hud installs just superpowers and guide" [ "$(grep 'plugin install' "$S/log")" = $'plugin install superpowers@claude-plugins-official\nplugin install guide@claudzilla' ]
 check "plugins: unpicked third-party not recorded-uninstalled" bash -c "! grep -q 'plugin uninstall caveman' '$S/log'"
-check "plugins: no claudzilla marketplace without own plugins" bash -c "! grep -q 'marketplace add $REPO' '$S/log'"
+check "plugins: guide keeps the claudzilla marketplace added" grep -q "marketplace add $REPO" "$S/log"
 S=$(new_stub); H=$(new_home); echo '[{"id":"caveman@caveman"}]' > "$S/list"; echo '[{"name":"caveman"}]' > "$S/mlist"; pinst "$H" "$S"
 R="$H/.claude/.claudzilla-installed.json"
 check "record: new superpowers+ponytail recorded, pre-existing caveman not" [ "$(q "$R" .plugins)" = '["superpowers@claude-plugins-official","ponytail@ponytail"]' ]
