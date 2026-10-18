@@ -67,13 +67,10 @@ const INTENT_RULE = [
 ].join(' ')
 // An answer closed every step; an interrupt left some open, for pings to pick back up.
 const isAnswered = (now: Intent) => now.ended && now.steps.every(step => step.status === 'completed')
-// Background agents Claude started, by id: each one's result comes back as a task notification.
+// Background agents Claude started: each one's result comes back as a task notification.
 const runningAgents = async ($: EngineInterface) =>
   (await $.agent.list().catch(() => []))
     .filter(agent => agent.parentId === undefined && agent.spawnedBy === undefined && agent.teammateId === undefined && ['pending', 'running', 'waiting'].includes(agent.status))
-    .map(agent => agent.id)
-// Agents already running when the user's prompt came in: its answer does not wait on them.
-let earlierAgents = new Set<string>()
 const INTENT_SPEC = {
   name: 'intent',
   // The rule rides here, not in prompt.compose: the sec-default guard skips a user mod's system prompt edits.
@@ -703,7 +700,6 @@ export const register: Register = (on, options) => {
     // A background task's result carries the last request on: Claude pings its report, not a new one, so it reopens.
     if (e.origin.kind === 'task-notification') await update($, intent, now => (now.wants ? { ...now, ended: false } : now))
     else if (!e.command && !e.isMeta) {
-      earlierAgents = new Set(await runningAgents($))
       $.clock.after(0, () => readOverview($))
       // Last turn's answered report is not this turn's: shown until Claude reports, it read as current.
       await update($, intent, now => (isAnswered(now) ? EMPTY_INTENT : now))
@@ -718,8 +714,9 @@ export const register: Register = (on, options) => {
     const result = await next(e)
     const close = e.reason === 'answer'
     if (e.agentId === undefined) {
-      // A turn that ends on a background agent it started is not answered yet: the agent's result reopens it.
-      if (close && (await runningAgents($)).some(id => !earlierAgents.has(id))) return result
+      // A turn that ends while a background agent runs is not answered yet, even one started before the prompt:
+      // a follow-up prompt often carries the same plan on. The agent's result reopens it.
+      if (close && (await runningAgents($)).length) return result
       const at = await $.clock.now()
       await update($, intent, now =>
         now.wants
