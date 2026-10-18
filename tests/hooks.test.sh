@@ -272,11 +272,55 @@ hook Stop "last_assistant_message=Fixed the parser." stop_hook_active=true >/dev
 check "stop: done claim on continuation flagged" has "$(state .flags)" "verification"
 out=$(hook UserPromptSubmit prompt=$'<task-notification>\nbug')
 check "flags: injected on next prompt" has "$out" "claimed done without verification"
+check "flags: name the missing check" has "$out" "no check ran after the last edit"
 check "flags: cleared after inject" [ "$(state .flags.length)" = 0 ]
 hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
+sh_ "npm test" >/dev/null
+check "stop: claim after a check ok" [ -z "$(stop "Fixed the parser.")" ]
+new_session; hook UserPromptSubmit prompt=go >/dev/null; hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
 hook PostToolUse tool_name=Skill tool_input.skill=superpowers:verification-before-completion >/dev/null
-stop "Fixed the parser." >/dev/null
-check "stop: verified claim ok" [ "$(state .flags.length)" = 0 ]
+check "stop: skill without a check after the edit continues" has "$(stop "Fixed the parser.")" "Claimed done"
+new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ "npm test" >/dev/null
+hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
+check "stop: edit after the check continues" has "$(stop "Fixed the parser.")" "Claimed done"
+new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ "sed -i s/a/b/ /x/a.js" >/dev/null; sh_ "bash tests/a.sh" >/dev/null
+check "stop: Bash edit then check ok" [ -z "$(stop "Fixed the parser.")" ]
+new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ $'python3 - <<\'EOF\'\nopen("f", "w").write("x")\nEOF\nbash tests/a.sh' >/dev/null
+check "stop: edit and check in one command ok" [ -z "$(stop "Fixed the parser.")" ]
+new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ $'python3 - <<\'EOF\'\nopen("f", "w").write("x")\nEOF' >/dev/null
+check "stop: heredoc edit alone continues" has "$(stop "Fixed the parser.")" "Claimed done"
+new_session; hook UserPromptSubmit prompt=go >/dev/null; hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
+sh_ "bash tests/a.sh 2>&1 | tail -1; git status --short" >/dev/null
+check "stop: check before a closing git command ok" [ -z "$(stop "Fixed the parser.")" ]
+new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ "sed -i s/a/b/ f 2>&1" >/dev/null
+check "stop: 2>&1 after an edit is no check" has "$(stop "Fixed the parser.")" "Claimed done"
+new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ $'mkdir -p d && cat > d/f <<\'EOF\'\nx\nEOF' >/dev/null
+check "stop: heredoc file write after mkdir continues" has "$(stop "Fixed the parser.")" "Claimed done"
+new_session; hook UserPromptSubmit prompt=go >/dev/null; hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
+sh_ "npm test && git push" >/dev/null
+check "stop: denied command is no check" has "$(stop "Fixed the parser.")" "Claimed done"
+new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ "sed -i s/a/b/ f.js &>/dev/null" >/dev/null
+check "stop: &>/dev/null after an edit is no check" has "$(stop "Fixed the parser.")" "Claimed done"
+new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ "sed -i s/a/b/ f.js; for t in a; do echo \$t; done" >/dev/null
+check "stop: loop done is no check" has "$(stop "Fixed the parser.")" "Claimed done"
+new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ $'sed -i s/a/b/ f.js && npm test && git commit -q -F - <<\'EOF\'\nfix: x\nEOF' >/dev/null
+check "stop: commit heredoc after the check ok" [ -z "$(stop "Fixed the parser.")" ]
+new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ $'cat > requirements.txt <<\'EOF\'\nrequests\nEOF' >/dev/null
+check "stop: .txt build file is an edit" has "$(stop "Fixed the parser.")" "Claimed done"
+new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ $'git commit -q -F - <<\'EOF\'\nfix: a > b\nEOF' >/dev/null
+check "stop: commit message heredoc is no edit" [ -z "$(stop "Fixed the parser.")" ]
+new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ "npm test; sed -i s/a/b/ f" >/dev/null
+check "stop: check then edit in one command continues" has "$(stop "Fixed the parser.")" "Claimed done"
+new_session; hook UserPromptSubmit prompt=go >/dev/null; hook PreToolUse tool_name=Write tool_input.file_path=/tmp/s/a.mjs >/dev/null
+check "stop: scratch /tmp edit is no edit" [ -z "$(stop "Fixed the parser.")" ]
+new_session; hook UserPromptSubmit prompt=go >/dev/null; CLAUDE_CONFIG_DIR=/x/cfg hook PreToolUse tool_name=Edit tool_input.file_path=/x/cfg/projects/p/memory/a.md >/dev/null
+check "stop: memory note edit is no edit" [ -z "$(stop "Fixed the parser.")" ]
+new_session; hook UserPromptSubmit prompt=go >/dev/null; hook PreToolUse tool_name=Edit tool_input.file_path=/x/README.md >/dev/null
+check "stop: docs edit is no edit" [ -z "$(stop "Fixed the parser.")" ]
+new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ 'echo "Task 1: done" >> .sdd/progress.md' >/dev/null
+check "stop: log append to docs is no edit" [ -z "$(stop "Fixed the parser.")" ]
+new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ $'cat > src/a.py <<\'EOF\'\nx = 1\nEOF' >/dev/null
+check "stop: heredoc to code still an edit" has "$(stop "Fixed the parser.")" "Claimed done"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "Done." >/dev/null
 check "stop: claim without edits ok" [ "$(state .flags.length)" = 0 ]
 new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ "sed -i s/a/b/ /x/a.js" >/dev/null

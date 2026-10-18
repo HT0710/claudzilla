@@ -113,8 +113,12 @@ reset_proj; session a '[["user","go"],["skill","superpowers:verification-before-
 check "plugin x:pr is not the pr skill" [ "$(rule prSkill slips)" = 1 ]
 reset_proj; session a '[["user","go"],["edit"],["text","Fixed the parser."]]'; scan
 check "done claim: slip" [ "$(rule doneClaim slips)" = 1 ]
+reset_proj; session a '[["user","go"],["edit"],["bash","npm test"],["text","Fixed the parser."]]'; scan
+check "checked claim: no slip" [ "$(rule doneClaim slips)" = 0 ]
 reset_proj; session a '[["user","go"],["edit"],["skill","superpowers:verification-before-completion"],["text","Fixed the parser."]]'; scan
-check "verified claim: no slip" [ "$(rule doneClaim slips)" = 0 ]
+check "skill without a check: slip" [ "$(rule doneClaim slips)" = 1 ]
+reset_proj; session a '[["user","go"],["tool","Write",{file_path:"/tmp/s/a.mjs"}],["text","Fixed the parser."]]'; scan
+check "scratch /tmp edit: n/a" [ "$(rule doneClaim applies)" = 0 ]
 reset_proj; session a '[["user","q"],["text","Shipped 🚀"]]'; scan
 check "emoji: slip" [ "$(rule emoji slips)" = 1 ]
 check "emoji: applies per reply" [ "$(rule emoji applies)" = 1 ]
