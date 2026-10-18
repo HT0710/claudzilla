@@ -150,11 +150,12 @@ echo '{bad' > "$R"; run_install "$H"; rc=$?
 check "record: unparsable record falls back" [ "$rc" -eq 0 ]
 check "record: unparsable record rewritten" cmp -s "$R" "$REPO/settings.base.json"
 
-# --- keybindings: alt+h toggles the panel, alt+k focuses the band ---
+# --- keybindings: alt+h toggles the panel, alt+k focuses the band, alt+g opens the guide ---
 key() { node -p 'const [f,c,k]=process.argv.slice(1);JSON.stringify(require(f).bindings.filter(b=>b.context===c).map(b=>b.bindings[k]).find(v=>v!==undefined))' "$1/.claude/keybindings.json" "$2" "$3" 2>/dev/null; }
 K=$(new_home); run_install "$K"
 check "keys: fresh alt+h opens panel" [ "$(key "$K" Chat alt+h)" = '"command:panel"' ]
 check "keys: fresh alt+k focuses band" [ "$(key "$K" Chat alt+k)" = '"abovePrompt:focus"' ]
+check "keys: fresh alt+g opens guide" [ "$(key "$K" Chat alt+g)" = '"command:claudzilla"' ]
 K=$(new_home); mkdir -p "$K/.claude"
 echo '{"bindings":[{"context":"Global","bindings":{"ctrl+t":"app:toggleTodos"}},{"context":"Chat","bindings":{"ctrl+e":"chat:externalEditor"}}]}' > "$K/.claude/keybindings.json"
 run_install "$K"
@@ -183,8 +184,8 @@ for own in '{"bindings":[{"context":"Chat","bindings":{"alt+k":null}}]}' \
   check "keys: alt+k left alone: $own" [ "$(n "$K/.claude/keybindings.json" abovePrompt:focus)" -eq "$(n "$K/k0" abovePrompt:focus)" ]
   check "keys: alt+h still added: $own" [ "$(key "$K" Chat alt+h)" = '"command:panel"' ]
 done
-K=$(new_home); mkdir -p "$K/.claude"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+h":null,"alt+k":null}}]}' | tee "$K/k0" > "$K/.claude/keybindings.json"; run_install "$K"
-check "keys: both own, file untouched" cmp -s "$K/.claude/keybindings.json" "$K/k0"
+K=$(new_home); mkdir -p "$K/.claude"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+h":null,"alt+k":null,"alt+g":null}}]}' | tee "$K/k0" > "$K/.claude/keybindings.json"; run_install "$K"
+check "keys: all own, file untouched" cmp -s "$K/.claude/keybindings.json" "$K/k0"
 for own in '{"bindings":[{"context":"Chat","bindings":"x"}]}' '{bad'; do
   K=$(new_home); mkdir -p "$K/.claude"; printf '%s\n' "$own" | tee "$K/k0" > "$K/.claude/keybindings.json"; run_install "$K"; rc=$?
   check "keys: left alone: $own" cmp -s "$K/.claude/keybindings.json" "$K/k0"

@@ -72,7 +72,7 @@ A bad file or value is skipped and named on your next prompt; unknown keys are i
 
 ## Keybindings
 
-`~/.claude/keybindings.json` holds your keys. Install adds alt+h for the panel and alt+k to focus the picks card, each unless you bound that key (`Chat` or `Global`) or gave its action a key; a symlinked file is left alone; `"alt+h": null` or `"alt+k": null` in `Chat` opts out.
+`~/.claude/keybindings.json` holds your keys. Install adds alt+h for the panel, alt+k to focus the picks card and alt+g to toggle the guide (`/claudzilla`), each unless you bound that key (`Chat` or `Global`) or gave its action a key; a symlinked file is left alone; `"alt+h": null`, `"alt+k": null` or `"alt+g": null` in `Chat` opts out.
 
 ## Notes
 

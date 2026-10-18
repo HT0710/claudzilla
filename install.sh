@@ -79,9 +79,10 @@ fs.writeFileSync(out,JSON.stringify(merge(merge(old?prune(d,old,b):d,b),read(ove
   cmp -s "$REPO/settings.base.json" "$rec" || cp "$REPO/settings.base.json" "$rec"
 }
 
-# alt+h toggles the panel, alt+k focuses the band (the picks card). Each is
-# left alone if the user chose: the key under any alias in Chat or Global (null
-# unbinds), the action on another key, or a symlink (a dotfiles tool owns it).
+# alt+h toggles the panel, alt+k focuses the band (the picks card), alt+g toggles
+# the guide. Each is left alone if the user chose: the key under any alias in
+# Chat or Global (null unbinds), the action on another key, or a symlink (a
+# dotfiles tool owns it).
 keybindings() {
   local dst="$DEST/keybindings.json" tmp="$DEST/.keybindings.json.claudzilla" rc=0 added
   added=$(node -e '
@@ -92,18 +93,18 @@ if(fs.existsSync(dst))try{j=JSON.parse(fs.readFileSync(dst,"utf8"))}catch{proces
 if(!isObj(j)||!Array.isArray(j.bindings)||!j.bindings.every(b=>isObj(b)&&isObj(b.bindings)))process.exit(2);
 const chat=j.bindings.filter(b=>b.context==="Chat");
 const own=(k,a)=>j.bindings.some(b=>(["Chat","Global"].includes(b.context)&&Object.keys(b.bindings).some(x=>new RegExp(`^(alt|opt|option|meta)\\+${k}$`,"i").test(x)))||Object.values(b.bindings).includes(a));
-const add=[["h","command:panel"],["k","abovePrompt:focus"]].filter(([k,a])=>!own(k,a));
+const add=[["h","command:panel"],["k","abovePrompt:focus"],["g","command:claudzilla"]].filter(([k,a])=>!own(k,a));
 if(!add.length)process.exit(3);
 if(!chat.length)j.bindings.push(chat[0]={context:"Chat",bindings:{}});
 for(const[k,a]of add)chat[0].bindings[`alt+${k}`]=a;
 fs.writeFileSync(out,JSON.stringify(j,null,2)+"\n");
 console.log(add.map(([k,a])=>`alt+${k} -> ${a}`).join(", "))' "$dst" "$tmp") || rc=$?
   case $rc in
-    0) if [ -L "$dst" ]; then rm -f "$tmp"; echo "claudzilla: $dst is a symlink - add alt+h (/panel) and alt+k (card focus) yourself (see CONFIGURATION.md)" >&2
+    0) if [ -L "$dst" ]; then rm -f "$tmp"; echo "claudzilla: $dst is a symlink - add alt+h (/panel), alt+k (card focus) and alt+g (/claudzilla) yourself (see CONFIGURATION.md)" >&2
        else [ -f "$dst" ] && save keybindings.json
          mv "$tmp" "$dst"; echo "keybindings: $added"; fi ;;
     3) ;;
-    *) rm -f "$tmp"; echo "claudzilla: $dst unreadable - add alt+h (/panel) and alt+k (card focus) yourself (see CONFIGURATION.md)" >&2 ;;
+    *) rm -f "$tmp"; echo "claudzilla: $dst unreadable - add alt+h (/panel), alt+k (card focus) and alt+g (/claudzilla) yourself (see CONFIGURATION.md)" >&2 ;;
   esac
 }
 
