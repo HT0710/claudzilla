@@ -1000,6 +1000,31 @@ test('a paste kept as a placeholder shows its text and matches the chat', async 
   expect(await ui.find({ type: 'Text', text: 'Rewound' })).toBeUndefined()
 })
 
+test('a ! shell command matches its bash-input row, its ! in the shell prompt color', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
+  // The oldest a ! command too: the model holds it as the chat does, so it marks no compaction.
+  const history = ['! ls', 'kept', '! git status', 'next'].map((display, i) => JSON.stringify({ display, timestamp: Date.now() - 4 + i, sessionId: 'chat-1' })).join('\n')
+  const chat = ['<bash-input> ls</bash-input>', 'kept', '<bash-input> git status</bash-input>', 'next']
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('fs.read', () => ({ value: history }))
+  on('session.messages', (_, e) => ({
+    value:
+      e.as === 'api'
+        ? chat.map(text => ({ role: 'user', content: [{ type: 'text', text }] }))
+        : chat.map(text => ({ role: 'user', text, toolUses: [] })),
+  }))
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'History' })
+  await ui.redraw()
+
+  expect(await ui.find({ type: 'Text', text: 'Rewound' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'Compacted' })).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: '!' }))?.props.color).toBe('bashBorder')
+  expect((await ui.find({ key: 'jump:1' }))?.text).toContain('! git status')
+})
+
 test('gone runs: a pasted /command is a prompt; a paste whose text is lost takes the run around it', () => {
   const pasted = { display: '/compact keep', typed: '[Pasted text #1]', timestamp: 1 }
   expect(gone([{ display: 'next', timestamp: 2 }, pasted, { display: 'first', timestamp: 0 }], ['first', 'next'], [])).toEqual([
@@ -1082,6 +1107,12 @@ test('a prompt sent with an image resolves to its row, text block beside the ima
   ].join('\n')
 
   expect(nearestId(transcript, { display: '[Image #1] look', timestamp: Date.parse('2026-10-10T10:00:00Z') })).toBe('shot')
+})
+
+test('a ! shell command resolves to its bash-input row', () => {
+  const row = { type: 'user', uuid: 'sh', timestamp: '2026-10-10T10:00:00Z', message: { role: 'user', content: '<bash-input> ls -a</bash-input>' } }
+  expect(needles('! ls -a').some(text => JSON.stringify(row).includes(text))).toBe(true)
+  expect(nearestId(JSON.stringify(row), { display: '! ls -a', timestamp: Date.parse('2026-10-10T10:00:00Z') })).toBe('sh')
 })
 
 test('a slash row stays dim until its output line is drawn in the chat', async ($, on) => {

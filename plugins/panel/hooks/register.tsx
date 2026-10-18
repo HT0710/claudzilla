@@ -178,6 +178,8 @@ const configDir = async ($: EngineInterface) =>
 const PASTE = /\[Pasted text #(\d+)(?: \+\d+ lines)?\]/g
 // A pasted "/x" is sent as a prompt; only a typed one runs. A path ("/home/…") is a prompt too.
 const isCommand = (prompt: Prompt) => /^\/[\w:-]+(\s|$)/.test(prompt.typed ?? prompt.display)
+// A ! shell command is "!cmd" in history, wrapped in bash-input tags in the chat.
+const shell = (text: string) => text.replace(/^<bash-input>([\s\S]*)<\/bash-input>$/, '!$1')
 
 // History keeps a long paste as a placeholder, its text inline or, longer still, in paste-cache.
 const unpaste = async ($: EngineInterface, dir: string, row: any): Promise<string> => {
@@ -340,7 +342,7 @@ const readHistory = async ($: EngineInterface) => {
   const chatRead = await $.session.messages().catch(() => [])
   const sent = chatRead
     .filter(message => message.role === 'user' && !message.toolResults?.length && message.text)
-    .map(message => message.text)
+    .map(message => shell(message.text))
   // A mid-turn prompt is never a chat message, nor most slash commands (/compact is): reachable
   // once drawn. One sent as a turn ended landed as a normal message instead.
   const landed = new Set(sent.map(flat))
@@ -351,7 +353,7 @@ const readHistory = async ($: EngineInterface) => {
   const modelRead = await $.session.messages({ as: 'api' }).catch(() => [])
   const model = modelRead
     .filter(message => message.role === 'user')
-    .flatMap(message => message.content.flatMap(block => (typeof block.text === 'string' ? [block.text] : [])))
+    .flatMap(message => message.content.flatMap(block => (typeof block.text === 'string' ? [shell(block.text)] : [])))
   const capped = { chat: chatRead.length >= READ_MAX, model: modelRead.length >= READ_MAX }
   // A compaction leaves a compact_boundary row in the chat's file; grep exits 1 on none. A failed
   // read counts as compacted.
@@ -432,7 +434,8 @@ const transcriptId = async ($: EngineInterface, prompt: Prompt) => {
 // chat wraps a paste in tags; one opening with a paste, by that tag. A prompt sent with an image
 // opens a text block.
 export const needles = (typed: string) => {
-  const head = JSON.stringify(typed.split(/\n|\[Pasted text #/)[0] || '\n\n<pasted_content id=').slice(0, -1)
+  const first = typed.split(/\n|\[Pasted text #/)[0]
+  const head = JSON.stringify(first?.startsWith('!') ? `<bash-input>${first.slice(1)}` : first || '\n\n<pasted_content id=').slice(0, -1)
   return [`"content":${head}`, `"text":${head}`]
 }
 
@@ -468,7 +471,7 @@ export const nearestId = (text: string, prompt: Prompt) => {
     try {
       const row = JSON.parse(line)
       const text = promptText(row.message?.content)
-      if (row.type !== 'user' || text === undefined || flat(text) !== flat(prompt.display)) continue
+      if (row.type !== 'user' || text === undefined || flat(shell(text)) !== flat(prompt.display)) continue
       const gap = Math.abs(Date.parse(row.timestamp) - prompt.timestamp)
       if (!best || gap < best.gap) best = { id: row.uuid, gap }
     } catch {
@@ -964,6 +967,12 @@ export const register: Register = (on, options) => {
         </Box>
       )
       // One element per row, dividers too, so the list scrolls by rows under the header.
+      // A ! command's ! in the shell prompt's color, faint as its row.
+      const row = (prompt: Prompt, color: string | undefined) => {
+        const text = fit(flat(prompt.display), room).padEnd(room)
+        if (!text.startsWith('!')) return <Text color={color}>{text}</Text>
+        return [<Text color={color === HUD.faint ? color : 'bashBorder'}>!</Text>, <Text color={color}>{text.slice(1)}</Text>]
+      }
       const lines = prompts.flatMap((prompt, i) => [
         ...(days[i] !== days[i - 1] ? [divider(days[i] ?? '', '─', HUD.label, DIM.label)] : []),
         // Rewound shares the rewind button's green.
@@ -975,9 +984,7 @@ export const register: Register = (on, options) => {
           </Button>
           <Button key={`jump:${i}`} plain onPress={() => (rows[i]?.isLive ? jump(prompt) : $.ui.toast(GONE))}>
             <Text color={HUD.faint}>{clock(prompt.timestamp)}  </Text>
-            <Text color={!rows[i]?.isLive || !isReachable(prompt) ? HUD.faint : i === lit ? 'claude' : compacted >= 0 && i >= compacted ? HUD.faint : undefined}>
-              {fit(flat(prompt.display), room).padEnd(room)}
-            </Text>
+            {row(prompt, !rows[i]?.isLive || !isReachable(prompt) ? HUD.faint : i === lit ? 'claude' : compacted >= 0 && i >= compacted ? HUD.faint : undefined)}
           </Button>
         </Box>,
       ])
