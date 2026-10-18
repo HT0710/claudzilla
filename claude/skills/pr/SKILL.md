@@ -14,6 +14,7 @@ description: Use before opening or editing a pull request (gh pr create / gh pr 
   reason → fix the command or file it; never just footnote it.
 - Existing data or config needing action after deploy → `**Action required:**` section.
 - `**Not covered:**` also lists side effects of the fix (idempotency, boundaries, ordering).
+- User-visible change (behaviour, command, key, setting) → update the matching GUIDE.md section.
 
 ## PR description
 

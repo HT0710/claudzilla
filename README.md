@@ -23,6 +23,8 @@ curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh |
 
 Safe to re-run. Anything replaced is backed up to `~/.claude/.claudzilla-backup/`.
 
+New here? Read [GUIDE.md](GUIDE.md), or type `/claudzilla` in Claude.
+
 ## What you get
 
 Answer first, evidence cited, one fix proposed, nothing edited until you say go, and "fixed" only after the test ran.
@@ -74,6 +76,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 
 | command | does |
 |---|---|
+| `/claudzilla [topic]` | the guide, one topic at a time |
 | `/panel` | side pane of this chat's prompts |
 | `/rule-review` | how often each rule slipped; weekly summary at startup; on your yes, shares the counts (no text) as a claudzilla issue |
 | `pr` skill | pre-PR checks + description template, runs before every PR |
