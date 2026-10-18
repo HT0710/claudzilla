@@ -180,12 +180,12 @@ export const register: Register = on => {
           ))}
           <Button
             key="own"
-            label="type your own…"
+            label="go ahead, except…"
             hotkey={String(sends.length + 1)}
             plain
             onPress={async () => { await $.prompt.fill({ text: 'go, but ' }) }}
           >
-            <Text color={FAINT}>type your own…</Text>
+            <Text color={FAINT}>go ahead, except…</Text>
           </Button>
           {pick && shown.why ? <Text> </Text> : ''}
           {pick && shown.why ? (
