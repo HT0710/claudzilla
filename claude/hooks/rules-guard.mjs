@@ -234,6 +234,9 @@ function onPrompt(d) {
   s.panel = prev.panel || tailLines(d.transcript_path).some((l) => l.includes(`"name":"${INTENT_TOOL}"`));
   if (s.panel && !MACHINE_PROMPT.test(p))
     lines.push(`Side panel: call \`${INTENT_TOOL}\` with wants, plan and steps as this reply's first block, even if you call no other tool.`);
+  // A background agent's result carries the last request on: the panel keeps its report and follows pings.
+  else if (s.panel && p.startsWith("<task-notification>"))
+    lines.push(`Side panel: before this reply's next tool call, ping \`${INTENT_TOOL}\` {"now": n}, n the 1-based step you are working on; full report only if the plan changed.`);
   const typed = p.match(/^\/([\w:-]+)/);
   if (typed) s.skills.push(typed[1]);
   else if (!MACHINE_PROMPT.test(p)) {

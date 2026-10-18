@@ -364,6 +364,11 @@ printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp
 check "prompt: intent called, panel reminder" has "$(hook UserPromptSubmit prompt=q "transcript_path=$IX")" 'call `mcp__panel__intent`'
 : > "$IX"
 check "prompt: panel reminder kept once seen" has "$(hook UserPromptSubmit prompt=q "transcript_path=$IX")" 'call `mcp__panel__intent`'
+out=$(hook UserPromptSubmit 'prompt=<task-notification>x</task-notification>' "transcript_path=$IX")
+check "prompt: task notification, panel ping reminder" has "$out" 'n the 1-based step you are working on'
+check "prompt: task notification, no full report reminder" [ "${out#*wants, plan and steps}" = "$out" ]
+out=$(hook UserPromptSubmit 'prompt=[Cross-session idle notice] x' "transcript_path=$IX")
+check "prompt: cross-session message, no panel reminder" [ "${out#*Side panel}" = "$out" ]
 wide=$'| aaaaaaaaaa | b |\n|---|---|\n| c | dddddddddd |'
 for f in '```' '~~~'; do
   new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop "$f"$'\n'"$wide"$'\n'"$f" >/dev/null
