@@ -13,7 +13,7 @@ const MSG = {
   debugTrigger: "Auto: invoke superpowers:systematic-debugging; stop after Phase 3, fix on go.",
   reviewTrigger: "Auto: invoke superpowers:receiving-code-review.",
   debugGate: "Debug turn: systematic-debugging stops at Phase 3 — propose the fix and wait for go unless the user asked for a direct edit.",
-  doneClaim: "Claimed done without verification-before-completion. Invoke superpowers:verification-before-completion now and report its evidence.",
+  doneClaim: "Claimed done without verification-before-completion. No command ran after your last edit: run a check (tests, build) and report its output, or invoke superpowers:verification-before-completion if unsure what to check.",
 };
 // Keyword and claim matches can't read intent; the model judges. MSG stays whole inside so firedRules counts old and new fires.
 const COND = {
@@ -23,7 +23,7 @@ const COND = {
 };
 const nudge = (k, post = COND[k][1]) => `${COND[k][0]} ${MSG[k]} ${post}`;
 const FLAG = {
-  doneClaim: "claimed done without verification-before-completion",
+  doneClaim: "claimed done without verification-before-completion: no check ran after the last edit",
   tldr: "missing TL;DR",
   emoji: "decorative emoji",
   brInTable: "<br> in table cell",
@@ -546,8 +546,10 @@ function checkBash(cmd, cwd, s) {
     else if (hasSkill(s, VERIFY) && !NOT_CHECK.has(t[0])) s.checked = true;
   }
   // A denied command never ran, so neither did its check.
-  if (hits.some((h) => h.level === "deny")) s.checked = was;
+  const denied = hits.some((h) => h.level === "deny");
+  if (denied) s.checked = was;
   report(hits);
+  return denied;
 }
 
 function report(hits) {
@@ -574,8 +576,7 @@ function onPreTool(d) {
   if (d.tool_name === "Bash") {
     const cmd = String(d.tool_input?.command ?? "");
     const was = s.checked, edited = s.edited;
-    checkBash(cmd, d.cwd ?? process.cwd(), s);
-    s.edited ||= writes(cmd);
+    if (!checkBash(cmd, d.cwd ?? process.cwd(), s)) s.edited = unchecked(s.edited, cmd);
     if (s.checked !== was || s.edited !== edited) save(d.session_id, s);
     return;
   }
@@ -591,7 +592,7 @@ function onPreTool(d) {
   if (cfg.rules.specExclude === "on" && d.tool_name === "Write" && file.includes("/docs/superpowers/")) excludeSpecs(file);
   let ctx;
   if (cfg.rules.debugGate === "remind" && s.debug && !s.debugNudged) { s.debugNudged = true; ctx = nudge("debugGate"); }
-  s.edited = true;
+  if (!notWork(file)) s.edited = true;
   if (ctx) out("PreToolUse", { additionalContext: ctx });
   save(d.session_id, s);
 }
@@ -599,11 +600,30 @@ function onPreTool(d) {
 const EDGE_L = "│├┤┼└", EDGE_R = "│├┤┼┘";
 // "want it fixed", "once fixed", "not done" talk about a fix; they don't claim one.
 const CLAIM_RE = /\b(?<!\b(?:want|get|once|if|until|when|not)\s+(?:it\s+|them\s+)?)(?:done|fixed|passing|all tests pass|works now|verified|merged|implemented|finished|(?:\d+(?:\/\d+)?|tests?) (?:\w+ )?pass(?:ed|es)?|is in(?=[.,;]|$))\b/im;
-// Bash file writes count as edits; /tmp, /dev and `=>` arrows don't. Shell never redirects inside quotes.
-const NOT_SCRATCH = String.raw`(?!\/dev\/|\/tmp\/)[\w~.\/$"'-]`;
+// Bash file writes count as edits; /tmp, /dev, docs (.md .log) and `=>` arrows don't. Shell never redirects inside quotes.
+const NOT_SCRATCH = String.raw`(?!\/dev\/|\/tmp\/)(?![^\s;&|<>]*\.(?:md|log)(?![\w.]))[\w~.\/$"'-]`;
 const REDIRECT_RE = new RegExp(String.raw`\b(?:sed|perl)\s+(?:-\w+\s+)*(?:-[A-Za-z]*i\b|--in-place)|\btee\s+(?:-\w+\s+)*${NOT_SCRATCH}|(?<![=-])>>?\s*${NOT_SCRATCH}`);
 const CODE_WRITE_RE = /\.write(?:_text|FileSync)?\(|open\([^)]*["'][wa][b+]?["']/;
-const writes = (cmd) => REDIRECT_RE.test(cmd.replace(/'[^']*'|"[^"]*"/g, '""')) || CODE_WRITE_RE.test(cmd);
+// A heredoc fed to git is a commit or tag message, not a file.
+const GIT_HEREDOC_RE = /\bgit\b[^\n>]*<<-?\s*['"]?(\w+)['"]?[^\n]*\n[\s\S]*?\n\s*\1\b/g;
+const writes = (cmd) => {
+  const c = cmd.replace(GIT_HEREDOC_RE, "");
+  return REDIRECT_RE.test(c.replace(/'[^']*'|"[^"]*"/g, '""')) || CODE_WRITE_RE.test(c);
+};
+// Docs and scratch under /tmp (as for Bash writes) and Claude's own session files and memory aren't work to check.
+const notWork = (file) => /\.(?:md|log)$/.test(file) || file.startsWith("/tmp/") || file.startsWith(join(CONFIG_DIR, "projects") + sep);
+// A real command: `2>&1` leaves a bare "1", `&>/dev/null` a ">/dev/null", loops "for" and "done".
+const SHELL_WORDS = new Set(["for", "done", "fi", "case", "esac", "select"]);
+const ran = (t) => isCheck(t) && /^[A-Za-z_.\/~$]/.test(t[0]) && !SHELL_WORDS.has(t[0]);
+// An edit stays unchecked until a command runs after it, even inside the same command line.
+function unchecked(was, cmd) {
+  const segs = expand(cmd);
+  if (!writes(cmd)) return was && !segs.some(ran);
+  // A heredoc body that writes is its own segment's edit.
+  const writer = (t) => t[0] !== "git" && (writes(t.join(" ")) || t.some((w) => w.startsWith("<<")));
+  const lastWrite = segs.findLastIndex(writer);
+  return lastWrite < 0 || lastWrite > segs.findLastIndex((t) => ran(t) && !writer(t));
+}
 
 // Returns the 1-based message line of the first misaligned box edge in ```text blocks, else 0.
 function boxError(msg) {
@@ -688,7 +708,7 @@ function onStop(d) {
   const msg = String(d.last_assistant_message ?? "");
   const flags = formatFlags(msg, cfg, termCols()).map(([, text]) => text);
   // Text the model already judged in a continuation isn't a new claim.
-  const claim = cfg.rules.doneClaim !== "off" && s.edited && msg !== s.judged && CLAIM_RE.test(proseOf(msg)) && !hasSkill(s, VERIFY);
+  const claim = cfg.rules.doneClaim !== "off" && s.edited && msg !== s.judged && CLAIM_RE.test(proseOf(msg));
   // Continuing already → next-turn flag, so a claim the fix can't clear doesn't loop.
   if (claim && cfg.rules.doneClaim === "now" && !d.stop_hook_active) {
     const ctx = flags.length ? `${nudge("doneClaim", "Otherwise skip verification.")} Also fix: ${flags.join("; ")}.` : nudge("doneClaim");
@@ -718,5 +738,5 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
 
 export {
   CLAIM_RE, CONFIG_DIR, DEFAULTS, MACHINE_PROMPT, MSG, SESSION_RE, VERIFY, WHY,
-  commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, git, gitParse, keywordRe, loadConfig, mcpPr, nudge, prDescribes, proseOf, subjectProblem, unquote, writes,
+  commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, git, gitParse, keywordRe, loadConfig, mcpPr, nudge, prDescribes, proseOf, notWork, subjectProblem, unchecked, unquote, writes,
 };

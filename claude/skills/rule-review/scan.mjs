@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   CLAIM_RE, CONFIG_DIR, DEFAULTS, MACHINE_PROMPT, SESSION_RE, VERIFY,
-  commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, git, gitParse, keywordRe, loadConfig, mcpPr, proseOf, subjectProblem, unquote, writes,
+  commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, git, gitParse, keywordRe, loadConfig, mcpPr, proseOf, notWork, subjectProblem, unchecked, unquote, writes,
 } from "../../hooks/rules-guard.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -128,7 +128,7 @@ function scan(root, days) {
       for (const [id] of formatFlags(t.reply, all)) add(id, "slips");
       if (t.edited) {
         add("doneClaim", "applies");
-        if (CLAIM_RE.test(proseOf(t.reply)) && !has(t.skills, VERIFY)) add("doneClaim", "slips");
+        if (CLAIM_RE.test(proseOf(t.reply)) && t.unchecked) add("doneClaim", "slips");
       }
     }
     if (!t.typed) {
@@ -164,7 +164,7 @@ function scan(root, days) {
         if (turn) finish(turn);
         turn = null;
         if (!(Date.parse(o.timestamp) >= since)) continue;
-        turn = { ts: String(o.timestamp ?? ""), text: p.text, typed: p.typed, skills: p.typed ? [p.typed] : [], cmds: [], edited: false, reply: "", branch: o.gitBranch, answered: false, sess };
+        turn = { ts: String(o.timestamp ?? ""), text: p.text, typed: p.typed, skills: p.typed ? [p.typed] : [], cmds: [], edited: false, unchecked: false, reply: "", branch: o.gitBranch, answered: false, sess };
         continue;
       }
       if (!turn) continue;
@@ -174,7 +174,9 @@ function scan(root, days) {
           if (x.type === "text" && typeof x.text === "string" && x.text.trim()) turn.reply = x.text;
           if (x.type !== "tool_use") continue;
           if (x.name === "Skill") turn.skills.push(String(x.input?.skill ?? ""));
-          if (EDITS.has(x.name) || (x.name === "Bash" && writes(String(x.input?.command ?? "")))) turn.edited = true;
+          // Same edit and check tracking as the hook: scratch and memory are no edit, a later command checks it.
+          if (EDITS.has(x.name) && !notWork(String(x.input?.file_path ?? x.input?.notebook_path ?? ""))) turn.edited = turn.unchecked = true;
+          if (x.name === "Bash") { const cmd = String(x.input?.command ?? ""); turn.edited ||= writes(cmd); turn.unchecked = unchecked(turn.unchecked, cmd); }
           const pr = mcpPr(x.name, x.input);
           if (x.name === "Bash" || pr) {
             const cmd = pr ? JSON.stringify(x.input ?? {}) : String(x.input?.command ?? "");

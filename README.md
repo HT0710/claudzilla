@@ -55,7 +55,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 
   <img src=".github/assets/guard.png" alt="Asked to commit straight to master, Claude reports the guard hook blocked it and names the opt-in setting" width="720">
 
-- **Verify before push:** push and PR wait until verification ran; "done" claims get sent back to check.
+- **Verify before push:** push and PR wait until verification ran; "done" claims with no check run after the last edit get sent back.
 
   <img src=".github/assets/verify.png" alt="The stop hook sends a done claim back; Claude reruns the checks, including one that proves the test fails if the code is broken again" width="720">
 
