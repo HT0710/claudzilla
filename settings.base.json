@@ -108,7 +108,8 @@
     "response-dividers@claudzilla": true,
     "attribution@claudzilla": true,
     "picks@claudzilla": true,
-    "update-toast@claudzilla": true
+    "update-toast@claudzilla": true,
+    "guide@claudzilla": true
   },
   "extraKnownMarketplaces": {
     "claude-plugins-official": {

@@ -1,0 +1,6 @@
+{
+  "name": "guide",
+  "description": "/claudzilla [topic]: the claudzilla guide, one section at a time",
+  "author": { "name": "HT0710", "url": "https://github.com/HT0710" },
+  "types": "./types/index.d.ts"
+}
