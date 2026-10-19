@@ -330,7 +330,7 @@ To open or close the panel, press **alt+h** or type `/panel`. In the fullscreen 
 - **PLAN:** its approach.
 - **STEPS:** its steps: `✓` done, `●` in progress, `○` pending.
 
-Claude fills ASK, PLAN and STEPS by calling a hidden `intent` tool at the start of each turn. Check ASK first: if Claude misread you, press **Esc** and correct it. Each report and each topics read uses a little of your usage limits; see *Usage and cost* (`/claudzilla limits`). To turn the reports off, set the panel's `intent` option to off in `/config`; it applies from the next session.
+From the moment you submit until Claude reports, the header shows `planning…` over last turn's dimmed report. The current step is lit blue. Claude fills ASK, PLAN and STEPS by calling a hidden `intent` tool at the start of each turn. Check ASK first: if Claude misread you, press **Esc** and correct it. Each report and each topics read uses a little of your usage limits; see *Usage and cost* (`/claudzilla limits`). To turn the reports off, set the panel's `intent` option to off in `/config`; it applies from the next session.
 
 **History** lists this chat's prompts, newest first:
 
@@ -338,9 +338,10 @@ Claude fills ASK, PLAN and STEPS by calling a hidden `intent` tool at the start 
 - `↻` puts the prompt back in the prompt box, to edit or send again.
 - `⟲ rewind` opens the `/rewind` menu. See *Stop and undo* (`/claudzilla undo`).
 - `⤓ latest` scrolls the chat to its newest row.
+- `⟲ rewind` and `⤓ latest` show once there is a prompt; with History empty they are hidden.
 - A dim prompt was rewound or compacted, or is not drawn in the chat yet. A compacted prompt still jumps while the chat shows it; the others do not. `↻` works on all of them.
 
-**Git** shows the session folder's branch, with `↑` for commits ahead of its remote and `↓` for commits behind, the changed files under CHANGES, and recent commits under COMMITS. It redraws after each tool call and each prompt.
+**Git** shows the session folder's branch, with `↑` for commits ahead of its remote and `↓` for commits behind, the changed files under CHANGES, and recent commits under COMMITS. It redraws after each tool call and each prompt. Scrolled, a `↑` line goes back to the top of CHANGES or COMMITS.
 
 The mouse wheel scrolls each list. The [panel README](https://github.com/HT0710/claudzilla/blob/main/plugins/panel/README.md) has the full detail.
 
@@ -416,6 +417,7 @@ claudzilla does some things without being asked. This list names each one, so no
 - **Lines added to each prompt:** the guard tells Claude your terminal width, so its tables fit. If you use the panel, it also reminds Claude to send its intent report. To drop the width line, put `{"rulesGuard":{"rules":{"tableWidth":"off"}}}` in `~/.claude/claudzilla.json`.
 - **Plans kept out of git:** when Claude writes a spec or plan under `docs/superpowers/` in a repository that tracks no files there, the guard adds `docs/superpowers/` to the repository's `.git/info/exclude` file. Git then ignores those files, so they stay out of your commits. To stop it, put `{"rulesGuard":{"rules":{"specExclude":"off"}}}` in `~/.claude/claudzilla.json`.
 - **Settings reset on update:** each update runs the installer again, which puts claudzilla's values back in `~/.claude/settings.json`, such as the model or effort level that a `/model` or `/effort` pick saved. Put lasting choices in `~/.claude/settings.overrides.json`.
+- **Local trace:** the guard and other claudzilla parts write what they did to `~/.claude/claudzilla-trace/` on your machine. Nothing is uploaded. To turn it off, put `{"rulesGuard":{"trace":false}}` in `~/.claude/claudzilla.json`. See *Report a problem* (`/claudzilla bugs`).
 - **Your email:** if you installed the status line, it shows the email of the account you are logged in with. Anyone who sees your screen sees it.
 - **Agent teams:** claudzilla sets `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` to `1`. This experimental Claude Code feature lets Claude start *teammates*: separate Claude sessions that work in parallel and message each other. A team uses far more tokens than one session. While it is on, a subagent that Claude names can start as a teammate instead. To turn it off, put `{"env":{"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS":"0"}}` in `~/.claude/settings.overrides.json`, then run `~/claudzilla/install.sh`. See Claude Code's [agent teams](https://code.claude.com/docs/en/agent-teams) page.
 
@@ -472,7 +474,7 @@ Run `/claudzilla report` and, if you like, add what happened, such as `/claudzil
 - drafts the whole report in `~/.cache/claudzilla/report-drafts/`. The trace part leaves out your prompt text and shows only its length. Claude files a GitHub issue (label `report`) only when you say yes to the draft; otherwise you get text to copy.
 - if filing through `gh` fails, gives you a prefilled link plus a saved `.txt` file to attach. The saved `.txt` goes in `~/.claude/claudzilla-reports/` (or `$CLAUDE_CONFIG_DIR/claudzilla-reports/`); it holds the full masked report, and nothing removes it or the drafts, so delete them when you are done.
 
-If your Claude account or `git config user.email` is not a common personal address (a Claude account with no email also counts; a malformed git email too), or the account uses an API key, an auth token, Bedrock, Vertex or Foundry, GitHub is off: you get text to copy and share through your company's channel.
+If your Claude account or `git config user.email` is not a common personal address (a Claude account with no email also counts; a malformed git email too), or the account uses an API key, an auth token, an `apiKeyHelper` in settings, Bedrock, Vertex or Foundry, GitHub is off: you get text to copy and share through your company's channel.
 
 ### Quick reference
 <!-- topic: ref -->
@@ -550,7 +552,7 @@ In this list, `env`, `permissions` and `model` go in `~/.claude/settings.overrid
 - **Loosen a guard rule:** set it under `rules`. Values: blocks take `deny`, `remind` or `off`; `doneClaim` takes `now`, `flag` or `off`; skill reminders take `remind` or `off`; reply format checks take `flag` or `off`. The rule names are in [CONFIGURATION.md](https://github.com/HT0710/claudzilla/blob/main/CONFIGURATION.md#guard-hook-config).
 - **Commit to `main` in a solo repository:** put `{"rulesGuard":{"allowMain":true}}` in `<repo>/.claude/claudzilla.local.json`.
 - **Stop auto-update:** put `{"rulesGuard":{"autoUpdate":false}}` in `~/.claude/claudzilla.json`; you still get the notice.
-- **Change other guard settings:** `compactNudge` (the context size, in tokens, at which Claude suggests compacting; `0` turns it off), `reviewNudge` and `autoUpdate` sit next to `rules`, not inside it.
+- **Change other guard settings:** `compactNudge` (the context size, in tokens, at which Claude suggests compacting; `0` turns it off), `reviewNudge`, `autoUpdate` and `trace` (`false` stops the local trace; machine file only) sit next to `rules`, not inside it.
 - **Add your own instructions:** write them in `~/.claude/CLAUDE.local.md`. claudzilla's rules load it in every session on this machine.
 - **Change keys:** run `/keybindings` to open `~/.claude/keybindings.json`. To free **alt+g**, **alt+h** or **alt+k**, set it to `null` in the `Chat` block. Changes apply without a restart.
 
@@ -589,7 +591,7 @@ cd ~/claudzilla && git pull && ./install.sh
 
 #### Add or remove parts
 
-Run `~/claudzilla/install.sh --add panel` to add a part, or `--remove panel` to take it out. The parts are `hud` (the status line), `rtk`, `caveman`, `ponytail`, `dividers`, `panel`, `picks`, `toast` and `attribution`.
+Run `~/claudzilla/install.sh --add panel` to add a part, or `--remove panel` to take it out. The [README](https://github.com/HT0710/claudzilla/blob/main/README.md#install) lists the other flags, such as `--full`, `--custom` and `--yes`. The parts are `hud` (the status line), `rtk`, `caveman`, `ponytail`, `dividers`, `panel`, `picks`, `toast` and `attribution`.
 
 #### Uninstall
 
