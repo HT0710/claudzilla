@@ -213,6 +213,7 @@ A=$(new_home); inst "$A" --add hud
 check "add: hud linked" [ -L "$A/.claude/hud" ]
 check "add: no rules" [ ! -e "$A/.claude/rules" ]
 check "add: updater linked" [ -L "$A/.claude/hooks/claudzilla-update.sh" ]
+check "add: alt+g without core" [ "$(key "$A" Chat alt+g)" = '"command:claudzilla"' ]
 check "add: only saved" [ "$(q "$A/.claude/claudzilla.json" .install)" = '{"only":["hud"]}' ]
 inst "$A" --add panel
 check "add: stacks" [ "$(q "$A/.claude/claudzilla.json" .install.only)" = '["hud","panel"]' ]
@@ -221,6 +222,8 @@ check "add: no alt+k without picks" [ "$(key "$A" Chat alt+k)" = undefined ]
 inst "$A" --remove hud
 check "remove: hud unlinked" [ ! -e "$A/.claude/hud" ]
 check "remove: statusLine gone" [ "$(q "$A/.claude/settings.json" .statusLine)" = undefined ]
+inst "$A" --remove panel
+check "remove panel: alt+h gone, alt+g kept" [ "$(key "$A" Chat alt+h)$(key "$A" Chat alt+g)" = 'undefined"command:claudzilla"' ]
 R=$(new_home); inst "$R" --remove rtk
 check "remove fresh: skip saved" [ "$(q "$R/.claude/claudzilla.json" .install)" = '{"skip":["rtk"]}' ]
 check "remove fresh: rtk hook absent" bash -c "! grep -q 'rtk hook' '$R/.claude/settings.json'"
