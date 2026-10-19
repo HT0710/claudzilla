@@ -62,7 +62,7 @@ An example; the values are not the defaults. Defaults: `subjectMax` 50, `commitT
 | rules | values |
 |---|---|
 | gates: `pushVerify` `prSkill` `forcePush` `discard` `mainCommit` `commitSubject` `sessionLink` `envStaged` `worktreePath` | `deny` `remind` `off` |
-| triggers: `debugTrigger` `reviewTrigger` `debugGate` | `remind` `off` |
+| triggers: `debugTrigger` `reviewTrigger` `debugGate` `releaseSync` | `remind` `off` |
 | `doneClaim` | `now` `flag` `off` |
 | `specExclude` | `on` `off` |
 | format: `tldr` `emoji` `brInTable` `boxAlign` `tableWidth` | `flag` `off` |
