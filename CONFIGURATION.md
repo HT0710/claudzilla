@@ -48,6 +48,7 @@ Optional JSON files, applied in this order. Later files win; objects merge and a
   "allowMain": false,
   "reviewNudge": true,
   "autoUpdate": true,
+  "trace": true,
   "compactNudge": 150000
 }}
 ```
@@ -63,6 +64,8 @@ Optional JSON files, applied in this order. Later files win; objects merge and a
 `reviewNudge` sits next to `allowMain`, not under `rules`: `false` turns off the weekly `/rule-review` summary at startup.
 
 `autoUpdate` (machine file only): at startup or `/clear`, a background job (fetching at most daily) fast-forwards the clone to the newest release tag (cut on each push to `main`) and re-runs `install.sh`; the next session says it updated (or failed, with the log). Skipped when the clone has uncommitted edits or local commits. `false` = notice only.
+
+`trace` (machine file only): `false` stops the local trace in `~/.claude/claudzilla-trace/` (mode 0700, files 0600, secrets masked, 7 days / 50 MB kept, never uploaded) from the next session start. `/claudzilla report` then drafts from the conversation and a snapshot built on the spot.
 
 `tableWidth`: each prompt tells Claude the terminal width (`COLUMNS`, which Claude Code passes to hooks), and a reply whose table renders wider gets flagged.
 

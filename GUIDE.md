@@ -450,6 +450,30 @@ After two failed corrections, run `/clear` and write a better first prompt with 
 
 For problems with Claude Code itself, run `/doctor`, or see Claude Code's [troubleshooting](https://code.claude.com/docs/en/troubleshooting) page.
 
+### Report a problem
+<!-- topic: bugs -->
+
+claudzilla keeps a trace of each session so a problem can be reported with facts, not memory. It stays on your machine: nothing is uploaded, except that a report sends a short search phrase to GitHub to look for an existing issue. Nothing else leaves your machine unless you say yes to filing or commenting.
+
+#### What is recorded
+
+- **Where:** `~/.claude/claudzilla-trace/` (or `$CLAUDE_CONFIG_DIR/claudzilla-trace/`). The folder is readable only by you.
+- **What:** which claudzilla hooks and plugins (panel, picks, guide and the rest) ran and what they decided, plus a snapshot of your setup. The snapshot lists enabled claudzilla plugins and the names of settings, never their values. Secrets, such as API keys and tokens, are masked before anything is written.
+- **How long:** files older than 7 days are removed, and the folder is kept under 50 MB. Both happen when a session starts.
+- **Off switch:** put `{"rulesGuard":{"trace":false}}` in `~/.claude/claudzilla.json`. It takes effect at the next session start. Traces already written stay and are removed after 7 days. With tracing off nothing is written, and a report uses the conversation plus a snapshot built on the spot.
+
+#### Report it
+
+Run `/claudzilla report` and, if you like, add what happened, such as `/claudzilla report the guard blocked a safe command`. Claude then:
+
+- asks questions if the problem is unclear, and can mark a window while you make it happen again;
+- decides whether it is a bug or expected behaviour, and points to the guide topic if it is expected;
+- searches for an issue that already covers it;
+- drafts the whole report in `~/.cache/claudzilla/report-drafts/`. The trace part leaves out your prompt text and shows only its length. Claude files a GitHub issue (label `report`) only when you say yes to the draft; otherwise you get text to copy.
+- if filing through `gh` fails, gives you a prefilled link plus a saved `.txt` file to attach. The saved `.txt` goes in `~/.claude/claudzilla-reports/` (or `$CLAUDE_CONFIG_DIR/claudzilla-reports/`); it holds the full masked report, and nothing removes it or the drafts, so delete them when you are done.
+
+If your Claude account or `git config user.email` is not a common personal address (a Claude account with no email also counts; a malformed git email too), or the account uses an API key, an auth token, Bedrock, Vertex or Foundry, GitHub is off: you get text to copy and share through your company's channel.
+
 ### Quick reference
 <!-- topic: ref -->
 
@@ -471,6 +495,7 @@ Type a word or command at the prompt and press **Enter**. Items marked "if insta
 | type | does |
 |---|---|
 | `/claudzilla [topic]` | open or close this guide, or open one section |
+| `/claudzilla report [what happened]` | draft a problem report from the local trace |
 | `/panel` | open or close the panel (if installed) |
 | `/caveman` | turn caveman on (if installed) |
 | `/ponytail lite` | set ponytail's level: `lite`, `full`, `ultra` (if installed) |
