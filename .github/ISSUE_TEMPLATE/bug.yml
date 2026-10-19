@@ -1,0 +1,35 @@
+name: Bug report
+description: Something in claudzilla did not work as expected
+labels: [report]
+body:
+  - type: markdown
+    attributes:
+      value: "Run `/claudzilla report` in Claude; it fills this in for you."
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+  - type: input
+    id: version
+    attributes:
+      label: claudzilla version
+  - type: input
+    id: os
+    attributes:
+      label: OS
+  - type: input
+    id: cc
+    attributes:
+      label: Claude Code version

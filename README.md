@@ -77,6 +77,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 | command | does |
 |---|---|
 | `/claudzilla [topic]` | the guide, one topic at a time |
+| `/claudzilla report [what happened]` | drafts a problem report from the local trace (nothing uploaded); files an issue only on your yes |
 | `/panel` | side pane of this chat's prompts |
 | `/rule-review` | how often each rule slipped; weekly summary at startup; on your yes, shares the counts (no text) as a claudzilla issue |
 | `pr` skill | pre-PR checks + description template, runs before every PR |
