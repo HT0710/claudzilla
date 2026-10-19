@@ -56,6 +56,7 @@ const DEFAULTS = {
   reviewNudge: true,
   autoUpdate: true,
   compactNudge: 150000,
+  trace: true,
 };
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const posInt = (v) => Number.isInteger(v) && v >= 1;
@@ -67,6 +68,7 @@ const PARAMS = {
   reviewNudge: [(v) => typeof v === "boolean", "expected true or false"],
   autoUpdate: [(v) => typeof v === "boolean", "expected true or false"],
   compactNudge: [(v) => Number.isInteger(v) && v >= 0, "expected integer >= 0 (0 = off)"],
+  trace: [(v) => typeof v === "boolean", "expected true or false"],
 };
 const words = (v) => Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string" && x.trim() !== "");
 
@@ -156,8 +158,12 @@ function ranCheck() {
   }
   return false;
 }
-const out = (event, fields) =>
+// What the handler emitted, for the trace. traceWrite is set in the hook main only: trace.mjs --session-start imports this file.
+let emitted = null, traceWrite = () => {};
+const out = (event, fields) => {
+  emitted = fields;
   process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: event, ...fields } })}\n`);
+};
 const deny = (reason) => out("PreToolUse", { permissionDecision: "deny", permissionDecisionReason: reason });
 function git(cwd, ...args) {
   try {
@@ -726,6 +732,24 @@ function onStop(d) {
   save(d.session_id, s);
 }
 
+const EVENT = { UserPromptSubmit: "guard.prompt", PreToolUse: "guard.pretool", PostToolUse: "guard.posttool", Stop: "guard.stop" };
+// One entry per handled event: what was decided, which rules fired, which state flags moved.
+function traceEvent(d, before, ts) {
+  const text = String(emitted?.additionalContext ?? emitted?.permissionDecisionReason ?? "");
+  const after = load(d.session_id), changed = {};
+  for (const k of Object.keys(after)) if (JSON.stringify(after[k]) !== JSON.stringify(before[k])) changed[k] = after[k];
+  const data = {
+    decision: emitted?.permissionDecision === "deny" ? "deny" : emitted ? "nudge" : "none",
+    rules: firedRules(text), state: changed,
+  };
+  if (d.tool_name) data.tool = d.tool_name;
+  if (d.tool_name === "Skill") data.skill = d.tool_input?.skill;
+  if (d.tool_name === "Bash") data.command = d.tool_input?.command;
+  if (d.hook_event_name === "UserPromptSubmit") data.prompt = d.prompt;
+  if (data.decision === "deny") data.reason = text;
+  traceWrite({ session: d.session_id, part: "rules-guard", event: EVENT[d.hook_event_name], ts, end: new Date().toISOString(), data });
+}
+
 const HANDLERS = { UserPromptSubmit: onPrompt, PreToolUse: onPreTool, PostToolUse: onPostTool, Stop: onStop };
 
 // Runs as a hook only when executed; rule-review imports the checks.
@@ -733,10 +757,21 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
   let raw = "";
   process.stdin.setEncoding("utf8");
   for await (const chunk of process.stdin) raw += chunk;
+  try { ({ write: traceWrite } = await import("./trace.mjs")); } catch { /* run untraced */ }
+  let session;
   try {
     const d = JSON.parse(raw);
-    if (d.session_id) HANDLERS[d.hook_event_name]?.(d);
-  } catch { /* fail open */ }
+    session = d.session_id;
+    const h = d.session_id && HANDLERS[d.hook_event_name];
+    if (h) {
+      const before = load(d.session_id), t0 = new Date().toISOString();
+      h(d);
+      try { traceEvent(d, before, t0); } catch { /* tracing never breaks the hook */ }
+    }
+  } catch (e) {
+    traceWrite({ session, part: "rules-guard", event: "guard.crash", level: "error", status: "error",
+      data: { message: String(e?.message ?? e), stack: String(e?.stack ?? "").split("\n").slice(0, 5).join("\n") } });
+  }
 }
 
 export {

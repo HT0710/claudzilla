@@ -371,3 +371,23 @@ test('/clear (session.end) clears the band', async ($, on) => {
   await ui.drawn()
   expect(await ui.find({ key: 'pick:A' })).toBeUndefined()
 })
+
+// The tracer writes through fs.write; the harness has no fs, so these answer beneath the mod and keep what it writes.
+function sink(on: any, part: string) {
+  const files = new Map<string, string>()
+  on('env.get', (_: any, e: any) => ({ value: ({ CLAUDE_CONFIG_DIR: '/cfg', HOME: '/home/u' } as Record<string, string>)[e.name] }))
+  on('session.id', () => ({ value: 's1' }))
+  on('fs.read', (_: any, e: any) => (e.path.endsWith('.off') ? { deny: 'no marker' } : { value: '' }))
+  on('fs.write', (_: any, e: any) => { files.set(e.path, e.text); return { value: undefined } })
+  on('session.end', () => ({ sessionId: 's1' }))
+  return (): any[] => (files.get(`/cfg/claudzilla-trace/s1.${part}.jsonl`) ?? '').trim().split('\n').filter(Boolean).map(l => JSON.parse(l))
+}
+
+test('traces the offer matched', async ($, on) => {
+  engine(on)
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  const rows = sink(on, 'picks')
+  await $.turn.complete(done(LONE))
+  await $.session.end({ reason: 'other' })
+  expect(rows().find(r => r.event === 'picks.offer')?.data).toMatchObject({ matched: true, options: 3 })
+})

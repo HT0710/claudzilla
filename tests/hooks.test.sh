@@ -616,4 +616,40 @@ check "frame: matching fence closes it" sub "$(mdm h 1 $'```\n---\n')" "$G"
 check "frame: no message_id, no frame" [ -z "$(md $'**TL;DR** x\n')" ]
 check "frame: state removed after final" bash -c "! ls '$TMP'/claudzilla-rules/md-* 2>/dev/null"
 
+# display.frame: traced where md-display already writes state
+MTD="$CLAUDE_CONFIG_DIR/claudzilla-trace"
+mdt() { node -e 'const [id, f, d] = process.argv.slice(1); console.log(JSON.stringify({ hook_event_name: "MessageDisplay", session_id: "mds1", message_id: id, final: f === "1", delta: d }))' "$@" | COLUMNS=24 perl "$MD"; }
+rm -rf "$MTD"
+mdt t1 0 $'plain\n' >/dev/null
+check "trace md: plain batch -> no entry" [ ! -e "$MTD/mds1.md-display.jsonl" ]
+mdt t2 0 $'**TL;DR** x\n' >/dev/null; mdt t2 1 $'**Next:** go\n' >/dev/null
+check "trace md: framed reply -> display.frame" bash -c "grep -c '\"event\":\"display.frame\"' '$MTD/mds1.md-display.jsonl' | grep -qx 2"
+check "trace md: entry carries message id" grep -q '"message":"t2"' "$MTD/mds1.md-display.jsonl"
+
+# --- trace ---
+TD="$CLAUDE_CONFIG_DIR/claudzilla-trace"
+new_session; hook UserPromptSubmit prompt="login is broken" >/dev/null
+check "trace: prompt with bug word logs guard.prompt with rule systematic-debugging" bash -c "grep '\"event\":\"guard.prompt\"' '$TD/$SID.rules-guard.jsonl' | grep -q 'debugTrigger'"
+new_session; rp=$(repo); out=$(cd "$rp" && hook PreToolUse tool_name=Bash 'tool_input.command=git commit -m "update stuff"')
+check "trace: denied commit logs guard.pretool deny" bash -c "grep '\"event\":\"guard.pretool\"' '$TD/$SID.rules-guard.jsonl' | grep -q '\"decision\":\"deny\"'"
+rm -rf "$TD"; out=$(echo nope | node "$RG"); code=$?
+check "trace: bad JSON input logs guard.crash, stdout empty" bash -c "[ -z '$out' ] && [ $code -eq 0 ] && grep -q '\"event\":\"guard.crash\"' '$TD/nosession.rules-guard.jsonl' && grep -q '\"level\":\"error\"' '$TD/nosession.rules-guard.jsonl'"
+new_session; a=$(hook UserPromptSubmit prompt="login is broken"); ac=$?
+rm -rf "$TD"; : > "$TD"   # a file where the dir should be: unwritable
+new_session; b=$(hook UserPromptSubmit prompt="login is broken"); bc=$?; rm -f "$TD"
+check "rules-guard output unchanged with unwritable trace" [ "$a" = "$b" ]
+check "rules-guard exit code unchanged with unwritable trace" [ "$ac" = "$bc" ]
+
+# updater: origin one release ahead, auto-update off -> update.check + update.start in the trace
+UC="$TMP/updcfg"; mkdir -p "$UC"; echo '{"rulesGuard":{"autoUpdate":false}}' > "$UC/claudzilla.json"
+G="git -c user.name=t -c user.email=t@t"
+git init -q -b main "$TMP/uorigin"; $G -C "$TMP/uorigin" commit -q --allow-empty -m one
+git clone -q "$TMP/uorigin" "$TMP/uclone"; mkdir -p "$TMP/uclone/claude/hooks"
+cp "$REPO"/claude/hooks/{claudzilla-update.sh,rules-guard.mjs,trace.mjs,trace.pl} "$TMP/uclone/claude/hooks/"
+$G -C "$TMP/uorigin" commit -q --allow-empty -m two; git -C "$TMP/uorigin" tag v1.0.0; git -C "$TMP/uclone" fetch -q --tags
+uout=$(CLAUDE_CONFIG_DIR="$UC" sh "$TMP/uclone/claude/hooks/claudzilla-update.sh")
+UT="$UC/claudzilla-trace/nosession.update.jsonl"
+check "trace: updater logs update.check and update.start" bash -c "grep -q '\"event\":\"update.check\"' '$UT' && grep -q '\"event\":\"update.start\"' '$UT'"
+check "updater stdout still the notice" has "$uout" "update v1.0.0 available"
+
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

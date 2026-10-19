@@ -31,3 +31,21 @@ test('a sentence naming the trailer mid-line is kept', () => {
   const text = 'Do not add a Claude-Session: trailer to the commit.'
   expect(strip(text)).toBe(text)
 })
+
+// The trace file lands through fs.write; the harness has no fs, so these handlers stand in beneath the mod.
+test('traces whether the text changed', async ($, on) => {
+  const files = new Map<string, string>()
+  on('env.get', (_, e) => ({ value: ({ CLAUDE_CONFIG_DIR: '/cfg', HOME: '/home/u' } as Record<string, string>)[e.name] }))
+  on('session.id', () => ({ value: 's1' }))
+  on('fs.read', () => ({ deny: 'no marker' }))
+  on('fs.write', (_, e) => { files.set(e.path, e.text); return { value: undefined } })
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.end', () => ({ sessionId: 's1' }))
+  on('attribution.text', () => ({ text: `${coAuthor}\nClaude-Session: https://claude.ai/code/session_01AbC` }))
+  await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
+  await $.attribution.text({ kind: 'commit', text: '' })
+  await $.session.end({ reason: 'other' })
+  const rows = [...files.entries()].find(([p]) => p.endsWith('s1.attribution.jsonl'))![1].trim().split('\n').map(l => JSON.parse(l))
+  expect(rows.find(r => r.event === 'attribution.text')?.data).toMatchObject({ kind: 'commit', changed: true })
+})

@@ -2,6 +2,12 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Intent, Overview, Step, Tab } from '../types'
+import { tracer } from './trace'
+import { traceIo } from './trace-io'
+
+const t = tracer('panel')
+// The pane's last traced draw: a draw repeats on every scroll and click, so only a change is traced.
+let lastPane = ''
 
 const PANE = 'panel'
 const PAD = 2
@@ -146,7 +152,10 @@ const readOverview = async ($: EngineInterface) => {
     const keep = shown.length ? `\n${merging ? overviewMerge(shown.length) : OVERVIEW_KEEP}\n${shown.map(topic => `- ${topic}`).join('\n')}` : ''
     const prompt = `${OVERVIEW_ASK}${keep}\n\nPrompts:\n${prompts.map(one => `- ${flat(one.display).slice(0, 300)}`).join('\n')}`
     const reply = await $.model.complete({ model: 'opus', prompt, effort: 'low', maxTokens: OVERVIEW_TOKENS, timeoutMs: 20_000 })
-    if (seq !== overviewSeq) return
+    if (seq !== overviewSeq) {
+      t.event('overview.read', { dropped: 'newer read started' }, 'debug')
+      return
+    }
     const topics = reply.isAnswered ? parseTopics(reply.text) : []
     // A cut reply loses its last lines, the current topic among them.
     const failed = !reply.isAnswered
@@ -158,8 +167,10 @@ const readOverview = async ($: EngineInterface) => {
           : keptTopics(shown, topics, merging)
             ? undefined
             : 'dropped topics'
+    t.event('overview.read', { prompts: prompts.length, topics: topics.length, failed })
     await update($, overview, now => (failed ? { ...now, running: false, failed } : { topics, running: false }))
-  } catch {
+  } catch (err) {
+    t.error('overview.read', err)
     // complete rejects on a request the engine refuses to send (a blocked model).
     if (seq === overviewSeq) await update($, overview, now => ({ ...now, running: false, failed: 'error' }))
   }
@@ -533,7 +544,10 @@ let lastDraw: Promise<unknown> = Promise.resolve()
 export const ordered = <T,>(draw: () => Promise<T>) => {
   const before = lastDraw
   const result = draw().finally(() => before)
-  lastDraw = result.catch(() => undefined)
+  lastDraw = result.catch(err => {
+    t.error('pane.draw.rejected', err)
+    return undefined
+  })
   return result
 }
 // Settles once no pane draw runs: a redraw started during one drops it, and the reads it awaits.
@@ -660,6 +674,7 @@ export const register: Register = (on, options) => {
   const isIntentOn = options.intent !== false
 
   on('session.start', async ($, e, next) => {
+    await t.start(traceIo($))
     // A reload drops the module's runs; the atom stays, maybe mid-run, and would show reading… for good.
     await update($, overview, now => (now.running ? { ...now, running: false } : now))
     // A reload or resume with the tab open: read now, not at the next prompt.
@@ -691,6 +706,8 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
+    t.turn()
+    void t.flush(traceIo($))
     const result = await next(e)
     if (e.turnId) {
       const texts = [...(await midTurn($)), e.text].slice(-MAX_PROMPTS)
@@ -814,6 +831,8 @@ export const register: Register = (on, options) => {
 
   // /clear starts the conversation over: no report.
   on('session.end', async ($, e, next) => {
+    t.event('panel.end', { reason: e.reason })
+    await t.flush(traceIo($))
     if (e.reason === 'clear') {
       // A read still running answers for the old chat.
       overviewSeq++
@@ -878,6 +897,11 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => ordered(async () => {
+    const draw = t.span('pane.draw')
+    // What the tab drew, or hid and why: set by the tab's branch below.
+    let zones: Record<string, unknown> = {}
+    // Kept in the entry but out of the change key: a wheel tick moves these alone.
+    let scroll: Record<string, unknown> = {}
     const elements = $.ui.resolve(e)
     const { Box, Button, Text } = elements
     const Client = 'Client' in elements ? elements.Client : undefined
@@ -927,6 +951,7 @@ export const register: Register = (on, options) => {
         }
       }
       pin = undefined
+      t.event('pane.jump', { found: false, tried: ids.filter(Boolean).length }, 'warn')
       $.ui.toast("Can't jump: not found in the chat. ↻\u00a0reuses it.")
     }
     const reuse = async (display: string) => {
@@ -1019,6 +1044,8 @@ export const register: Register = (on, options) => {
       const from = Math.min(await read($, historyTop), end)
       const hasTop = from > 0 && listRows > 1
       if (!next.signal.aborted) historyEnd = end
+      zones = { zones: prompts.length ? 'list' : 'empty', prompts: prompts.length, rows: lines.length, listRows }
+      scroll = { from, backToTop: hasTop }
       body = (
         <Box flexDirection="column">
           {prompts.length > 0 && (
@@ -1117,6 +1144,10 @@ export const register: Register = (on, options) => {
               changes: zoneEnd(files.length, changesRows),
               commits: zoneEnd(Number(total) || page * PAGE + commits.length, commitsRows),
             }
+      zones = {
+        zones: !head ? (status ? 'not a repo' : 'no git answer') : !files.length ? 'commits only' : changesRows ? 'changes+commits' : 'changes hidden: no rows',
+        changes: files.length, changesRows, commits: commits.length, commitsRows, total: Number(total) || 0,
+      }
       body = !head ? (
         // The rows under the tabs and their rule. No answer at all: git is not on PATH, or the surface
         // runs no command.
@@ -1294,6 +1325,10 @@ export const register: Register = (on, options) => {
           return starts
         })
       }
+      zones = {
+        zones: !hasReport && !hasAbout ? 'empty' : zoned ? 'report+topics zone' : hasReport ? 'report' : 'topics',
+        steps: shown.steps.length, topics: about.topics.length, topicsRows, reading: about.running, failed: about.failed,
+      }
       const topicRows = shownTopics.map(({ topic, i }) => (
         <Box key={`topic:${i}`} paddingLeft={2} flexShrink={0}>
           <Text wrap="wrap" color={i === about.topics.length - 1 ? 'claude' : SCOPE}>{topic}</Text>
@@ -1370,6 +1405,11 @@ export const register: Register = (on, options) => {
         )
     }
 
+    const key = `${current}|${e.props.bodyColumns}|${e.props.scroll.bodyRows}|${JSON.stringify(zones)}`
+    if (key !== lastPane) {
+      lastPane = key
+      draw.end({ tab: current, columns: e.props.bodyColumns, bodyRows: e.props.scroll.bodyRows, ...zones, ...scroll })
+    }
     return (
       <Box flexDirection="column">
         {/* Equal slots, the last taking the odd column. */}
