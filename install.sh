@@ -249,7 +249,7 @@ let j={bindings:[]};
 if(fs.existsSync(dst))try{j=JSON.parse(fs.readFileSync(dst,"utf8"))}catch{process.exit(2)}
 if(!isObj(j)||!Array.isArray(j.bindings)||!j.bindings.every(b=>isObj(b)&&isObj(b.bindings)))process.exit(2);
 const chat=j.bindings.filter(b=>b.context==="Chat");
-const keys=[["h","command:panel","panel"],["k","abovePrompt:focus","picks"],["g","command:claudzilla","core"]],msg=[];
+const keys=[["h","command:panel","panel"],["k","abovePrompt:focus","picks"],["g","command:claudzilla","updater"]],msg=[];
 for(const[k,a,p]of keys)if(!has(p))for(const b of chat)if(b.bindings[`alt+${k}`]===a){delete b.bindings[`alt+${k}`];msg.push(`alt+${k} removed`)}
 j.bindings=j.bindings.filter(b=>b.context!=="Chat"||Object.keys(b.bindings).length||!msg.length);
 const own=(k,a)=>j.bindings.some(b=>(["Chat","Global"].includes(b.context)&&Object.keys(b.bindings).some(x=>new RegExp(`^(alt|opt|option|meta)\\+${k}$`,"i").test(x)))||Object.values(b.bindings).includes(a));
@@ -635,7 +635,7 @@ main() {
   merge_settings "$base"
   rm -f "$DEST/.settings.base.claudzilla"
   for p in $ALL_PARTS; do picked "$p" || unlink_part "$p"; done
-  keybindings
+  PICKED="$PICKED updater" keybindings
   if picked hud; then truecolor; font; fi
   if picked core; then stamp_rules || echo "claudzilla: rule dates not saved - /rule-review skips undated rules until the next install" >&2; fi
   [ "$OFFLINE" = 1 ] || plugins
