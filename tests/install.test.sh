@@ -36,7 +36,7 @@ check "content: no omc" bash -c "! grep -rqi omc '$REPO/claude' '$REPO/settings.
 # --- fresh machine ---
 H=$(new_home); run_install "$H"; rc=$?
 check "fresh: exit 0" [ "$rc" -eq 0 ]
-for f in CLAUDE.md RTK.md rules themes hud hooks/claudzilla-update.sh hooks/rules-guard.mjs hooks/md-display.pl skills/pr skills/rule-review; do
+for f in CLAUDE.md RTK.md rules themes hud hooks/claudzilla-update.sh hooks/rules-guard.mjs hooks/trace.mjs hooks/trace.pl hooks/md-display.pl skills/pr skills/rule-review skills/claudzilla-report; do
   check "fresh: $f linked" [ "$(readlink "$H/.claude/$f")" = "$REPO/claude/$f" ]
 done
 H2=$(new_home); mkdir -p "$H2/.claude/skills/mine"; echo x > "$H2/.claude/skills/mine/SKILL.md"; run_install "$H2"

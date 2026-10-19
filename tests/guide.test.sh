@@ -7,7 +7,7 @@ G="$REPO/GUIDE.md"
 pass=0 fail=0
 check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL: $name"; return 1; fi; }
 
-SLUGS="start first words talk replies flow approve skills context undo guard hud panel picks limits background stuck ref keys customize more"
+SLUGS="start first words talk replies flow approve skills context undo guard hud panel picks limits background stuck bugs ref keys customize more"
 PARTS="Basics|Working|Screen|Own it"
 
 # prose: lines outside fences as "<slug>\t<line>"; inline code spans removed
@@ -31,9 +31,11 @@ words_ok() { [ -f "$G" ] && ban "(^|[^[:alnum:]])(simply|easy|please|let's)([^[:
 
 above_ok() { [ -f "$G" ] && ban '(^|[^[:alnum:]])(above|below)([^[:alnum:]]|$)'; }
 
+report_ok() { case " $SLUGS " in *" report "*) return 1;; esac; }
 check "slugs in order"        slugs_ok
 check "topic follows heading" follow_ok
 check "parts in order"        parts_ok
+check "report is never a slug" report_ok
 check "no above/below"        above_ok
 check "TL;DR only in replies" tldr_ok
 check "banned words"          words_ok
