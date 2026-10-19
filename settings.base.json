@@ -71,6 +71,15 @@
     ],
     "SessionStart": [
       {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/trace.mjs\" --session-start",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "startup|clear",
         "hooks": [
           {

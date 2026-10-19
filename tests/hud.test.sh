@@ -5,6 +5,8 @@ set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 HUD="$REPO/claude/hud"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# keep every run (state files, trace) out of the real home
+export TMPDIR="$TMP" CLAUDE_CONFIG_DIR="$TMP/cfg"; mkdir -p "$CLAUDE_CONFIG_DIR"
 pass=0 fail=0
 check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL: $name"; return 1; fi; }
 iso() { node -p "new Date(Date.now() - $1 * 1000).toISOString()"; }
@@ -153,6 +155,22 @@ g commit -q --allow-empty -m 'feat(hud): x'
 check "render: ahead with feat -> next minor" grep -q 'me@example.test  v9.10.0$' <<<"$(ver)"
 g tag backup
 check "render: non-release tag ignored" grep -q 'me@example.test  v9.10.0$' <<<"$(ver)"
+
+# --- trace: hud.change only when the output changes ---
+TRC="$TMP/trcfg"; TRT="$TMP/trtmp"; mkdir -p "$TRC" "$TRT"; TR="$TMP/trrepo"; mkdir -p "$TR"
+git -C "$TR" init -q -b main
+trun() { printf '{"session_id":"trs1","workspace":{"current_dir":"%s"},"model":{"display_name":"Opus"}}' "$TR" |
+  CLAUDE_CONFIG_DIR="$TRC" TMPDIR="$TRT" COLUMNS=120 node "$HUD/hud-data.mjs" | CLAUDE_CONFIG_DIR="$TRC" TMPDIR="$TRT" COLUMNS=120 perl "$HUD/hud-filter.pl"; }
+TRF="$TRC/claudzilla-trace/trs1.hud.jsonl"
+trun >/dev/null; trun >/dev/null
+check "trace hud: same payload twice -> one hud.change" [ "$(grep -c '"event":"hud.change"' "$TRF")" -eq 1 ]
+git -C "$TR" checkout -q -b feat/x; trun >/dev/null
+check "trace hud: branch change -> second entry" [ "$(grep -c '"event":"hud.change"' "$TRF")" -eq 2 ]
+check "trace hud: entry names the new branch" bash -c "tail -1 '$TRF' | grep -q 'feat/x'"
+check "trace hud: part is hud" grep -q '"part":"hud"' "$TRF"
+rm -rf "$TRC/claudzilla-trace" "$TRT"; a=$(trun); ac=$?; rm -rf "$TRC/claudzilla-trace" "$TRT"; : > "$TRC/claudzilla-trace"; b=$(trun); bc=$?
+check "trace hud: output unchanged with unwritable trace" [ "$a" = "$b" ]
+check "trace hud: exit code unchanged with unwritable trace" [ "$ac" = "$bc" ]
 
 echo "hud: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -21,15 +21,16 @@ my $w = ($ENV{COLUMNS} // 0) > 20 ? $ENV{COLUMNS} - 4 : 76;
 my ($heavy, $sep, $group) = ('━' x $w, '─' x int($w / 2), '┈' x int($w / 4));
 
 my $o = '';
+my ($opened, $closed, $groups) = (0, 0, 0);
 # ponytail: each batch is read as starting a line, so a batch split mid-line can miss a marker (`**Next:**`) or misread `---`/fences;
 # fence length is ignored and a setext `---` underline shows as a group line. Carry the partial line in state if misses show up.
 for (split /^/m, $t) {
   if (/^\s*(```|~~~)/) { my $k = $1 eq '```' ? 'f' : 't'; $s{$k} = !$s{$k} if $s{$k} || !($s{f} || $s{t}); }
   elsif ($s{f} || $s{t}) { }
   elsif (/^\|/) { s{<br\s*/?>}{ · }gi; }
-  elsif (/^\*\*TL;DR\*\*/ && $sf && !$s{o}) { $_ = "$heavy\n\n$_"; @s{qw(o p)} = (1, 1); }
-  elsif (/^\*\*(Picks|Next):\*\*/ && $s{o} && !$s{c}) { $_ = "\n$sep\n\n$_"; $s{c} = 1; }
-  elsif (/^\s*-{3,}\s*$/) { $_ = "\n$group\n\n"; }
+  elsif (/^\*\*TL;DR\*\*/ && $sf && !$s{o}) { $_ = "$heavy\n\n$_"; @s{qw(o p)} = (1, 1); $opened = 1; }
+  elsif (/^\*\*(Picks|Next):\*\*/ && $s{o} && !$s{c}) { $_ = "\n$sep\n\n$_"; $s{c} = 1; $closed = 1; }
+  elsif (/^\s*-{3,}\s*$/) { $_ = "\n$group\n\n"; $groups++; }
   if ($s{p} && /\n\z/) { $_ .= "\n$sep\n\n"; $s{p} = 0; }
   $o .= $_;
 }
@@ -39,6 +40,14 @@ if ($sf) {
   my $keep = join '', grep { $s{$_} } qw(o c f t p);
   if ($d->{final} || !$keep) { unlink $sf; }
   else { mkdir $dir; if (open my $fh, '>', $sf) { print $fh $keep; } }
+}
+my $ended = $d->{final} && $s{o};
+if ($opened || $closed || $ended) {
+  eval {
+    require(($0 =~ m{^(.*)/} ? $1 : '.') . '/trace.pl');
+    trace_write({ session => $d->{session_id}, part => 'md-display', event => 'display.frame',
+                  data => { message => $mid, opened => $opened, closed => $closed, final => $d->{final} ? 1 : 0, groups => $groups } });
+  };
 }
 exit 0 if $o eq $t;
 print encode_json({ hookSpecificOutput => { hookEventName => 'MessageDisplay', displayContent => $o } }), "\n";

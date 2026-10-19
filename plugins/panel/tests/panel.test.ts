@@ -2530,3 +2530,44 @@ test('the wheel finds TOPICS by the row drawn, once the engine scrolled the Over
   await wheel(3, 3)
   expect(await topicShown(ui, 11)).toBe(false)
 })
+
+// The tracer writes through fs.write; the harness has no fs, so these answer beneath the mod and keep what it writes.
+function sink(on: any, part: string) {
+  const files = new Map<string, string>()
+  on('env.get', (_: any, e: any) => ({ value: ({ CLAUDE_CONFIG_DIR: '/cfg', HOME: '/home/u' } as Record<string, string>)[e.name] }))
+  on('session.id', () => ({ value: 's1' }))
+  on('fs.read', (_: any, e: any) => (e.path.endsWith('.off') ? { deny: 'no marker' } : { value: '' }))
+  on('fs.write', (_: any, e: any) => { files.set(e.path, e.text); return { value: undefined } })
+  on('session.end', () => ({ sessionId: 's1' }))
+  return (): any[] => (files.get(`/cfg/claudzilla-trace/s1.${part}.jsonl`) ?? '').trim().split('\n').filter(Boolean).map(l => JSON.parse(l))
+}
+
+test('traces the pane draw', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
+  on('process.run', () => ran(''))
+  const rows = sink(on, 'panel')
+  await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await $.session.end({ reason: 'other' })
+  expect(rows().find(r => r.event === 'pane.draw')?.data).toMatchObject({ tab: 'Overview', zones: 'empty' })
+})
+
+test('scrolling the History list alone writes no new pane.draw entry', async ($, on) => {
+  const start = Date.now() - 60_000
+  const history = Array.from({ length: 30 }, (_, i) => JSON.stringify({ display: `p${i}`, timestamp: start + i * 1000, sessionId: 's1' })).join('\n')
+  on('clock.now', () => ({ value: 0 }))
+  on('process.run', (_, e) => ran(isHistoryGrep(e.argv) ? history : ''))
+  const rows = sink(on, 'panel')
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'History' })
+  await ui.redraw()
+  const draws = async () => {
+    await $.session.end({ reason: 'other' })
+    return rows().filter(r => r.event === 'pane.draw' && r.data.tab === 'History')
+  }
+  const before = (await draws()).length
+  expect(before).toBeGreaterThan(0)
+  for (const by of [2, 3]) await $.ui.scroll({ component: 'Pane', requestId: 'panel', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
+  expect(await ui.find({ key: 'top' })).toBeDefined()
+  const after = await draws()
+  expect(after.length).toBe(before)
+})

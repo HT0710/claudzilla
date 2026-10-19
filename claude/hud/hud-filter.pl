@@ -307,3 +307,23 @@ push @out, rule(3, sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]]));
 }
 
 print join("\n", @out), "\n";
+
+# Trace what the line shows, only when a field changed. State is compared before the writer is loaded, so an unchanged tick costs one small read.
+eval {
+    my %now = (branch => $branch, dirty => $dirty, churn => $churn, ver => $ver, cwd => $cwd, name => $sname, skill => $skill,
+               model => $model, effort => $EFFORT, ctx => $f{ctx}, '5h' => $f{'5h'}, wk => $f{wk});
+    delete @now{grep { !defined $now{$_} || $now{$_} eq '' } keys %now};
+    my $dir = ($ENV{TMPDIR} || '/tmp') . '/claudzilla-rules';
+    (my $sid = $SID // '') =~ s/[^\w-]//g;
+    my $sf = "$dir/hud-" . (length $sid ? $sid : 'nosession');
+    my %was;
+    if (open my $fh, '<:utf8', $sf) { %was = map { /^([^\t]+)\t(.*)$/ ? ($1, $2) : () } split /\n/, do { local $/; <$fh> // '' }; close $fh; }
+    my @chg = grep { ($now{$_} // '') ne ($was{$_} // '') } keys %{{ %now, %was }};
+    if (@chg) {
+        mkdir $dir;
+        if (open my $fh, '>:utf8', $sf) { print $fh map { "$_\t$now{$_}\n" } sort keys %now; close $fh; }
+        require(($0 =~ m{^(.*)/} ? $1 : '.') . '/../hooks/trace.pl');
+        trace_write({ session => $sid, part => 'hud', event => 'hud.change',
+                      data => { changed => { map { $_ => $now{$_} // '' } @chg }, prev => { map { $_ => $was{$_} } grep { exists $was{$_} } @chg } } });
+    }
+};

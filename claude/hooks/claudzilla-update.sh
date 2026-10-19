@@ -9,10 +9,12 @@ repo=$(git -C "$here" rev-parse --show-toplevel 2>/dev/null) || exit 0
 gd=$(git -C "$repo" rev-parse --absolute-git-dir)
 log=$gd/claudzilla-update.log res=$gd/claudzilla-update.result lock=$gd/claudzilla-update.lock
 ev=$gd/claudzilla-update.events
+# Local trace line for this stage; no session id, since reading stdin would hang a caller that keeps it open; never changes output or exit code.
+trace() { perl "$here/trace.pl" nosession update "$@" >/dev/null 2>&1 </dev/null || true; }
 
 json() { printf '%s' "$1" | sed 's/[\\"]/\\&/g'; }
 # <epoch>\t<kind>\t<text>; kind start|live|fail, read by plugins/update-toast.
-emit() { printf '%s\t%s\t%s\n' "$(date +%s)" "$1" "$2" >> "$ev"; }
+emit() { printf '%s\t%s\t%s\n' "$(date +%s)" "$1" "$2" >> "$ev"; trace "update.$1" "$([ "$1" = fail ] && echo error || echo info)" "text=$2"; }
 ver() { git -C "$repo" describe --tags --always "$@" 2>/dev/null; }
 # Newest release tag on upstream; a fork with no tags follows the branch.
 rel() { git -C "$repo" describe --tags --abbrev=0 --match 'v[0-9]*' "$up" 2>/dev/null || echo "$up"; }
@@ -41,6 +43,7 @@ if [ -f "$res" ]; then
   esac
 fi
 n=$(behind)
+trace update.check info "behind=${n:-0}" "auto=$auto" "target=$to"
 if [ "${n:-0}" -gt 0 ]; then
   if [ "$auto" = true ] && [ -z "$(dirty)" ]; then
     user="${user:+$user | }claudzilla: updating to $(ver --match 'v[0-9]*' "$to") in background - restart Claude to apply"

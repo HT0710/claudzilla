@@ -1,0 +1,12 @@
+key sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA tail
+ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+github_pat_AAAAAAAAAAAAAAAAAAAAAAAA
+AKIAAAAAAAAAAAAAAAAA end
+Authorization: Bearer abc.def-ghi~jkl/mno==
+jwt eyJhbGciOi.eyJzdWIiOiIx.abc_DEF-123 end
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa kept
+QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbm9wcXJzdA==
+@HOME@/proj/x
+@HOME@/a/very/long/directory/name/that/would/trip/the/base64/pattern/file.txt
+plain text, nothing to hide

@@ -144,3 +144,23 @@ test('a non-interactive session starts no watch', async ($, on) => {
   for (let i = 0; i < 10; i++) await tick()
   expect(seen.ran).toBe(false)
 })
+
+// The tracer writes through fs.write; the harness has no fs, so these answer beneath the mod and keep what it writes.
+function sink(on: any, part: string) {
+  const files = new Map<string, string>()
+  on('env.get', (_: any, e: any) => ({ value: ({ CLAUDE_CONFIG_DIR: '/cfg', HOME: '/home/u' } as Record<string, string>)[e.name] }))
+  on('session.id', () => ({ value: 's1' }))
+  on('fs.read', (_: any, e: any) => (e.path.endsWith('.off') ? { deny: 'no marker' } : { value: '' }))
+  on('fs.write', (_: any, e: any) => { files.set(e.path, e.text); return { value: undefined } })
+  on('session.end', () => ({ sessionId: 's1' }))
+  return (): any[] => (files.get(`/cfg/claudzilla-trace/s1.${part}.jsonl`) ?? '').trim().split('\n').filter(Boolean).map(l => JSON.parse(l))
+}
+
+test('traces the toast shown', async ($, on) => {
+  const seen = session(on, [{ stream: 'stdout', text: line(S, 'live', 'claudzilla: updating to v1.2.0') + END }])
+  const rows = sink(on, 'update-toast')
+  await $.session.start(start)
+  await until(() => seen.toasts.includes('end'))
+  await $.session.end({ reason: 'other' })
+  expect(rows().find(r => r.event === 'update.line' && r.data.kind === 'live')?.data).toMatchObject({ toast: true })
+})

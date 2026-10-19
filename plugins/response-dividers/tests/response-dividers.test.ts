@@ -48,3 +48,23 @@ test('a reply with no frame lines is the engine drawing', async ($, on) => {
     props: { text: 'plain\n', isFirstOfReply: true }, viewport: { columns: 44, rows: 20 } })
   expect(await ui.find({ type: 'Text', text: 'engine' })).toBeDefined()
 })
+
+// The tracer writes through fs.write; the harness has no fs, so these answer beneath the mod and keep what it writes.
+function sink(on: any, part: string) {
+  const files = new Map<string, string>()
+  on('env.get', (_: any, e: any) => ({ value: ({ CLAUDE_CONFIG_DIR: '/cfg', HOME: '/home/u' } as Record<string, string>)[e.name] }))
+  on('session.id', () => ({ value: 's1' }))
+  on('fs.read', (_: any, e: any) => (e.path.endsWith('.off') ? { deny: 'no marker' } : { value: '' }))
+  on('fs.write', (_: any, e: any) => { files.set(e.path, e.text); return { value: undefined } })
+  on('session.end', () => ({ sessionId: 's1' }))
+  return (): any[] => (files.get(`/cfg/claudzilla-trace/s1.${part}.jsonl`) ?? '').trim().split('\n').filter(Boolean).map(l => JSON.parse(l))
+}
+
+test('traces the split decision', async ($, on) => {
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  const rows = sink(on, 'response-dividers')
+  await $.ui.mount({ plugin: 'response-dividers', surface: 'terminal', component: 'AssistantMessage', requestId: 'm9', props, viewport: { columns: 44, rows: 20 } })
+  await $.session.end({ reason: 'other' })
+  expect(rows().find(r => r.event === 'dividers.split')?.data).toMatchObject({ rules: 4, split: true })
+})

@@ -1,5 +1,10 @@
 import type { EngineInterface, Register } from 'claude-code'
 
+import { tracer } from './trace'
+import { traceIo } from './trace-io'
+
+const t = tracer('update-toast')
+
 // One line per update event, appended by claude/hooks/claudzilla-update.sh: `<epoch s>\t<kind>\t<text>`.
 export type Event = { at: number; kind: 'start' | 'live' | 'fail'; text: string }
 
@@ -22,8 +27,8 @@ export function due(ev: Event, startedS: number): boolean {
 
 export async function watch($: EngineInterface, startedS: number, onFail: (note: string) => void): Promise<void> {
   const found = await $.process.run(['sh', '-c', FIND])
-  if (found.exitCode !== 0) return
-  const [repo, gd] = found.stdout.trim().split('\n')
+  const [repo, gd] = found.exitCode === 0 ? found.stdout.trim().split('\n') : []
+  t.event('update.watch', { found: !!repo && !!gd, exitCode: found.exitCode }, repo && gd ? 'info' : 'debug')
   if (!repo || !gd) return
   let rest = ''
   // tail -F reads a trimmed file again from the top.
@@ -34,7 +39,12 @@ export async function watch($: EngineInterface, startedS: number, onFail: (note:
     rest = lines.pop() ?? ''
     for (const raw of lines) {
       const ev = parse(raw)
-      if (!ev || !due(ev, startedS) || shown.has(raw)) continue
+      const skip = !ev ? 'unparsed' : !due(ev, startedS) ? 'not due' : shown.has(raw) ? 'repeat' : ''
+      if (!ev || skip) {
+        t.event('update.line', { kind: ev?.kind, toast: false, skip }, 'debug')
+        continue
+      }
+      t.event('update.line', { kind: ev.kind, toast: true, at: ev.at })
       shown.add(raw)
       $.ui.toast(ev.text, { timeoutMs: 15000 })
       if (ev.kind === 'fail') {
@@ -50,18 +60,28 @@ export const register: Register = on => {
   let note: string | undefined
 
   on('session.start', async ($, e, next) => {
+    await t.start(traceIo($))
     const started = await next(e)
+    t.event('update.start', { interactive: !!e.isInteractive })
     if (!e.isInteractive) return started
     const startedS = Math.floor((await $.clock.now()) / 1000)
     // session.start is awaited before the first prompt: the watch runs on detached, for the module's life.
-    void watch($, startedS, text => (note = text)).catch(() => {})
+    void watch($, startedS, text => (note = text)).catch(err => t.error('update.watch.failed', err))
     return started
   })
 
   on('prompt.submit', async ($, e, next) => {
+    t.turn()
+    void t.flush(traceIo($))
     if (note === undefined) return next(e)
+    t.event('update.note', { injected: true })
     const context = [...(e.context ?? []), note]
     note = undefined
     return next({ ...e, context })
+  })
+
+  on('session.end', async ($, e, next) => {
+    await t.flush(traceIo($))
+    return next(e)
   })
 }

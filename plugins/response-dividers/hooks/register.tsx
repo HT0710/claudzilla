@@ -1,8 +1,22 @@
 import type { Register } from 'claude-code'
 
+import { tracer } from './trace'
+import { traceIo } from './trace-io'
+
 // md-display.pl's frame lines, as a share of the width: heavy whole, separator half, group break a quarter.
 const SHARE: Record<string, number> = { '━': 1, '─': 2, '┈': 4 }
 const RULE = /^([━─┈])\1*$/
+
+const t = tracer('response-dividers')
+// Messages whose decision is traced: a render repeats on resize and scroll.
+const traced = new Set<string>()
+const note = (id: string, decision: string, data: object) => {
+  const key = `${id}:${decision}`
+  if (traced.has(key)) return
+  if (traced.size > 500) traced.clear()
+  traced.add(key)
+  t.event('dividers.split', { decision, ...data })
+}
 
 type Part = { text: string } | { rule: string }
 
@@ -31,12 +45,36 @@ export function split(text: string): Part[] {
 }
 
 export const register: Register = on => {
+  on('session.start', async ($, e, next) => {
+    await t.start(traceIo($))
+    return next(e)
+  })
+
+  on('prompt.submit', async ($, e, next) => {
+    t.turn()
+    void t.flush(traceIo($))
+    return next(e)
+  })
+
+  on('session.end', async ($, e, next) => {
+    await t.flush(traceIo($))
+    return next(e)
+  })
+
   // A hook's text is fixed when printed; drawn here, the lines follow a resize or a docked pane.
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     // A summary block split up would repeat the engine's ` · summary` mark per chunk.
-    if (e.props.isSummary) return next(e)
+    if (e.props.isSummary) {
+      note(e.requestId, 'summary', { split: false, reason: 'summary block' })
+      return next(e)
+    }
     const parts = split(e.props.text)
-    if (!parts.some(p => 'rule' in p)) return next(e)
+    const rules = parts.filter(p => 'rule' in p).length
+    if (!rules) {
+      note(e.requestId, 'plain', { split: false, reason: 'no frame lines' })
+      return next(e)
+    }
+    note(e.requestId, 'split', { split: true, rules, chunks: parts.length - rules, columns: e.viewport?.columns ?? 80, first: !!e.props.isFirstOfReply })
     const { Box, Text } = $.ui.resolve(e)
     // The engine indents only the block that draws the bullet, so later chunks take its two columns here.
     const indent = e.props.isFirstOfReply ? 2 : 0

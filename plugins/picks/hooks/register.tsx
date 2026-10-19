@@ -1,5 +1,8 @@
 import type { Register } from 'claude-code'
 
+import { tracer } from './trace'
+import { traceIo } from './trace-io'
+
 export type Row = { id: string; text: string; picked: boolean }
 // `go` is the answer under two rows: what go accepts, or the lone option.
 export type Offer = { title: string; rows: Row[]; why: string; go: string }
@@ -11,6 +14,10 @@ const FAINT = '#808286'
 
 // Null hides the band.
 let offer: Offer | null = null
+
+const t = tracer('picks')
+// The band's last recorded state: a render runs on every scroll and keystroke, so only a change is traced.
+let lastBand = ''
 
 const question = (s: string) => {
   const t = s.trim().replace(/[.:]$/, '')
@@ -160,26 +167,44 @@ const carried = async ($: { session: { messages: () => Promise<{ role: string; t
 }
 
 export const register: Register = on => {
+  on('session.start', async ($, e, next) => {
+    await t.start(traceIo($))
+    return next(e)
+  })
+
   on('turn.complete', async ($, e, next) => {
     if (e.reason === 'answer' && !e.agentId) {
-      offer = parse(e.answer) ?? await carried($)
+      const parsed = parse(e.answer)
+      offer = parsed ?? await carried($)
+      t.event('picks.offer', {
+        matched: !!offer,
+        source: parsed ? 'reply' : offer ? 'carried' : 'none',
+        title: offer?.title,
+        options: offer?.rows.length ?? 0,
+        picked: offer?.rows.find(row => row.picked)?.id,
+      })
       $.ui.invalidate('ui.render')
-    }
+    } else t.event('picks.offer', { skipped: e.agentId ? 'agent turn' : e.reason }, 'debug')
     const result = await next(e)
     // After next: the box takes no suggestion while the turn still runs.
     const text = offer && e.reason === 'answer' && !e.agentId ? suggestion(offer) : null
     if (text) await $.prompt.suggest({ text })
+    if (offer && e.reason === 'answer' && !e.agentId) t.event('picks.suggest', { filled: !!text })
     return result
   })
 
   // The engine's own next-prompt guess would replace the pick; another mod's is left alone.
   on('prompt.suggest', async ($, e, next) => {
     const text = offer && e.origin.kind === 'suggestion' ? suggestion(offer) : null
+    if (offer && e.origin.kind === 'suggestion') t.event('picks.suggest', { replaced: !!text }, 'debug')
     return next(text ? { ...e, text } : e)
   })
 
   on('prompt.submit', async ($, e, next) => {
+    t.turn()
+    void t.flush(traceIo($))
     if (offer) {
+      t.event('picks.offer', { cleared: 'prompt sent' }, 'debug')
       offer = null
       $.ui.invalidate('ui.render')
     }
@@ -189,13 +214,20 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     offer = null
     $.ui.invalidate('ui.render')
+    await t.flush(traceIo($))
     return next(e)
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const shown = offer
+    const hidden = !shown ? 'no offer' : shown.rows.length < 2 ? 'under two options' : e.props.isWorking ? 'turn running' : e.props.hasSurvey ? 'survey open' : ''
+    const key = hidden ? `hidden:${hidden}` : `shown:${shown!.title}`
+    if (key !== lastBand) {
+      lastBand = key
+      t.event('picks.band', hidden ? { shown: false, reason: hidden } : { shown: true, options: shown!.rows.length })
+    }
     // Under two options there is nothing to choose: the suggestion alone answers.
-    if (!shown || shown.rows.length < 2 || e.props.isWorking || e.props.hasSurvey) return next(e)
+    if (!shown || hidden) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
     const theirs = await next(e)
     const sends = shown.rows.slice(0, MAX_ROWS).map(row => ({ key: `pick:${row.id}`, text: row.text, picked: row.picked, send: answer(row) }))
