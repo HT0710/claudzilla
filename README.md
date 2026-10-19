@@ -49,7 +49,7 @@ curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh |
 | `toast` | update notice |
 | `attribution` | commit credit |
 
-`core` is not in the menu; `--add` and `--remove` accept it. The updater always ships. Your choice is saved, see [How install works](CONFIGURATION.md#how-install-works).
+`core` is not in the menu; `--add` and `--remove` accept it. The updater always ships; it also carries the guide and `/claudzilla report`. Your choice is saved, see [How install works](CONFIGURATION.md#how-install-works).
 
 Safe to re-run. Anything replaced is backed up to `~/.claude/.claudzilla-backup/`.
 
@@ -94,13 +94,14 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 - **Clean history:** Conventional Commits enforced, Claude session links stripped from commits and PRs ([details](plugins/attribution/README.md)).
 
 ### A better terminal
-- **Statusline:** cwd, branch, context / 5h / weekly meters, model, effort, active skill.
+- **Statusline:** cwd, branch, context / 5h / weekly meters, model, effort, active skill, claudzilla version.
 
   <img src=".github/assets/statusline.png" alt="Statusline: cwd, branch, context, 5-hour and weekly meters, model, effort and active skill" width="720">
 
 - **Prompt panel:** `/panel` lists this chat's prompts; click to jump, reuse or rewind ([details](plugins/panel/README.md)).
 - **Update toasts:** updates install in the background and say so ([details](plugins/update-toast/README.md)).
 - **Theme + settings:** muted dark truecolor theme, `opus[1m]`, normal permission prompts.
+- **Local trace:** a record of what claudzilla's parts did, kept in `~/.claude/claudzilla-trace/`, never uploaded; `{"rulesGuard":{"trace":false}}` in `~/.claude/claudzilla.json` turns it off. See the guide topic `bugs` (`/claudzilla bugs`).
 
 ### Skills and commands
 
