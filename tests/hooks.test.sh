@@ -652,4 +652,16 @@ UT="$UC/claudzilla-trace/nosession.update.jsonl"
 check "trace: updater logs update.check and update.start" bash -c "grep -q '\"event\":\"update.check\"' '$UT' && grep -q '\"event\":\"update.start\"' '$UT'"
 check "updater stdout still the notice" has "$uout" "update v1.0.0 available"
 
+# --- release sync: a PR merge reminds to rebase the open release branch onto main ---
+W=$(repo); cd "$W"; new_session; hook UserPromptSubmit prompt=merge >/dev/null
+check "release sync: no release branch, no reminder" [ -z "$(sh_ 'gh pr merge 5 --rebase')" ]
+git branch release/1.9; git branch release/1.10
+out=$(sh_ 'gh pr merge 5 --repo o/r --rebase')
+check "release sync: merge reminds" reminded "$out"
+check "release sync: names the newest release branch" has "$out" "release/1.10"
+check "release sync: other gh pr commands quiet" [ -z "$(sh_ 'gh pr view 5')" ]
+mcfg '{"rulesGuard":{"rules":{"releaseSync":"off"}}}'
+check "release sync: off" [ -z "$(sh_ 'gh pr merge 5')" ]
+rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"
+
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

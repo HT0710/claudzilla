@@ -39,7 +39,7 @@ const GATE = ["deny", "remind", "off"];
 const LEVELS = {
   pushVerify: GATE, prSkill: GATE, forcePush: GATE, discard: GATE, mainCommit: GATE,
   commitSubject: GATE, sessionLink: GATE, envStaged: GATE, worktreePath: GATE,
-  debugTrigger: ["remind", "off"], reviewTrigger: ["remind", "off"], debugGate: ["remind", "off"],
+  debugTrigger: ["remind", "off"], reviewTrigger: ["remind", "off"], debugGate: ["remind", "off"], releaseSync: ["remind", "off"],
   specExclude: ["on", "off"],
   doneClaim: ["now", "flag", "off"], tldr: ["flag", "off"], emoji: ["flag", "off"], brInTable: ["flag", "off"], boxAlign: ["flag", "off"], tableWidth: ["flag", "off"],
 };
@@ -274,6 +274,7 @@ const WHY = {
   sessionLink: "No Claude session link (git.md:55).",
   envStaged: "`.env` staged; unstage it (git.md:21).",
   worktreePath: "Worktree goes at ../<repo>-<slug> (git.md:27).",
+  releaseSync: "If this merge lands on main, rebase the open release branch onto main and push it with --force-with-lease, after the user's ok (docs/how-i-work.md, Fix released code).",
 };
 function firedRules(text) {
   const ids = [];
@@ -523,6 +524,14 @@ function prGates({ op, describes }, cwd, text, s, hits) {
   hit("prSkill", describes && !s.skills.includes("pr") && WHY.prSkill);
 }
 
+// The base isn't known before the merge, so the reminder is conditional; quiet in repos with no release/* branch.
+function releaseSync(cwd, hits) {
+  const names = git(cwd, "for-each-ref", "--format=%(refname:short)", "refs/heads/release/", "refs/remotes/origin/release/")
+    .split("\n").filter(Boolean).map((n) => n.replace(/^origin\//, ""));
+  const newest = names.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0];
+  hitter(loadConfig(cwd).cfg, hits)("releaseSync", newest && `${WHY.releaseSync} Release branch: ${newest}.`);
+}
+
 const SHELLS = new Set(["bash", "sh", "zsh"]);
 const KEYWORDS = new Set(["if", "then", "elif", "else", "while", "until", "do", "!", "{", "time"]);
 // ponytail: wrapper args aren't parsed; the segment is cut at the first command we check, so `sudo echo git push` over-matches.
@@ -550,7 +559,11 @@ function checkBash(cmd, cwd, s) {
   for (const t of expand(cmd)) {
     if (t[0] === "cd" && t[1]) { cwd = resolve(cwd, t[1]); continue; }
     if (t[0] === "git") checkGit(t, cwd, cmd, s, hits, branches);
-    else if (t[0] === "gh") { const pr = ghPr(t, cwd, cmd); if (pr) prGates(pr, cwd, cmd, s, hits); }
+    else if (t[0] === "gh") {
+      const pr = ghPr(t, cwd, cmd);
+      if (pr) prGates(pr, cwd, cmd, s, hits);
+      else if (/\bpr merge\b/.test(t.join(" "))) releaseSync(cwd, hits);
+    }
     // Any other command counts as the check, even earlier in this same command line.
     else if (hasSkill(s, VERIFY) && !NOT_CHECK.has(t[0])) s.checked = true;
   }
