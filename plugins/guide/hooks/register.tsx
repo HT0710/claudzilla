@@ -1,6 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
+import { tracer } from './trace'
+import { traceIo } from './trace-io'
+
+const t = tracer('guide')
+
 const PAD = 2
 // Rows the stacked topics and section keep however far the divider is dragged.
 const MIN_TOC = 3
@@ -124,7 +129,13 @@ last=$(git -C "$r" describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null)
 next=$([ -n "$last" ] && git -C "$r" log --format='%s%n%b' "$last..HEAD" | sh "$r/.github/next-version.sh" "$last")
 printf '%s\\n%s\\n' "$r" "\${next:-$last}"`
 
-type Guide = { version?: string; sections?: Section[] }
+// `report` alone gives '', `report <text>` the text; any other first word, undefined.
+export function reportArgs(args: string): string | undefined {
+  const m = /^report(?:\s+([\s\S]*))?$/i.exec(args.trim())
+  return m ? (m[1] ?? '').trim() : undefined
+}
+
+type Guide = { version?: string; sections?: Section[]; repo?: string }
 
 let guide: Promise<Guide> | undefined
 let slug = 'start'
@@ -147,17 +158,99 @@ async function load($: EngineInterface): Promise<Guide> {
   const [repo, version] = found?.exitCode === 0 ? found.stdout.split('\n') : []
   if (!repo) return {}
   const md = await $.fs.read(`${repo}/GUIDE.md`).catch(() => undefined)
-  return { version: version || undefined, sections: md === undefined ? undefined : parse(md) }
+  return { repo, version: version || undefined, sections: md === undefined ? undefined : parse(md) }
+}
+
+// Key names only, dotted: values may be private.
+const keyNames = (v: unknown, prefix = ''): string[] =>
+  v && typeof v === 'object' && !Array.isArray(v) ? Object.entries(v).flatMap(([k, x]) => keyNames(x, prefix + k + '.')) : prefix ? [prefix.slice(0, -1)] : []
+
+// Every source is optional: one that fails leaves its field out.
+async function snapshot($: EngineInterface, columns: number | undefined) {
+  const run = async (argv: string[]) => {
+    const r = await $.process.run(argv).catch(() => undefined)
+    return r?.exitCode === 0 ? r.stdout.trim() : undefined
+  }
+  const sh = (cmd: string) => run(['sh', '-c', cmd])
+  const home = await $.env.get('HOME').catch(() => undefined)
+  const dir = (await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined)) || `${home}/.claude`
+  const json = async (name: string) => JSON.parse(await $.fs.read(`${dir}/${name}`)) as Record<string, unknown>
+  const g = await (guide ??= load($)).catch(() => ({}) as Guide)
+  const git = (...args: string[]) => (g.repo ? run(['git', '-C', g.repo, ...args]) : Promise.resolve(undefined))
+  const [commit, branch, status, os, node, size, version, settings, overrides, config] = await Promise.all([
+    git('rev-parse', 'HEAD'),
+    git('branch', '--show-current'),
+    git('status', '--porcelain'),
+    sh('uname -sr'),
+    sh('node -v'),
+    sh('stty size </dev/tty'),
+    $.session.version().catch(() => undefined),
+    json('settings.json').catch(() => undefined),
+    json('settings.overrides.json').catch(() => undefined),
+    json('claudzilla.json').catch(() => undefined),
+  ])
+  const rowCount = Number(size?.split(' ')[0])
+  return {
+    version: g.version,
+    commit,
+    branch,
+    dirty: status === undefined ? undefined : status !== '',
+    claudeCode: version?.version,
+    os,
+    node,
+    columns,
+    rows: rowCount > 0 ? rowCount : undefined,
+    // shortcut: $.ui.panes() lists only this plugin's panes, so it is not the whole screen; upgrade when the API lists all.
+    panes: (await $.ui.panes().catch(() => [])).map(p => p.id),
+    mods: Object.entries((settings?.enabledPlugins as Record<string, unknown> | undefined) ?? {}).filter(([k, v]) => v && k.endsWith('@claudzilla')).map(([k]) => k),
+    overrideKeys: overrides && keyNames(overrides),
+    configKeys: config && keyNames(config),
+  }
 }
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'claudzilla', description: 'The claudzilla guide, one section at a time', argumentHint: '[topic]', immediate: true })
+    await t.start(traceIo($))
+    await $.command.register({ name: 'claudzilla', description: 'The claudzilla guide, one section at a time', argumentHint: '[topic | report [what happened]]', immediate: true })
+
+    return next(e)
+  })
+
+  on('prompt.submit', async ($, e, next) => {
+    t.turn()
+    void t.flush(traceIo($))
+
+    return next(e)
+  })
+
+  on('session.end', async ($, e, next) => {
+    await t.flush(traceIo($))
 
     return next(e)
   })
 
   on('command.run', { command: 'claudzilla' }, async ($, e) => {
+    const description = reportArgs(e.args)
+    if (description !== undefined) {
+      t.event('report.snapshot', await snapshot($, e.presentation?.columns).catch(() => ({})))
+      await t.flush(traceIo($))
+      // command.run rejects inside this hook, so the skill starts once the hook has returned; a draft in the box if it won't.
+      const fill = () => $.prompt.fill({ text: `/claudzilla-report ${description}` }).catch(() => undefined)
+      const go = async () => {
+        try {
+          await $.command.run({ command: 'claudzilla-report', args: description })
+        } catch {
+          await fill()
+        }
+      }
+      try {
+        await Promise.resolve($.clock.after(500, go))
+      } catch {
+        await fill()
+      }
+
+      return {}
+    }
     // Bare, it toggles like /panel (alt+g); a topic opens that topic either way.
     if (!e.args.trim() && (await $.ui.panes()).some(pane => pane.id === PANE)) {
       await $.ui.close({ id: PANE })

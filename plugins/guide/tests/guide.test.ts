@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { find, fit, parse, rows } from '../hooks/register'
+import { find, fit, parse, reportArgs, rows } from '../hooks/register'
 
 const MD = '# claudzilla guide\n\n## Basics\n\n### What claudzilla is\n<!-- topic: start -->\n\nIntro.\n\n### Talk to Claude\n<!-- topic: talk -->\n\nSay it.\n\n## Screen\n\n### The picks card\n<!-- topic: picks -->\n\nDigits.\n'
 
@@ -33,11 +33,14 @@ const MISSING = 'Guide not found. Read it at https://github.com/HT0710/claudzill
 const props = (bodyColumns = 100, placement: 'dock' | 'inline' = 'dock', bodyRows = 40) => ({ title: 'guide', isFocused: true, bodyColumns, placement, scroll: { offset: 0, bodyRows }, view: {} })
 
 // Stands for the clone lookup and GUIDE.md; drives /claudzilla the way a session does.
-function host(on: Parameters<TestBody>[1], { stdout = '/repo\nv1.4.0\n', exitCode = 0, guide = MD as string | null } = {}) {
+function host(on: Parameters<TestBody>[1], { stdout = '/repo\nv1.4.0\n', exitCode = 0, guide = MD as string | null, proc = undefined as ((c: string) => ReturnType<typeof ran>) | undefined, files = undefined as ((p: string) => string | undefined) | undefined } = {}) {
   const seen = { registered: [] as unknown[], opened: [] as any[], closed: [] as any[], read: [] as string[] }
-  on('process.run', () => ran(exitCode, stdout))
+  on('process.run', (_, e: any) => proc?.(e.argv.join(' ')) ?? ran(exitCode, stdout))
   on('fs.read', (_, e: any) => {
+    if (e.path.endsWith('/.off')) throw new Error('ENOENT')
     seen.read.push(e.path)
+    const f = files?.(e.path)
+    if (f !== undefined) return { value: f }
     if (guide === null) throw new Error('ENOENT')
     return { value: guide }
   })
@@ -72,7 +75,7 @@ const wheel = ($: Parameters<TestBody>[0], by: number, pointer?: { column: numbe
 test('registers /claudzilla with a topic hint', async ($, on) => {
   const seen = host(on)
   await $.session.start(start)
-  expect(seen.registered).toContainEqual(expect.objectContaining({ name: 'claudzilla', argumentHint: '[topic]' }))
+  expect(seen.registered).toContainEqual(expect.objectContaining({ name: 'claudzilla', argumentHint: '[topic | report [what happened]]' }))
 })
 
 test('bare /claudzilla toggles the guide; a topic opens it either way', async ($, on) => {
@@ -309,4 +312,76 @@ test('a pane narrower than a table draws it as lines', async ($, on) => {
   host(on, { guide: MD.replace('Say it.', `Say it.\n\n${TABLE}`) })
   const ui = await open($, 'talk', 20)
   expect((await ui.find({ type: 'Markdown' }))?.props.text).toContain('**`go`** — accept every recommendation  \n')
+})
+
+test('reportArgs: the word report, any case, then the description', () => {
+  expect(reportArgs('report')).toBe('')
+  expect(reportArgs('Report the panel is blank')).toBe('the panel is blank')
+  expect(reportArgs('picks')).toBeUndefined()
+  expect(reportArgs('reporting')).toBeUndefined()
+})
+
+test('report writes a snapshot and flushes', async ($, on) => {
+  const writes: { path: string; text: string }[] = []
+  const timers: [number, () => void][] = []
+  const handoff: unknown[] = []
+  const order: string[] = []
+  const proc = (c: string) => {
+    if (c.includes('rev-parse HEAD')) return ran(0, 'abc123\n')
+    if (c.includes('--show-current')) return ran(0, 'feat/x\n')
+    if (c.includes('status')) return ran(0, ' M a\n')
+    if (c.includes('uname')) return ran(0, 'Linux 6\n')
+    if (c.includes('node -v')) return ran(0, 'v22.1.0\n')
+    if (c.includes('stty')) return ran(0, '40 120\n')
+    return undefined
+  }
+  const files = (p: string) =>
+    ({
+      '/cfg/settings.json': '{"enabledPlugins":{"panel@claudzilla":true,"off@claudzilla":false,"x@other":true}}',
+      '/cfg/settings.overrides.json': '{"model":"secret-model","env":{"A":"b"}}',
+      '/cfg/claudzilla.json': '{"rulesGuard":{"trace":false}}',
+    })[p]
+  const seen = host(on, { proc, files })
+  on('env.get', (_, e: any) => ({ value: ({ CLAUDE_CONFIG_DIR: '/cfg', HOME: '/home/u' } as Record<string, string>)[e.name] }) as any)
+  on('session.id', () => ({ value: 's1' }) as any)
+  on('session.version', () => ({ value: { version: '2.1.9' } }) as any)
+  on('fs.write', (_, e: any) => { order.push('write'); writes.push({ path: e.path, text: e.text }); return { value: undefined } as any })
+  on('clock.after', (_, e: any) => { if (e.ms === 500) order.push('handoff'); timers.push([e.ms, e.fn]); return { value: undefined } as any })
+  on('command.run', (_, e: any) => { handoff.push(e); return { value: {} } as any })
+  await $.session.start(start)
+  await run($, 'report the panel is blank')
+  const row = writes.map(w => w.text).join('\n').split('\n').filter(Boolean).map(l => JSON.parse(l)).find(r => r.event === 'report.snapshot')
+  expect(row).toMatchObject({ part: 'guide', level: 'info' })
+  expect(row.data).toMatchObject({ version: 'v1.4.0', commit: 'abc123', branch: 'feat/x', dirty: true, claudeCode: '2.1.9', os: 'Linux 6', node: 'v22.1.0', columns: 120, rows: 40, mods: ['panel@claudzilla'], overrideKeys: ['model', 'env.A'], configKeys: ['rulesGuard.trace'] })
+  expect(JSON.stringify(row)).not.toContain('secret-model')
+  expect(seen.opened).toHaveLength(0)
+  // The harness hands over no callback: the hand-off is only seen scheduled, and not run inside the hook.
+  expect(timers.filter(([ms]) => ms === 500)).toHaveLength(1)
+  expect(handoff).toEqual([])
+  expect(order.indexOf('write')).toBeGreaterThanOrEqual(0)
+  expect(order.indexOf('write')).toBeLessThan(order.indexOf('handoff'))
+})
+
+test('report does not open the guide pane', async ($, on) => {
+  const seen = host(on)
+  await $.session.start(start)
+  await run($, 'report')
+  await run($, 'Report x')
+  expect(seen.opened).toHaveLength(0)
+  expect(seen.closed).toHaveLength(0)
+})
+
+test('report with every source failing still writes a snapshot and schedules the hand-off', async ($, on) => {
+  const timers: number[] = []
+  const writes: string[] = []
+  host(on, { proc: c => ({ value: { exitCode: c.includes('mkdir') ? 0 : 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }), guide: null })
+  on('env.get', (_, e: any) => ({ value: e.name === 'CLAUDE_CONFIG_DIR' ? '/cfg' : undefined }) as any)
+  on('session.id', () => ({ value: 's1' }) as any)
+  on('session.version', () => { throw new Error('x') })
+  on('fs.write', (_, e: any) => { writes.push(e.text); return { value: undefined } as any })
+  on('clock.after', (_, e: any) => { timers.push(e.ms); return { value: undefined } as any })
+  await $.session.start(start)
+  await run($, 'report')
+  expect(writes.join('')).toContain('report.snapshot')
+  expect(timers).toContain(500)
 })
