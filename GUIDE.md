@@ -329,6 +329,7 @@ To open or close the panel, press **alt+h** or type `/panel`. In the fullscreen 
 - **ASK:** how Claude read your request.
 - **PLAN:** its approach.
 - **STEPS:** its steps: `✓` done, `●` in progress, `○` pending.
+  - Agents Claude starts hang under their step: `○` planned, `◌` working, `✓` done, `✗` failed, `■` stopped. Past 3, the rest fold into `… N more`; click it to see them all, `… less` to fold them. Click an agent to open its transcript (its row lights blue); click it again, click its step, or press **Esc** to go back.
 
 From the moment you submit until Claude reports, the header shows `planning…` over last turn's dimmed report. The current step is lit blue. Claude fills ASK, PLAN and STEPS by calling a hidden `intent` tool at the start of each turn. TOPICS, ASK, PLAN and STEPS are written in the language you write in; the labels stay in English. Check ASK first: if Claude misread you, press **Esc** and correct it. Each report and each topics read uses a little of your usage limits; see *Usage and cost* (`/claudzilla limits`). To turn the reports off, set the panel's `intent` option to off in `/config`; it applies from the next session.
 
