@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Intent, Overview, Step, Tab } from '../types'
+import type { AgentRow, Intent, Overview, Spawn, Step, Tab } from '../types'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
@@ -57,6 +57,12 @@ const topicsTop = atom({ plugin: 'panel', key: 'topicsTop' } as const, 0)
 const EMPTY_INTENT: Intent = { wants: '', plan: '', steps: [], at: 0, ended: false }
 // Claude's last intent report.
 const intent = atom({ plugin: 'panel', key: 'intent' } as const, EMPTY_INTENT)
+// Agents the main loop started, kept past their end: no event says one finished, the list does.
+const spawns = atom({ plugin: 'panel', key: 'spawns' } as const, [] as Spawn[])
+// Bumped per user prompt: tells this turn's agents from earlier ones.
+const turns = atom({ plugin: 'panel', key: 'turns' } as const, 0)
+// The step whose agents all show, past the 3 each shows folded; -1 for none.
+const expanded = atom({ plugin: 'panel', key: 'expanded' } as const, -1)
 
 const EMPTY_OVERVIEW: Overview = { topics: [], running: false }
 // TOPICS: what this chat is about, read from its prompts alone.
@@ -70,6 +76,7 @@ const INTENT_RULE = [
   'Then start every later message that calls another tool with it again as {"now": n}, n the 1-based step you are working on;',
   'send wants, plan and steps again only when your plan changes. Never call it alone just to mark the last step done:',
   'your answer closes it. Do not mention the tool in your reply. Write wants, plan and steps in the language the user writes in.',
+  "When a step spawns agents, list each Agent call's description in that step's agents, exactly as you pass it, and keep listing them when you redraft.",
 ].join(' ')
 // An answer closed every step; an interrupt left some open, for pings to pick back up.
 const isAnswered = (now: Intent) => now.ended && now.steps.every(step => step.status === 'completed')
@@ -77,6 +84,16 @@ const isAnswered = (now: Intent) => now.ended && now.steps.every(step => step.st
 const runningAgents = async ($: EngineInterface) =>
   (await $.agent.list().catch(() => []))
     .filter(agent => agent.parentId === undefined && agent.spawnedBy === undefined && agent.teammateId === undefined && ['pending', 'running', 'waiting'].includes(agent.status))
+// A plugin's agent is dropped once the list names its plugin; one the list lost keeps its last status.
+const refreshSpawns = async ($: EngineInterface) => {
+  const listed = new Map((await $.agent.list().catch(() => [])).map(agent => [agent.id, agent]))
+  await update($, spawns, now =>
+    now.flatMap(one => {
+      const agent = listed.get(one.id)
+      return !agent ? [one] : agent.spawnedBy !== undefined ? [] : [{ ...one, status: agent.status }]
+    }),
+  )
+}
 const INTENT_SPEC = {
   name: 'intent',
   // The rule rides here, not in prompt.compose: the sec-default guard skips a user mod's system prompt edits.
@@ -92,7 +109,11 @@ const INTENT_SPEC = {
         type: 'array',
         items: {
           type: 'object',
-          properties: { text: { type: 'string' }, status: { enum: ['pending', 'in_progress', 'completed'] } },
+          properties: {
+            text: { type: 'string' },
+            status: { enum: ['pending', 'in_progress', 'completed'] },
+            agents: { type: 'array', items: { type: 'string' }, description: "each Agent call's description for this step, exactly as passed" },
+          },
           required: ['text', 'status'],
         },
       },
@@ -670,6 +691,28 @@ export const litPrompt = (prompts: Prompt[], times: number[], pinned?: { timesta
   return at >= 0 ? at : inView(prompts, times)
 }
 
+const WORKING = ['running', 'waiting', 'idle']
+const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
+// Agents under each step: by the description Claude listed, never by position, as a redraft reorders steps.
+// An earlier turn's agent fills a listed entry only while it works: a finished one would show old work as new.
+export const hang = (steps: Step[], spawns: Spawn[], turn: number): AgentRow[][] => {
+  const left = spawns.filter(one => one.turn === turn || (one.turn < turn && WORKING.includes(one.status)))
+  const rows = steps.map(step =>
+    (step.agents ?? []).map(description => {
+      const i = left.findIndex(one => same(one.description, description))
+      if (i < 0) return { description, status: 'planned' as const }
+      const [one] = left.splice(i, 1)
+      return { description: one.description, status: one.status }
+    }),
+  )
+  const current = steps.findIndex(step => step.status === 'in_progress')
+  for (const one of left.filter(one => one.turn === turn)) {
+    const at = steps.findIndex(step => step.text === one.step)
+    rows[at >= 0 ? at : current >= 0 ? current : steps.length - 1]?.push({ description: one.description, status: one.status })
+  }
+  return rows
+}
+
 export const register: Register = (on, options) => {
   // Off: Claude is never asked, so its prompt and tools stay as without the panel.
   const isIntentOn = options.intent !== false
@@ -719,8 +762,12 @@ export const register: Register = (on, options) => {
     await update($, topicsTop, () => 0)
     await update($, submitted, n => n + 1)
     // A background task's result carries the last request on: Claude pings its report, not a new one, so it reopens.
-    if (e.origin.kind === 'task-notification') await update($, intent, now => (now.wants ? { ...now, ended: false, agents: undefined } : { ...now, agents: undefined }))
-    else if (!e.command && !e.isMeta) {
+    if (e.origin.kind === 'task-notification') {
+      await refreshSpawns($)
+      await update($, intent, now => (now.wants ? { ...now, ended: false, agents: undefined } : { ...now, agents: undefined }))
+    } else if (!e.command && !e.isMeta) {
+      // One typed over a running turn joins it.
+      if (!e.turnId) await update($, turns, n => n + 1)
       $.clock.after(0, () => readOverview($))
       // Last turn's answered report is not this turn's: shown as it was, it read as current. Dimmed, planning… until Claude
       // reports; with intent off no report comes, so it just goes.
@@ -737,6 +784,7 @@ export const register: Register = (on, options) => {
   // closes them all; an interrupted or failed turn keeps the steps as Claude left them.
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
+    await refreshSpawns($)
     const close = e.reason === 'answer'
     if (e.agentId === undefined) {
       // A turn that ends while a background agent runs is not answered yet, even one started before the prompt:
@@ -778,23 +826,54 @@ export const register: Register = (on, options) => {
         )
       } else {
         const at = await $.clock.now()
+        const turn = await read($, turns)
         // A report missing ASK or PLAN keeps the last ones, or the tab goes blank.
         await update($, intent, now => ({
           wants: flat(String(report.wants ?? now.wants)),
           plan: flat(String(report.plan ?? now.plan)),
-          steps: Array.isArray(report.steps) ? report.steps.map(step => ({ ...step, text: flat(String(step.text)) })) : [],
+          steps: Array.isArray(report.steps)
+            ? report.steps.map(step => ({ ...step, text: flat(String(step.text)), agents: Array.isArray(step.agents) ? step.agents.map(one => flat(String(one))) : undefined }))
+            : [],
           at,
           ended: false,
+          turn,
         }))
+        await update($, expanded, () => -1)
       }
 
       return { result: 'ok' }
+    })
+
+    // Main-loop agents only: a subagent's or a teammate would read as Claude's own step work. A workflow's
+    // are left out too: the list never names them, so their rows would stay not started.
+    on('agent.spawn', async ($, e, next) => {
+      const result = await next(e)
+      const id = result.agentId
+      if (!id || e.parentAgentId !== undefined || e.isTeammate || e.workflow) return result
+      // A resumed agent keeps its record: only its status moves.
+      if (!(await read($, spawns)).some(one => one.id === id)) {
+        const shown = await read($, intent)
+        const turn = await read($, turns)
+        const step = shown.steps.find(one => one.status === 'in_progress')?.text ?? ''
+        await update($, spawns, now => [...now, { id, description: e.description, step, turn, status: 'pending' }])
+        // Whether Claude listed it: how often it does is the later consistency check.
+        t.event('agent.spawn', { listed: shown.steps.some(one => one.agents?.some(listed => same(listed, e.description))) })
+      }
+      await refreshSpawns($)
+
+      return result
     })
   }
 
   // Tabs switch here, not in their onPress: mid-turn, a click landing as a redraw swaps the tree
   // reached this hook but lost its onPress.
   on('ui.press', { requestId: PANE }, async ($, e, next) => {
+    // Agent rows redraw mid-turn too: their fold takes the tabs' route.
+    if (e.element === 'less' || e.element?.startsWith('more:')) {
+      await update($, expanded, () => (e.element === 'less' ? -1 : Number(e.element!.slice(5))))
+
+      return { element: e.element }
+    }
     const picked = TABS.find(one => one === e.element)
     if (!picked) return next(e)
     await pick($, picked)
@@ -843,6 +922,7 @@ export const register: Register = (on, options) => {
       // A read still running answers for the old chat.
       overviewSeq++
       await update($, intent, () => EMPTY_INTENT)
+      await update($, spawns, () => [])
       await update($, overview, () => EMPTY_OVERVIEW)
     }
 
@@ -1261,6 +1341,8 @@ export const register: Register = (on, options) => {
     } else {
       const shown = await read($, intent)
       const about = await read($, overview)
+      const agentRows = hang(shown.steps, await read($, spawns), shown.turn ?? -1)
+      const open = await read($, expanded)
       const width = e.props.bodyColumns - 2 * PAD
       // Only the first read builds the list; every later one updates the topics shown.
       const aboutHint = about.running ? (about.topics.length ? 'updating…' : 'reading…') : about.failed ? `couldn't read: ${about.failed}` : ''
@@ -1282,6 +1364,12 @@ export const register: Register = (on, options) => {
       // Last turn's report, waiting on this turn's, is dimmed whole.
       const MARK_SHADE = { completed: HUD.action, in_progress: 'claude', pending: HUD.faint }
       const TEXT_SHADE = { completed: SCOPE, in_progress: 'claude', pending: undefined }
+      // An agent marks as its step would: working lit, not started faint, ended its outcome; ended text a step back.
+      const AGENT_MARK: Record<AgentRow['status'], [string, string]> = {
+        planned: ['○', HUD.faint], pending: ['◌', HUD.faint], running: ['◌', 'claude'], waiting: ['◌', 'claude'], idle: ['◌', 'claude'],
+        completed: ['✓', HUD.action], failed: ['✗', TYPES.fix], killed: ['■', HUD.dirty],
+      }
+      const agentText = (status: AgentRow['status']) => (WORKING.includes(status) ? undefined : status === 'planned' || status === 'pending' ? HUD.faint : SCOPE)
       const shade = (color?: string) => (shown.waiting ? HUD.faint : color)
       const hasAbout = about.topics.length > 0 || about.running || !!about.failed
       const hasReport = !!(shown.wants || shown.waiting || shown.ended)
@@ -1398,12 +1486,37 @@ export const register: Register = (on, options) => {
                     <Text bold color={HUD.label}>STEPS</Text>
                   </Box>
                   <Box flexDirection="column">
-                    {shown.steps.map((step, i) => (
-                      <Box key={`step:${i}`}>
-                        <Text color={shade(MARK_SHADE[step.status])}>{MARK[step.status]} </Text>
-                        <Text color={shade(TEXT_SHADE[step.status])}>{fit(step.text, width - LABEL - 2)}</Text>
-                      </Box>
-                    ))}
+                    {shown.steps.flatMap((step, i) => {
+                      const all = agentRows[i] ?? []
+                      // Past 3, the rest fold into a count, so a fan-out does not push later steps out of view.
+                      const folds = all.length > 3
+                      const rows = folds && open !== i ? all.slice(0, 3) : all
+                      const hidden = all.slice(rows.length)
+                      const counts = ['◌', '✗', '■', '○', '✓']
+                        .map(glyph => [glyph, hidden.filter(row => AGENT_MARK[row.status][0] === glyph).length] as const)
+                        .flatMap(([glyph, n]) => (n ? `${n} ${glyph}` : []))
+                        .join(' ')
+                      const toggle = (key: string, label: string, to: number) => (
+                        <Button key={key} plain onPress={() => update($, expanded, () => to)}>
+                          <Text color={shade(HUD.faint)}>└ </Text>
+                          <Text color={shade(HUD.faint)}>{label}</Text>
+                        </Button>
+                      )
+                      return [
+                        <Box key={`step:${i}`}>
+                          <Text color={shade(MARK_SHADE[step.status])}>{MARK[step.status]} </Text>
+                          <Text color={shade(TEXT_SHADE[step.status])}>{fit(step.text, width - LABEL - 2)}</Text>
+                        </Box>,
+                        ...rows.map((row, j) => (
+                          <Box key={`agent:${i}:${j}`}>
+                            <Text color={shade(HUD.faint)}>{j === rows.length - 1 && !folds ? '└ ' : '├ '}</Text>
+                            <Text color={shade(AGENT_MARK[row.status][1])}>{AGENT_MARK[row.status][0]} </Text>
+                            <Text color={shade(agentText(row.status))}>{fit(row.description, width - LABEL - 4)}</Text>
+                          </Box>
+                        )),
+                        folds && (hidden.length ? toggle(`more:${i}`, `… ${hidden.length} more  ${counts}`, i) : toggle('less', '… less', -1)),
+                      ]
+                    })}
                   </Box>
                 </Box>
               ),
