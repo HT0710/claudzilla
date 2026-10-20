@@ -37,7 +37,10 @@ pull="${sw:+git $sw && }git merge --ff-only $to" cpull="${sw:+git -C $repo $sw &
 
 user="" claude="" why=""
 if [ -f "$res" ]; then
-  user=$(cat "$res"); rm -f "$res"; emit start "$user"
+  user=$(cat "$res"); rm -f "$res"
+  # Added on read: the job that wrote it ran the hook from before the update.
+  case $user in *": updated to "*) user="$user - for changes: /claudzilla news" ;; esac
+  emit start "$user"
   case $user in *auto-update*failed*)
     claude="The last claudzilla auto-update failed (log: $log). Only if the user asks, read the log, fix the cause, then run: $cpull && $repo/install.sh - then report the result." ;;
   esac
