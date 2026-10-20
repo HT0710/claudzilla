@@ -580,7 +580,7 @@ A guard file, such as `~/.claude/claudzilla.json`. If the file already has other
 
 #### How updates arrive
 
-Each feature or fix pushed to claudzilla's `main` branch ships as a release once its tests pass. At most once a day, a new session or `/clear` installs the newest release in the background. If you installed the update toast, a toast tells you when an update is available, installing, installed, or failed; otherwise a notice appears when a session starts. Restart Claude to apply an update. If the clone has local changes, the update waits and the notice gives the command to run. Auto-update is described in *What runs on its own* (`/claudzilla background`).
+Each feature or fix pushed to claudzilla's `main` branch ships as a release once its tests pass. At most once a day, a new session or `/clear` installs the newest release in the background. If you installed the update toast, a toast tells you when an update is available, installing, installed, or failed; otherwise a notice appears when a session starts. Restart Claude to apply an update; `/claudzilla news` lists what changed. If the clone has local changes, the update waits and the notice gives the command to run. Auto-update is described in *What runs on its own* (`/claudzilla background`).
 
 #### Update by hand
 
@@ -612,3 +612,21 @@ It asks first, then removes claudzilla's links, settings entries and plugins fro
 - Read each plugin's README: [panel](https://github.com/HT0710/claudzilla/blob/main/plugins/panel/README.md), [picks](https://github.com/HT0710/claudzilla/blob/main/plugins/picks/README.md), [response dividers](https://github.com/HT0710/claudzilla/blob/main/plugins/response-dividers/README.md), [attribution](https://github.com/HT0710/claudzilla/blob/main/plugins/attribution/README.md), [update toast](https://github.com/HT0710/claudzilla/blob/main/plugins/update-toast/README.md).
 - Learn Claude Code itself in [Claude Code's docs](https://code.claude.com/docs/en/overview).
 - claudzilla is built on [caveman](https://github.com/JuliusBrussee/caveman), [ponytail](https://github.com/DietrichGebert/ponytail), [superpowers](https://github.com/obra/superpowers) and [rtk](https://github.com/rtk-ai/rtk).
+
+### What's new
+<!-- topic: news -->
+
+Headline features of recent versions. Restart Claude after an update to use them.
+
+#### v1.5.0
+
+- Overview writes TOPICS, ASK, PLAN and STEPS in the language you write in.
+- Overview shows `◌ waiting on N agents` while Claude waits on agents it started.
+- Agents Claude starts show as rows under the step that started them. Click one to open its transcript; click it again or press Esc to go back.
+
+#### v1.4.0
+
+- `/claudzilla` opens this guide in a pane, and alt+g toggles it.
+- `/claudzilla report` drafts a problem report from a local trace of what each part did.
+- `install.sh` picks parts with `--full`, `--custom`, `--add` and `--remove`, and removes claudzilla with `--uninstall`.
+- The status line shows the claudzilla version.
