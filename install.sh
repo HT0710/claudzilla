@@ -201,7 +201,7 @@ Parts:
   ponytail - smallest-change coding
   dividers - response dividers
   rtk - token-saving command filter
-  toast - update notice
+  toast - update and usage notices
   attribution - commit credit
 EOF
   exit 2
