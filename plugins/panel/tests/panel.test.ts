@@ -223,8 +223,11 @@ test('the divider lights its grip while the pointer is over it', async ($, on) =
   const grip = async () => (await ui.find({ type: 'Text', text: '⇕', in: 'divider' }))?.props
 
   expect((await grip())?.inverse).toBeUndefined()
+  // The guide's colors: the rule's at rest, its lit grip's under the pointer.
+  expect((await grip())?.color).toBe('promptBorder')
   await ui.pointer({ type: 'enter', x: 0, y: 0, in: 'divider' })
   expect((await grip())?.inverse).toBe(true)
+  expect((await grip())?.color).toBe('claude')
   await ui.pointer({ type: 'leave', x: 0, y: 0, in: 'divider' })
   expect(await grip()).toBeDefined()
   expect((await grip())?.inverse).toBeUndefined()
@@ -761,7 +764,7 @@ test('⤓ latest reads the chat file\'s tail, and says so when no row of it scro
   await ui.press({ key: 'History' })
   const latest = await ui.find({ key: 'latest' })
   expect(latest?.text).toBe('⤓ latest')
-  // Yellow, apart from rewind's green, the back-to-top line's purple and Compacted's darker yellow.
+  // Yellow, apart from rewind's green, the back-to-top line's blue and Compacted's darker yellow.
   expect((await ui.find({ type: 'Text', text: '⤓ latest' }))?.props.color).toBe('#a8995a')
 
   // The test surface cannot scroll the chat: every row is refused.
@@ -1954,8 +1957,8 @@ test("Claude's intent report draws on the Overview tab", async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'write the spec' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^STEPS/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^ASK$/ })).toBeDefined()
-  // No TOPICS read yet: no Now divider to tie the report to a topic.
-  expect(await ui.find({ type: 'Text', text: 'Now' })).toBeUndefined()
+  // No TOPICS read yet: no divider to tie the report to a topic.
+  expect(await ui.find({ key: 'now' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /^● $/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^○ $/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^spec$/ })).toBeDefined()
@@ -2259,13 +2262,13 @@ test('TOPICS: Opus groups the prompts into topics, drawn newest first', async ($
   expect((await ui.find({ type: 'Text', text: 'Intent tab for the panel' }))?.props.color).toBe('#808286')
 })
 
-test('a report under TOPICS sits below a Now divider', async ($, on) => {
+test('a report under TOPICS sits below their divider', async ($, on) => {
   const { ui, clock } = await overviewPane($, on)
   await ui.press({ key: 'Overview' })
   await clock.settle()
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: 'Now', in: 'now' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '⇕', in: 'now' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
 })
 
@@ -2413,7 +2416,7 @@ const twelveTopics = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>
 }
 const topicShown = async (ui: { find: (q: any) => Promise<any> }, n: number) => (await ui.find({ type: 'Text', text: `topic ${n}` })) !== undefined
 
-test('dragging the Now divider gives TOPICS more rows', async ($, on) => {
+test('dragging the TOPICS divider gives TOPICS more rows', async ($, on) => {
   const ui = await twelveTopics($, on)
   // Newest first: topics 11 down to 5.
   expect(await topicShown(ui, 5)).toBe(true)
@@ -2428,7 +2431,7 @@ test('dragging the Now divider gives TOPICS more rows', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
 })
 
-test('the Now divider keeps 3 rows on either side', async ($, on) => {
+test('the TOPICS divider keeps 3 rows on either side', async ($, on) => {
   const ui = await twelveTopics($, on)
   // 14 free rows, 7 of TOPICS: up to 3 of them, down to 3 left for the report.
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'now' })
@@ -2446,27 +2449,7 @@ test('the Now divider keeps 3 rows on either side', async ($, on) => {
   expect(await topicShown(ui, 0)).toBe(false)
 })
 
-test('the Now divider shows Now, a grip on hover, lit while dragged', async ($, on) => {
-  const ui = await twelveTopics($, on)
-  const find = (text: string) => ui.find({ type: 'Text', text, in: 'now' })
-  expect(await find('Now')).toBeDefined()
-  expect(await find('⇕')).toBeUndefined()
-
-  await ui.pointer({ type: 'enter', x: 0, y: 0, in: 'now' })
-  expect(await find('Now')).toBeUndefined()
-  expect((await find('⇕'))?.props.inverse).toBeUndefined()
-
-  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'now' })
-  expect((await find('⇕'))?.props.inverse).toBe(true)
-  // Lit in the label's lighter purple.
-  expect((await find('⇕'))?.props.color).toBe('#a396d2')
-  await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: 'now' })
-  expect((await find('⇕'))?.props.inverse).toBeUndefined()
-  await ui.pointer({ type: 'leave', x: 0, y: 0, in: 'now' })
-  expect(await find('Now')).toBeDefined()
-})
-
-test('the wheel over TOPICS scrolls them under a Now that stays put; ↑ brings them back up', async ($, on) => {
+test('the wheel over TOPICS scrolls them under a divider that stays put; ↑ brings them back up', async ($, on) => {
   const ui = await twelveTopics($, on)
   // TOPICS starts on row 5, under the tabs, their rule, the status row, its rule and the header; once
   // scrolled, the back-to-top line takes its first row.
