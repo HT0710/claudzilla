@@ -1987,14 +1987,14 @@ test("a main turn's end marks the report ended; a subagent's does not", async ($
   expect(await ui.find({ type: 'Text', text: /^○ $/ })).toBeUndefined()
 })
 
-test('a main turn that ends on a background agent keeps the steps open', async ($, on) => {
+test('a main turn that ends on a background agent waits on it, the steps kept open', async ($, on) => {
   let status = 'running'
   on('agent.list', () => ({ value: [{ id: 'a1', description: 'sleep', type: 'general-purpose', status }] }) as any)
   const ui = await intentPane($, on)
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await turnEnd($)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: '● working' })).toBeDefined()
+  expect(await colorOf(ui, '◌ waiting on 1 agent')).toBe('planMode')
   expect(await ui.find({ type: 'Text', text: '0/2 steps' })).toBeDefined()
   status = 'completed'
   await turnEnd($)
@@ -2027,12 +2027,73 @@ test('an agent already running at the prompt holds that prompt\'s answer open to
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await turnEnd($)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: '● working' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '◌ waiting on 1 agent' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '0/2 steps' })).toBeDefined()
   status = 'completed'
   await turnEnd($)
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: '2/2 steps' })).toBeDefined()
+})
+
+test("waiting counts the agents; an agent's result or a new prompt is work again", async ($, on) => {
+  const agent = { description: 'sleep', type: 'general-purpose', status: 'running' }
+  on('agent.list', () => ({ value: [{ ...agent, id: 'a1' }, { ...agent, id: 'a2' }] }) as any)
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await turnEnd($)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '◌ waiting on 2 agents' })).toBeDefined()
+  await $.prompt.submit({ text: '<task-notification>', wait: false, origin: { kind: 'task-notification' } })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '● working' })).toBeDefined()
+  await turnEnd($)
+  await $.prompt.submit({ text: 'meanwhile', wait: false, origin: { kind: 'composer' } })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: /^◌ / })).toBeUndefined()
+})
+
+test('a turn with no report that ends on an agent waits on it too, then is done', async ($, on) => {
+  let status = 'running'
+  on('agent.list', () => ({ value: [{ id: 'a1', description: 'sleep', type: 'general-purpose', status }] }) as any)
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  const ui = await intentPane($, on)
+  await $.prompt.submit({ text: 'sleep in the background', wait: false, origin: { kind: 'composer' } })
+  await turnEnd($)
+  await ui.drawn()
+  expect(await colorOf(ui, '◌ waiting on 1 agent')).toBe('planMode')
+  expect(await ui.find({ type: 'Text', text: 'planning…' })).toBeUndefined()
+  await $.prompt.submit({ text: '<task-notification>', wait: false, origin: { kind: 'task-notification' } })
+  status = 'completed'
+  await turnEnd($)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: /^✓ done / })).toBeDefined()
+})
+
+test("waiting after an answered report shows none of that report's steps", async ($, on) => {
+  let agents: unknown[] = []
+  on('agent.list', () => ({ value: agents }) as any)
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await turnEnd($)
+  await $.prompt.submit({ text: 'sleep in the background', wait: false, origin: { kind: 'composer' } })
+  agents = [{ id: 'a1', description: 'sleep', type: 'general-purpose', status: 'running' }]
+  await turnEnd($)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '◌ waiting on 1 agent' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '2/2 steps' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'planning…' })).toBeUndefined()
+})
+
+test('a now ping while waiting on agents is work again', async ($, on) => {
+  on('agent.list', () => ({ value: [{ id: 'a1', description: 'sleep', type: 'general-purpose', status: 'running' }] }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await turnEnd($)
+  await $.tool.call({ tool: INTENT, now: 2 } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '● working' })).toBeDefined()
 })
 
 test('done shows the time the turn ended, not the time of the report', async ($, on) => {

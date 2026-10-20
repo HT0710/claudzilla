@@ -719,14 +719,14 @@ export const register: Register = (on, options) => {
     await update($, topicsTop, () => 0)
     await update($, submitted, n => n + 1)
     // A background task's result carries the last request on: Claude pings its report, not a new one, so it reopens.
-    if (e.origin.kind === 'task-notification') await update($, intent, now => (now.wants ? { ...now, ended: false } : now))
+    if (e.origin.kind === 'task-notification') await update($, intent, now => (now.wants ? { ...now, ended: false, agents: undefined } : { ...now, agents: undefined }))
     else if (!e.command && !e.isMeta) {
       $.clock.after(0, () => readOverview($))
       // Last turn's answered report is not this turn's: shown as it was, it read as current. Dimmed, planning… until Claude
       // reports; with intent off no report comes, so it just goes.
       await update($, intent, now =>
         !isIntentOn ? (isAnswered(now) ? EMPTY_INTENT : now)
-        : isAnswered(now) ? { ...now, ended: false, waiting: true } : !now.wants ? { ...EMPTY_INTENT, waiting: true } : now,
+        : isAnswered(now) ? { ...now, ended: false, waiting: true } : !now.wants ? { ...EMPTY_INTENT, waiting: true } : { ...now, agents: undefined },
       )
     }
 
@@ -741,7 +741,12 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined) {
       // A turn that ends while a background agent runs is not answered yet, even one started before the prompt:
       // a follow-up prompt often carries the same plan on. The agent's result reopens it.
-      if (close && (await runningAgents($)).length) return result
+      const agents = close ? (await runningAgents($)).length : 0
+      if (agents) {
+        // Waiting shows whether or not Claude reported this turn; with intent off there is no status row to show it.
+        await update($, intent, now => (now.wants || now.waiting ? { ...now, agents } : now))
+        return result
+      }
       const at = await $.clock.now()
       // No report this turn: done if answered; stopped has no steps to keep, so it shows nothing.
       await update($, intent, now =>
@@ -769,7 +774,7 @@ export const register: Register = (on, options) => {
         const current = report.now - 1
         const status = (i: number): Step['status'] => (i < current ? 'completed' : i === current ? 'in_progress' : 'pending')
         await update($, intent, now =>
-          isAnswered(now) || now.waiting || !now.steps.length ? now : { ...now, ended: false, steps: now.steps.map((step, i) => ({ ...step, status: status(i) })) },
+          isAnswered(now) || now.waiting || !now.steps.length ? now : { ...now, ended: false, agents: undefined, steps: now.steps.map((step, i) => ({ ...step, status: status(i) })) },
         )
       } else {
         const at = await $.clock.now()
@@ -1264,8 +1269,11 @@ export const register: Register = (on, options) => {
       const topicCount = about.topics.length ? `${about.topics.length} topic${about.topics.length === 1 ? '' : 's'}` : ''
       // Ended with every step closed: an answer; else interrupted or failed, as Claude left it.
       // Working is lit as History lights the prompt in view; done is the branch row's green; stopped Git's dirty amber.
+      // Waiting on agents takes plan mode's teal: the theme's other blues are working and the tabs.
       const [state, stateColor] = !shown.ended
-        ? ['● working', 'claude']
+        ? shown.agents
+          ? [`◌ waiting on ${shown.agents} agent${shown.agents === 1 ? '' : 's'}`, 'planMode']
+          : ['● working', 'claude']
         : done === shown.steps.length
           ? [`✓ done ${clock(shown.at)}`, HUD.action]
           : [`■ stopped ${clock(shown.at)}`, HUD.dirty]
@@ -1353,7 +1361,7 @@ export const register: Register = (on, options) => {
               // Before Claude's report, planning… holds it, and the TOPICS header keeps the hint.
               <Box key="state" justifyContent="space-between">
                 <Text color={stateColor}>{state}</Text>
-                <Text color={HUD.faint}>{shown.waiting ? 'planning…' : about.running ? aboutHint : stepCount}</Text>
+                <Text color={HUD.faint}>{shown.waiting ? (shown.agents ? '' : 'planning…') : about.running ? aboutHint : stepCount}</Text>
               </Box>,
               <Text key="rule" color="promptBorder">{'─'.repeat(width)}</Text>,
             ]}
