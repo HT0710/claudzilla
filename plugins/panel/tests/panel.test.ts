@@ -2286,6 +2286,13 @@ test('a reload with the Overview tab open reads TOPICS without waiting for a pro
   expect(asks).toHaveLength(2)
 })
 
+test('TOPICS asks for the user\'s language', async ($, on) => {
+  const { ui, clock, asks } = await overviewPane($, on)
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  expect(asks[0]!.prompt).toContain('language the user writes in')
+})
+
 test('TOPICS keeps its wording: later reads see the current topics', async ($, on) => {
   const { ui, clock, asks } = await overviewPane($, on)
   await ui.press({ key: 'Overview' })
