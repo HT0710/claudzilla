@@ -46,7 +46,7 @@ export async function watch($: EngineInterface, startedS: number, onFail: (note:
       }
       t.event('update.line', { kind: ev.kind, toast: true, at: ev.at })
       shown.add(raw)
-      $.ui.toast(ev.text, { timeoutMs: 15000 })
+      $.ui.toast(ev.text, { timeoutMs: 10000 })
       if (ev.kind === 'fail') {
         // The hook names its target, the newest release tag: retry to that, not the branch tip.
         const to = /auto-update to (\S+) failed/.exec(ev.text)?.[1] ?? '@{u}'
