@@ -357,8 +357,8 @@ check "auto: install.sh ran" [ -f "$U/home/ran" ]
 check "events: updating is a live line" grep -qE $'^[0-9]+\tlive\tclaudzilla: updating to [0-9a-f]{7,}$' "$ev"
 check "events: updated is a live line" grep -qE $'^[0-9]+\tlive\tclaudzilla: updated to [0-9a-f]{7,} - restart Claude to apply$' "$ev"
 check "events: background update is no line" bash -c '! grep -q "updating in background" "$1"' _ "$ev"
-check "auto: next session reports update" grep -q 'updated to [0-9a-f]\{7,\}"' <<<"$(notice)"
-check "events: consumed result is a start line" grep -qE $'^[0-9]+\tstart\tclaudzilla: updated to [0-9a-f]{7,}$' "$ev"
+check "auto: next session reports update" grep -q "updated to [0-9a-f]\\{7,\\} - for changes: /claudzilla news\"" <<<"$(notice)"
+check "events: consumed result is a start line" grep -qE $'^[0-9]+\tstart\tclaudzilla: updated to [0-9a-f]{7,} - for changes: /claudzilla news$' "$ev"
 check "auto: report shown once" [ -z "$(notice)" ]
 printf 'x\n' > "$U/seed/f"; g -C "$U/seed" add f; g -C "$U/seed" commit -m three; g -C "$U/seed" push origin main
 g -C "$U/clone" pull --ff-only; echo local >> "$U/clone/f"
