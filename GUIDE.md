@@ -389,7 +389,7 @@ Every request to Claude uses *tokens*: the text it reads, writes and thinks. On 
 
 - Run `/usage` to see your plan limits and when they reset.
 - If you installed the status line, its `5h` and `wk` meters show the same, with the time to each reset. See *The status line* (`/claudzilla hud`).
-- If you installed the `toast` part, a toast shows when the 5-hour or weekly limit passes 50%, 75% and 90%, such as `5h usage 77% · resets in 2h10m`. Each point shows once per limit window, even across sessions.
+- If you installed the `toast` part, a toast shows when the 5-hour or weekly limit passes 50%, 75% and 90%, such as `5-hour usage 77% · resets in 2h10m`. Each point shows once per limit window, even across sessions.
 
 #### What uses more
 
