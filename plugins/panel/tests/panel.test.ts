@@ -1,7 +1,9 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
+import type { AgentStatus } from 'claude-code'
+import type { Spawn, Step } from '../types'
 
-import { branchLine, dayLabel, gone, inView, keepNewest, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseTopics, pinHolds, readStamps, stampPattern } from '../hooks/register'
+import { branchLine, dayLabel, gone, hang, inView, keepNewest, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseTopics, pinHolds, readStamps, stampPattern } from '../hooks/register'
 
 // A process.run result with `stdout`.
 const ran = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -2684,4 +2686,211 @@ test('scrolling the History list alone writes no new pane.draw entry', async ($,
   expect(await ui.find({ key: 'top' })).toBeDefined()
   const after = await draws()
   expect(after.length).toBe(before)
+})
+
+const S = (text: string, status: Step['status'], agents?: string[]): Step => ({ text, status, agents })
+const sp = (id: string, description: string, step: string, turn: number, status: AgentStatus = 'running'): Spawn => ({ id, description, step, turn, status })
+
+test('hang: listed agents go under their step; unspawned are planned', () => {
+  const rows = hang([S('a', 'completed', ['Read x']), S('b', 'in_progress', ['Draw y', 'Draw z'])], [sp('1', 'read X ', 'a', 2, 'completed'), sp('2', 'Draw y', 'b', 2)], 2)
+  expect(rows).toEqual([[{ description: 'read X ', status: 'completed' }], [{ description: 'Draw y', status: 'running' }, { description: 'Draw z', status: 'planned' }]])
+})
+
+test('hang: one listed entry per agent; a repeated description lists twice', () => {
+  const rows = hang([S('a', 'in_progress', ['Review', 'Review'])], [sp('1', 'Review', 'a', 1), sp('2', 'Review', 'a', 1, 'completed')], 1)
+  expect(rows[0].map(r => r.status)).toEqual(['running', 'completed'])
+})
+
+test('hang: an unlisted agent falls back to its step by text, else the step in progress, else the last', () => {
+  const steps = [S('renamed', 'completed'), S('now', 'in_progress'), S('later', 'pending')]
+  expect(hang(steps, [sp('1', 'x', 'now', 1)], 1)[1]).toHaveLength(1)
+  expect(hang(steps, [sp('1', 'x', 'gone', 1)], 1)[1]).toHaveLength(1)
+  expect(hang([S('a', 'completed'), S('b', 'completed')], [sp('1', 'x', 'gone', 1)], 1)[1]).toHaveLength(1)
+})
+
+test("hang: an earlier turn's finished agent never fills a listed entry; a working one does", () => {
+  const steps = [S('a', 'in_progress', ['Review bugs'])]
+  expect(hang(steps, [sp('1', 'Review bugs', 'a', 1, 'completed')], 2)[0]).toEqual([{ description: 'Review bugs', status: 'planned' }])
+  expect(hang(steps, [sp('1', 'Review bugs', 'a', 1)], 2)[0][0].status).toBe('running')
+  expect(hang([S('a', 'in_progress')], [sp('1', 'old', 'a', 1)], 2)[0]).toEqual([])
+})
+
+test("hang: an agent spawned before this turn's report hangs under its in-progress step", () => {
+  expect(hang([S('b', 'in_progress')], [sp('1', 'x', 'old step', 3)], 3)[0]).toHaveLength(1)
+})
+
+const AGENTS_REPORT = { ...REPORT, steps: [{ text: 'spec', status: 'in_progress', agents: ['Read code'] }, { text: 'plan', status: 'pending', agents: ['Check API'] }] }
+// Core's spawn answers ids a1, a2, ...; the list answers each id's status from `status`.
+const agentsPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], status: Record<string, string>, extra: Record<string, object> = {}) => {
+  let n = 0
+  on('agent.spawn', () => ({ model: 'm', agentId: `a${++n}` }) as any)
+  on('agent.list', () => ({ value: Object.entries(status).map(([id, s]) => ({ id, description: id, type: 'Explore', status: s, ...extra[id] })) }) as any)
+  return intentPane($, on)
+}
+const spawn = ($: Parameters<TestBody>[0], description: string, extra = {}) => $.agent.spawn({ prompt: 'p', description, ...extra } as any)
+// An agent row: its whole text, then its glyph's and description's colors.
+const agentRow = async (ui: { find: (q: any) => Promise<any> }, step: number, n: number) => {
+  const row = await ui.find({ key: `agent:${step}:${n}` })
+  return row && { text: row.text as string, glyph: row.children[1]?.props?.color, color: row.children[2]?.props?.color }
+}
+
+test('a listed agent shows planned, then live under its step', async ($, on) => {
+  const status = { a1: 'running' }
+  const ui = await agentsPane($, on, status)
+  await $.tool.call({ tool: INTENT, ...AGENTS_REPORT } as any)
+  await ui.drawn()
+  expect(await agentRow(ui, 0, 0)).toEqual({ text: '└ ○ Read code', glyph: '#4f5c68', color: '#4f5c68' })
+  expect((await agentRow(ui, 1, 0))?.text).toBe('└ ○ Check API')
+  await spawn($, 'Read code')
+  await ui.drawn()
+  expect(await agentRow(ui, 0, 0)).toEqual({ text: '└ ◌ Read code', glyph: 'claude', color: undefined })
+  status.a1 = 'failed'
+  await turnEnd($, 'a1')
+  await ui.drawn()
+  expect((await agentRow(ui, 0, 0))?.text).toBe('└ ✗ Read code')
+})
+
+test('each agent status draws its glyph and color, in the order Claude listed them', async ($, on) => {
+  const ui = await agentsPane($, on, { a1: 'completed', a2: 'pending', a3: 'killed', a4: 'failed', a5: 'running' })
+  await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'in_progress', agents: ['c', 'p', 'k', 'f', 'r'] }] } as any)
+  for (const one of ['c', 'p', 'k', 'f', 'r']) await spawn($, one)
+  await ui.press({ key: 'more:0' })
+  await ui.drawn()
+  const rows = await Promise.all([0, 1, 2, 3, 4].map(n => agentRow(ui, 0, n)))
+  expect(rows).toEqual([
+    { text: '├ ✓ c', glyph: '#5d9678', color: '#808286' },
+    { text: '├ ◌ p', glyph: '#4f5c68', color: '#4f5c68' },
+    { text: '├ ■ k', glyph: '#8c7850', color: '#808286' },
+    { text: '├ ✗ f', glyph: '#e06c75', color: '#808286' },
+    { text: '├ ◌ r', glyph: 'claude', color: undefined },
+  ])
+})
+
+test('an unlisted agent hangs under the step in progress at spawn, and stays there across a redraft', async ($, on) => {
+  const ui = await agentsPane($, on, { a1: 'running' })
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await spawn($, 'extra')
+  await ui.drawn()
+  expect((await agentRow(ui, 0, 0))?.text).toBe('└ ◌ extra')
+  await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'plan', status: 'pending' }, { text: 'spec', status: 'in_progress' }] } as any)
+  await ui.drawn()
+  expect((await agentRow(ui, 1, 0))?.text).toBe('└ ◌ extra')
+  // Its step renamed away: the step now in progress takes it.
+  await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'plan', status: 'completed' }, { text: 'spec, take 2', status: 'in_progress' }] } as any)
+  await ui.drawn()
+  expect((await agentRow(ui, 1, 0))?.text).toBe('└ ◌ extra')
+})
+
+test("a new turn's report drops last turn's unlisted agents; a still-running one is counted, not drawn", async ($, on) => {
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  const ui = await agentsPane($, on, { a1: 'completed', a2: 'running' })
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await spawn($, 'zzold')
+  await spawn($, 'zzbg')
+  await turnEnd($)
+  await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } })
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await turnEnd($)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'zzold' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'zzbg' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: '◌ waiting on 1 agent' })).toBeDefined()
+})
+
+test('agents a subagent, a plugin or a team started get no row', async ($, on) => {
+  const ui = await agentsPane($, on, { a1: 'running', a2: 'running', a3: 'running' }, { a3: { spawnedBy: 'other' } })
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await spawn($, 'nested', { parentAgentId: 'x' })
+  await spawn($, 'mate', { isTeammate: true })
+  await spawn($, 'plugin')
+  await ui.drawn()
+  expect(await ui.find({ key: 'agent:0:0' })).toBeUndefined()
+})
+
+test('an answer closes the steps but agent rows keep their own marks', async ($, on) => {
+  const ui = await agentsPane($, on, { a1: 'killed' })
+  await $.tool.call({ tool: INTENT, ...AGENTS_REPORT } as any)
+  await spawn($, 'Read code')
+  await turnEnd($)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '2/2 steps' })).toBeDefined()
+  expect(await agentRow(ui, 0, 0)).toEqual({ text: '└ ■ Read code', glyph: '#8c7850', color: '#808286' })
+})
+
+test('a long agent description is fitted to the pane', async ($, on) => {
+  const ui = await agentsPane($, on, { a1: 'running' })
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await spawn($, 'x'.repeat(80))
+  await ui.drawn()
+  expect((await agentRow(ui, 0, 0))?.text).toBe(`└ ◌ ${'x'.repeat(24)}…`)
+})
+
+test("a dimmed report dims its agent rows", async ($, on) => {
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  const ui = await agentsPane($, on, { a1: 'completed' })
+  await $.tool.call({ tool: INTENT, ...AGENTS_REPORT } as any)
+  await spawn($, 'Read code')
+  await turnEnd($)
+  await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } })
+  await ui.drawn()
+  expect(await agentRow(ui, 0, 0)).toEqual({ text: '└ ✓ Read code', glyph: '#4f5c68', color: '#4f5c68' })
+})
+
+// Step 'spec' lists 5 agents (b1–b4 spawned, b5 not); 'plan' lists 4 none spawned.
+const crowded = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]) => {
+  const ui = await agentsPane($, on, { a1: 'completed', a2: 'completed', a3: 'running', a4: 'failed' })
+  await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'in_progress', agents: ['b1', 'b2', 'b3', 'b4', 'b5'] }, { text: 'plan', status: 'pending', agents: ['c1', 'c2', 'c3', 'c4'] }] } as any)
+  for (const one of ['b1', 'b2', 'b3', 'b4']) await spawn($, one)
+  await ui.drawn()
+  return ui
+}
+const textOf = async (ui: { find: (q: any) => Promise<any> }, key: string) => (await ui.find({ key }))?.text as string | undefined
+
+test('a step with 5 agents shows the first 3 in order, then a count of the rest', async ($, on) => {
+  const ui = await crowded($, on)
+  expect(await Promise.all([0, 1, 2, 3].map(n => agentRow(ui, 0, n).then(row => row?.text)))).toEqual(['├ ✓ b1', '├ ✓ b2', '├ ◌ b3', undefined])
+  expect(await textOf(ui, 'more:0')).toBe('└ … 2 more  1 ✗ 1 ○')
+  expect(await textOf(ui, 'more:1')).toBe('└ … 1 more  1 ○')
+})
+
+test('pressing more shows every agent of that step, less folds them, one step open at a time', async ($, on) => {
+  const ui = await crowded($, on)
+  await ui.press({ key: 'more:0' })
+  await ui.drawn()
+  expect((await agentRow(ui, 0, 4))?.text).toBe('├ ○ b5')
+  expect(await textOf(ui, 'less')).toBe('└ … less')
+  await ui.press({ key: 'more:1' })
+  await ui.drawn()
+  expect(await textOf(ui, 'more:0')).toBeDefined()
+  expect((await agentRow(ui, 1, 3))?.text).toBe('├ ○ c4')
+  await ui.press({ key: 'less' })
+  await ui.drawn()
+  expect(await textOf(ui, 'less')).toBeUndefined()
+  expect(await textOf(ui, 'more:1')).toBeDefined()
+})
+
+test("Claude's next full report folds an open step", async ($, on) => {
+  const ui = await crowded($, on)
+  await ui.press({ key: 'more:0' })
+  await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'in_progress', agents: ['b1', 'b2', 'b3', 'b4', 'b5'] }] } as any)
+  await ui.drawn()
+  expect(await textOf(ui, 'more:0')).toBe('└ … 2 more  1 ✗ 1 ○')
+})
+
+test('a prompt typed mid-turn keeps the turn: agents spawned after it still hang', async ($, on) => {
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  const ui = await agentsPane($, on, { a1: 'running' })
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await $.prompt.submit({ text: 'also this', wait: false, turnId: 't1', origin: { kind: 'composer' } } as any)
+  await spawn($, 'late')
+  await ui.drawn()
+  expect((await agentRow(ui, 0, 0))?.text).toBe('└ ◌ late')
+})
+
+test("a workflow's agents get no row: the list never names them, so they would stick at not started", async ($, on) => {
+  const ui = await agentsPane($, on, {})
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await spawn($, 'wf', { workflow: { runId: 'r1', agentIndex: 0 } })
+  await ui.drawn()
+  expect(await ui.find({ key: 'agent:0:0' })).toBeUndefined()
 })
