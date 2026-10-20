@@ -797,7 +797,7 @@ export const register: Register = (on, options) => {
     return { element: e.element }
   })
 
-  // A divider, dragged: Git's stops at the CHANGES title, the Overview's Now at TOPICS'; the render clamps the rest to the pane.
+  // A divider, dragged: the render clamps it to keep 3 rows on either side.
   on('ui.message', async ($, e, next) => {
     const rows = (e.data as { split?: unknown } | undefined)?.split
     if (e.requestId !== PANE || (e.element !== 'divider' && e.element !== 'now') || typeof rows !== 'number') return next(e)
@@ -1110,10 +1110,12 @@ export const register: Register = (on, options) => {
       const totalCount = total ? `${local ? '  ' : ''}${total} total` : ''
       // Rows left once the tabs, their rule, the branch, the rule under it, both headers and the
       // divider are drawn. CHANGES takes what it needs up to half, or what the divider was dragged
-      // to, none at least (the divider right under its title); COMMITS the rest, a row at least.
+      // to; COMMITS the rest. Dragged, each side keeps 3 rows, COMMITS first in a short pane.
       const free = e.props.scroll.bodyRows - 7
       const dragged = await read($, split)
-      const changesRows = Math.max(0, Math.min(dragged >= 0 ? dragged : Math.min(files.length, Math.ceil(free / 2)), free - 1))
+      const changesMax = Math.max(0, free - 3)
+      const changesMin = Math.min(3, changesMax)
+      const changesRows = dragged >= 0 ? Math.max(changesMin, Math.min(dragged, changesMax)) : Math.min(files.length, Math.ceil(free / 2), changesMax)
       // With no changes, no CHANGES header or divider: COMMITS takes their rows too.
       const commitsRows = Math.max(1, files.length ? free - changesRows : free + 2)
       const changed = `${files.length} changed`
@@ -1208,7 +1210,7 @@ export const register: Register = (on, options) => {
           {/* Only the terminal and desktop draw a Client: elsewhere the rule stays put. */}
           {files.length > 0 &&
             (Client ? (
-              <Client key="divider" module="./divider.tsx" props={{ split: changesRows }} height={1} />
+              <Client key="divider" module="./divider.tsx" props={{ split: changesRows, min: changesMin, max: changesMax }} height={1} />
             ) : (
               <Text color={DIM.label}>{bodyRule}</Text>
             ))}
@@ -1297,7 +1299,7 @@ export const register: Register = (on, options) => {
       // Newest first, the newest lit as History lights the prompt in view. With a report under them, TOPICS
       // take a zone of their own: the rows their wrapped lines need up to half of those left once the tabs,
       // their rule, the status row, its rule, the TOPICS header and the Now divider are drawn, or what the
-      // divider was dragged to; the wheel scrolls them in it.
+      // divider was dragged to, keeping 3 rows on either side; the wheel scrolls them in it.
       const topics = about.topics.map((topic, i) => ({ topic, i })).reverse()
       // shortcut: counts cells as if the text filled each row; a word wrap or a wide glyph takes more, so at
       // the scroll's end the oldest topic's last line can sit past the zone. Upgrade: count wrapped words.
@@ -1305,7 +1307,9 @@ export const register: Register = (on, options) => {
       const free = e.props.scroll.bodyRows - 6
       const draggedTopics = await read($, topicsSplit)
       const needed = topics.reduce((sum, one) => sum + lines(one.topic), 0)
-      const topicsRows = Math.max(0, Math.min(draggedTopics >= 0 ? draggedTopics : Math.min(needed, Math.ceil(free / 2)), free - 1))
+      const topicsMax = Math.max(0, free - 3)
+      const topicsMin = Math.min(3, topicsMax)
+      const topicsRows = draggedTopics >= 0 ? Math.max(topicsMin, Math.min(draggedTopics, topicsMax)) : Math.min(needed, Math.ceil(free / 2), topicsMax)
       // The last offset: the fewest oldest topics that fill the zone, less the back-to-top line once scrolled.
       const endRows = needed > topicsRows && topicsRows > 1 ? topicsRows - 1 : topicsRows
       let topicsEnd = topics.length
@@ -1373,7 +1377,7 @@ export const register: Register = (on, options) => {
             {/* Only the terminal and desktop draw a Client: elsewhere the divider stays put. */}
             {zoned &&
               (Client ? (
-                <Client key="now" module="./divider.tsx" props={{ split: topicsRows, label: 'Now' }} height={1} />
+                <Client key="now" module="./divider.tsx" props={{ split: topicsRows, min: topicsMin, max: topicsMax, label: 'Now' }} height={1} />
               ) : (
                 <Box key="now">
                   <Text color={DIM.label}>{'─'.repeat(Math.floor(fill / 2))} </Text>
