@@ -1,5 +1,5 @@
 {
   "name": "update-toast",
-  "description": "Toasts claudzilla update progress: available, updating, updated, failed",
+  "description": "Toasts claudzilla update progress (available, updating, updated, failed) and usage limits passing 50, 75 and 90%",
   "author": { "name": "HT0710", "url": "https://github.com/HT0710" }
 }

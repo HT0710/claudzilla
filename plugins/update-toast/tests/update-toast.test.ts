@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import type { On } from 'claude-code'
 
-import { due, parse } from '../hooks/register'
+import { crossed, due, parse } from '../hooks/register'
 
 const S = 1_000_000
 const ran = (exitCode: number, stdout: string) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -163,4 +163,80 @@ test('traces the toast shown', async ($, on) => {
   await until(() => seen.toasts.includes('end'))
   await $.session.end({ reason: 'other' })
   expect(rows().find(r => r.event === 'update.line' && r.data.kind === 'live')?.data).toMatchObject({ toast: true })
+})
+
+const NOW = Date.parse('2026-10-21T10:00:00Z')
+const IN_2H = '2026-10-21T12:10:00Z'
+const lim = (kind: string, percentUsed: number, resetsAt = IN_2H) => ({ kind, percentUsed, resetsAt })
+
+test('crossed: toasts the highest new point once per window', () => {
+  const first = crossed([lim('five_hour', 77)], {}, NOW)
+  expect(first.toasts).toEqual(['5h usage 77% · resets in 2h10m'])
+  expect(first.marks).toEqual({ five_hour: { resetsAt: IN_2H, at: 75 } })
+  expect(crossed([lim('five_hour', 80)], first.marks!, NOW)).toEqual({ toasts: [] })
+  expect(crossed([lim('five_hour', 91)], first.marks!, NOW).toasts).toEqual(['5h usage 91% · resets in 2h10m'])
+})
+
+test('crossed: below 50 or an unknown window toasts nothing', () => {
+  expect(crossed([lim('five_hour', 49.9), lim('spend_limit', 99)], {}, NOW)).toEqual({ toasts: [] })
+})
+
+test('crossed: the weekly window counts in days', () => {
+  expect(crossed([lim('seven_day', 50, '2026-10-24T13:00:00Z')], {}, NOW).toasts).toEqual(['wk usage 50% · resets in 3d3h'])
+})
+
+test('crossed: a past reset starts a new window', () => {
+  const old = { five_hour: { resetsAt: '2026-10-21T09:00:00Z', at: 90 } }
+  expect(crossed([lim('five_hour', 55)], old, NOW).toasts).toEqual(['5h usage 55% · resets in 2h10m'])
+})
+
+// A window keeps its reset time, give or take the API's rounding.
+test('crossed: a moved reset time inside the same window is no new window', () => {
+  const marks = { five_hour: { resetsAt: '2026-10-21T12:09:59Z', at: 75 } }
+  expect(crossed([lim('five_hour', 80)], marks, NOW)).toEqual({ toasts: [] })
+})
+
+test('crossed: with no reset time, usage falling below the mark is a new window', () => {
+  const marks = { five_hour: { at: 90 } }
+  expect(crossed([{ kind: 'five_hour', percentUsed: 95 }], marks, NOW)).toEqual({ toasts: [] })
+  const reset = crossed([{ kind: 'five_hour', percentUsed: 20 }], marks, NOW)
+  expect(reset).toEqual({ toasts: [], marks: { five_hour: { at: 0 } } })
+  expect(crossed([{ kind: 'five_hour', percentUsed: 52 }], reset.marks!, NOW).toasts).toEqual(['5h usage 52%'])
+})
+
+// A stale or malformed reading must not open a new window.
+test('crossed: skips a reading whose reset time is past or unreadable', () => {
+  expect(crossed([lim('five_hour', 95, '2026-10-21T09:00:00Z'), lim('seven_day', 95, 'soon')], {}, NOW)).toEqual({ toasts: [] })
+})
+
+function measured(on: On) {
+  const store = new Map<string, unknown>()
+  const toasts: string[] = []
+  on('store.get', (_, e) => ({ value: store.get(e.key) }))
+  on('store.set', (_, e) => { store.set(e.key, e.value); return { value: undefined } })
+  on('clock.now', () => ({ value: NOW }))
+  on('ui.toast', (_, e) => { toasts.push(e.text); return { value: undefined } })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  return { store, toasts }
+}
+const measure = ($: any, rateLimits: object[], changed = ['rateLimits']) => $.session.measure({ context: { window: 200000 }, rateLimits, changed })
+
+test('a measure toasts once across measures, through the store', async ($, on) => {
+  const { toasts } = measured(on)
+  await $.session.start({ ...start, isInteractive: true })
+  await measure($, [lim('five_hour', 60)])
+  await measure($, [lim('five_hour', 61)])
+  await measure($, [lim('five_hour', 95), lim('seven_day', 50)], ['context'])
+  await measure($, [lim('five_hour', 95), lim('seven_day', 50)])
+  expect(toasts).toEqual(['5h usage 60% · resets in 2h10m', '5h usage 95% · resets in 2h10m', 'wk usage 50% · resets in 2h10m'])
+})
+
+// A headless run would spend the point where nobody sees it.
+test('a non-interactive session neither toasts nor marks usage', async ($, on) => {
+  const { store, toasts } = measured(on)
+  await $.session.start({ cwd: '/proj', surface: null, isInteractive: false })
+  await measure($, [lim('five_hour', 80)])
+  expect(toasts).toEqual([])
+  expect(store.size).toBe(0)
 })
