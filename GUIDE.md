@@ -323,7 +323,7 @@ If you installed the panel, it is a pane with three tabs: Overview, History and 
 
 To open or close the panel, press **alt+h** or type `/panel`. In the fullscreen layout, on a terminal 110 columns or wider, it docks beside the chat; otherwise it opens over the prompt. It opens on the Overview tab; click a tab name to switch. On macOS, alt is the Option key, and your terminal must send it as Meta; see [Option key shortcuts on macOS](https://code.claude.com/docs/en/terminal-config#enable-option-key-shortcuts-on-macos).
 
-**Overview** shows, at the top, whether Claude is `● working`, `✓ done` or `■ stopped`, then:
+**Overview** shows, at the top, whether Claude is `● working`, `✓ done` or `■ stopped`, or, when its turn ended with background agents still running, `◌ waiting on N agents`, then:
 
 - **TOPICS:** what this chat is about. After each prompt, while the tab shows, Opus groups your prompts, and only your prompts, into topics.
 - **ASK:** how Claude read your request.
