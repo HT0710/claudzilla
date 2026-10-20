@@ -1,4 +1,4 @@
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, SessionRateLimit } from 'claude-code'
 
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
@@ -56,13 +56,45 @@ export async function watch($: EngineInterface, startedS: number, onFail: (note:
   }
 }
 
+const POINTS = [50, 75, 90]
+const WINDOWS: Record<string, string> = { five_hour: '5h', seven_day: 'wk' }
+// The highest point toasted in a window, and the window's reset time.
+export type Mark = { resetsAt?: string; at: number }
+
+function resetIn(resetsAt: string, nowMs: number): string {
+  const left = Math.max(0, Math.floor((Date.parse(resetsAt) - nowMs) / 60000))
+  const h = Math.floor(left / 60)
+  return h >= 24 ? `${Math.floor(h / 24)}d${h % 24}h` : `${h}h${left % 60}m`
+}
+
+// Toasts each window's highest newly crossed point; marks come back only when they changed.
+export function crossed(limits: SessionRateLimit[], marks: Record<string, Mark>, nowMs: number): { toasts: string[]; marks?: Record<string, Mark> } {
+  const toasts: string[] = []
+  let next: Record<string, Mark> | undefined
+  for (const { kind, percentUsed, resetsAt } of limits) {
+    const name = WINDOWS[kind]
+    // A reset time that is past or unreadable is a stale reading, not a new window.
+    if (!name || (resetsAt && !(Date.parse(resetsAt) > nowMs))) continue
+    const old = marks[kind]
+    // The reset time may shift a little within one window, so a window is new only once the old one has reset.
+    const same = !!old && (old.resetsAt ? Date.parse(old.resetsAt) > nowMs : percentUsed >= old.at)
+    const point = Math.max(0, ...POINTS.filter(p => p <= percentUsed && p > (same ? old.at : 0)))
+    if ((same || !old) && !point) continue
+    next = { ...(next ?? marks), [kind]: { resetsAt, at: point } }
+    if (point) toasts.push(`${name} usage ${percentUsed}%` + (resetsAt ? ` · resets in ${resetIn(resetsAt, nowMs)}` : ''))
+  }
+  return next ? { toasts, marks: next } : { toasts }
+}
+
 export const register: Register = on => {
   let note: string | undefined
+  let interactive = false
 
   on('session.start', async ($, e, next) => {
     await t.start(traceIo($))
     const started = await next(e)
     t.event('update.start', { interactive: !!e.isInteractive })
+    interactive = !!e.isInteractive
     if (!e.isInteractive) return started
     const startedS = Math.floor((await $.clock.now()) / 1000)
     // session.start is awaited before the first prompt: the watch runs on detached, for the module's life.
@@ -78,6 +110,19 @@ export const register: Register = on => {
     const context = [...(e.context ?? []), note]
     note = undefined
     return next({ ...e, context })
+  })
+
+  on('session.measure', async ($, e, next) => {
+    // A headless run would spend the point where nobody sees the toast.
+    if (interactive && e.changed.includes('rateLimits')) {
+      const { toasts, marks } = crossed(e.rateLimits, ((await $.store.get('usage')) ?? {}) as Record<string, Mark>, await $.clock.now())
+      if (marks) await $.store.set('usage', marks)
+      for (const text of toasts) {
+        t.event('usage.toast', { text })
+        $.ui.toast(text, { timeoutMs: 10000 })
+      }
+    }
+    return next(e)
   })
 
   on('session.end', async ($, e, next) => {
