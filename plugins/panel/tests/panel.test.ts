@@ -2462,6 +2462,11 @@ test('the rule asks for a now ping with every later tool message', async ($, on)
   expect(rule).toContain('{"now": n}')
 })
 
+test('the rule asks for the report in the user\'s language', async ($, on) => {
+  const { rule } = await registered($, on)
+  expect(rule).toContain('language the user writes in')
+})
+
 test('with a report, updating… takes the step count\'s place until TOPICS are read; TOPICS counts them', async ($, on) => {
   let answer: (value: unknown) => void = () => undefined
   const { ui, clock } = await overviewPane($, on, n => (n === 1 ? { isAnswered: true, text: TOPICS, usage: {} } : n === 2 ? new Promise(resolve => (answer = resolve)) : new Promise(() => undefined)))

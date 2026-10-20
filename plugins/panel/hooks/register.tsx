@@ -69,7 +69,7 @@ const INTENT_RULE = [
   `Call the \`${INTENT_TOOL}\` tool with wants, plan and steps at the start of every turn that answers a user prompt, as the first block of your message, before any other tool call in it.`,
   'Then start every later message that calls another tool with it again as {"now": n}, n the 1-based step you are working on;',
   'send wants, plan and steps again only when your plan changes. Never call it alone just to mark the last step done:',
-  'your answer closes it. Do not mention the tool in your reply.',
+  'your answer closes it. Do not mention the tool in your reply. Write wants, plan and steps in the language the user writes in.',
 ].join(' ')
 // An answer closed every step; an interrupt left some open, for pings to pick back up.
 const isAnswered = (now: Intent) => now.ended && now.steps.every(step => step.status === 'completed')
