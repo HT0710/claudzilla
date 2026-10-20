@@ -50,7 +50,7 @@ const split = atom({ plugin: 'panel', key: 'split' } as const, -1)
 const scrolled = atom({ plugin: 'panel', key: 'scrolled' } as const, { changes: 0, commits: 0 })
 // The History list's, on a key of its own: a reload keeps what older code stored under `scrolled`.
 const historyTop = atom({ plugin: 'panel', key: 'historyTop' } as const, 0)
-// Rows the Overview's TOPICS take, as the Now divider was dragged; -1 until it is. Then the first topic shown.
+// Rows the Overview's TOPICS take, as their divider was dragged; -1 until it is. Then the first topic shown.
 const topicsSplit = atom({ plugin: 'panel', key: 'topicsSplit' } as const, -1)
 const topicsTop = atom({ plugin: 'panel', key: 'topicsTop' } as const, 0)
 
@@ -906,18 +906,18 @@ export const register: Register = (on, options) => {
     const elements = $.ui.resolve(e)
     const { Box, Button, Text } = elements
     const Client = 'Client' in elements ? elements.Client : undefined
-    // History's day line with ↑ in it: back to a scrolled zone's top. Dim as the divider's grip at rest.
+    // A rule with ↑ in it: back to a scrolled zone's top, ↑ in the lit grip's color.
     // Only the symbol is the button: a Button lights as wide as it draws. Unshrunk, as the topics under it:
     // a zone's last row wrapping past its edge would squeeze it out.
     const topLine = (key: string, onPress: () => unknown) => {
       const fill = Math.max(0, e.props.bodyColumns - 2 * PAD - 3)
       return (
         <Box flexShrink={0}>
-          <Text color={DIM.label}>{'─'.repeat(Math.floor(fill / 2))} </Text>
+          <Text color="promptBorder">{'─'.repeat(Math.floor(fill / 2))} </Text>
           <Button key={key} plain onPress={onPress}>
-            <Text color={DIM.label}>↑</Text>
+            <Text bold color="claude">↑</Text>
           </Button>
-          <Text color={DIM.label}> {'─'.repeat(Math.ceil(fill / 2))}</Text>
+          <Text color="promptBorder"> {'─'.repeat(Math.ceil(fill / 2))}</Text>
         </Box>
       )
     }
@@ -1176,8 +1176,8 @@ export const register: Register = (on, options) => {
             <Text color={HUD.action}>⎇ {fit(branchLine(head), e.props.bodyColumns - 2 * PAD - changed.length - 3)}</Text>
             <Text color={HUD.faint}>{changed}</Text>
           </Box>
-          {/* History's day-line purple. */}
-          <Text color={DIM.label}>{bodyRule}</Text>
+          {/* The guide's rule color, as every panel rule but History's day lines. */}
+          <Text color="promptBorder">{bodyRule}</Text>
           {files.length > 0 && (
             <Box justifyContent="space-between">
               <Text bold color={HUD.label}>CHANGES</Text>
@@ -1212,7 +1212,7 @@ export const register: Register = (on, options) => {
             (Client ? (
               <Client key="divider" module="./divider.tsx" props={{ split: changesRows, min: changesMin, max: changesMax }} height={1} />
             ) : (
-              <Text color={DIM.label}>{bodyRule}</Text>
+              <Text color="promptBorder">{bodyRule}</Text>
             ))}
           {commits.length > 0 && (
             <Box justifyContent="space-between">
@@ -1291,14 +1291,12 @@ export const register: Register = (on, options) => {
       // A part after ASK opens under a rule from the text column to the edge.
       const partRule = (label: string) => (
         <Box key={`rule:${label}`} paddingLeft={LABEL}>
-          <Text color={DIM.label}>{'─'.repeat(Math.max(0, width - LABEL))}</Text>
+          <Text color="promptBorder">{'─'.repeat(Math.max(0, width - LABEL))}</Text>
         </Box>
       )
-      // History's day line: " Now " across the row.
-      const fill = Math.max(0, width - 5)
       // Newest first, the newest lit as History lights the prompt in view. With a report under them, TOPICS
       // take a zone of their own: the rows their wrapped lines need up to half of those left once the tabs,
-      // their rule, the status row, its rule, the TOPICS header and the Now divider are drawn, or what the
+      // their rule, the status row, its rule, the TOPICS header and their divider are drawn, or what the
       // divider was dragged to, keeping 3 rows on either side; the wheel scrolls them in it.
       const topics = about.topics.map((topic, i) => ({ topic, i })).reverse()
       // shortcut: counts cells as if the text filled each row; a word wrap or a wide glyph takes more, so at
@@ -1357,7 +1355,7 @@ export const register: Register = (on, options) => {
                 <Text color={stateColor}>{state}</Text>
                 <Text color={HUD.faint}>{shown.waiting ? 'planning…' : about.running ? aboutHint : stepCount}</Text>
               </Box>,
-              <Text key="rule" color={DIM.label}>{'─'.repeat(width)}</Text>,
+              <Text key="rule" color="promptBorder">{'─'.repeat(width)}</Text>,
             ]}
             {hasAbout && [
               <Box key="session" justifyContent="space-between">
@@ -1377,13 +1375,9 @@ export const register: Register = (on, options) => {
             {/* Only the terminal and desktop draw a Client: elsewhere the divider stays put. */}
             {zoned &&
               (Client ? (
-                <Client key="now" module="./divider.tsx" props={{ split: topicsRows, min: topicsMin, max: topicsMax, label: 'Now' }} height={1} />
+                <Client key="now" module="./divider.tsx" props={{ split: topicsRows, min: topicsMin, max: topicsMax }} height={1} />
               ) : (
-                <Box key="now">
-                  <Text color={DIM.label}>{'─'.repeat(Math.floor(fill / 2))} </Text>
-                  <Text color={HUD.label}>Now</Text>
-                  <Text color={DIM.label}> {'─'.repeat(Math.ceil(fill / 2))}</Text>
-                </Box>
+                <Text key="now" color="promptBorder">{'─'.repeat(width)}</Text>
               ))}
             {shown.wants && [
               labelled('ASK', shown.wants, shade()),
