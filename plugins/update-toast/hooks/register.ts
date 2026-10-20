@@ -57,7 +57,7 @@ export async function watch($: EngineInterface, startedS: number, onFail: (note:
 }
 
 const POINTS = [50, 75, 90]
-const WINDOWS: Record<string, string> = { five_hour: '5h', seven_day: 'wk' }
+const WINDOWS: Record<string, string> = { five_hour: '5-hour', seven_day: 'weekly' }
 // The highest point toasted in a window, and the window's reset time.
 export type Mark = { resetsAt?: string; at: number }
 

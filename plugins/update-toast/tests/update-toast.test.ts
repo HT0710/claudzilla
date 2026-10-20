@@ -171,10 +171,10 @@ const lim = (kind: string, percentUsed: number, resetsAt = IN_2H) => ({ kind, pe
 
 test('crossed: toasts the highest new point once per window', () => {
   const first = crossed([lim('five_hour', 77)], {}, NOW)
-  expect(first.toasts).toEqual(['5h usage 77% · resets in 2h10m'])
+  expect(first.toasts).toEqual(['5-hour usage 77% · resets in 2h10m'])
   expect(first.marks).toEqual({ five_hour: { resetsAt: IN_2H, at: 75 } })
   expect(crossed([lim('five_hour', 80)], first.marks!, NOW)).toEqual({ toasts: [] })
-  expect(crossed([lim('five_hour', 91)], first.marks!, NOW).toasts).toEqual(['5h usage 91% · resets in 2h10m'])
+  expect(crossed([lim('five_hour', 91)], first.marks!, NOW).toasts).toEqual(['5-hour usage 91% · resets in 2h10m'])
 })
 
 test('crossed: below 50 or an unknown window toasts nothing', () => {
@@ -182,12 +182,12 @@ test('crossed: below 50 or an unknown window toasts nothing', () => {
 })
 
 test('crossed: the weekly window counts in days', () => {
-  expect(crossed([lim('seven_day', 50, '2026-10-24T13:00:00Z')], {}, NOW).toasts).toEqual(['wk usage 50% · resets in 3d3h'])
+  expect(crossed([lim('seven_day', 50, '2026-10-24T13:00:00Z')], {}, NOW).toasts).toEqual(['weekly usage 50% · resets in 3d3h'])
 })
 
 test('crossed: a past reset starts a new window', () => {
   const old = { five_hour: { resetsAt: '2026-10-21T09:00:00Z', at: 90 } }
-  expect(crossed([lim('five_hour', 55)], old, NOW).toasts).toEqual(['5h usage 55% · resets in 2h10m'])
+  expect(crossed([lim('five_hour', 55)], old, NOW).toasts).toEqual(['5-hour usage 55% · resets in 2h10m'])
 })
 
 // A window keeps its reset time, give or take the API's rounding.
@@ -201,7 +201,7 @@ test('crossed: with no reset time, usage falling below the mark is a new window'
   expect(crossed([{ kind: 'five_hour', percentUsed: 95 }], marks, NOW)).toEqual({ toasts: [] })
   const reset = crossed([{ kind: 'five_hour', percentUsed: 20 }], marks, NOW)
   expect(reset).toEqual({ toasts: [], marks: { five_hour: { at: 0 } } })
-  expect(crossed([{ kind: 'five_hour', percentUsed: 52 }], reset.marks!, NOW).toasts).toEqual(['5h usage 52%'])
+  expect(crossed([{ kind: 'five_hour', percentUsed: 52 }], reset.marks!, NOW).toasts).toEqual(['5-hour usage 52%'])
 })
 
 // A stale or malformed reading must not open a new window.
@@ -229,7 +229,7 @@ test('a measure toasts once across measures, through the store', async ($, on) =
   await measure($, [lim('five_hour', 61)])
   await measure($, [lim('five_hour', 95), lim('seven_day', 50)], ['context'])
   await measure($, [lim('five_hour', 95), lim('seven_day', 50)])
-  expect(toasts).toEqual(['5h usage 60% · resets in 2h10m', '5h usage 95% · resets in 2h10m', 'wk usage 50% · resets in 2h10m'])
+  expect(toasts).toEqual(['5-hour usage 60% · resets in 2h10m', '5-hour usage 95% · resets in 2h10m', 'weekly usage 50% · resets in 2h10m'])
 })
 
 // A headless run would spend the point where nobody sees it.
