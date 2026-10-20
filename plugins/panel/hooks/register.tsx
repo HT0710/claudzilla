@@ -103,6 +103,7 @@ const OVERVIEW_ASK = [
   'These are the prompts a user sent in one coding-assistant chat, oldest first.',
   'Group them into topics: the pieces of work the chat covered, oldest first, the newest work last.',
   'Reply with only the topics, one per line, each starting "- ", at most 8 words.',
+  'Write them in the language the user writes in.',
 ].join(' ')
 // Regrouped from scratch, every read reworded every line; kept whole, broad topics swallowed new work
 // and went stale. Earlier lines stay, the last one follows the newest prompts (replayed over past chats).
