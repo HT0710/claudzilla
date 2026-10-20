@@ -2693,7 +2693,7 @@ const sp = (id: string, description: string, step: string, turn: number, status:
 
 test('hang: listed agents go under their step; unspawned are planned', () => {
   const rows = hang([S('a', 'completed', ['Read x']), S('b', 'in_progress', ['Draw y', 'Draw z'])], [sp('1', 'read X ', 'a', 2, 'completed'), sp('2', 'Draw y', 'b', 2)], 2)
-  expect(rows).toEqual([[{ description: 'read X ', status: 'completed' }], [{ description: 'Draw y', status: 'running' }, { description: 'Draw z', status: 'planned' }]])
+  expect(rows).toEqual([[{ id: '1', description: 'read X ', status: 'completed' }], [{ id: '2', description: 'Draw y', status: 'running' }, { description: 'Draw z', status: 'planned' }]])
 })
 
 test('hang: one listed entry per agent; a repeated description lists twice', () => {
@@ -2728,10 +2728,11 @@ const agentsPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1
   return intentPane($, on)
 }
 const spawn = ($: Parameters<TestBody>[0], description: string, extra = {}) => $.agent.spawn({ prompt: 'p', description, ...extra } as any)
-// An agent row: its whole text, then its glyph's and description's colors.
+// An agent row: its whole text, then its glyph's and description's colors, however deep its Texts sit.
+const texts = (node: any): any[] => (node?.type === 'Text' ? [node] : (node?.children ?? []).flatMap(texts))
 const agentRow = async (ui: { find: (q: any) => Promise<any> }, step: number, n: number) => {
   const row = await ui.find({ key: `agent:${step}:${n}` })
-  return row && { text: row.text as string, glyph: row.children[1]?.props?.color, color: row.children[2]?.props?.color }
+  return row && { text: row.text as string, glyph: texts(row)[1]?.props?.color, color: texts(row)[2]?.props?.color }
 }
 
 test('a listed agent shows planned, then live under its step', async ($, on) => {
@@ -2893,4 +2894,59 @@ test("a workflow's agents get no row: the list never names them, so they would s
   await spawn($, 'wf', { workflow: { runId: 'r1', agentIndex: 0 } })
   await ui.drawn()
   expect(await ui.find({ key: 'agent:0:0' })).toBeUndefined()
+})
+
+test("clicking a live agent row opens its transcript, its whole row lit while in view; clicking it again goes back", async ($, on) => {
+  const views: (string | undefined)[] = []
+  on('ui.view', (_, e) => {
+    views.push(e.agentId)
+    return { value: {} }
+  })
+  const ui = await agentsPane($, on, { a1: 'running' })
+  await $.tool.call({ tool: INTENT, ...AGENTS_REPORT } as any)
+  await spawn($, 'Read code')
+  await ui.drawn()
+  // The planned 'Check API' has no agent to open.
+  expect((await ui.findAll({ type: 'Button' })).filter(one => one.key?.startsWith('view:')).map(one => one.key)).toEqual(['view:a1'])
+  await ui.press({ key: 'view:a1' })
+  await ui.redraw({ ...props, view: { agentId: 'a1' } })
+  // Lit as the shown tab is: the whole row, padded to the pane's edge.
+  const lit = (await ui.find({ key: 'agent:0:0' })).text as string
+  expect(lit).toBe(`└ ◌ Read code${' '.repeat(40 - 4 - 7 - 13)}`)
+  expect((await ui.find({ type: 'Text', text: /^└ ◌ Read code/ }))?.props).toMatchObject({ bold: true, inverse: true, color: 'claude' })
+  await ui.press({ key: 'view:a1' })
+  expect(views).toEqual(['a1', undefined])
+})
+
+test('an agent the engine will not show says why', async ($, on) => {
+  const toasts: string[] = []
+  on('ui.view', () => ({ value: { deny: 'no such agent' } }))
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  const ui = await agentsPane($, on, { a1: 'completed' })
+  await $.tool.call({ tool: INTENT, ...AGENTS_REPORT } as any)
+  await spawn($, 'Read code')
+  await ui.drawn()
+  await ui.press({ key: 'view:a1' })
+  expect(toasts).toEqual(['no such agent'])
+})
+
+test("in an agent's transcript, its step's row goes back to the main conversation", async ($, on) => {
+  const views: (string | undefined)[] = []
+  on('ui.view', (_, e) => {
+    views.push(e.agentId)
+    return { value: {} }
+  })
+  const ui = await agentsPane($, on, { a1: 'running' })
+  await $.tool.call({ tool: INTENT, ...AGENTS_REPORT } as any)
+  await spawn($, 'Read code')
+  await ui.drawn()
+  expect(await ui.find({ key: 'main' })).toBeUndefined()
+  await ui.redraw({ ...props, view: { agentId: 'a1' } })
+  // Only the step the viewed agent hangs under.
+  expect((await ui.find({ key: 'main' }))?.text).toBe('● spec')
+  await ui.press({ key: 'main' })
+  expect(views).toEqual([undefined])
 })
