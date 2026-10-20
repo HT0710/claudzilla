@@ -63,6 +63,8 @@ const spawns = atom({ plugin: 'panel', key: 'spawns' } as const, [] as Spawn[])
 const turns = atom({ plugin: 'panel', key: 'turns' } as const, 0)
 // The step whose agents all show, past the 3 each shows folded; -1 for none.
 const expanded = atom({ plugin: 'panel', key: 'expanded' } as const, -1)
+// The agent whose transcript the main view shows, as the pane last drew: a press on its row goes back.
+let viewing: string | undefined
 
 const EMPTY_OVERVIEW: Overview = { topics: [], running: false }
 // TOPICS: what this chat is about, read from its prompts alone.
@@ -702,13 +704,13 @@ export const hang = (steps: Step[], spawns: Spawn[], turn: number): AgentRow[][]
       const i = left.findIndex(one => same(one.description, description))
       if (i < 0) return { description, status: 'planned' as const }
       const [one] = left.splice(i, 1)
-      return { description: one.description, status: one.status }
+      return { id: one.id, description: one.description, status: one.status }
     }),
   )
   const current = steps.findIndex(step => step.status === 'in_progress')
   for (const one of left.filter(one => one.turn === turn)) {
     const at = steps.findIndex(step => step.text === one.step)
-    rows[at >= 0 ? at : current >= 0 ? current : steps.length - 1]?.push({ description: one.description, status: one.status })
+    rows[at >= 0 ? at : current >= 0 ? current : steps.length - 1]?.push({ id: one.id, description: one.description, status: one.status })
   }
   return rows
 }
@@ -868,7 +870,14 @@ export const register: Register = (on, options) => {
   // Tabs switch here, not in their onPress: mid-turn, a click landing as a redraw swaps the tree
   // reached this hook but lost its onPress.
   on('ui.press', { requestId: PANE }, async ($, e, next) => {
-    // Agent rows redraw mid-turn too: their fold takes the tabs' route.
+    // Agent rows redraw mid-turn too: their fold and their transcript take the tabs' route.
+    if (e.element === 'main' || e.element?.startsWith('view:')) {
+      const id = e.element.slice(5)
+      const shown = await $.ui.view(e.element === 'main' || viewing === id ? {} : { agentId: id })
+      if (shown.deny) $.ui.toast(shown.deny)
+
+      return { element: e.element }
+    }
     if (e.element === 'less' || e.element?.startsWith('more:')) {
       await update($, expanded, () => (e.element === 'less' ? -1 : Number(e.element!.slice(5))))
 
@@ -1343,6 +1352,7 @@ export const register: Register = (on, options) => {
       const about = await read($, overview)
       const agentRows = hang(shown.steps, await read($, spawns), shown.turn ?? -1)
       const open = await read($, expanded)
+      viewing = e.props.view?.agentId
       const width = e.props.bodyColumns - 2 * PAD
       // Only the first read builds the list; every later one updates the topics shown.
       const aboutHint = about.running ? (about.topics.length ? 'updating…' : 'reading…') : about.failed ? `couldn't read: ${about.failed}` : ''
@@ -1496,6 +1506,31 @@ export const register: Register = (on, options) => {
                         .map(glyph => [glyph, hidden.filter(row => AGENT_MARK[row.status][0] === glyph).length] as const)
                         .flatMap(([glyph, n]) => (n ? `${n} ${glyph}` : []))
                         .join(' ')
+                      // In an agent's transcript, that agent's step leads back to the main conversation.
+                      const stepLine = [
+                        <Text key="mark" color={shade(MARK_SHADE[step.status])}>{MARK[step.status]} </Text>,
+                        <Text key="text" color={shade(TEXT_SHADE[step.status])}>{fit(step.text, width - LABEL - 2)}</Text>,
+                      ]
+                      // A spawned agent's row opens its transcript; the one in view is lit across the row, as the shown tab is.
+                      const agentLine = (row: AgentRow, tree: string) => {
+                        const [glyph, color] = AGENT_MARK[row.status]
+                        const text = fit(row.description, width - LABEL - 4)
+                        const line =
+                          row.id && row.id === viewing
+                            ? <Text bold inverse color={shade('claude')}>{`${tree}${glyph} ${text}`.padEnd(width - LABEL)}</Text>
+                            : [
+                                <Text key="tree" color={shade(HUD.faint)}>{tree}</Text>,
+                                <Text key="mark" color={shade(color)}>{glyph} </Text>,
+                                <Text key="text" color={shade(agentText(row.status))}>{text}</Text>,
+                              ]
+                        return row.id ? (
+                          <Button key={`view:${row.id}`} plain onPress={() => $.ui.view(viewing === row.id ? {} : { agentId: row.id })}>
+                            {line}
+                          </Button>
+                        ) : (
+                          line
+                        )
+                      }
                       const toggle = (key: string, label: string, to: number) => (
                         <Button key={key} plain onPress={() => update($, expanded, () => to)}>
                           <Text color={shade(HUD.faint)}>└ </Text>
@@ -1504,15 +1539,16 @@ export const register: Register = (on, options) => {
                       )
                       return [
                         <Box key={`step:${i}`}>
-                          <Text color={shade(MARK_SHADE[step.status])}>{MARK[step.status]} </Text>
-                          <Text color={shade(TEXT_SHADE[step.status])}>{fit(step.text, width - LABEL - 2)}</Text>
+                          {all.some(row => row.id && row.id === viewing) ? (
+                            <Button key="main" plain onPress={() => $.ui.view({})}>
+                              {stepLine}
+                            </Button>
+                          ) : (
+                            stepLine
+                          )}
                         </Box>,
                         ...rows.map((row, j) => (
-                          <Box key={`agent:${i}:${j}`}>
-                            <Text color={shade(HUD.faint)}>{j === rows.length - 1 && !folds ? '└ ' : '├ '}</Text>
-                            <Text color={shade(AGENT_MARK[row.status][1])}>{AGENT_MARK[row.status][0]} </Text>
-                            <Text color={shade(agentText(row.status))}>{fit(row.description, width - LABEL - 4)}</Text>
-                          </Box>
+                          <Box key={`agent:${i}:${j}`}>{agentLine(row, j === rows.length - 1 && !folds ? '└ ' : '├ ')}</Box>
                         )),
                         folds && (hidden.length ? toggle(`more:${i}`, `… ${hidden.length} more  ${counts}`, i) : toggle('less', '… less', -1)),
                       ]
