@@ -1035,7 +1035,8 @@ export const register: Register = (on, options) => {
       ) : (
         <Text color={color}>{text}</Text>
       )
-    // A rule with ↑ in it: back to a scrolled zone's top, ↑ in the lit grip's color.
+    // A rule with ↑ in it: back to a scrolled zone's top, ↑ in the grip's colors, at rest and under the pointer:
+    // the Button heats the scope, the Text's hover takes the color.
     // Only the symbol is the button: a Button lights as wide as it draws. Unshrunk, as the topics under it:
     // a zone's last row wrapping past its edge would squeeze it out.
     const topLine = (key: string, onPress: () => unknown) => {
@@ -1043,8 +1044,8 @@ export const register: Register = (on, options) => {
       return (
         <Box flexShrink={0}>
           <Text color="promptBorder">{'─'.repeat(Math.floor(fill / 2))} </Text>
-          <Button key={key} plain onPress={onPress}>
-            <Text bold color="claude">↑</Text>
+          <Button key={key} plain hover={{ scope: key, color: 'claude' }} onPress={onPress}>
+            <Text bold color="promptBorder" hover={{ scope: key, color: 'claude' }}>↑</Text>
           </Button>
           <Text color="promptBorder"> {'─'.repeat(Math.ceil(fill / 2))}</Text>
         </Box>
