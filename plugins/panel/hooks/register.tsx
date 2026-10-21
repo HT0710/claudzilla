@@ -365,6 +365,28 @@ export const branchLine = (head: string) =>
     .replace(/\.\.\.\S+/, '')
     // Inside the brackets only: a branch may be named "go-ahead".
     .replace(/ \[(.*)\]$/, (_, track: string) => ` ${track.replace('ahead ', '↑').replace(', behind ', ' ↓').replace('behind ', '↓')}`)
+// Each host's commit and branch page paths, as its router writes them (Codeberg's: Gitea's). A host not
+// listed gets no links: a guessed path would open a wrong page.
+const WEB_PATHS: Record<string, { commit: string; branch: string }> = {
+  'github.com': { commit: 'commit', branch: 'tree' },
+  'gitlab.com': { commit: '-/commit', branch: '-/tree' },
+  'codeberg.org': { commit: 'commit', branch: 'src/branch' },
+  'git.sr.ht': { commit: 'commit', branch: 'tree' },
+}
+// A remote's web pages: "git@github.com:o/r.git", "https://user@host/o/r", "ssh://git@host:22/o/r".
+export const gitWeb = (remote: string) => {
+  const url = remote.trim()
+  const [, host = '', path = ''] =
+    /^[a-z+]+:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/(.+?)(?:\.git)?\/?$/.exec(url) ?? /^(?:[^@/]+@)?([^/:]+):(.+?)(?:\.git)?\/?$/.exec(url) ?? []
+  const paths = WEB_PATHS[host.toLowerCase()]
+  if (!paths) return undefined
+  const base = `https://${host.toLowerCase()}/${path}`
+  return {
+    commit: (sha: string) => `${base}/${paths.commit}/${sha}`,
+    // Slashes kept: "release/1.5" is one branch.
+    branch: (name: string) => `${base}/${paths.branch}/${name.split('/').map(encodeURIComponent).join('/')}`,
+  }
+}
 // The History tab's reads, and which prompts they leave live.
 const readHistory = async ($: EngineInterface) => {
   const all = await pastPrompts($)
@@ -409,6 +431,7 @@ const readGit = ($: EngineInterface) =>
     // Local only: commits no remote has.
     $.process.run(['git', 'rev-list', 'HEAD', '--not', '--remotes']).catch(() => undefined),
     $.process.run(['git', 'rev-list', '--count', 'HEAD']).catch(() => undefined),
+    $.process.run(['git', 'remote', 'get-url', 'origin']).catch(() => undefined),
   ])
 // Kept until a tool call or a prompt may have changed the repo, or the tab is picked again: a chat
 // scroll or a drag redraws the pane many times a second. `signal`: the draw that started the runs.
@@ -998,8 +1021,20 @@ export const register: Register = (on, options) => {
     // Kept in the entry but out of the change key: a wheel tick moves these alone.
     let scroll: Record<string, unknown> = {}
     const elements = $.ui.resolve(e)
-    const { Box, Button, Text } = elements
+    const { Box, Button, Link, Text } = elements
     const Client = 'Client' in elements ? elements.Client : undefined
+    // Text that opens its web page, its `scope` group lit as History lights a row while the pointer is on it.
+    // No underline: the terminal underlines a link. No page, the text alone.
+    const linked = (scope: string, href: string | false | undefined, color: string, text: string) =>
+      href ? (
+        <Text hover={{ scope, inverse: true }}>
+          <Link href={href}>
+            <Text color={color}>{text}</Text>
+          </Link>
+        </Text>
+      ) : (
+        <Text color={color}>{text}</Text>
+      )
     // A rule with ↑ in it: back to a scrolled zone's top, ↑ in the lit grip's color.
     // Only the symbol is the button: a Button lights as wide as it draws. Unshrunk, as the topics under it:
     // a zone's last row wrapping past its edge would squeeze it out.
@@ -1183,7 +1218,8 @@ export const register: Register = (on, options) => {
         gitRead = { key, signal: next.signal, runs: readGit($) }
         runs = await gitRead.runs
       }
-      const [status, diff, unpushed, count] = runs
+      const [status, diff, unpushed, count, remote] = runs
+      const web = remote?.exitCode === 0 ? gitWeb(remote.stdout) : undefined
       const local = unpushed?.exitCode === 0 ? new Set(unpushed.stdout.split('\n').filter(Boolean)) : undefined
       const total = count?.exitCode === 0 ? count.stdout.trim() : ''
       // As the HUD statusline's churn: unstaged lines added and removed, "+144 -6".
@@ -1192,6 +1228,8 @@ export const register: Register = (on, options) => {
       const [head, ...files] = status?.exitCode === 0 ? status.stdout.split('\n').filter(Boolean) : []
       // As the HUD statusline's dirty count: "!4 ?1", tracked changes then untracked files.
       const untracked = files.filter(line => line.startsWith('??')).length
+      // The branch's page only once pushed to origin, the remote the links are built from, and not deleted there.
+      const upstream = head && !head.endsWith('[gone]') && /\.\.\.origin\/(\S+)/.exec(head)?.[1]
       const dirty = [files.length > untracked && `!${files.length - untracked}`, untracked && `?${untracked}`].filter(Boolean).join(' ')
       // The body less 3 columns: a path gets room + 1 after its status letter and a space; a commit's
       // subject room + 2 less its hash.
@@ -1267,7 +1305,12 @@ export const register: Register = (on, options) => {
         <Box flexDirection="column">
           <Box justifyContent="space-between">
             {/* The HUD statusline's branch glyph and green; cut to stay on one row beside the count. */}
-            <Text color={HUD.action}>⎇ {fit(branchLine(head), e.props.bodyColumns - 2 * PAD - changed.length - 3)}</Text>
+            {linked(
+              'branch',
+              upstream && web?.branch(upstream),
+              HUD.action,
+              `⎇ ${fit(branchLine(head), e.props.bodyColumns - 2 * PAD - changed.length - 3)}`,
+            )}
             <Text color={HUD.faint}>{changed}</Text>
           </Box>
           {/* The guide's rule color, as every panel rule but History's day lines. */}
@@ -1329,19 +1372,30 @@ export const register: Register = (on, options) => {
             const [, type, scope, tail, rest] = /^(\w+)(?:\(([^)]*)\))?(!?: )(.*)$/.exec(shown) ?? []
             const known = type ? TYPES[type] : undefined
             const typeColor = !known ? HUD.faint : isLocal ? known : dim(known)
+            // Not known pushed when the local list failed: no link that may open a missing page.
+            const href = local && !isLocal && web?.commit(full)
+            // The subject lights with its id; nested in a Text, it cannot light the row itself.
+            // The short id: a scope takes at most 64 characters, a SHA-256 id is 64 alone.
+            const group = `commit:${hash}`
+            const lit = href ? { scope: group, inverse: true } : undefined
+            // Lit across the body, as History's rows: the subject padded to its edge.
+            // shortcut: counts UTF-16 units as fit does, so a wide glyph overflows by one; measure cells if it shows.
+            const fill = href ? ' '.repeat(Math.max(0, room + 2 - hash.length - shown.length)) : ''
             return (
               <Box>
-                <Text color={HUD.faint}>{hash}</Text>
-                {type
-                  ? [
-                      <Text color={typeColor}> {type}</Text>,
-                      ...(scope === undefined
-                        ? []
-                        : [<Text color={HUD.faint}>(</Text>, <Text color={isLocal ? SCOPE : HUD.faint}>{scope}</Text>]),
-                      <Text color={HUD.faint}>{scope === undefined ? tail : `)${tail}`}</Text>,
-                      <Text color={isLocal ? undefined : HUD.faint}>{rest}</Text>,
-                    ]
-                  : <Text color={isLocal ? undefined : HUD.faint}> {shown}</Text>}
+                {linked(group, href, HUD.faint, hash)}
+                <Text>
+                  {type
+                    ? [
+                        <Text color={typeColor} hover={lit}> {type}</Text>,
+                        ...(scope === undefined
+                          ? []
+                          : [<Text color={HUD.faint} hover={lit}>(</Text>, <Text color={isLocal ? SCOPE : HUD.faint} hover={lit}>{scope}</Text>]),
+                        <Text color={HUD.faint} hover={lit}>{scope === undefined ? tail : `)${tail}`}</Text>,
+                        <Text color={isLocal ? undefined : HUD.faint} hover={lit}>{rest}{fill}</Text>,
+                      ]
+                    : <Text color={isLocal ? undefined : HUD.faint} hover={lit}> {shown}{fill}</Text>}
+                </Text>
               </Box>
             )
           })}

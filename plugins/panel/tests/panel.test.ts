@@ -3,7 +3,7 @@ import type { TestBody } from 'claude-code/testing'
 import type { AgentStatus } from 'claude-code'
 import type { Spawn, Step } from '../types'
 
-import { branchLine, dayLabel, gone, hang, inView, keepNewest, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseTopics, pinHolds, readStamps, stampPattern } from '../hooks/register'
+import { branchLine, dayLabel, gitWeb, gone, hang, inView, keepNewest, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseTopics, pinHolds, readStamps, stampPattern } from '../hooks/register'
 
 // A process.run result with `stdout`.
 const ran = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -73,19 +73,98 @@ test('Git tab shows the branch, changed files and last commits', async ($, on) =
   expect((await ui.find({ type: 'Text', text: /^3 local$/ }))?.props.color).toBe('#8c7850')
   expect((await ui.find({ type: 'Text', text: /^ {2}142 total$/ }))?.props.color).toBe('#6e8c6e')
   // Local bright, pushed dim.
-  expect((await ui.find({ type: 'Text', text: 'add thing' }))?.props.color).toBeUndefined()
-  expect((await ui.find({ type: 'Text', text: 'old bug' }))?.props.color).toBe('#4f5c68')
+  expect((await ui.find({ type: 'Text', text: /^add thing$/ }))?.props.color).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: /^old bug$/ }))?.props.color).toBe('#4f5c68')
   // Each type its own color, pushed at 60%; a type outside the git rules stays gray.
-  expect((await ui.find({ type: 'Text', text: ' feat' }))?.props.color).toBe('#98c379')
-  expect((await ui.find({ type: 'Text', text: ' chore' }))?.props.color).toBe('#a396d2')
-  expect((await ui.find({ type: 'Text', text: ' wip' }))?.props.color).toBe('#4f5c68')
-  expect((await ui.find({ type: 'Text', text: ' fix' }))?.props.color).toBe('#864146')
+  expect((await ui.find({ type: 'Text', text: /^ feat$/ }))?.props.color).toBe('#98c379')
+  expect((await ui.find({ type: 'Text', text: /^ chore$/ }))?.props.color).toBe('#a396d2')
+  expect((await ui.find({ type: 'Text', text: /^ wip$/ }))?.props.color).toBe('#4f5c68')
+  expect((await ui.find({ type: 'Text', text: /^ fix$/ }))?.props.color).toBe('#864146')
   // A local scope a light gray under its subject; its parentheses stay faint.
   expect((await ui.find({ type: 'Text', text: /^ci$/ }))?.props.color).toBe('#808286')
   expect((await ui.find({ type: 'Text', text: /^\($/ }))?.props.color).toBe('#4f5c68')
   expect((await ui.find({ type: 'Text', text: /^\): $/ }))?.props.color).toBe('#4f5c68')
   expect((await ui.find({ type: 'Text', text: /^core$/ }))?.props.color).toBe('#4f5c68')
 })
+
+test('a remote on a known host gives its commit and branch pages; any other host none', () => {
+  expect(gitWeb('git@github.com:o/r.git')?.commit('abc')).toBe('https://github.com/o/r/commit/abc')
+  expect(gitWeb('https://github.com/o/r.git\n')?.branch('release/1.5')).toBe('https://github.com/o/r/tree/release/1.5')
+  expect(gitWeb('ssh://git@gitlab.com:22/g/sub/r.git')?.commit('abc')).toBe('https://gitlab.com/g/sub/r/-/commit/abc')
+  expect(gitWeb('https://user@gitlab.com/g/r')?.branch('main')).toBe('https://gitlab.com/g/r/-/tree/main')
+  expect(gitWeb('https://codeberg.org/o/r.git')?.branch('a#b')).toBe('https://codeberg.org/o/r/src/branch/a%23b')
+  expect(gitWeb('git@git.sr.ht:~u/r')?.commit('abc')).toBe('https://git.sr.ht/~u/r/commit/abc')
+  expect(gitWeb('git@GitHub.com:123/r')?.commit('abc')).toBe('https://github.com/123/r/commit/abc')
+  expect(gitWeb('https://github.com/o/r/')?.commit('abc')).toBe('https://github.com/o/r/commit/abc')
+  expect(gitWeb('https://github.com:443/o/r.git/')?.commit('abc')).toBe('https://github.com/o/r/commit/abc')
+  // A token in the remote never reaches the link.
+  expect(gitWeb('https://me:tok@github.com/o/r.git')?.commit('abc')).toBe('https://github.com/o/r/commit/abc')
+  expect(gitWeb('git@git.acme.com:o/r.git')).toBeUndefined()
+  expect(gitWeb('file:///srv/r.git')).toBeUndefined()
+  expect(gitWeb('/srv/r.git')).toBeUndefined()
+  expect(gitWeb('')).toBeUndefined()
+})
+
+test('Git tab links the pushed branch and pushed commits to their web pages, lit on hover', async ($, on) => {
+  noHistory(on)
+  const repo = {
+    status: '## feat/x...origin/feat/x [ahead 1]\n',
+    log: 'abc1234ffff abc1234 feat: local one\ndef5678ffff def5678 fix: pushed one\n',
+    '--remotes': 'abc1234ffff\n',
+    'get-url': 'git@github.com:o/r.git\n',
+  }
+  on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+
+  const links = await ui.findAll({ type: 'Link' })
+  expect(links.map(link => link.props.href)).toEqual(['https://github.com/o/r/tree/feat/x', 'https://github.com/o/r/commit/def5678ffff'])
+  // Not pushed: no page yet. Pushed: the id alone opens it.
+  expect(links.some(link => /local one/.test(link.text ?? ''))).toBe(false)
+  expect(links[1]?.text).toMatch(/def5678$/)
+  // A Text's hover rides beside its props. The id heats its commit's group, lit as History lights a row; the
+  // subject's Texts follow it, nested in a Text so they cannot heat it.
+  type Drawn = { type?: string; hover?: { scope?: string; inverse?: boolean }; children?: unknown[] }
+  const walk = (node: unknown, inText = false): { scope?: string; nested: boolean }[] => {
+    const el = node as Drawn
+    if (typeof node !== 'object' || !el) return []
+    const own = el.type === 'Text' && el.hover?.inverse ? [{ scope: el.hover.scope, nested: inText }] : []
+    return [...own, ...(el.children ?? []).flatMap(child => walk(child, inText || el.type === 'Text'))]
+  }
+  const lit = walk(await ui.drawn())
+  expect(lit.filter(text => text.scope === 'branch')).toEqual([{ scope: 'branch', nested: false }])
+  const commit = lit.filter(text => text.scope === 'commit:def5678')
+  expect(commit[0]).toEqual({ scope: 'commit:def5678', nested: false })
+  expect(commit.length).toBeGreaterThan(1)
+  expect(commit.slice(1).every(text => text.nested)).toBe(true)
+  expect(lit.some(text => text.scope === 'commit:abc1234')).toBe(false)
+  // Lit across the body, as History's rows: the subject padded to its edge.
+  expect((await ui.find({ type: 'Text', text: /^pushed one +$/ }))?.text.length).toBe(props.bodyColumns - 4 - 'def5678 fix: '.length)
+})
+
+// Each case: what git answers, then the links left. No guessed page: one that may not exist draws plain.
+const unlinked: [string, Record<string, string>, string[]][] = [
+  ['an unknown host', { status: '## main...origin/main\n', 'get-url': 'git@git.acme.com:o/r.git\n' }, []],
+  ['a branch with no upstream', { status: '## main\n' }, ['https://github.com/o/r/commit/def5678ffff']],
+  ['a branch gone from origin', { status: '## main...origin/main [gone]\n' }, ['https://github.com/o/r/commit/def5678ffff']],
+  ['a branch tracking another remote', { status: '## main...upstream/main\n' }, ['https://github.com/o/r/commit/def5678ffff']],
+  ['a failed local list', { status: '## main\n', '--remotes': 'fail' }, []],
+]
+for (const [what, answers, hrefs] of unlinked)
+  test(`Git tab links only what surely has a page: ${what}`, async ($, on) => {
+    noHistory(on)
+    const repo = { log: 'def5678ffff def5678 fix: pushed\n', 'get-url': 'git@github.com:o/r.git\n', ...answers }
+    on('process.run', (_, e) => {
+      const out = git(repo)(e.argv) ?? ''
+      return out === 'fail' ? { value: { ...ran('').value, exitCode: 128 } } : ran(out)
+    })
+
+    const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+    await ui.press({ key: 'Git' })
+
+    expect((await ui.findAll({ type: 'Link' })).map(link => link.props.href)).toEqual(hrefs)
+  })
 
 test('a commit subject with no Conventional Commits type shows whole', async ($, on) => {
   noHistory(on)
@@ -94,7 +173,7 @@ test('a commit subject with no Conventional Commits type shows whole', async ($,
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
   await ui.press({ key: 'Git' })
 
-  expect((await ui.find({ type: 'Text', text: ' Merge branch x' }))?.props.color).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: /^ Merge branch x$/ }))?.props.color).toBeUndefined()
 })
 
 test('a changed file shows one status letter: bright while unstaged, dim once staged', async ($, on) => {
