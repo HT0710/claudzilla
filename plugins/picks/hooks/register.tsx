@@ -14,6 +14,8 @@ const FAINT = '#808286'
 
 // Null hides the band.
 let offer: Offer | null = null
+// The command of the last reply's Compact reminder when it offered nothing else: the dim suggestion.
+let compact: string | null = null
 
 const t = tracer('picks')
 // The band's last recorded state: a render runs on every scroll and keystroke, so only a change is traced.
@@ -166,6 +168,21 @@ const carried = async ($: { session: { messages: () => Promise<{ role: string; t
   return null
 }
 
+// The command of a reply's one-line Compact reminder (rules-guard), outside ``` / ~~~ fences; null without one.
+export function compactCommand(answer: string): string | null {
+  let fence = ''
+  let found: string | null = null
+  for (const line of answer.split('\n')) {
+    const mark = line.match(/^\s*(```|~~~)/)?.[1]
+    if (mark && (!fence || fence === mark)) {
+      fence = fence ? '' : mark
+      continue
+    }
+    if (!fence && line.startsWith('**Compact — ')) found = [...line.matchAll(/Run `([^`]+)`/g)].at(-1)?.[1] ?? found
+  }
+  return found
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await t.start(traceIo($))
@@ -176,6 +193,8 @@ export const register: Register = on => {
     if (e.reason === 'answer' && !e.agentId) {
       const parsed = parse(e.answer)
       offer = parsed ?? await carried($)
+      // A Next that asks nothing still names the next step: the engine's guess of it stays.
+      compact = offer || /^\*\*Next:\*\*/m.test(e.answer) ? null : compactCommand(e.answer)
       t.event('picks.offer', {
         matched: !!offer,
         source: parsed ? 'reply' : offer ? 'carried' : 'none',
@@ -187,7 +206,7 @@ export const register: Register = on => {
     } else t.event('picks.offer', { skipped: e.agentId ? 'agent turn' : e.reason }, 'debug')
     const result = await next(e)
     // After next: the box takes no suggestion while the turn still runs.
-    const text = offer && e.reason === 'answer' && !e.agentId ? suggestion(offer) : null
+    const text = e.reason === 'answer' && !e.agentId ? (offer ? suggestion(offer) : compact) : null
     if (text) await $.prompt.suggest({ text })
     if (offer && e.reason === 'answer' && !e.agentId) t.event('picks.suggest', { filled: !!text })
     return result
@@ -195,7 +214,7 @@ export const register: Register = on => {
 
   // The engine's own next-prompt guess would replace the pick; another mod's is left alone.
   on('prompt.suggest', async ($, e, next) => {
-    const text = offer && e.origin.kind === 'suggestion' ? suggestion(offer) : null
+    const text = e.origin.kind === 'suggestion' ? (offer ? suggestion(offer) : compact) : null
     if (offer && e.origin.kind === 'suggestion') t.event('picks.suggest', { replaced: !!text }, 'debug')
     return next(text ? { ...e, text } : e)
   })
@@ -203,6 +222,7 @@ export const register: Register = on => {
   on('prompt.submit', async ($, e, next) => {
     t.turn()
     void t.flush(traceIo($))
+    compact = null
     if (offer) {
       t.event('picks.offer', { cleared: 'prompt sent' }, 'debug')
       offer = null
@@ -213,6 +233,7 @@ export const register: Register = on => {
 
   on('session.end', async ($, e, next) => {
     offer = null
+    compact = null
     $.ui.invalidate('ui.render')
     await t.flush(traceIo($))
     return next(e)
