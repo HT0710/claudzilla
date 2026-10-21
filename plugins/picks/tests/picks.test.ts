@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { parse } from '../hooks/register'
+import { compactCommand, parse } from '../hooks/register'
 
 const BAND = {
   component: 'AbovePrompt' as const,
@@ -390,4 +390,38 @@ test('traces the offer matched', async ($, on) => {
   await $.turn.complete(done(LONE))
   await $.session.end({ reason: 'other' })
   expect(rows().find(r => r.event === 'picks.offer')?.data).toMatchObject({ matched: true, options: 3 })
+})
+
+const CLINE = '**Compact — suggest:** `~320k` tokens re-sent every turn; Task 3 done, Task 4 needs only the plan. Run `/claudzilla compact`.'
+
+test('compactCommand: the command from the reminder line, outside fences', () => {
+  expect(compactCommand('Done.\n\n' + CLINE)).toBe('/claudzilla compact')
+  expect(compactCommand(CLINE.replace('/claudzilla compact', '/clear'))).toBe('/clear')
+  expect(compactCommand('```md\n' + CLINE + '\n```')).toBeNull()
+  expect(compactCommand('Done. Run `/claudzilla compact`.')).toBeNull()
+})
+
+test('a reply with only a Compact line suggests its command, over the engine guess; Next still wins', async ($, on) => {
+  const shown: string[] = []
+  engine(on)
+  on('prompt.suggest', (_: any, e: any) => { shown.push(e.text); return { isShown: true } })
+  on('prompt.submit', (_: any, e: any) => ({ text: e.text }) as any)
+  on('session.messages', () => ({ value: [] }) as any)
+  const guess = { text: 'run the tests', origin: { kind: 'suggestion' } } as any
+  await $.turn.complete(done('Done.\n\n' + CLINE))
+  await $.prompt.suggest(guess)
+  await $.turn.complete(done(LONE + '\n\n' + CLINE))
+  await $.prompt.submit({ text: 'hi' } as any)
+  await $.prompt.suggest(guess)
+  expect(shown).toEqual(['/claudzilla compact', '/claudzilla compact', '2: push + PR', 'run the tests'])
+})
+
+test('a Compact line under a Next that asks nothing leaves the engine guess alone', async ($, on) => {
+  const shown: string[] = []
+  engine(on)
+  on('prompt.suggest', (_: any, e: any) => { shown.push(e.text); return { isShown: true } })
+  on('session.messages', () => ({ value: [] }) as any)
+  await $.turn.complete(done('Done.\n\n' + CLINE + '\n\n**Next:** run the tests.'))
+  await $.prompt.suggest({ text: 'run the tests', origin: { kind: 'suggestion' } } as any)
+  expect(shown).toEqual(['run the tests'])
 })
