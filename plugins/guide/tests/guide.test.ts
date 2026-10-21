@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { find, fit, parse, reportArgs, rows } from '../hooks/register'
+import { draft, find, fit, parse, reportArgs, rows } from '../hooks/register'
 
 const MD = '# claudzilla guide\n\n## Basics\n\n### What claudzilla is\n<!-- topic: start -->\n\nIntro.\n\n### Talk to Claude\n<!-- topic: talk -->\n\nSay it.\n\n## Screen\n\n### The picks card\n<!-- topic: picks -->\n\nDigits.\n'
 
@@ -75,7 +75,7 @@ const wheel = ($: Parameters<TestBody>[0], by: number, pointer?: { column: numbe
 test('registers /claudzilla with a topic hint', async ($, on) => {
   const seen = host(on)
   await $.session.start(start)
-  expect(seen.registered).toContainEqual(expect.objectContaining({ name: 'claudzilla', argumentHint: '[topic | report [what happened]]' }))
+  expect(seen.registered).toContainEqual(expect.objectContaining({ name: 'claudzilla', argumentHint: '[topic | report [what happened] | compact]' }))
 })
 
 test('bare /claudzilla toggles the guide; a topic opens it either way', async ($, on) => {
@@ -384,4 +384,62 @@ test('report with every source failing still writes a snapshot and schedules the
   await run($, 'report')
   expect(writes.join('')).toContain('report.snapshot')
   expect(timers).toContain(500)
+})
+
+test('draft: keep and drop on one plain line', () => {
+  expect(draft({ keep: 'plan path docs/p.md; branch feat/x.', drop: 'debug logs' })).toBe('/compact Keep: plan path docs/p.md; branch feat/x. Drop: debug logs.')
+  expect(draft({ keep: 'a\nb', drop: 'c' })).toBe('/compact Keep: a b. Drop: c.')
+  expect(draft({ keep: 'a' })).toBe('/compact Keep: a.')
+})
+
+test('draft: clear wins; nothing to keep is no draft', () => {
+  expect(draft({ clear: true, keep: 'x' })).toBe('/clear')
+  expect(draft({ drop: 'x' })).toBeUndefined()
+  expect(draft({ keep: '  ' })).toBeUndefined()
+})
+
+test('/claudzilla compact hands off to the skill after the hook returns, and opens no pane', async ($, on) => {
+  const timers: [number, () => void][] = []
+  const handoff: unknown[] = []
+  const seen = host(on)
+  on('clock.after', (_, e: any) => { timers.push([e.ms, e.fn]); return { value: undefined } as any })
+  on('command.run', (_, e: any) => { handoff.push(e); return { value: {} } as any })
+  await $.session.start(start)
+  await run($, 'Compact')
+  expect(timers.map(([ms]) => ms)).toEqual([500])
+  expect(handoff).toEqual([])
+  expect(seen.opened).toHaveLength(0)
+})
+
+test('compact_draft fills the box once the turn ends; a subagent call fills nothing', async ($, on) => {
+  const filled: string[] = []
+  const registered: any[] = []
+  host(on)
+  on('tool.register', (_, e: any) => { registered.push(e); return { value: undefined } as any })
+  on('prompt.fill', (_, e: any) => { filled.push(e.text); return { isFilled: true } as any })
+  on('turn.complete', () => ({ text: '' }) as any)
+  const done = (extra = {}) => ({ answer: 'x', reason: 'answer' as const, durationMs: 1, isAborted: false, turnId: 't1', ...extra })
+  await $.session.start(start)
+  expect(registered.map(r => r.name)).toContain('compact_draft')
+  await $.tool.call({ tool: 'mcp__guide__compact_draft', keep: 'k', drop: 'd', agentId: 'a1' } as any)
+  await $.turn.complete(done() as any)
+  expect(filled).toEqual([])
+  expect(await $.tool.call({ tool: 'mcp__guide__compact_draft', keep: 'k', drop: 'd' } as any)).toMatchObject({ result: expect.stringContaining('prompt box') })
+  expect(filled).toEqual([])
+  await $.turn.complete(done({ agentId: 'a1' }) as any)
+  expect(filled).toEqual([])
+  await $.turn.complete(done() as any)
+  await $.turn.complete(done() as any)
+  expect(filled).toEqual(['/compact Keep: k. Drop: d.'])
+})
+
+test("compact_draft's chat rows draw nothing; other tools' rows still draw", async ($, on) => {
+  const props = { tool_use_id: 'u1', input: { keep: 'k', drop: 'd' }, isRunning: false, isErrored: false, isInterrupted: false, output: 'ok' }
+  on('ui.render', { component: ['ToolUse', 'ToolResult'] }, () => ({ type: 'Text' as const, children: ['engine row'] }) as any)
+  for (const component of ['ToolUse', 'ToolResult'] as const) {
+    const ui = await $.ui.mount({ plugin: 'guide', surface: 'terminal', component, props: { ...props, tool: 'mcp__guide__compact_draft' }, requestId: 'u1' } as any)
+    expect(await ui.find({ type: 'Text' })).toBeUndefined()
+  }
+  const other = await $.ui.mount({ plugin: 'guide', surface: 'terminal', component: 'ToolUse', props: { ...props, tool: 'Bash' }, requestId: 'u2' } as any)
+  expect(await other.find({ type: 'Text', text: 'engine row' })).toBeDefined()
 })
