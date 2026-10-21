@@ -75,7 +75,7 @@ An example; the values are not the defaults. Defaults: `subjectMax` 50, `commitT
 
 `tableWidth`: each prompt tells Claude the terminal width (`COLUMNS`, which Claude Code passes to hooks), and a reply whose table renders wider gets flagged.
 
-`compactNudge` (tokens, `0` = off): past it, when a piece of work is done (or, at 4×, older context is clearly stale) and the next step won't need it, Claude adds a **Compact** section with the reason and a drafted `/compact <instructions>` (or `/clear` when nothing carries over) to copy; wording strengthens at 2× and 4×.
+`compactNudge` (tokens, `0` = off): past it, a reply that finishes a task (at 4×, any reply not mid-task) whose next step won't need the older context ends with one **Compact** line pointing to `/claudzilla compact` (drafts a `/compact` line into the prompt box) or `/clear`; wording strengthens at 2× and 4×. The update toast reminds at 1×, 2×, 4× and every 30 min; after 30 idle min the reminder stays under the prompt until the next message.
 
 A bad file or value is skipped and named on your next prompt; unknown keys are ignored.
 

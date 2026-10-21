@@ -225,7 +225,7 @@ To keep context small:
 - **Delegate big searches.** A subagent reads many files in its own context and returns a summary. See *Use skills* (`/claudzilla skills`).
 - **Come back later.** `claude -c` reopens the last session in this folder; `/resume` picks another one.
 
-claudzilla also tells you when to compact. Once context passes the `compactNudge` threshold, 150,000 tokens by default, a reply that finishes a piece of work can end with a **Compact** section. It appears only when the next step does not need the older context. It gives the reason and a drafted `/compact` line that names what to keep and what to drop, or `/clear` when nothing needs to carry over. Copy the line and run it. The section reads `optional` at first, `suggest` at twice the threshold and `recommend` at four times. To change the threshold, or set it to `0` to turn it off, see *Customize claudzilla* (`/claudzilla customize`).
+claudzilla also tells you when to compact. Once context passes the `compactNudge` threshold, 150,000 tokens by default, a reply that finishes a task can end with one **Compact** line: how many tokens are re-sent every turn, what finished, and what to run. That is `/claudzilla compact`, or `/clear` when the finished work and the next are unrelated. Mid-task it stays quiet; past four times the threshold it can come on any reply that is not mid-task. The line reads `optional` at first, `suggest` at twice the threshold and `recommend` at four times. `/claudzilla compact` has Claude draft a `/compact` line that names what to keep and what to drop, and puts it in your prompt box: check it, then press Enter. If you installed the update toast, a toast says the same at each step and every 30 minutes while context stays past the threshold; after 30 minutes with no message, the reminder stays under the prompt until you send one. If you installed picks, a reply that ends with the line and no **Next:** offers its command as the dim suggestion. To change the threshold, or set it to `0` to turn it off, see *Customize claudzilla* (`/claudzilla customize`).
 
 The rewind menu can also summarize part of a conversation; see *Stop and undo* (`/claudzilla undo`). Claude Code's [interactive context simulation](https://code.claude.com/docs/en/context-window) shows how context fills during a session.
 
@@ -500,6 +500,7 @@ Type a word or command at the prompt and press **Enter**. Items marked "if insta
 |---|---|
 | `/claudzilla [topic]` | open or close this guide, or open one section |
 | `/claudzilla report [what happened]` | draft a problem report from the local trace |
+| `/claudzilla compact` | draft a `/compact` line into the prompt box |
 | `/panel` | open or close the panel (if installed) |
 | `/caveman` | turn caveman on (if installed) |
 | `/ponytail lite` | set ponytail's level: `lite`, `full`, `ultra` (if installed) |
