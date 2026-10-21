@@ -135,6 +135,49 @@ export function reportArgs(args: string): string | undefined {
   return m ? (m[1] ?? '').trim() : undefined
 }
 
+// The /compact (or /clear) line compact_draft puts in the prompt box: one plain line, no markdown.
+export function draft(input: { keep?: unknown; drop?: unknown; clear?: unknown }): string | undefined {
+  if (input.clear === true) return '/clear'
+  const part = (v: unknown) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().replace(/\.+$/, '') : '')
+  const keep = part(input.keep)
+  const drop = part(input.drop)
+  return keep ? `/compact Keep: ${keep}.` + (drop ? ` Drop: ${drop}.` : '') : undefined
+}
+
+const COMPACT_SPEC = {
+  name: 'compact_draft',
+  description: 'Only from the claudzilla-compact skill: puts the drafted /compact (or /clear) line in the prompt box.',
+  isDeferred: true,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      keep: { type: 'string', description: 'what the compact must keep' },
+      drop: { type: 'string', description: 'finished detail to drop' },
+      clear: { type: 'boolean', description: 'true: nothing carries over, /clear instead' },
+    },
+  },
+} as const
+
+// command.run rejects inside its own hook, so the skill starts once the hook has returned; a draft in the box if it won't.
+async function handOff($: EngineInterface, command: string, args: string) {
+  const fill = () => $.prompt.fill({ text: `/${command} ${args}`.trim() }).catch(() => undefined)
+  const go = async () => {
+    try {
+      await $.command.run({ command, args })
+    } catch {
+      await fill()
+    }
+  }
+  try {
+    await Promise.resolve($.clock.after(500, go))
+  } catch {
+    await fill()
+  }
+}
+
+// Filled once the turn ends: the box may not take text while a turn runs.
+let pending: string | undefined
+
 type Guide = { version?: string; sections?: Section[]; repo?: string }
 
 let guide: Promise<Guide> | undefined
@@ -211,7 +254,8 @@ async function snapshot($: EngineInterface, columns: number | undefined) {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await t.start(traceIo($))
-    await $.command.register({ name: 'claudzilla', description: 'The claudzilla guide, one section at a time', argumentHint: '[topic | report [what happened]]', immediate: true })
+    await $.command.register({ name: 'claudzilla', description: 'The claudzilla guide, one section at a time', argumentHint: '[topic | report [what happened] | compact]', immediate: true })
+    await $.tool.register(COMPACT_SPEC).catch(() => undefined)
 
     return next(e)
   })
@@ -221,6 +265,35 @@ export const register: Register = on => {
     void t.flush(traceIo($))
 
     return next(e)
+  })
+
+  // Answered here, in place of next: core would ask permission for a tool only this skill calls.
+  on('tool.call', { tool: /^mcp__guide__compact_draft$/ }, async (_, e) => {
+    const input = e as unknown as { keep?: unknown; drop?: unknown; clear?: unknown; agentId?: string }
+    if (input.agentId !== undefined) return { result: 'ok' }
+    pending = draft(input)
+    t.event('compact.draft', { drafted: !!pending, clear: input.clear === true })
+
+    return { result: pending ? 'Filled into the prompt box when this turn ends.' : 'Nothing to draft: pass keep, or clear: true.' }
+  })
+
+  // The draft shows in the prompt box, not as a chat row.
+  on('ui.render', { component: ['ToolUse', 'ToolResult'] }, async ($, e, next) => {
+    if (e.props.tool !== 'mcp__guide__compact_draft') return next(e)
+    const { Box } = $.ui.resolve(e)
+
+    return <Box />
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    const result = await next(e)
+    if (pending === undefined || e.agentId) return result
+    const text = pending
+    pending = undefined
+    const { isFilled } = await $.prompt.fill({ text }).catch(() => ({ isFilled: false }))
+    if (!isFilled) $.ui.toast('The prompt box did not take it.')
+
+    return result
   })
 
   on('session.end', async ($, e, next) => {
@@ -234,20 +307,12 @@ export const register: Register = on => {
     if (description !== undefined) {
       t.event('report.snapshot', await snapshot($, e.presentation?.columns).catch(() => ({})))
       await t.flush(traceIo($))
-      // command.run rejects inside this hook, so the skill starts once the hook has returned; a draft in the box if it won't.
-      const fill = () => $.prompt.fill({ text: `/claudzilla-report ${description}` }).catch(() => undefined)
-      const go = async () => {
-        try {
-          await $.command.run({ command: 'claudzilla-report', args: description })
-        } catch {
-          await fill()
-        }
-      }
-      try {
-        await Promise.resolve($.clock.after(500, go))
-      } catch {
-        await fill()
-      }
+      await handOff($, 'claudzilla-report', description)
+
+      return {}
+    }
+    if (/^compact$/i.test(e.args.trim())) {
+      await handOff($, 'claudzilla-compact', '')
 
       return {}
     }
