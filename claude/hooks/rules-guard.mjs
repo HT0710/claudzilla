@@ -205,21 +205,19 @@ function contextTokens(path) {
   return 0;
 }
 
-// Past the threshold, the main model judges whether to suggest /compact and drafts its instructions; label strengthens at 2x and 4x.
+// Past the threshold, the main model judges whether to remind about compacting; /claudzilla compact drafts the line. Label strengthens at 2x and 4x.
 function compactMsg(tokens, t) {
   if (!t || tokens < t) return;
   const k = `~${Math.round(tokens / 1e3)}k`;
   const [label, when] = tokens >= 4 * t
-    ? ["recommend", "completes a piece of work or the older context is clearly stale"]
-    : [tokens >= 2 * t ? "suggest" : "optional", "completes a piece of work"];
-  return `Context ${k} tokens, re-sent every turn. If this reply ${when}, and the next step (from your **Next:**, or nothing pending) won't need that older context: add this section right before **Next:**, or at the end when there is no **Next:**. Add it even on a short reply:
-## Compact — ${label}
-- **Why:** \`${k}\` tokens re-sent every turn; <what finished or went stale; why the next step doesn't need the older context>.
+    ? ["recommend", "any reply that is not mid-task, Q&A included"]
+    : [tokens >= 2 * t ? "suggest" : "optional", "a reply that finishes a plan task (execute phase) or a big piece of work; never mid-task, not on a Q&A or small-tweak reply"];
+  return `Context ${k} tokens, re-sent every turn. Remind about compacting only on ${when}, and only if the next step (from your **Next:**, or nothing pending) won't need the older context. Add one line, right before **Next:**, or at the end when there is no **Next:**; even on a short reply:
+**Compact — ${label}:** \`${k}\` tokens re-sent every turn; <what finished, a few words>. Run \`/claudzilla compact\`.
 
-\`/compact\` **Keep:** <only what exists nowhere but this conversation: decisions and why, preferences stated, open items, branch or uncommitted state, exact errors under debug; anything in a file → its path>. **Drop:** <finished detail>.
-
-Rules: whole /compact line on one line; bold only Keep and Drop, no other markdown after /compact. Skip CLAUDE.md, rules and memory in Keep: they reload after compact. Next step needs nothing from this session → write \`/clear\` alone, as a code span like \`/compact\`, in place of the \`/compact\` line (free; /compact re-reads the whole conversation).
-Fill each <...> with facts from this session, not guesses. Condition not met → don't mention compacting.`;
+A big piece of work finished and the next step is unrelated → this line instead (\`/clear\` is free):
+**Compact — ${label}:** \`${k}\` tokens re-sent every turn; <what finished, a few words>; nothing carries over. Run \`/clear\`.
+Fill <...> with facts from this session, not guesses. Condition not met → don't mention compacting.`;
 }
 
 function onPrompt(d) {
