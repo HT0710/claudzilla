@@ -67,34 +67,30 @@ cn() { new_session; hook UserPromptSubmit prompt=next "transcript_path=$1"; }
 : > "$TX"; usage "$TX" 50000 49000
 check "compact: below threshold silent" [ -z "$(cn "$TX")" ]
 : > "$TX"; usage "$TX" 60000 100000; out=$(cn "$TX")
-check "compact: tier 1 optional" has "$out" '## Compact — optional'
-check "compact: bold Why, size as code" has "$out" "- **Why:** \`~160k\` tokens re-sent every turn"
-check "compact: own section before Next" has "$out" "right before **Next:**"
-check "compact: section heading" has "$out" "## Compact"
-check "compact: command highlighted, no block" has "$out" '`/compact` **Keep:**'
-check "compact: keep conversation-only facts" has "$out" "**Keep:** <only what exists nowhere but this conversation"
-check "compact: files by path" has "$out" "anything in a file → its path"
-check "compact: skip reloaded instructions" has "$out" "Skip CLAUDE.md, rules and memory"
-check "compact: clear when nothing carries over" has "$out" '`/clear` alone'
-check "compact: clear as code span" has "$out" 'as a code span like `/compact`'
-check "compact: Drop bold" has "$out" "**Drop:** <finished detail>"
+check "compact: tier 1 optional line" has "$out" '**Compact — optional:** `~160k` tokens re-sent every turn;'
+check "compact: one line, no heading" [ "$(grep -c '## Compact' <<<"$out")" = 0 ]
+check "compact: no draft" [ "$(grep -c 'Keep:' <<<"$out")" = 0 ]
+check "compact: points to the command" has "$out" 'Run `/claudzilla compact`.'
+check "compact: clear for unrelated work" has "$out" '<what finished, a few words>; nothing carries over. Run `/clear`.'
+check "compact: reason is a few words" has "$out" '`~160k` tokens re-sent every turn; <what finished, a few words>. Run `/claudzilla compact`.'
+check "compact: no why clause on screen" [ "$(grep -c "why the next step" <<<"$out")" = 0 ]
+check "compact: before Next or at end" has "$out" "right before **Next:**, or at the end when there is no **Next:**"
+check "compact: even on a short reply" has "$out" "even on a short reply"
+check "compact: never mid-task" has "$out" "mid-task"
+check "compact: tier 1 no Q&A" has "$out" "not on a Q&A"
+check "compact: tier 1 no any-reply clause" [ "$(grep -c "any reply that is not mid-task" <<<"$out")" = 0 ]
 check "compact: no fenced block" [ "$(grep -c '```' <<<"$out")" = 0 ]
-check "compact: copy rules outside template line" has "$out" "Rules: whole /compact line on one line; bold only Keep and Drop"
-check "compact: next step from own Next" has "$out" "your **Next:**"
-check "compact: no Next still counts" has "$out" "at the end when there is no **Next:**"
-check "compact: heading on short replies" has "$out" "even on a short reply"
-check "compact: tier 1 no stale clause" [ "$(grep -c "clearly stale" <<<"$out")" = 0 ]
 : > "$TX"; usage "$TX" 20000 300000
-check "compact: tier 2 suggest" has "$(cn "$TX")" '## Compact — suggest'
+check "compact: tier 2 suggest" has "$(cn "$TX")" '**Compact — suggest:**'
 : > "$TX"; usage "$TX" 50000 600000; out=$(cn "$TX")
-check "compact: tier 3 recommend" has "$out" '## Compact — recommend'
-check "compact: tier 3 stale context counts" has "$out" "clearly stale"
+check "compact: tier 3 recommend" has "$out" '**Compact — recommend:**'
+check "compact: tier 3 any reply not mid-task" has "$out" "any reply that is not mid-task"
 : > "$TX"; usage "$TX" 60000 100000; printf '{"type":"system","subtype":"compact_boundary"}\n' >> "$TX"
 check "compact: after compact boundary silent" [ -z "$(cn "$TX")" ]
 : > "$TX"; usage "$TX" 50000 49000; printf '{"type":"assistant","isSidechain":true,"message":{"usage":{"input_tokens":900000}}}\n' >> "$TX"
 check "compact: sidechain usage ignored" [ -z "$(cn "$TX")" ]
 : > "$TX"; usage "$TX" 60000 100000; printf '{"type":"assistant","message":{"model":"<synthetic>","usage":{"input_tokens":0,"cache_read_input_tokens":0}}}\n' >> "$TX"
-check "compact: synthetic zero-usage reply skipped" has "$(cn "$TX")" "## Compact"
+check "compact: synthetic zero-usage reply skipped" has "$(cn "$TX")" "**Compact — optional:**"
 : > "$TX"; usage "$TX" 60000 100000; new_session
 check "compact: machine prompt silent" [ -z "$(hook UserPromptSubmit 'prompt=<task-notification>x</task-notification>' "transcript_path=$TX")" ]
 check "compact: no transcript_path silent" [ -z "$(new_session; hook UserPromptSubmit prompt=next)" ]
