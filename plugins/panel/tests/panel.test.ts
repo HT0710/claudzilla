@@ -343,6 +343,18 @@ test('the wheel scrolls CHANGES and COMMITS each on its own, up to their ends; �
   expect(await ui.find({ type: 'Text', text: /file9\.ts/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /commit 0$/ })).toBeDefined()
   expect((await ui.find({ key: 'top:changes' }))?.text).toBe('↑')
+  // Dim as the divider's grip at rest, lit as it is under the pointer.
+  const arrow = await ui.find({ type: 'Text', text: '↑' })
+  expect(arrow?.props.color).toBe('promptBorder')
+  // Hovered, its Button heats the scope and its Text takes the color: either alone leaves ↑ dim. A hover rides
+  // beside the props, in the drawn tree.
+  type Drawn = { type?: string; hover?: object; children?: unknown[] }
+  const hovers = (node: unknown): object[] => {
+    const el = node as Drawn
+    if (typeof node !== 'object' || !el) return []
+    return [...((el.type === 'Button' || el.type === 'Text') && el.hover ? [{ type: el.type, ...el.hover }] : []), ...(el.children ?? []).flatMap(hovers)]
+  }
+  expect(hovers(await ui.drawn())).toEqual(['Button', 'Text'].map(type => ({ type, scope: 'top:changes', color: 'claude' })))
   expect(await ui.find({ key: 'top:commits' })).toBeUndefined()
 
   await wheel(100, 16)
