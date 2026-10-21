@@ -86,9 +86,54 @@ export function crossed(limits: SessionRateLimit[], marks: Record<string, Mark>,
   return next ? { toasts, marks: next } : { toasts }
 }
 
+const DEFAULT_BASE = 150000
+export const EVERY_MS = 30 * 60 * 1000
+// The highest compactNudge level toasted (1x, 2x, 4x as 1 to 3) and when the last context toast showed.
+export type Ctx = { level: number; at: number }
+
+// The HUD shows the size; the toast says how strongly to act, as the reply line's label does (rules-guard compactMsg).
+const TIERS = ['optional', 'suggest', 'recommend']
+const contextText = (level: number) => `Compact — ${TIERS[level - 1]}: /claudzilla compact, or /clear for new work`
+
+// Toasts each level once and again 30 min after the last toast; dropping below 1x (a compact or clear) starts over.
+export function contextToast(tokens: number, base: number, ctx: Ctx, nowMs: number): { text?: string; ctx: Ctx } {
+  if (base <= 0) return { ctx }
+  if (tokens < base) return { ctx: { level: 0, at: 0 } }
+  const level = tokens >= 4 * base ? 3 : tokens >= 2 * base ? 2 : 1
+  if (level <= ctx.level && nowMs - ctx.at < EVERY_MS) return { ctx }
+  const top = Math.max(level, ctx.level)
+  return { text: contextText(top), ctx: { level: top, at: nowMs } }
+}
+
+// rules-guard's compactNudge, from the same files in the same order (loadConfig in claude/hooks/rules-guard.mjs).
+async function compactBase($: EngineInterface, cwd: string): Promise<number> {
+  const dir = (await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined)) || `${(await $.env.get('HOME').catch(() => undefined)) ?? ''}/.claude`
+  const top = await $.process.run(['git', '-C', cwd, 'rev-parse', '--show-toplevel']).then(r => (r.exitCode === 0 ? r.stdout.trim() : ''), () => '')
+  let base = DEFAULT_BASE
+  for (const f of [`${dir}/claudzilla.json`, ...(top ? [`${top}/.claude/claudzilla.json`, `${top}/.claude/claudzilla.local.json`] : [])]) {
+    const v: unknown = await $.fs.read(f).then(text => JSON.parse(text)?.rulesGuard?.compactNudge).catch(() => undefined)
+    if (typeof v === 'number' && Number.isInteger(v) && v >= 0) base = v
+  }
+  return base
+}
+
+type Live = { ctx: Ctx; idle?: { cancel: () => void }; pinned: boolean }
+
+// A turn is no idle time; a compact or /clear drops the context the levels were counted on.
+function stopIdle($: EngineInterface, live: Live, reset: boolean) {
+  live.idle?.cancel()
+  live.idle = undefined
+  if (live.pinned) $.ui.status(undefined)
+  live.pinned = false
+  if (reset) live.ctx = { level: 0, at: 0 }
+}
+
 export const register: Register = on => {
   let note: string | undefined
   let interactive = false
+  let base: Promise<number> = Promise.resolve(0)
+  // Module memory, not $.store: the store is shared by every open session, and context is this session's own.
+  const live: Live = { ctx: { level: 0, at: 0 }, pinned: false }
 
   on('session.start', async ($, e, next) => {
     await t.start(traceIo($))
@@ -96,6 +141,7 @@ export const register: Register = on => {
     t.event('update.start', { interactive: !!e.isInteractive })
     interactive = !!e.isInteractive
     if (!e.isInteractive) return started
+    base = compactBase($, e.cwd)
     const startedS = Math.floor((await $.clock.now()) / 1000)
     // session.start is awaited before the first prompt: the watch runs on detached, for the module's life.
     void watch($, startedS, text => (note = text)).catch(err => t.error('update.watch.failed', err))
@@ -103,6 +149,7 @@ export const register: Register = on => {
   })
 
   on('prompt.submit', async ($, e, next) => {
+    stopIdle($, live, false)
     t.turn()
     void t.flush(traceIo($))
     if (note === undefined) return next(e)
@@ -122,10 +169,42 @@ export const register: Register = on => {
         $.ui.toast(text, { timeoutMs: 10000 })
       }
     }
+    const tokens = e.context.tokens
+    if (interactive && e.changed.includes('context') && tokens) {
+      const b = await base
+      const shown = contextToast(tokens, b, live.ctx, await $.clock.now())
+      live.ctx = shown.ctx
+      if (shown.text) {
+        t.event('context.toast', { level: live.ctx.level, idle: false })
+        $.ui.toast(shown.text, { timeoutMs: 10000 })
+      }
+      stopIdle($, live, false)
+      // session.measure comes only after a turn: away from the keyboard, a timer pins the reminder under the prompt
+      // until the next turn, as a toast lasts 60 s at most.
+      if (b > 0 && tokens >= b) {
+        try {
+          live.idle = $.clock.after(EVERY_MS, () => {
+            t.event('context.toast', { level: live.ctx.level, idle: true })
+            $.ui.status(contextText(live.ctx.level))
+            live.pinned = true
+            void $.clock.now().then(at => (live.ctx = { ...live.ctx, at }))
+          })
+        } catch {
+          live.idle = undefined
+        }
+      }
+    }
     return next(e)
   })
 
+  on('session.compact', async ($, e, next) => {
+    const result = await next(e)
+    stopIdle($, live, true)
+    return result
+  })
+
   on('session.end', async ($, e, next) => {
+    stopIdle($, live, true)
     await t.flush(traceIo($))
     return next(e)
   })

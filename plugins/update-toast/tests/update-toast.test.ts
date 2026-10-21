@@ -1,8 +1,8 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
 import type { On } from 'claude-code'
 
-import { crossed, due, parse } from '../hooks/register'
+import { contextToast, crossed, due, EVERY_MS, parse } from '../hooks/register'
 
 const S = 1_000_000
 const ran = (exitCode: number, stdout: string) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -240,3 +240,106 @@ test('a non-interactive session neither toasts nor marks usage', async ($, on) =
   expect(toasts).toEqual([])
   expect(store.size).toBe(0)
 })
+
+const CT = 'Compact — suggest: /claudzilla compact, or /clear for new work'
+
+test('contextToast: once per level crossed', () => {
+  expect(contextToast(149_000, 150_000, { level: 0, at: 0 }, NOW)).toEqual({ ctx: { level: 0, at: 0 } })
+  expect(contextToast(320_000, 150_000, { level: 0, at: 0 }, NOW)).toEqual({ text: CT, ctx: { level: 2, at: NOW } })
+  expect(contextToast(330_000, 150_000, { level: 2, at: NOW }, NOW + 60_000).text).toBeUndefined()
+  expect(contextToast(610_000, 150_000, { level: 2, at: NOW }, NOW + 60_000)).toEqual({ text: CT.replace('suggest', 'recommend'), ctx: { level: 3, at: NOW + 60_000 } })
+})
+
+test('contextToast: repeats 30 min after the last toast', () => {
+  expect(EVERY_MS).toBe(30 * 60 * 1000)
+  expect(contextToast(330_000, 150_000, { level: 2, at: NOW }, NOW + EVERY_MS - 1).text).toBeUndefined()
+  expect(contextToast(330_000, 150_000, { level: 2, at: NOW }, NOW + EVERY_MS)).toEqual({ text: CT, ctx: { level: 2, at: NOW + EVERY_MS } })
+})
+
+test('contextToast: below 1x resets; base 0 is off', () => {
+  expect(contextToast(20_000, 150_000, { level: 3, at: NOW }, NOW)).toEqual({ ctx: { level: 0, at: 0 } })
+  expect(contextToast(900_000, 0, { level: 1, at: 5 }, NOW)).toEqual({ ctx: { level: 1, at: 5 } })
+})
+
+const ctxMeasure = ($: any, tokens: number) => $.session.measure({ context: { tokens, window: 1_000_000 }, rateLimits: [], changed: ['context'] })
+
+test('a context measure toasts once per level and arms the 30-min idle timer while past 1x', async ($, on) => {
+  const { toasts } = measured(on)
+  const timers: number[] = []
+  on('clock.after', (_, e: any) => { if (e.ms === EVERY_MS) timers.push(e.ms); return { value: undefined } as any })
+  await $.session.start(start)
+  await ctxMeasure($, 160_000)
+  await ctxMeasure($, 170_000)
+  expect(toasts).toEqual(['Compact — optional: /claudzilla compact, or /clear for new work'])
+  expect(timers).toEqual([EVERY_MS, EVERY_MS])
+  await ctxMeasure($, 10_000)
+  expect(timers).toHaveLength(2)
+})
+
+test('compactNudge 0 in the repo config: no context toast', async ($, on) => {
+  const { toasts } = measured(on)
+  on('env.get', (_, e: any) => ({ value: e.name === 'CLAUDE_CONFIG_DIR' ? '/cfg' : undefined }) as any)
+  on('process.run', (_, e: any) => (e.argv[0] === 'git' ? ran(0, '/proj\n') : ran(1, '')) as any)
+  on('fs.read', (_, e: any) => (e.path === '/proj/.claude/claudzilla.local.json' ? { value: '{"rulesGuard":{"compactNudge":0}}' } : { deny: 'ENOENT' }) as any)
+  await $.session.start(start)
+  await ctxMeasure($, 900_000)
+  expect(toasts).toEqual([])
+})
+
+test('a non-interactive session shows no context toast', async ($, on) => {
+  const { toasts } = measured(on)
+  await $.session.start({ cwd: '/proj', surface: null, isInteractive: false })
+  await ctxMeasure($, 900_000)
+  expect(toasts).toEqual([])
+})
+
+function clocked(on: On) {
+  const toasts: [string, number | undefined][] = []
+  const status: (string | undefined)[] = []
+  const clock = mock.clock(on, { now: NOW })
+  on('ui.toast', (_, e) => { toasts.push([e.text, e.timeoutMs]); return { value: undefined } })
+  on('ui.status', (_, e) => { status.push(e.text); return { value: undefined } })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  on('prompt.submit', (_, e: any) => ({ text: e.text }) as any)
+  on('session.compact', (_, e: any) => ({ messages: e.messages }) as any)
+  on('session.end', () => ({ sessionId: 's1' }) as any)
+  return { clock, toasts, status }
+}
+const T160 = 'Compact — optional: /claudzilla compact, or /clear for new work'
+
+test('30 idle minutes past 1x pin the reminder under the prompt until the next turn', async ($, on) => {
+  const { clock, toasts, status } = clocked(on)
+  await $.session.start(start)
+  await ctxMeasure($, 160_000)
+  await clock.advance(EVERY_MS)
+  expect(toasts.filter(([text]) => text === T160)).toEqual([[T160, 10000]])
+  expect(status).toEqual([T160])
+  await $.prompt.submit({ text: 'back', wait: false, origin: { kind: 'composer' } } as any)
+  expect(status).toEqual([T160, undefined])
+})
+
+test('a turn cancels the idle toast', async ($, on) => {
+  const { clock, status } = clocked(on)
+  await $.session.start(start)
+  await ctxMeasure($, 160_000)
+  await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } } as any)
+  await clock.advance(EVERY_MS)
+  expect(status).toEqual([])
+})
+
+for (const [name, drop] of [
+  ['/clear', ($: any) => $.session.end({ reason: 'clear' })],
+  ['a compact', ($: any) => $.session.compact({ trigger: 'manual', messages: [{ role: 'user', text: 'summary', toolUses: [] }] })],
+] as const) {
+  test(`${name} cancels the idle toast and starts the levels over`, async ($, on) => {
+    const { clock, toasts, status } = clocked(on)
+    await $.session.start(start)
+    await ctxMeasure($, 160_000)
+    await drop($)
+    await clock.advance(EVERY_MS)
+    expect(status).toEqual([])
+    await ctxMeasure($, 160_000)
+    expect(toasts.filter(([text]) => text === T160)).toHaveLength(2)
+  })
+}
