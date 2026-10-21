@@ -24,5 +24,5 @@
   "picks": { "plugins": ["picks@claudzilla"] },
   "toast": { "plugins": ["update-toast@claudzilla"] },
   "attribution": { "plugins": ["attribution@claudzilla"] },
-  "updater": { "plugins": ["guide@claudzilla"], "links": ["hooks/claudzilla-update.sh", "skills/claudzilla-report"], "hooks": ["claudzilla-update.sh"] }
+  "updater": { "plugins": ["guide@claudzilla"], "links": ["hooks/claudzilla-update.sh", "skills/claudzilla-report", "skills/claudzilla-compact"], "hooks": ["claudzilla-update.sh"] }
 }
