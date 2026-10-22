@@ -251,11 +251,11 @@ test('a one-row CHANGES zone scrolls with no back-to-top line', async ($, on) =>
   noHistory(on)
   const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
   on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
-  const scroll = { offset: 0, bodyRows: 11 }
+  const scroll = { offset: 0, bodyRows: 9 }
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props: { ...props, scroll }, requestId: 'panel' })
   await ui.press({ key: 'Git' })
-  // 11 body rows less 7 fixed: COMMITS keeps 3, CHANGES the 1 left, on row 5.
-  await $.ui.scroll({ component: 'Pane', requestId: 'panel', offset: 0, by: 100, bodyRows: 11, contentRows: 11, origin: { kind: 'person' }, pointer: { column: 0, row: 5 } })
+  // 9 body rows less 7 fixed: COMMITS keeps 1, CHANGES the 1 left, on row 5.
+  await $.ui.scroll({ component: 'Pane', requestId: 'panel', offset: 0, by: 100, bodyRows: 9, contentRows: 9, origin: { kind: 'person' }, pointer: { column: 0, row: 5 } })
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: /file9\.ts/ })).toBeDefined()
   expect(await ui.find({ key: 'top:changes' })).toBeUndefined()
@@ -436,7 +436,7 @@ test('a clean repo drops CHANGES and its divider: COMMITS takes their rows', asy
   expect(await ui.find({ type: 'Text', text: /commit 14$/ })).toBeDefined()
 })
 
-test('the divider drags up to 3 rows of CHANGES, and no further', async ($, on) => {
+test('the divider drags up to 1 row of CHANGES, and no further', async ($, on) => {
   noHistory(on)
   const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
   on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
@@ -446,14 +446,14 @@ test('the divider drags up to 3 rows of CHANGES, and no further', async ($, on) 
   // 7 rows of CHANGES; dragged 9 rows up, past its title.
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'move', x: 0, y: -9, button: 'left', in: 'divider' })
-  expect(await ui.find({ type: 'Text', text: '↑4', in: 'divider' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '↑6', in: 'divider' })).toBeDefined()
   await ui.pointer({ type: 'up', x: 0, y: -9, button: 'left', in: 'divider' })
 
-  expect(await ui.find({ type: 'Text', text: /file2\.ts/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /file3\.ts/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /file0\.ts/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /file1\.ts/ })).toBeUndefined()
 })
 
-test('the divider drags down to 3 rows of COMMITS, and no further', async ($, on) => {
+test('the divider drags down to 1 row of COMMITS, and no further', async ($, on) => {
   noHistory(on)
   const files = Array.from({ length: 15 }, (_, i) => ` M file${i}.ts`).join('\n')
   const log = Array.from({ length: 5 }, (_, i) => `abc123${i}ffff abc123${i} commit${i}`).join('\n')
@@ -461,18 +461,19 @@ test('the divider drags down to 3 rows of COMMITS, and no further', async ($, on
 
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
   await ui.press({ key: 'Git' })
-  // 13 free rows, 7 of CHANGES; dragged 9 rows down, past COMMITS' third row.
+  // 13 free rows, 7 of CHANGES; dragged 9 rows down, past COMMITS' first row.
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'move', x: 0, y: 9, button: 'left', in: 'divider' })
-  expect(await ui.find({ type: 'Text', text: '↓3', in: 'divider' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '↓5', in: 'divider' })).toBeDefined()
   await ui.pointer({ type: 'up', x: 0, y: 9, button: 'left', in: 'divider' })
 
-  expect(await ui.find({ type: 'Text', text: /file9\.ts/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /file10\.ts/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /commit2/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /file11\.ts/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /file12\.ts/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /commit0/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /commit1/ })).toBeUndefined()
 })
 
-test('a CHANGES zone under 3 rows stays put dragged up, and grows to 3 dragged down', async ($, on) => {
+test('a one-row CHANGES zone stays put dragged up, and grows dragged down', async ($, on) => {
   noHistory(on)
   const log = Array.from({ length: 15 }, (_, i) => `abc12${i}ffff abc12${i} commit${i}`).join('\n')
   on('process.run', (_, e) => ran(git({ status: '## main\n M file0.ts\n', log: `${log}\n` })(e.argv) ?? ''))
@@ -488,10 +489,44 @@ test('a CHANGES zone under 3 rows stays put dragged up, and grows to 3 dragged d
 
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'move', x: 0, y: 1, button: 'left', in: 'divider' })
-  expect(await ui.find({ type: 'Text', text: '↓2', in: 'divider' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '↓1', in: 'divider' })).toBeDefined()
   await ui.pointer({ type: 'up', x: 0, y: 1, button: 'left', in: 'divider' })
-  expect(await ui.find({ type: 'Text', text: /commit9/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /commit10/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /commit10/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /commit11/ })).toBeUndefined()
+})
+
+test('a click on the divider moves it to the top, and from the top to the bottom', async ($, on) => {
+  noHistory(on)
+  const files = Array.from({ length: 15 }, (_, i) => ` M file${i}.ts`).join('\n')
+  on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+  // 13 free rows, 7 of CHANGES: clicked, 1; clicked again, 12.
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
+  await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: 'divider' })
+  expect(await ui.find({ type: 'Text', text: /file0\.ts/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /file1\.ts/ })).toBeUndefined()
+
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
+  await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: 'divider' })
+  expect(await ui.find({ type: 'Text', text: /file11\.ts/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /file12\.ts/ })).toBeUndefined()
+})
+
+test('a drag back to where it began moves the divider nowhere', async ($, on) => {
+  noHistory(on)
+  const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
+  on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
+
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Git' })
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
+  await ui.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'divider' })
+  await ui.pointer({ type: 'move', x: 0, y: 0, button: 'left', in: 'divider' })
+  await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: 'divider' })
+  expect(await ui.find({ type: 'Text', text: /file6\.ts/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /file7\.ts/ })).toBeUndefined()
 })
 
 test('Git tab reruns git after a tool call, not on every redraw', async ($, on) => {
@@ -2585,22 +2620,21 @@ test('dragging the TOPICS divider gives TOPICS more rows', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
 })
 
-test('the TOPICS divider keeps 3 rows on either side', async ($, on) => {
+test('the TOPICS divider keeps 1 row on either side', async ($, on) => {
   const ui = await twelveTopics($, on)
-  // 14 free rows, 7 of TOPICS: up to 3 of them, down to 3 left for the report.
+  // 14 free rows, 7 of TOPICS: up to 1 of them, down to 1 left for the report.
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'now' })
   await ui.pointer({ type: 'move', x: 0, y: -9, button: 'left', in: 'now' })
-  expect(await ui.find({ type: 'Text', text: '↑4', in: 'now' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '↑6', in: 'now' })).toBeDefined()
   await ui.pointer({ type: 'up', x: 0, y: -9, button: 'left', in: 'now' })
-  expect(await topicShown(ui, 9)).toBe(true)
-  expect(await topicShown(ui, 8)).toBe(false)
+  expect(await topicShown(ui, 11)).toBe(true)
+  expect(await topicShown(ui, 10)).toBe(false)
 
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'now' })
   await ui.pointer({ type: 'move', x: 0, y: 20, button: 'left', in: 'now' })
-  expect(await ui.find({ type: 'Text', text: '↓8', in: 'now' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '↓12', in: 'now' })).toBeDefined()
   await ui.pointer({ type: 'up', x: 0, y: 20, button: 'left', in: 'now' })
-  expect(await topicShown(ui, 1)).toBe(true)
-  expect(await topicShown(ui, 0)).toBe(false)
+  expect(await topicShown(ui, 0)).toBe(true)
 })
 
 test('the wheel over TOPICS scrolls them under a divider that stays put; ↑ brings them back up', async ($, on) => {
