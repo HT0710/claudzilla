@@ -72,7 +72,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 
   <img src=".github/assets/picks.png" alt="The picks card above the prompt, numbering the options so a digit answers" width="720">
 
-- **Dividers:** lines frame the TL;DR, `Next:` and each `---`, fitted to the chat width ([details](plugins/response-dividers/README.md)).
+- **Dividers:** lines frame the TL;DR, `Next:` and each `---`, fitted to the chat width. A file path in a reply is a link that opens in the panel ([details](plugins/response-dividers/README.md)).
 
 ### Code that stays small
 - **Lazy by default:** the smallest change that fully works ([ponytail](https://github.com/DietrichGebert/ponytail)).
@@ -98,7 +98,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 
   <img src=".github/assets/statusline.png" alt="Statusline: cwd, branch, context, 5-hour and weekly meters, model, effort and active skill" width="720">
 
-- **Prompt panel:** `/panel` lists this chat's prompts; click to jump, reuse or rewind ([details](plugins/panel/README.md)).
+- **Prompt panel:** `/panel` lists this chat's prompts, previews files and shows git; click to jump, reuse or rewind ([details](plugins/panel/README.md)).
 - **Toasts:** updates install in the background and say so; a toast also shows when the 5-hour or weekly limit passes 50%, 75% and 90% ([details](plugins/update-toast/README.md)).
 - **Theme + settings:** muted dark truecolor theme, `opus[1m]`, normal permission prompts.
 - **Local trace:** a record of what claudzilla's parts did, kept in `~/.claude/claudzilla-trace/`, never uploaded; `{"rulesGuard":{"trace":false}}` in `~/.claude/claudzilla.json` turns it off. See the guide topic `bugs` (`/claudzilla bugs`).

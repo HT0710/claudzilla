@@ -117,6 +117,7 @@ claudzilla's rules shape every reply so you can scan it instead of reading it al
 - **Evidence:** a claim carries a `file:line` reference (file and line number) or the command that showed it. A claim Claude did not check is marked *unverified*; treat it as a guess.
 - **Decision:** options `A`, `B` in a table, then `**Recommend:**` with one pick and a **Why:** line with its source. With several decisions, they are numbered: `Decision 1`, `Decision 2`.
 - **Picks:** with two or more choices, a `**Picks:**` line lists the recommended answers, such as `1B, 2A`.
+- **File links:** a code span with the path of an existing file, such as `src/app.ts:42`, is a link. Click it to see the lines around it in the panel's File tab, but only in the fullscreen terminal; elsewhere a click does what the terminal does. ctrl+click or alt+click opens the file through the terminal. Needs the response dividers and the panel. Without the panel, a click shows a toast saying so.
 - **Next:** the last line, the single next action.
 - **Dividers:** a heavy line frames a reply that has a TL;DR. A thin line follows the TL;DR and comes before the Picks or Next line. A dotted line marks a change of group: what Claude found, what to choose, what to do.
 
@@ -319,7 +320,7 @@ Claude Code's [status line](https://code.claude.com/docs/en/statusline) page exp
 ### The panel
 <!-- topic: panel -->
 
-If you installed the panel, it is a pane with three tabs: Overview, History and Git. It shows how Claude read your request and what it is doing, and it lets you move around a long chat without scrolling. If you did not install it, run `~/claudzilla/install.sh --add panel` in a terminal.
+If you installed the panel, it is a pane with two tab bars. The top bar is about this chat: Overview, Decisions and History. The bottom bar is about the repo: File, Tree and Git. Decisions and Tree are dimmed and say "coming in v1.8". It shows how Claude read your request and what it is doing, and it lets you move around a long chat without scrolling. If you did not install it, run `~/claudzilla/install.sh --add panel` in a terminal.
 
 To open or close the panel, press **alt+h** or type `/panel`. A new session opens it if you left it open, and the first session opens it too; on a narrow terminal it waits for room. In the fullscreen layout, on a terminal 110 columns or wider, it docks beside the chat; otherwise it opens over the prompt. It opens on the Overview tab; click a tab name to switch. On macOS, alt is the Option key, and your terminal must send it as Meta; see [Option key shortcuts on macOS](https://code.claude.com/docs/en/terminal-config#enable-option-key-shortcuts-on-macos).
 
@@ -341,6 +342,8 @@ From the moment you submit until Claude reports, the header shows `planning…` 
 - `⤓ latest` scrolls the chat to its newest row.
 - `⟲ rewind` and `⤓ latest` show once there is a prompt; with History empty they are hidden.
 - A dim prompt was rewound or compacted, or is not drawn in the chat yet. A compacted prompt still jumps while the chat shows it; the others do not. `↻` works on all of them.
+
+**File** shows the lines around a file mentioned in Claude's reply, with the line marked `▶`. Click the file link in the reply to open it here; the panel opens if it was closed. See *Read a reply* (`/claudzilla replies`).
 
 **Git** shows the session folder's branch, with `↑` for commits ahead of its remote and `↓` for commits behind, the changed files under CHANGES, and recent commits under COMMITS. It redraws after each tool call and each prompt. Scrolled, a `↑` line goes back to the top of CHANGES or COMMITS. When the `origin` remote is on GitHub, GitLab, Codeberg or SourceHut, a pushed commit's id, or the branch once pushed to origin, links to its web page: its row lights up while the pointer is on it. Alt+click opens it; Ctrl+click opens it twice until a Claude Code bug is fixed ([anthropics/claude-code#76110](https://github.com/anthropics/claude-code/issues/76110)).
 
@@ -627,6 +630,8 @@ Headline features of recent versions. Restart Claude after an update to use them
 - Overview writes TOPICS, ASK, PLAN and STEPS in the language you write in.
 - Overview shows `◌ waiting on N agents` while Claude waits on agents it started.
 - Agents Claude starts show as rows under the step that started them. Click one to open its transcript; click it again or press Esc to go back.
+- A file path in Claude's reply is a link: click it to see those lines in the panel's File tab, ctrl+click to open the file.
+- The panel has two tab bars: Overview, Decisions and History in the top bar; File, Tree and Git in the bottom bar.
 - A toast shows when your 5-hour or weekly limit passes 50%, 75% and 90%.
 
 #### v1.4.0
