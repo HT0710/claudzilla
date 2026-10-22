@@ -33,24 +33,42 @@ const SAY = new RegExp(String.raw`\bsay\s+[\x60"]?(?:go\b|\w+[\x60"]?,?\s+${DOES
 // Ticks would show raw; a second sentence or ", or ..." is another ask.
 const cut = (s: string) => s.replace(/`/g, '').split(/(?<=[.?])(?<!\b(?:e\.g|i\.e)\.)\s|,\s+or\b/)[0]!
 
+// Claude's words sent as the person's: I and you swap; "we" is both of them.
+const SWAP: Record<string, string> = {
+  i: 'you', me: 'you', my: 'your', mine: 'yours', myself: 'yourself', 'i am': 'you are', 'i was': 'you were', "i'm": "you're", "i've": "you've", "i'll": "you'll", "i'd": "you'd",
+  your: 'my', yours: 'mine', yourself: 'myself', 'you are': 'I am', 'you were': 'I was', "you're": "I'm", "you've": "I've", "you'll": "I'll", "you'd": "I'd",
+}
+// Code and quoted text match first and stay as written; "I/O" and "my.config" hold no pronoun.
+const VOICE = /(`[^`]*`|"[^"]*"|“[^”]*”)|(?<![\w/-])(?:I(?:\s+(?:am|was)|['’](?:m|ve|ll|d))?|[Yy]ou(?:\s+(?:are|were)|['’](?:re|ve|ll|d))?|[Mm](?:e|y|ine|yself)|[Yy]our(?:s|self)?)(?![\w/-]|\.\w)/g
+// A bare "you" opening a clause is its subject ("then you run" → "I"); elsewhere an object ("show you" → "me").
+const SUBJECT = /(?:^|[,;:—–(]|\b(?:and|or|then|so|if|when|once|until|unless|before|after|while|because|since|but|that|whether|what|how|where|why|who|which)\s)\s*$/i
+const voice = (s: string) => s.replace(VOICE, (w, quoted: string | undefined, at: number) => {
+  if (quoted) return w
+  const key = w.toLowerCase().replace(/\s+/, ' ').replace('’', "'")
+  let to = key === 'you' ? (SUBJECT.test(s.slice(0, at)) ? 'I' : 'me') : SWAP[key]!
+  if (/^[A-HJ-Z]/.test(w)) to = `${to.charAt(0).toUpperCase()}${to.slice(1)}`
+  return w.includes('’') ? to.replace("'", '’') : to
+})
+
 // Offers SAY misses, from 1338 real Next lines: the word to say is quoted, bold, or one plain word that asks no question.
 const WORD = String.raw`(?:["\x60]([^"\x60]{1,30})["\x60]|\*\*([^*]{1,30})\*\*|(?!(?:which|what|whether|when|if|so|how|where|who)\b)(\w+))`
 const VERB = String.raw`(?:say|reply)`
 // "say fold to X, or commit to Y", "say A (or B)", "reply 1, 2, or done": a choice. A fallback ("or tell me", "or I revert") is not.
 const CHOICE = new RegExp(String.raw`\b${VERB}\s+${WORD}(?:(?:\s+to\b[^,]*)?,?\s+or\s+(?!(?:tell|give|name|send|paste|I|leave|let|run|drop)\b)|\s*,\s*${WORD}\s*(?:,|\s+or\b)|\s*\(or\s+["\x60*]*\w+["\x60*]*\))`, 'i')
-const word = (m: RegExpMatchArray) => (m[1] ?? m[2] ?? m[3])!
+// Ticked so voice() leaves the word to say as written; cut() drops the ticks.
+const word = (m: RegExpMatchArray) => `\`${m[1] ?? m[2] ?? m[3]}\``
 const asked = (next: string): string | null => {
   let m: RegExpMatchArray | null
   if ((m = next.match(new RegExp(String.raw`\b${VERB}\s+${WORD}\s*\(recommended\)`, 'i')))) return word(m)
   if ((m = next.match(/\bI recommend\s+([A-Z0-9]{1,3})\b/))) return m[1]!
   // "run X, then say go": the user acts first.
   if (CHOICE.test(next) || /\bthen\s+say\b/i.test(next)) return null
-  if ((m = next.match(/^(?:want(?: me)? to|should I|shall I)\s+([^?]+)\?/i))) return cut(m[1]!)
+  if ((m = next.match(/^(?:want(?: me)? to|should I|shall I)\s+([^?]+)\?/i))) return m[1]!
   if (/\bGo\?\s*$/.test(next)) return 'go'
   // "say the word / yes (or ...) / finish when ready, and I'll X"
-  if ((m = next.match(new RegExp(String.raw`\b${VERB}\s+(?:the word|${WORD})(?:\s+when\b[^,]*)?\s*(?:\([^)]*\))?,?\s+${DOES}(.+)`, 'i')))) return cut(m[4]!)
+  if ((m = next.match(new RegExp(String.raw`\b${VERB}\s+(?:the word|${WORD})(?:\s+when\b[^,]*)?\s*(?:\([^)]*\))?,?\s+${DOES}(.+)`, 'i')))) return m[4]!
   // "approve the spec (or ...), and I'll X"; approving a tool permission is not typed.
-  if ((m = next.match(new RegExp(String.raw`^approve\b(?!\s+(?:Read|Bash|Write|Edit)\b)([^,(]*?)\s*(?:\([^)]*\))?,?(?:\s+or\s+[^,]+,)?\s+${DOES}(.+)`, 'i')))) return `approve${m[1] ? ` ${m[1].trim()}` : ''}, then ${cut(m[2]!)}`
+  if ((m = next.match(new RegExp(String.raw`^approve\b(?!\s+(?:Read|Bash|Write|Edit)\b)([^,(]*?)\s*(?:\([^)]*\))?,?(?:\s+or\s+[^,]+,)?\s+${DOES}(.+)`, 'i')))) return `approve${m[1] ? ` ${m[1].trim()}` : ''}, then ${m[2]!}`
   // "say push to publish", "say commit.", "say commit, then push", "say "commit" when ready"
   if ((m = next.match(new RegExp(String.raw`^${VERB}\s+${WORD}(?:\s+(?:to|when|then)\b|\s*(?:[.,→]|$))`, 'i')))) return word(m)
   return null
@@ -132,7 +150,8 @@ export function parse(answer: string): Offer | null {
   // X follows the say that let the line in, not an earlier "and I'll".
   const said = other ? undefined : next?.slice(next.search(SAY))
   const does = said?.match(new RegExp(`${DOES}(.+)$`))
-  const act = other ?? (does && cut(does[1]!))
+  const raw = other ?? does?.[1]
+  const act = raw && cut(raw)
   // "say B and I'll X" also picks B; only the word said right before X.
   const letter = does && said!.slice(0, does.index).match(/\b[Ss]ay\s+[`"]?([A-Z])[`"]?,?\s*$/)?.[1]
   const title = lone?.topic
@@ -142,14 +161,14 @@ export function parse(answer: string): Offer | null {
       : picks !== null
         ? question(`go with ${picks}`)
         : `${next!.charAt(0).toUpperCase()}${next!.slice(1)}`
-  const todo = act?.replace(/[.:]$/, '')
+  const todo = raw && cut(voice(raw)).replace(/[.:]$/, '')
   // The Picks line also holds fixes the lone option would drop; go's act follows it, but "say so and I'll X" is a fallback.
-  const go = picks !== null ? (todo && /^say\s+[`"]?go\b/i.test(said ?? '') ?`${picks}, then ${todo}` : picks) : rows.length === 1 ? `${rows[0]!.id}: ${rows[0]!.text}` : todo ? `${letter ? `${letter}: ` : ''}${todo}` : 'go'
+  const go = picks !== null ? (todo && /^say\s+[`"]?go\b/i.test(said ?? '') ?`${picks}, then ${todo}` : picks) : rows.length === 1 ? `${rows[0]!.id}: ${voice(rows[0]!.text)}` : todo ? `${letter ? `${letter}: ` : ''}${todo}` : 'go'
   return { title, rows, why, go }
 }
 
 // The id answers Claude; the option keeps the history readable.
-const answer = (row: Row) => `${row.id}: ${row.text}`
+const answer = (row: Row) => `${row.id}: ${voice(row.text)}`
 // Dim in the empty prompt box; → or Tab, then Enter, sends it. Rows, none picked: no card row to match.
 const suggestion = (o: Offer) => {
   if (o.rows.length < 2) return o.go
