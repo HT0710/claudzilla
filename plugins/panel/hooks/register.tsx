@@ -924,7 +924,7 @@ export const register: Register = (on, options) => {
     return { element: e.element }
   })
 
-  // A divider, dragged: the render clamps it to keep 3 rows on either side.
+  // A divider, dragged or clicked: the render clamps it to keep 1 row on either side.
   on('ui.message', async ($, e, next) => {
     const rows = (e.data as { split?: unknown } | undefined)?.split
     if (e.requestId !== PANE || (e.element !== 'divider' && e.element !== 'now') || typeof rows !== 'number') return next(e)
@@ -1254,11 +1254,11 @@ export const register: Register = (on, options) => {
       const totalCount = total ? `${local ? '  ' : ''}${total} total` : ''
       // Rows left once the tabs, their rule, the branch, the rule under it, both headers and the
       // divider are drawn. CHANGES takes what it needs up to half, or what the divider was dragged
-      // to; COMMITS the rest. Dragged, each side keeps 3 rows, COMMITS first in a short pane.
+      // to; COMMITS the rest. Dragged, each side keeps 1 row, COMMITS first in a short pane.
       const free = e.props.scroll.bodyRows - 7
       const dragged = await read($, split)
-      const changesMax = Math.max(0, free - 3)
-      const changesMin = Math.min(3, changesMax)
+      const changesMax = Math.max(0, free - 1)
+      const changesMin = Math.min(1, changesMax)
       const changesRows = dragged >= 0 ? Math.max(changesMin, Math.min(dragged, changesMax)) : Math.min(files.length, Math.ceil(free / 2), changesMax)
       // With no changes, no CHANGES header or divider: COMMITS takes their rows too.
       const commitsRows = Math.max(1, files.length ? free - changesRows : free + 2)
@@ -1469,7 +1469,7 @@ export const register: Register = (on, options) => {
       // Newest first, the newest lit as History lights the prompt in view. With a report under them, TOPICS
       // take a zone of their own: the rows their wrapped lines need up to half of those left once the tabs,
       // their rule, the status row, its rule, the TOPICS header and their divider are drawn, or what the
-      // divider was dragged to, keeping 3 rows on either side; the wheel scrolls them in it.
+      // divider was dragged to, keeping 1 row on either side; the wheel scrolls them in it.
       const topics = about.topics.map((topic, i) => ({ topic, i })).reverse()
       // shortcut: counts cells as if the text filled each row; a word wrap or a wide glyph takes more, so at
       // the scroll's end the oldest topic's last line can sit past the zone. Upgrade: count wrapped words.
@@ -1477,8 +1477,8 @@ export const register: Register = (on, options) => {
       const free = e.props.scroll.bodyRows - 6
       const draggedTopics = await read($, topicsSplit)
       const needed = topics.reduce((sum, one) => sum + lines(one.topic), 0)
-      const topicsMax = Math.max(0, free - 3)
-      const topicsMin = Math.min(3, topicsMax)
+      const topicsMax = Math.max(0, free - 1)
+      const topicsMin = Math.min(1, topicsMax)
       const topicsRows = draggedTopics >= 0 ? Math.max(topicsMin, Math.min(draggedTopics, topicsMax)) : Math.min(needed, Math.ceil(free / 2), topicsMax)
       // The last offset: the fewest oldest topics that fill the zone, less the back-to-top line once scrolled.
       const endRows = needed > topicsRows && topicsRows > 1 ? topicsRows - 1 : topicsRows
