@@ -1,6 +1,6 @@
 import type { AgentStatus } from 'claude-code'
 
-export type Tab = 'Git' | 'History' | 'Overview'
+export type Tab = 'Overview' | 'Decisions' | 'History' | 'File' | 'Tree' | 'Git'
 export type Step = { text: string; status: 'pending' | 'in_progress' | 'completed'; agents?: string[] }
 // An agent the main loop started: the step in progress then, and the turn (user prompt) it came in.
 export type Spawn = { id: string; description: string; step: string; turn: number; status: AgentStatus }

@@ -11,7 +11,14 @@ let lastPane = ''
 
 const PANE = 'panel'
 const PAD = 2
-const TABS: Tab[] = ['Overview', 'History', 'Git']
+// Top bar: the chat's own state; bottom bar: the files it touches.
+const TOP: Tab[] = ['Overview', 'Decisions', 'History']
+const BOTTOM: Tab[] = ['File', 'Tree', 'Git']
+const TABS = [...TOP, ...BOTTOM]
+// Tabs not built yet: drawn dim, their body says when.
+const SOON: Tab[] = ['Decisions', 'Tree']
+// The bottom bar's rows: its rule and its labels.
+const BAR_ROWS = 2
 const MAX_PROMPTS = 100
 // COMMITS reads this many at a time, the next page once scrolled past: git walks every commit it
 // skips (210 ms at 100k), so a read per wheel tick would lag.
@@ -1119,7 +1126,19 @@ export const register: Register = (on, options) => {
     if (current !== 'Git') gitZones = undefined
     if (current !== 'History') historyEnd = undefined
     if (current !== 'Overview') topicsZone = undefined
-    if (current === 'History') {
+    if (SOON.includes(current)) {
+      body = (
+        <Box height={Math.max(0, e.props.scroll.bodyRows - BAR_ROWS - 2)} justifyContent="center" alignItems="center">
+          <Text color={HUD.faint}>coming in v1.8</Text>
+        </Box>
+      )
+    } else if (current === 'File') {
+      body = (
+        <Box height={Math.max(0, e.props.scroll.bodyRows - BAR_ROWS - 2)} justifyContent="center" alignItems="center">
+          <Text color={HUD.faint}>Click a file path in a reply</Text>
+        </Box>
+      )
+    } else if (current === 'History') {
       const key = `${await $.session.id()}:${await read($, submitted)}`
       const at = await $.clock.now()
       if (historyRead?.key !== key || at - historyRead.at >= READ_TTL) historyRead = { key, at, reads: readHistory($) }
@@ -1181,7 +1200,7 @@ export const register: Register = (on, options) => {
       ])
       // The rows under the tabs, their rule and the header, less the back-to-top line once scrolled.
       // Clamped: the list shrinks after a rewind.
-      const listRows = Math.max(0, e.props.scroll.bodyRows - 3)
+      const listRows = Math.max(0, e.props.scroll.bodyRows - BAR_ROWS - 3)
       const end = zoneEnd(lines.length, listRows)
       const from = Math.min(await read($, historyTop), end)
       const hasTop = from > 0 && listRows > 1
@@ -1207,7 +1226,7 @@ export const register: Register = (on, options) => {
           {/* The rows under the tabs and their rule. */}
           {prompts.length === 0 &&
             emptyNote(
-              e.props.scroll.bodyRows - 2,
+              e.props.scroll.bodyRows - BAR_ROWS - 2,
               'No prompts yet',
               <Text color={HUD.faint}>What you've asked Claude.</Text>,
               <Box>
@@ -1255,7 +1274,7 @@ export const register: Register = (on, options) => {
       // Rows left once the tabs, their rule, the branch, the rule under it, both headers and the
       // divider are drawn. CHANGES takes what it needs up to half, or what the divider was dragged
       // to; COMMITS the rest. Dragged, each side keeps 1 row, COMMITS first in a short pane.
-      const free = e.props.scroll.bodyRows - 7
+      const free = e.props.scroll.bodyRows - BAR_ROWS - 7
       const dragged = await read($, split)
       const changesMax = Math.max(0, free - 1)
       const changesMin = Math.min(1, changesMax)
@@ -1300,14 +1319,14 @@ export const register: Register = (on, options) => {
         // runs no command.
         status ? (
           emptyNote(
-            e.props.scroll.bodyRows - 2,
+            e.props.scroll.bodyRows - BAR_ROWS - 2,
             'Not a git repository',
             <Text color={HUD.faint}>Branch, changes and commits</Text>,
             <Text color={HUD.faint}>show here inside a repo.</Text>,
           )
         ) : (
           emptyNote(
-            e.props.scroll.bodyRows - 2,
+            e.props.scroll.bodyRows - BAR_ROWS - 2,
             "Git can't run here",
             <Text color={HUD.faint}>It needs git on PATH,</Text>,
             <Text color={HUD.faint}>in a terminal session.</Text>,
@@ -1474,7 +1493,7 @@ export const register: Register = (on, options) => {
       // shortcut: counts cells as if the text filled each row; a word wrap or a wide glyph takes more, so at
       // the scroll's end the oldest topic's last line can sit past the zone. Upgrade: count wrapped words.
       const lines = (topic: string) => Math.max(1, Math.ceil(topic.length / Math.max(1, width - 2)))
-      const free = e.props.scroll.bodyRows - 6
+      const free = e.props.scroll.bodyRows - BAR_ROWS - 6
       const draggedTopics = await read($, topicsSplit)
       const needed = topics.reduce((sum, one) => sum + lines(one.topic), 0)
       const topicsMax = Math.max(0, free - 1)
@@ -1513,7 +1532,7 @@ export const register: Register = (on, options) => {
         !hasReport && !hasAbout ? (
           // The rows under the tabs and their rule.
           emptyNote(
-            e.props.scroll.bodyRows - 2,
+            e.props.scroll.bodyRows - BAR_ROWS - 2,
             'Nothing here yet',
             <Text color={HUD.faint}>What Claude is doing and</Text>,
             <Text color={HUD.faint}>what this chat is about.</Text>,
@@ -1627,6 +1646,35 @@ export const register: Register = (on, options) => {
         )
     }
 
+    // Equal slots, the last taking the odd column.
+    const bar = (tabs: Tab[]) => (
+      <Box paddingX={PAD}>
+        {tabs.flatMap((one, i) => {
+          const slots = e.props.bodyColumns - 2 * PAD - 3 * (tabs.length - 1)
+          const width = i < tabs.length - 1 ? Math.floor(slots / tabs.length) : slots - Math.floor(slots / tabs.length) * (tabs.length - 1)
+          // The name centered in spaces across the slot: a Button presses and lights as wide as it draws.
+          // The tab shown is no Button, lit across its slot as a focused one is.
+          const notice = flagged.includes(one) ? ' !' : ''
+          const left = Math.max(0, Math.floor((width - one.length - notice.length) / 2))
+          const right = Math.max(0, width - left - one.length - notice.length)
+          return [
+            ...(i > 0 ? [<Text color="promptBorder"> │ </Text>] : []),
+            <Box key={`tab:${one}`} width={width}>
+              {one === current ? (
+                <Text bold inverse color="claude">{`${' '.repeat(left)}${one}${notice}${' '.repeat(right)}`}</Text>
+              ) : (
+                <Button key={one} plain onPress={() => pick($, one)}>
+                  <Text color={HUD.idle} dimColor={SOON.includes(one)}>{`${' '.repeat(left)}${one}`}</Text>
+                  {notice ? <Text color="warning">{notice}</Text> : ''}
+                  <Text color={HUD.idle} dimColor={SOON.includes(one)}>{' '.repeat(right)}</Text>
+                </Button>
+              )}
+            </Box>,
+          ]
+        })}
+      </Box>
+    )
+
     const key = `${current}|${e.props.bodyColumns}|${e.props.scroll.bodyRows}|${JSON.stringify(zones)}`
     if (key !== lastPane) {
       lastPane = key
@@ -1634,38 +1682,17 @@ export const register: Register = (on, options) => {
     }
     return (
       <Box flexDirection="column">
-        {/* Equal slots, the last taking the odd column. */}
-        <Box paddingX={PAD}>
-          {TABS.flatMap((one, i) => {
-            const slots = e.props.bodyColumns - 2 * PAD - 3 * (TABS.length - 1)
-            const width = i < TABS.length - 1 ? Math.floor(slots / TABS.length) : slots - Math.floor(slots / TABS.length) * (TABS.length - 1)
-            // The name centered in spaces across the slot: a Button presses and lights as wide as it draws.
-            // The tab shown is no Button, lit across its slot as a focused one is.
-            const notice = flagged.includes(one) ? ' !' : ''
-            const left = Math.max(0, Math.floor((width - one.length - notice.length) / 2))
-            const right = Math.max(0, width - left - one.length - notice.length)
-            return [
-              ...(i > 0 ? [<Text color="promptBorder"> │ </Text>] : []),
-              <Box key={`tab:${one}`} width={width}>
-                {one === current ? (
-                  <Text bold inverse color="claude">{`${' '.repeat(left)}${one}${notice}${' '.repeat(right)}`}</Text>
-                ) : (
-                  <Button key={one} plain onPress={() => pick($, one)}>
-                    <Text color={HUD.idle}>{`${' '.repeat(left)}${one}`}</Text>
-                    {notice ? <Text color="warning">{notice}</Text> : ''}
-                    <Text color={HUD.idle}>{' '.repeat(right)}</Text>
-                  </Button>
-                )}
-              </Box>,
-            ]
-          })}
+        {bar(TOP)}
+        <Box paddingX={PAD / 2}>
+          <Text color="promptBorder">{rule}</Text>
+        </Box>
+        <Box key="body" flexDirection="column" paddingX={PAD} height={e.props.scroll.bodyRows - 2 - BAR_ROWS} flexShrink={0}>
+          {body}
         </Box>
         <Box paddingX={PAD / 2}>
           <Text color="promptBorder">{rule}</Text>
         </Box>
-        <Box flexDirection="column" paddingX={PAD}>
-          {body}
-        </Box>
+        {bar(BOTTOM)}
       </Box>
     )
   }))
