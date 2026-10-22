@@ -10,12 +10,14 @@ const ran = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isS
 // Stands for grep pulling this chat's lines from the prompt history.
 const isHistoryGrep = (argv: readonly string[]) => argv.at(-1)?.endsWith('history.jsonl') ?? false
 
+// The bottom bar's rule and labels, on top of the 20 rows the bodies were sized to.
+const BAR_ROWS = 2
 const props = {
   title: 'Panel',
   isFocused: false,
   bodyColumns: 40,
   placement: 'dock' as const,
-  scroll: { offset: 0, bodyRows: 20 },
+  scroll: { offset: 0, bodyRows: 20 + BAR_ROWS },
   view: {},
 }
 
@@ -251,11 +253,11 @@ test('a one-row CHANGES zone scrolls with no back-to-top line', async ($, on) =>
   noHistory(on)
   const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
   on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
-  const scroll = { offset: 0, bodyRows: 9 }
+  const scroll = { offset: 0, bodyRows: 9 + BAR_ROWS }
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props: { ...props, scroll }, requestId: 'panel' })
   await ui.press({ key: 'Git' })
   // 9 body rows less 7 fixed: COMMITS keeps 1, CHANGES the 1 left, on row 5.
-  await $.ui.scroll({ component: 'Pane', requestId: 'panel', offset: 0, by: 100, bodyRows: 9, contentRows: 9, origin: { kind: 'person' }, pointer: { column: 0, row: 5 } })
+  await $.ui.scroll({ component: 'Pane', requestId: 'panel', offset: 0, by: 100, bodyRows: 9 + BAR_ROWS, contentRows: 9 + BAR_ROWS, origin: { kind: 'person' }, pointer: { column: 0, row: 5 } })
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: /file9\.ts/ })).toBeDefined()
   expect(await ui.find({ key: 'top:changes' })).toBeUndefined()
@@ -590,12 +592,27 @@ test('Overview tab with nothing read yet shows a note', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'Nothing here yet' })).toBeDefined()
 })
 
-test('the tabs split the row in equal thirds', async ($, on) => {
+test('top bar holds Overview, Decisions, History; bottom bar File, Tree, Git', async ($, on) => {
   noHistory(on)
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
-  await ui.press({ key: 'History' })
-  // The body less its margins and two 3-column separators, split three ways.
-  expect((await ui.find({ key: 'tab:History' }))?.props.width).toBe(Math.floor((props.bodyColumns - 4 - 6) / 3))
+  const cells = (await ui.findAll({ type: 'Box' })).map(b => b.key).filter(key => key?.startsWith('tab:'))
+  expect(cells).toEqual(['tab:Overview', 'tab:Decisions', 'tab:History', 'tab:File', 'tab:Tree', 'tab:Git'])
+  // Each bar: body less margins and two separators, split three ways.
+  expect((await ui.find({ key: 'tab:Git' }))?.props.width).toBe(Math.floor((props.bodyColumns - 4 - 6) / 3))
+})
+
+test('a tab not built yet is dim and says when it comes', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await ui.press({ key: 'Tree' })
+  expect(await ui.find({ type: 'Text', text: 'coming in v1.8' })).toBeDefined()
+})
+
+test("the bottom bar sits on the pane's last rows, whatever the tab holds", async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  // Overview with nothing read is short; the body Box still fills to the bar.
+  expect((await ui.find({ key: 'body' }))?.props.height).toBe(props.scroll.bodyRows - 4) // top bar + rule, bottom rule + bar
 })
 
 test('the shown tab is lit across its cell and no button; another tab presses across its cell', async ($, on) => {
