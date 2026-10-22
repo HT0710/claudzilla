@@ -738,10 +738,10 @@ export const fileView = (path: string, line: number, read: string | undefined): 
   const kept = all.slice(from, from + 2 * FILE_SPAN + 1).map(one => one.slice(0, FILE_LINE))
   return { path, line, first: from + 1, text: kept.join('\n') }
 }
-// `rows` lines of the view with the clicked one a third from the top, clamped to the slice's ends.
+// `rows` lines of the view with the clicked one in the middle, clamped to the slice's ends.
 export const fileWindow = (view: { line: number; first: number; text: string }, rows: number) => {
   const all = view.text.split('\n')
-  const at = Math.max(0, Math.min(view.line - view.first - Math.floor(rows / 3), all.length - rows))
+  const at = Math.max(0, Math.min(view.line - view.first - Math.floor(rows / 2), all.length - rows))
   return { first: view.first + at, lines: all.slice(at, at + rows), mark: view.line - view.first - at }
 }
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
@@ -1164,37 +1164,56 @@ export const register: Register = (on, options) => {
     if (current !== 'Git') gitZones = undefined
     if (current !== 'History') historyEnd = undefined
     if (current !== 'Overview') topicsZone = undefined
-    if (SOON.includes(current)) {
-      body = (
-        <Box height={Math.max(0, e.props.scroll.bodyRows - BAR_ROWS - 2)} justifyContent="center" alignItems="center">
-          <Text color={HUD.faint}>coming in v1.8</Text>
-        </Box>
+    if (current === 'Decisions') {
+      body = emptyNote(
+        e.props.scroll.bodyRows - BAR_ROWS - 2,
+        'Coming in v1.8',
+        <Text color={HUD.faint}>Choices made in this chat</Text>,
+        <Text color={HUD.faint}>and why they were made.</Text>,
+      )
+    } else if (current === 'Tree') {
+      body = emptyNote(
+        e.props.scroll.bodyRows - BAR_ROWS - 2,
+        'Coming in v1.8',
+        <Text color={HUD.faint}>The repo's files as a tree,</Text>,
+        <Text color={HUD.faint}>each one opens in File.</Text>,
       )
     } else if (current === 'File') {
       const view = await read($, file)
       const rows = Math.max(0, e.props.scroll.bodyRows - BAR_ROWS - 2)
       if (!view) {
-        body = (
-          <Box height={rows} justifyContent="center" alignItems="center">
-            <Text color={HUD.faint}>Click a file path in a reply</Text>
-          </Box>
-        )
+        body = emptyNote(rows, 'No file open', <Text color={HUD.faint}>Click a file path in</Text>, <Text color={HUD.faint}>a reply to show it here.</Text>)
       } else if (!view.text) {
-        body = (
-          <Box height={rows} justifyContent="center" alignItems="center">
-            <Text color={HUD.faint}>{fit(`can't show ${view.path}`, e.props.bodyColumns - 2 * PAD)}</Text>
-          </Box>
+        // The box's border and padding take 6 columns of the body.
+        body = emptyNote(
+          rows,
+          "Can't show this file",
+          <Text color={HUD.faint}>{fit(view.path, e.props.bodyColumns - 2 * PAD - 6)}</Text>,
+          <Text color={HUD.faint}>It is binary or unreadable.</Text>,
         )
       } else {
-        const room = Math.max(1, rows - 1)
+        // The header row and its rule, as Overview's and Git's first rows.
+        const room = Math.max(1, rows - 2)
         const { first, lines, mark } = fileWindow(view, room)
-        const head = `${view.path}:${view.line}`
+        const cwd = await $.session.cwd().catch(() => '')
+        const home = await $.env.get('HOME').catch(() => undefined)
+        // As the reply wrote it: from the working directory, else from ~.
+        const shown = cwd && view.path.startsWith(`${cwd}/`) ? view.path.slice(cwd.length + 1) : home && view.path.startsWith(`${home}/`) ? `~/${view.path.slice(home.length + 1)}` : view.path
         const width = e.props.bodyColumns - 2 * PAD
+        const at = `line ${view.line}`
+        // A cut takes the path's start, never the line beside it.
+        const fits = Math.max(1, width - at.length - 1)
+        const head = shown.length > fits ? `…${shown.slice(1 - fits)}` : shown
         body = (
           <Box flexDirection="column" height={rows} flexShrink={0}>
-            <Text color={HUD.label}>{head.length > width ? `…${head.slice(1 - width)}` : head}</Text>
+            {/* As Git's branch row: the path in the action color, the line faint on the right. */}
+            <Box justifyContent="space-between">
+              <Text color={HUD.action}>{head}</Text>
+              <Text color={HUD.faint}>{at}</Text>
+            </Box>
+            <Text color="promptBorder">{'─'.repeat(width)}</Text>
             <Box height={room} flexShrink={0}>
-              <Text color={HUD.latest}>{lines.map((_, i) => (i === mark ? '▶' : ' ')).join('\n')}</Text>
+              <Text color="claude">{lines.map((_, i) => (i === mark ? '▶' : ' ')).join('\n')}</Text>
               <Code source={lines.join('\n')} path={view.path} startLine={first} wrap="truncate-end" />
             </Box>
           </Box>
@@ -1726,9 +1745,9 @@ export const register: Register = (on, options) => {
                 <Text bold inverse color="claude">{`${' '.repeat(left)}${one}${notice}${' '.repeat(right)}`}</Text>
               ) : (
                 <Button key={one} plain onPress={() => pick($, one)}>
-                  <Text color={HUD.idle} dimColor={SOON.includes(one)}>{`${' '.repeat(left)}${one}`}</Text>
+                  <Text color={SOON.includes(one) ? HUD.faint : HUD.idle}>{`${' '.repeat(left)}${one}`}</Text>
                   {notice ? <Text color="warning">{notice}</Text> : ''}
-                  <Text color={HUD.idle} dimColor={SOON.includes(one)}>{' '.repeat(right)}</Text>
+                  <Text color={SOON.includes(one) ? HUD.faint : HUD.idle}>{' '.repeat(right)}</Text>
                 </Button>
               )}
             </Box>,
@@ -1748,8 +1767,12 @@ export const register: Register = (on, options) => {
         <Box paddingX={PAD / 2}>
           <Text color="promptBorder">{rule}</Text>
         </Box>
-        <Box key="body" flexDirection="column" paddingX={PAD} minHeight={Math.max(0, e.props.scroll.bodyRows - 2 - BAR_ROWS)} flexShrink={0}>
-          {body}
+        {/* Cut at the bar, never past it: the pane never scrolls, so the bottom bar stays put; Overview's ⇕ shares the room. */}
+        <Box key="body" flexDirection="column" paddingX={PAD} height={Math.max(0, e.props.scroll.bodyRows - 2 - BAR_ROWS)} flexShrink={0} overflow="hidden">
+          {/* Unshrinkable: a tall tab is cut at the bottom, not squeezed row by row. */}
+          <Box flexDirection="column" flexShrink={0}>
+            {body}
+          </Box>
         </Box>
         <Box paddingX={PAD / 2}>
           <Text color="promptBorder">{rule}</Text>

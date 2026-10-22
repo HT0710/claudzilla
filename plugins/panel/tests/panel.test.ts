@@ -605,14 +605,16 @@ test('a tab not built yet is dim and says when it comes', async ($, on) => {
   noHistory(on)
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
   await ui.press({ key: 'Tree' })
-  expect(await ui.find({ type: 'Text', text: 'coming in v1.8' })).toBeDefined()
+  // The same boxed note as an empty Overview, History or Git.
+  expect(await ui.find({ type: 'Text', text: 'Coming in v1.8' })).toBeDefined()
+  expect(await ui.find({ type: 'Box', borderStyle: 'round' } as any)).toBeDefined()
 })
 
 test("the bottom bar sits on the pane's last rows, whatever the tab holds", async ($, on) => {
   noHistory(on)
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
   // Overview with nothing read is short; the body Box still fills to the bar.
-  expect((await ui.find({ key: 'body' }))?.props.minHeight).toBe(props.scroll.bodyRows - 4) // top bar + rule, bottom rule + bar
+  expect((await ui.find({ key: 'body' }))?.props.height).toBe(props.scroll.bodyRows - 4) // top bar + rule, bottom rule + bar
 })
 
 test('the shown tab is lit across its cell and no button; another tab presses across its cell', async ($, on) => {
@@ -2092,13 +2094,14 @@ const intentPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1
 const turnEnd = ($: Parameters<TestBody>[0], agentId?: string, reason = 'answer') =>
   $.turn.complete({ answer: '', durationMs: 1, isAborted: reason === 'aborted', turnId: 't1', reason, category: null, explanation: null, agentId } as any)
 
-test('a tab taller than the body is not cut: the body grows past its rows', async ($, on) => {
+test('a tab taller than the body is cut at the bottom bar: the pane does not scroll', async ($, on) => {
   const ui = await intentPane($, on)
   const steps = Array.from({ length: 30 }, (_, i) => ({ text: `step ${i}`, status: 'pending' }))
   await $.tool.call({ tool: INTENT, ...REPORT, steps } as any)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: 'step 29' })).toBeDefined()
-  expect((await ui.find({ key: 'body' }))?.props.height).toBeUndefined()
+  const body = await ui.find({ key: 'body' })
+  expect(body?.props.height).toBe(props.scroll.bodyRows - 4)
+  expect(body?.props.overflow).toBe('hidden')
 })
 
 test("Claude's intent report draws on the Overview tab", async ($, on) => {
@@ -3177,12 +3180,12 @@ test('/panel shows a pane waiting for room, not closes it', async ($, on) => {
 })
 
 // The File tab's rows: the body less its header row.
-const windowRows = props.scroll.bodyRows - 2 - BAR_ROWS - 1
+const windowRows = props.scroll.bodyRows - 2 - BAR_ROWS - 2 // header row + its rule
 const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\n')
 // The File tab as `$.panel.show` leaves it: the test's `$` carries no plugin noun, and a hook in a test module that
 // calls one is refused ("its hooks module does not call it (host rule; the scan lists no calls)"), so the two
 // values `show` writes are answered on read. An empty text stands for a file it could not show.
-const fileTab = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], file: ReturnType<typeof fileView>) => {
+const fileTab = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], file: ReturnType<typeof fileView> | undefined) => {
   noHistory(on)
   on('state.get', (_$, e, next) => {
     const value = e.key === 'tab' ? 'File' : e.key === 'file' ? file : undefined
@@ -3191,28 +3194,52 @@ const fileTab = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], 
   return $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
 }
 
+test('the File header is the path from the working directory, or from ~, with a rule under it', async ($, on) => {
+  on('session.cwd', () => ({ value: '/repo' }))
+  const ui = await fileTab($, on, fileView('/repo/src/a.ts', 65, lines(200)))
+  // As Git's branch row: the path in the action color, the line faint on the right.
+  expect(await colorOf(ui, 'src/a.ts')).toBe('#5d9678')
+  expect(await colorOf(ui, 'line 65')).toBe('#4f5c68')
+  expect(await ui.find({ type: 'Text', text: new RegExp(`^─{${props.bodyColumns - 4}}$`) })).toBeDefined()
+})
+
+test('a long File header keeps its line and cuts the path from the left', async ($, on) => {
+  on('session.cwd', () => ({ value: '/repo' }))
+  const ui = await fileTab($, on, fileView(`/repo/${'deep/'.repeat(20)}a.ts`, 65, lines(200)))
+  const head = await ui.find({ type: 'Text', text: /^….*\/a\.ts$/ })
+  expect(String(head?.text)).toHaveLength(props.bodyColumns - 4 - 'line 65'.length - 1)
+  expect(await ui.find({ type: 'Text', text: 'line 65' })).toBeDefined()
+})
+
+test('a File header outside the working directory starts from ~', async ($, on) => {
+  on('session.cwd', () => ({ value: '/repo' }))
+  // noHistory's env.get answers /home/me.
+  const ui = await fileTab($, on, fileView('/home/me/notes.md', 3, lines(20)))
+  expect(await ui.find({ type: 'Text', text: '~/notes.md' })).toBeDefined()
+})
+
 test('the File tab shows the file at the line, marked, with the path in its header', async ($, on) => {
   const ui = await fileTab($, on, fileView('/repo/a.ts', 65, lines(200)))
-  expect(await ui.find({ type: 'Text', text: /a\.ts:65/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'line 65' })).toBeDefined()
   const code = await ui.find({ type: 'Code' })
   expect(code?.props.path).toBe('/repo/a.ts')
   expect(code?.props.source).toContain('line 65')
   // A long line must not wrap: the window is exactly its rows, the mark stays on its line.
   expect(code?.props.wrap).toBe('truncate-end')
-  // Clicked line about a third from the top.
+  // Clicked line in the middle.
   const above = 65 - (code?.props.startLine as number)
-  expect(above).toBe(Math.floor(windowRows / 3))
+  expect(above).toBe(Math.floor(windowRows / 2))
   expect((code?.props.source as string).split('\n')).toHaveLength(windowRows)
   const mark = await ui.find({ type: 'Text', text: /▶/ })
   expect(String(mark?.text).split('\n').indexOf('▶')).toBe(above)
 })
 
-test('a line deep in a large file still shows marked a third from the top', async ($, on) => {
+test('a line deep in a large file still shows marked in the middle', async ($, on) => {
   const ui = await fileTab($, on, fileView('/repo/a.ts', 4000, lines(5000)))
   const code = await ui.find({ type: 'Code' })
   expect(code?.props.source).toContain('line 4000\n')
   const above = 4000 - (code?.props.startLine as number)
-  expect(above).toBe(Math.floor(windowRows / 3))
+  expect(above).toBe(Math.floor(windowRows / 2))
   const mark = await ui.find({ type: 'Text', text: /▶/ })
   expect(String(mark?.text).split('\n').indexOf('▶')).toBe(above)
 })
@@ -3224,9 +3251,15 @@ test('a line past the end shows the last lines', async ($, on) => {
   expect(code?.props.startLine).toBe(1)
 })
 
+test('the File tab before any click says how to open one', async ($, on) => {
+  const ui = await fileTab($, on, undefined)
+  expect(await ui.find({ type: 'Text', text: 'No file open' })).toBeDefined()
+})
+
 test('a file that cannot be shown says so in the File tab', async ($, on) => {
   const ui = await fileTab($, on, fileView('/repo/a.ts', 3, undefined))
-  expect(await ui.find({ type: 'Text', text: "can't show /repo/a.ts" })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: "Can't show this file" })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '/repo/a.ts' })).toBeDefined()
   expect(await ui.find({ type: 'Code' })).toBeUndefined()
 })
 
@@ -3243,12 +3276,12 @@ test('fileView keeps a bounded slice, each line cut, and maps a failed or binary
   expect(fileView('/a', 1, 'a\r\nb\r\n').text).toBe('a\nb')
 })
 
-test('fileWindow puts the clicked line a third from the top, clamped to the slice', () => {
+test('fileWindow puts the clicked line in the middle, clamped to the slice', () => {
   const view = fileView('/a', 4000, lines(5000))!
   const at = fileWindow(view, 17)
   expect(at.lines).toHaveLength(17)
   expect(at.first + at.mark).toBe(4000)
-  expect(at.mark).toBe(5)
+  expect(at.mark).toBe(8)
   const top = fileWindow(fileView('/a', 1, lines(50))!, 17)
   expect([top.first, top.mark]).toEqual([1, 0])
   const end = fileWindow(fileView('/a', 50, lines(50))!, 17)
