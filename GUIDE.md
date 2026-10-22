@@ -344,7 +344,7 @@ From the moment you submit until Claude reports, the header shows `planning…` 
 
 **Git** shows the session folder's branch, with `↑` for commits ahead of its remote and `↓` for commits behind, the changed files under CHANGES, and recent commits under COMMITS. It redraws after each tool call and each prompt. Scrolled, a `↑` line goes back to the top of CHANGES or COMMITS. When the `origin` remote is on GitHub, GitLab, Codeberg or SourceHut, a pushed commit's id, or the branch once pushed to origin, links to its web page: its row lights up while the pointer is on it. Alt+click opens it; Ctrl+click opens it twice until a Claude Code bug is fixed ([anthropics/claude-code#76110](https://github.com/anthropics/claude-code/issues/76110)).
 
-The mouse wheel scrolls each list. The [panel README](https://github.com/HT0710/claudzilla/blob/main/plugins/panel/README.md) has the full detail.
+The mouse wheel scrolls each list. The `⇕` rule between CHANGES and COMMITS, and the one under TOPICS, sets how the rows are shared: drag it, and each side keeps at least one row; click it to move it to the top, and click it there to move it to the bottom. The [panel README](https://github.com/HT0710/claudzilla/blob/main/plugins/panel/README.md) has the full detail.
 
 ### The picks card
 <!-- topic: picks -->
