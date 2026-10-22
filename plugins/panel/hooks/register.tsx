@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AgentRow, Intent, Overview, Spawn, Step, Tab } from '../types'
+import type { AgentRow, FileView, Intent, Overview, Spawn, Step, Tab } from '../types'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
@@ -68,6 +68,8 @@ const intent = atom({ plugin: 'panel', key: 'intent' } as const, EMPTY_INTENT)
 const spawns = atom({ plugin: 'panel', key: 'spawns' } as const, [] as Spawn[])
 // Bumped per user prompt: tells this turn's agents from earlier ones.
 const turns = atom({ plugin: 'panel', key: 'turns' } as const, 0)
+// What the File tab shows: the last one, the whole text.
+const file = atom({ plugin: 'panel', key: 'file' } as const, undefined as FileView)
 // The step whose agents all show, past the 3 each shows folded; -1 for none.
 const expanded = atom({ plugin: 'panel', key: 'expanded' } as const, -1)
 // The agent whose transcript the main view shows, as the pane last drew: a press on its row goes back.
@@ -724,6 +726,24 @@ export const litPrompt = (prompts: Prompt[], times: number[], pinned?: { timesta
 }
 
 const WORKING = ['running', 'waiting', 'idle']
+// Lines kept each side of the clicked one, and each line's length: the draws repeat on every scroll, so they
+// window a slice, not the file.
+const FILE_SPAN = 200
+const FILE_LINE = 500
+// The File tab's view from a read: `text` empty stands for a file it cannot show (unreadable or binary).
+export const fileView = (path: string, line: number, read: string | undefined): NonNullable<FileView> => {
+  if (read === undefined || read.includes('\0')) return { path, line, first: 1, text: '' }
+  const all = read.replace(/\r?\n$/, '').split(/\r?\n/)
+  const from = Math.max(0, Math.min(line - 1 - FILE_SPAN, all.length - (2 * FILE_SPAN + 1)))
+  const kept = all.slice(from, from + 2 * FILE_SPAN + 1).map(one => one.slice(0, FILE_LINE))
+  return { path, line, first: from + 1, text: kept.join('\n') }
+}
+// `rows` lines of the view with the clicked one a third from the top, clamped to the slice's ends.
+export const fileWindow = (view: { line: number; first: number; text: string }, rows: number) => {
+  const all = view.text.split('\n')
+  const at = Math.max(0, Math.min(view.line - view.first - Math.floor(rows / 3), all.length - rows))
+  return { first: view.first + at, lines: all.slice(at, at + rows), mark: view.line - view.first - at }
+}
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 // Agents under each step: by the description Claude listed, never by position, as a redraft reorders steps.
 // An earlier turn's agent fills a listed entry only while it works: a finished one would show old work as new.
@@ -748,6 +768,24 @@ export const hang = (steps: Step[], spawns: Spawn[], turn: number): AgentRow[][]
 export const register: Register = (on, options) => {
   // Off: Claude is never asked, so its prompt and tools stay as without the panel.
   const isIntentOn = options.intent !== false
+
+  on('engine.create', async (_$, e, next) => {
+    const built = await next(e)
+    // Calls on `built` only: it is refused as an argument. Not through /panel: its hook skips a run the plugin's own code raises
+    // ("command.run skipped: re-entry"). The open overlaps /panel's on purpose.
+    const show = async ({ path, line }: { path: string; line: number }) => {
+      const text = await built.fs.read(path).then(String, () => undefined)
+      await built.state.set({ plugin: 'panel', key: 'file' } as const, fileView(path, line, text))
+      await built.state.set({ plugin: 'panel', key: 'tab' } as const, 'File')
+      if (!(await built.ui.panes()).some(pane => pane.id === PANE && pane.isPlaced)) {
+        await built.store.set('open', true).catch(() => undefined)
+        const opened = await built.ui.open({ id: PANE, title: 'Panel', columns: 40 })
+        if (!opened.isPlaced) built.ui.toast('Panel waits: terminal too narrow.')
+      }
+    }
+
+    return { ...built, panel: { show } }
+  })
 
   on('session.start', async ($, e, next) => {
     await t.start(traceIo($))
@@ -1039,7 +1077,7 @@ export const register: Register = (on, options) => {
     // Kept in the entry but out of the change key: a wheel tick moves these alone.
     let scroll: Record<string, unknown> = {}
     const elements = $.ui.resolve(e)
-    const { Box, Button, Link, Text } = elements
+    const { Box, Button, Code, Link, Text } = elements
     const Client = 'Client' in elements ? elements.Client : undefined
     // Text that opens its web page, its `scope` group lit as History lights a row while the pointer is on it.
     // No underline: the terminal underlines a link. No page, the text alone.
@@ -1133,11 +1171,35 @@ export const register: Register = (on, options) => {
         </Box>
       )
     } else if (current === 'File') {
-      body = (
-        <Box height={Math.max(0, e.props.scroll.bodyRows - BAR_ROWS - 2)} justifyContent="center" alignItems="center">
-          <Text color={HUD.faint}>Click a file path in a reply</Text>
-        </Box>
-      )
+      const view = await read($, file)
+      const rows = Math.max(0, e.props.scroll.bodyRows - BAR_ROWS - 2)
+      if (!view) {
+        body = (
+          <Box height={rows} justifyContent="center" alignItems="center">
+            <Text color={HUD.faint}>Click a file path in a reply</Text>
+          </Box>
+        )
+      } else if (!view.text) {
+        body = (
+          <Box height={rows} justifyContent="center" alignItems="center">
+            <Text color={HUD.faint}>{fit(`can't show ${view.path}`, e.props.bodyColumns - 2 * PAD)}</Text>
+          </Box>
+        )
+      } else {
+        const room = Math.max(1, rows - 1)
+        const { first, lines, mark } = fileWindow(view, room)
+        const head = `${view.path}:${view.line}`
+        const width = e.props.bodyColumns - 2 * PAD
+        body = (
+          <Box flexDirection="column" height={rows} flexShrink={0}>
+            <Text color={HUD.label}>{head.length > width ? `…${head.slice(1 - width)}` : head}</Text>
+            <Box height={room} flexShrink={0}>
+              <Text color={HUD.latest}>{lines.map((_, i) => (i === mark ? '▶' : ' ')).join('\n')}</Text>
+              <Code source={lines.join('\n')} path={view.path} startLine={first} wrap="truncate-end" />
+            </Box>
+          </Box>
+        )
+      }
     } else if (current === 'History') {
       const key = `${await $.session.id()}:${await read($, submitted)}`
       const at = await $.clock.now()
@@ -1686,7 +1748,7 @@ export const register: Register = (on, options) => {
         <Box paddingX={PAD / 2}>
           <Text color="promptBorder">{rule}</Text>
         </Box>
-        <Box key="body" flexDirection="column" paddingX={PAD} height={e.props.scroll.bodyRows - 2 - BAR_ROWS} flexShrink={0}>
+        <Box key="body" flexDirection="column" paddingX={PAD} minHeight={Math.max(0, e.props.scroll.bodyRows - 2 - BAR_ROWS)} flexShrink={0}>
           {body}
         </Box>
         <Box paddingX={PAD / 2}>

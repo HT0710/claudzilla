@@ -7,9 +7,16 @@ export type Spawn = { id: string; description: string; step: string; turn: numbe
 export type AgentRow = { id?: string; description: string; status: AgentStatus | 'planned' }
 export type Intent = { wants: string; plan: string; steps: Step[]; at: number; ended: boolean; waiting?: boolean; agents?: number; turn?: number }
 export type Overview = { topics: string[]; running: boolean; failed?: string }
+export type PanelShow = { path: string; line: number }
+export type Panel = { show: (at: PanelShow) => Promise<void> }
+// `text`: the lines around `line`, from line number `first`; empty when the file cannot be shown.
+export type FileView = { path: string; line: number; first: number; text: string } | undefined
 
 declare module 'claude-code' {
+  interface EngineInterface {
+    panel: Panel
+  }
   interface PluginState {
-    panel: { tab: Tab; notices: Tab[]; submitted: number; toolCalls: number; split: number; scrolled: { changes: number; commits: number }; historyTop: number; topicsSplit: number; topicsTop: number; intent: Intent; overview: Overview; spawns: Spawn[]; turns: number; expanded: number }
+    panel: { tab: Tab; notices: Tab[]; submitted: number; toolCalls: number; split: number; scrolled: { changes: number; commits: number }; historyTop: number; topicsSplit: number; topicsTop: number; intent: Intent; overview: Overview; spawns: Spawn[]; turns: number; expanded: number; file: FileView }
   }
 }

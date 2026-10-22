@@ -3,7 +3,7 @@ import type { TestBody } from 'claude-code/testing'
 import type { AgentStatus, Register } from 'claude-code'
 import type { Spawn, Step } from '../types'
 
-import { branchLine, dayLabel, gitWeb, gone, hang, inView, keepNewest, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseTopics, pinHolds, readStamps, stampPattern } from '../hooks/register'
+import { branchLine, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseTopics, pinHolds, readStamps, stampPattern } from '../hooks/register'
 
 // A process.run result with `stdout`.
 const ran = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -612,7 +612,7 @@ test("the bottom bar sits on the pane's last rows, whatever the tab holds", asyn
   noHistory(on)
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
   // Overview with nothing read is short; the body Box still fills to the bar.
-  expect((await ui.find({ key: 'body' }))?.props.height).toBe(props.scroll.bodyRows - 4) // top bar + rule, bottom rule + bar
+  expect((await ui.find({ key: 'body' }))?.props.minHeight).toBe(props.scroll.bodyRows - 4) // top bar + rule, bottom rule + bar
 })
 
 test('the shown tab is lit across its cell and no button; another tab presses across its cell', async ($, on) => {
@@ -2092,6 +2092,15 @@ const intentPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1
 const turnEnd = ($: Parameters<TestBody>[0], agentId?: string, reason = 'answer') =>
   $.turn.complete({ answer: '', durationMs: 1, isAborted: reason === 'aborted', turnId: 't1', reason, category: null, explanation: null, agentId } as any)
 
+test('a tab taller than the body is not cut: the body grows past its rows', async ($, on) => {
+  const ui = await intentPane($, on)
+  const steps = Array.from({ length: 30 }, (_, i) => ({ text: `step ${i}`, status: 'pending' }))
+  await $.tool.call({ tool: INTENT, ...REPORT, steps } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'step 29' })).toBeDefined()
+  expect((await ui.find({ key: 'body' }))?.props.height).toBeUndefined()
+})
+
 test("Claude's intent report draws on the Overview tab", async ($, on) => {
   const ui = await intentPane($, on)
   expect(await $.tool.call({ tool: INTENT, ...REPORT } as any)).toMatchObject({ result: 'ok' })
@@ -3165,4 +3174,83 @@ test('/panel shows a pane waiting for room, not closes it', async ($, on) => {
   await toggle($)
   expect(seen.closed).toHaveLength(0)
   expect(store.open).toBe(true)
+})
+
+// The File tab's rows: the body less its header row.
+const windowRows = props.scroll.bodyRows - 2 - BAR_ROWS - 1
+const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\n')
+// The File tab as `$.panel.show` leaves it: the test's `$` carries no plugin noun, and a hook in a test module that
+// calls one is refused ("its hooks module does not call it (host rule; the scan lists no calls)"), so the two
+// values `show` writes are answered on read. An empty text stands for a file it could not show.
+const fileTab = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], file: ReturnType<typeof fileView>) => {
+  noHistory(on)
+  on('state.get', (_$, e, next) => {
+    const value = e.key === 'tab' ? 'File' : e.key === 'file' ? file : undefined
+    return (value === undefined ? next(e) : { value: { value, version: 1 } }) as any
+  })
+  return $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+}
+
+test('the File tab shows the file at the line, marked, with the path in its header', async ($, on) => {
+  const ui = await fileTab($, on, fileView('/repo/a.ts', 65, lines(200)))
+  expect(await ui.find({ type: 'Text', text: /a\.ts:65/ })).toBeDefined()
+  const code = await ui.find({ type: 'Code' })
+  expect(code?.props.path).toBe('/repo/a.ts')
+  expect(code?.props.source).toContain('line 65')
+  // A long line must not wrap: the window is exactly its rows, the mark stays on its line.
+  expect(code?.props.wrap).toBe('truncate-end')
+  // Clicked line about a third from the top.
+  const above = 65 - (code?.props.startLine as number)
+  expect(above).toBe(Math.floor(windowRows / 3))
+  expect((code?.props.source as string).split('\n')).toHaveLength(windowRows)
+  const mark = await ui.find({ type: 'Text', text: /▶/ })
+  expect(String(mark?.text).split('\n').indexOf('▶')).toBe(above)
+})
+
+test('a line deep in a large file still shows marked a third from the top', async ($, on) => {
+  const ui = await fileTab($, on, fileView('/repo/a.ts', 4000, lines(5000)))
+  const code = await ui.find({ type: 'Code' })
+  expect(code?.props.source).toContain('line 4000\n')
+  const above = 4000 - (code?.props.startLine as number)
+  expect(above).toBe(Math.floor(windowRows / 3))
+  const mark = await ui.find({ type: 'Text', text: /▶/ })
+  expect(String(mark?.text).split('\n').indexOf('▶')).toBe(above)
+})
+
+test('a line past the end shows the last lines', async ($, on) => {
+  const ui = await fileTab($, on, fileView('/repo/a.ts', 9999, lines(10)))
+  const code = await ui.find({ type: 'Code' })
+  expect(code?.props.source).toMatch(/line 10$/)
+  expect(code?.props.startLine).toBe(1)
+})
+
+test('a file that cannot be shown says so in the File tab', async ($, on) => {
+  const ui = await fileTab($, on, fileView('/repo/a.ts', 3, undefined))
+  expect(await ui.find({ type: 'Text', text: "can't show /repo/a.ts" })).toBeDefined()
+  expect(await ui.find({ type: 'Code' })).toBeUndefined()
+})
+
+test('fileView keeps a bounded slice, each line cut, and maps a failed or binary read to empty text', () => {
+  expect(fileView('/a', 5, undefined).text).toBe('')
+  expect(fileView('/a', 5, 'ab\0cd').text).toBe('')
+  const big = fileView('/a', 4000, lines(5000))
+  expect(big.first).toBe(3800)
+  expect(big.text.split('\n')).toHaveLength(401)
+  expect(fileView('/a', 1, lines(5000)).first).toBe(1)
+  expect(fileView('/a', 9999, lines(5000)).first).toBe(4600)
+  const long = fileView('/a', 1, `${'x'.repeat(100000)}\nshort\n`)
+  expect(long.text.split('\n').map(one => one.length)).toEqual([500, 5])
+  expect(fileView('/a', 1, 'a\r\nb\r\n').text).toBe('a\nb')
+})
+
+test('fileWindow puts the clicked line a third from the top, clamped to the slice', () => {
+  const view = fileView('/a', 4000, lines(5000))!
+  const at = fileWindow(view, 17)
+  expect(at.lines).toHaveLength(17)
+  expect(at.first + at.mark).toBe(4000)
+  expect(at.mark).toBe(5)
+  const top = fileWindow(fileView('/a', 1, lines(50))!, 17)
+  expect([top.first, top.mark]).toEqual([1, 0])
+  const end = fileWindow(fileView('/a', 50, lines(50))!, 17)
+  expect([end.first, end.mark]).toEqual([34, 16])
 })
