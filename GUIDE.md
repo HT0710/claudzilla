@@ -376,6 +376,8 @@ The picks card appears after a reply with one `Decision` table of two or more op
 
 The picks card hides while Claude works and goes once you send any prompt. When a reply has nothing to choose, such as a `**Picks:**` line or a Next line that says `say go`, no picks card appears: only the dim answer, such as `1B, 2A` or `go`, waits in the prompt box.
 
+An answer you send speaks in your voice, so the history reads as you wrote it: Claude's `show you the diff` comes back as `show me the diff`, and `your branch` as `my branch`. Code and double-quoted text stay as written.
+
 The [picks README](https://github.com/HT0710/claudzilla/blob/main/plugins/picks/README.md) has the full detail.
 
 ## Own it
