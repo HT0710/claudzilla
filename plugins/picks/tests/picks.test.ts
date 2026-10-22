@@ -135,8 +135,30 @@ test('parse: the go detail stops at its first sentence or ", or"', () => {
   expect(parse("**Next:** say commit and I'll fold this into `4f0af36`, or tell me the shorter wording first.")?.go).toBe('fold this into 4f0af36')
   expect(parse("**Next:** say go and I'll run `brainstorming`. Or say \"measure first\".")?.title).toBe('Run brainstorming?')
   expect(parse("**Next:** say go and I'll edit `a.md` and `b.ts`.")?.go).toBe('edit a.md and b.ts')
-  expect(parse("**Next:** say go and I'll run it (or run `! make` yourself).")?.go).toBe('run it (or run ! make yourself)')
+  expect(parse("**Next:** say go and I'll run it (or run `! make` yourself).")?.go).toBe('run it (or run ! make myself)')
   expect(parse("**Next:** say go and I'll add a guard (e.g. a null check).")?.go).toBe('add a guard (e.g. a null check)')
+})
+
+test('parse: the go detail is sent in the person\'s voice, I and you swapped; the title stays Claude\'s', () => {
+  const go = (act: string) => parse(`**Next:** say go and I'll ${act}`)?.go
+  expect(go('cut it, run the tests, and show you a card.')).toBe('cut it, run the tests, and show me a card')
+  expect(go('make fix A, then you run `/reload-plugins` and drag.')).toBe('make fix A, then I run /reload-plugins and drag')
+  expect(go('commit and wait for your push.')).toBe('commit and wait for my push')
+  expect(go('check whether hot reload picked up the copy I synced last turn.')).toBe('check whether hot reload picked up the copy you synced last turn')
+  expect(go("build it and hold the push until you confirm you're happy.")).toBe("build it and hold the push until I confirm I'm happy")
+  expect(go('do steps 1–2, then hand step 3 to you.')).toBe('do steps 1–2, then hand step 3 to me')
+  expect(go('ask what you mean, as that is how you work.')).toBe('ask what I mean, as that is how I work')
+  expect(go('push it, but you run it since you asked.')).toBe('push it, but I run it since I asked')
+  expect(go('edit my.config and I’ll wait.')).toBe('edit my.config and you’ll wait')
+  // The word to say is typed as written.
+  expect(parse('**Next:** reply `your call` (recommended)')?.go).toBe('your call')
+  expect(parse('**Next:** say "you decide" when ready.')?.go).toBe('you decide')
+  expect(parse(ONE.replace('| A | no retry |', '| A | you retry by hand |'))?.go).toBe('A: I retry by hand')
+  expect(go('rebase My live stack and test I/O.')).toBe('rebase Your live stack and test I/O')
+  // Code and quoted text stay as written; "we" is both of us.
+  expect(go('run `my-check` and post "you did it" in our channel.')).toBe('run my-check and post "you did it" in our channel')
+  expect(parse("**Next:** want me to rebase your live stack?")?.go).toBe('rebase my live stack')
+  expect(parse("**Next:** want me to rebase your live stack?")?.title).toBe('Rebase your live stack?')
 })
 
 test('parse: Picks with a Next act gives "<picks>, then X"; alone, just the picks', () => {
@@ -323,6 +345,17 @@ test('a press puts its id and option in the prompt box, unsent, so the box clear
   await ui.press({ key: 'pick:B' })
   expect(filled).toEqual(['B: retry'])
   expect(sent).toEqual([])
+})
+
+test('a row press drafts its option in the person\'s voice; the row shows it as written', async ($, on) => {
+  const filled: string[] = []
+  engine(on)
+  on('prompt.fill', (_: any, e: any) => { filled.push(e.text); return { isFilled: true } })
+  await $.turn.complete(done(LETTERS.replace('| B | retry |', '| B | you retry by hand |')))
+  const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
+  expect(await labels(ui)).toEqual(['no retry', 'you retry by hand', 'go ahead, except…'])
+  await ui.press({ key: 'pick:B' })
+  expect(filled).toEqual(['B: I retry by hand'])
 })
 
 test('go ahead, except… drafts "go, but "', async ($, on) => {
