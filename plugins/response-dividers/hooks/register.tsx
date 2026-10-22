@@ -1,7 +1,15 @@
-import type { Register } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 
+import { href, linked, mentions } from './mentions'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
+
+// panel's noun, mirrored: listing panel as a dependency would stop this plugin loading without it.
+declare module 'claude-code' {
+  interface EngineInterface {
+    panel: { show: (at: { path: string; line: number }) => Promise<void> }
+  }
+}
 
 // md-display.pl's frame lines, as a share of the width: heavy whole, separator half, group break a quarter.
 const SHARE: Record<string, number> = { '━': 1, '─': 2, '┈': 4 }
@@ -44,6 +52,49 @@ export function split(text: string): Part[] {
   return parts
 }
 
+type Link = { href: string; path: string; line: number }
+// Paths known to be files: a render repeats on scroll and resize.
+const files = new Set<string>()
+// Paths found missing, by when: a burst of redraws asks once, and a file made later links on a later draw.
+const misses = new Map<string, number>()
+const MISS_MS = 5_000
+let toldNoPanel = false
+
+// The chunk's spans that name an existing file, by span; none when the engine cannot say.
+async function links($: EngineInterface, text: string): Promise<Map<string, Link>> {
+  const found = new Map<string, Link>()
+  const all = mentions(text)
+  if (!all.length) return found
+  try {
+    const cwd = await $.session.cwd()
+    const home = all.some(m => m.path.startsWith('~/')) ? await $.env.get('HOME') : undefined
+    const pathOf = (p: string) => (p.startsWith('/') ? p : p.startsWith('~/') ? `${home}${p.slice(1)}` : `${cwd}/${p}`)
+    const unknown = [...new Set(all.map(m => pathOf(m.path)).filter(p => !files.has(p)))]
+    if (unknown.length) {
+      const now = await $.clock.now()
+      const asked = unknown.filter(p => now - (misses.get(p) ?? -Infinity) >= MISS_MS)
+      const kinds = await Promise.all(asked.map(p => $.fs.stat(p).then(s => s.kind, () => undefined)))
+      asked.forEach((p, i) => {
+        if (kinds[i] === 'file') {
+          if (files.size > 500) files.clear()
+          files.add(p)
+          misses.delete(p)
+        } else {
+          if (misses.size > 500) misses.clear()
+          misses.set(p, now)
+        }
+      })
+    }
+    for (const m of all) {
+      const path = pathOf(m.path)
+      if (files.has(path)) found.set(m.span, { href: href(path, m.line), path, line: m.line })
+    }
+  } catch {
+    return new Map()
+  }
+  return found
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await t.start(traceIo($))
@@ -70,18 +121,21 @@ export const register: Register = on => {
     }
     const parts = split(e.props.text)
     const rules = parts.filter(p => 'rule' in p).length
-    if (!rules) {
+    // Only the fullscreen terminal hands a plain click on a link to the plugin.
+    const found = e.surface === 'terminal' ? await Promise.all(parts.map(p => ('text' in p ? links($, p.text) : undefined))) : []
+    if (!rules && !found[0]?.size) {
       note(e.requestId, 'plain', { split: false, reason: 'no frame lines' })
       return next(e)
     }
-    note(e.requestId, 'split', { split: true, rules, chunks: parts.length - rules, columns: e.viewport?.columns ?? 80, first: !!e.props.isFirstOfReply })
-    const { Box, Text } = $.ui.resolve(e)
+    if (rules) note(e.requestId, 'split', { split: true, rules, chunks: parts.length - rules, columns: e.viewport?.columns ?? 80, first: !!e.props.isFirstOfReply })
+    else note(e.requestId, 'linked', { split: false, reason: 'file links' })
+    const { Box, Text, Markdown } = $.ui.resolve(e)
     // The engine indents only the block that draws the bullet, so later chunks take its two columns here.
     const indent = e.props.isFirstOfReply ? 2 : 0
     const room = Math.max((e.viewport?.columns ?? 80) - indent - 2, 4)
     const rows = []
     let isFirst = e.props.isFirstOfReply
-    for (const p of parts) {
+    for (const [i, p] of parts.entries()) {
       if ('rule' in p) {
         rows.push(
           <Box paddingLeft={indent} marginTop={1}>
@@ -89,7 +143,35 @@ export const register: Register = on => {
           </Box>,
         )
       } else {
-        const drawn = await next({ ...e, props: { ...e.props, text: p.text, isFirstOfReply: isFirst } })
+        // Awaited on a linked chunk too: hooks beneath (panel's in-view tracking) still see it.
+        let drawn = await next({ ...e, props: { ...e.props, text: p.text, isFirstOfReply: isFirst } })
+        const chunk = found[i]
+        if (chunk?.size) {
+          const at = new Map([...chunk.values()].map(l => [l.href, { path: l.path, line: l.line }]))
+          // Drawn by the plugin, the block lacks the engine's blank row above and its bullet.
+          drawn = (
+            <Box marginTop={1}>
+              {isFirst ? <Text color="text">● </Text> : null}
+              <Markdown
+                key={`m:${e.requestId}:${i}`}
+                text={linked(p.text, new Map([...chunk].map(([span, l]) => [span, l.href])))}
+                pressableLinks={[...at.keys()].slice(0, 256)}
+                onLinkPress={async link => {
+                  const target = at.get(link.href)
+                  if (!target) return
+                  try {
+                    await $.panel.show(target)
+                  } catch (err) {
+                    // A missing noun throws TypeError; any other failure is panel's to report.
+                    if (!(err instanceof TypeError) || toldNoPanel) return
+                    toldNoPanel = true
+                    $.ui.toast('response-dividers: install the panel part to preview files; ctrl+click opens them')
+                  }
+                }}
+              />
+            </Box>
+          )
+        }
         rows.push(isFirst ? drawn : <Box paddingLeft={indent}>{drawn}</Box>)
         isFirst = false
       }
