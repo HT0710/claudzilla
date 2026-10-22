@@ -754,17 +754,28 @@ export const register: Register = (on, options) => {
     const notes = (await $.store.keys().catch(() => [])).filter(key => key.startsWith('midTurn:'))
     await Promise.all(notes.slice(0, -MID_TURN_SESSIONS).map(key => $.store.delete(key).catch(() => undefined)))
     if (isIntentOn) await $.tool.register(INTENT_SPEC).catch(() => undefined)
+    // Opens as the last session left it; never asked yet, open. Below 144 columns (110 once asked) it waits for room.
+    if (e.isInteractive && (await $.store.get('open').catch(() => undefined)) !== false) await $.ui.open({ id: PANE, title: 'Panel', columns: 40 }).catch(() => undefined)
+
+    return next(e)
+  })
+
+  // An unload (reload, crash) is no one closing it.
+  on('ui.close', { id: PANE }, async ($, e, next) => {
+    if (e.origin.kind !== 'unload') await $.store.set('open', false).catch(() => undefined)
 
     return next(e)
   })
 
   on('command.run', { command: 'panel' }, async $ => {
     const panes = await $.ui.panes()
-    if (panes.some(pane => pane.id === PANE)) {
+    // A pane waiting for room is not shown: the person's open places it.
+    if (panes.some(pane => pane.id === PANE && pane.isPlaced)) {
       await $.ui.close({ id: PANE })
 
       return {}
     }
+    await $.store.set('open', true).catch(() => undefined)
     const opened = await $.ui.open({ id: PANE, title: 'Panel', columns: 40 })
     // No output text: alt+h toggles often, and a chat row per toggle is noise.
     if (!opened.isPlaced) $.ui.toast('Panel waits: terminal too narrow.')

@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
-import type { AgentStatus } from 'claude-code'
+import type { AgentStatus, Register } from 'claude-code'
 import type { Spawn, Step } from '../types'
 
 import { branchLine, dayLabel, gitWeb, gone, hang, inView, keepNewest, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseTopics, pinHolds, readStamps, stampPattern } from '../hooks/register'
@@ -3040,4 +3040,78 @@ test("in an agent's transcript, its step's row goes back to the main conversatio
   expect((await ui.find({ key: 'main' }))?.text).toBe('● spec')
   await ui.press({ key: 'main' })
   expect(views).toEqual([undefined])
+})
+
+// The store a session keeps across sessions, `/panel` and the pane's opens and closes, each open placed or waiting; `opened` and `closed` record the calls.
+const openHost = (on: Parameters<TestBody>[1], store: Record<string, unknown> = {}, isPlaced = true) => {
+  const seen = { opened: [] as unknown[], closed: [] as unknown[] }
+  mock.clock(on)
+  on('store.keys', () => ({ value: Object.keys(store) }))
+  on('store.get', (_, e) => ({ value: store[e.key] }) as any)
+  on('store.set', (_, e) => {
+    store[e.key] = e.value
+    return { value: undefined }
+  })
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('tool.register', (_, e) => ({ value: { tool: `mcp__panel__${e.name}` } }) as any)
+  on('ui.open', (_, e) => {
+    seen.opened.push(e)
+    return { value: { isPlaced } } as any
+  })
+  on('ui.panes', () => ({ value: seen.opened.length > seen.closed.length ? [{ id: 'panel', isPlaced }] : [] }) as any)
+  on('ui.close', (_, e) => {
+    seen.closed.push(e)
+    return { value: undefined } as any
+  })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  return seen
+}
+const startHere = { cwd: '/proj', surface: 'terminal' as const, isInteractive: true }
+const toggle = ($: Parameters<TestBody>[0]) => $.command.run({ command: 'panel', args: '', origin: { kind: 'composer' } } as any)
+
+test('first session opens the pane', async ($, on) => {
+  const seen = openHost(on)
+  await $.session.start(startHere)
+  expect(seen.opened).toHaveLength(1)
+})
+
+test('a session after the pane was closed leaves it closed', async ($, on) => {
+  const seen = openHost(on, { open: false })
+  await $.session.start(startHere)
+  expect(seen.opened).toHaveLength(0)
+})
+
+test('a non-interactive session never opens the pane', async ($, on) => {
+  const seen = openHost(on)
+  await $.session.start({ ...startHere, isInteractive: false })
+  expect(seen.opened).toHaveLength(0)
+})
+
+test('/panel remembers whether it left the pane open', async ($, on) => {
+  const store: Record<string, unknown> = {}
+  openHost(on, store)
+  await $.session.start(startHere)
+  await toggle($)
+  expect(store.open).toBe(false)
+  await toggle($)
+  expect(store.open).toBe(true)
+})
+
+// No test raises a person's close; another plugin's close takes the same path.
+const closer = { name: 'closer', register: (on => { on('command.run', { command: 'close-panel' }, async $ => (await $.ui.close({ id: 'panel' }), {})) }) as Register }
+test('closing the pane any way but an unload is remembered', { plugins: [closer] }, async ($, on) => {
+  const store: Record<string, unknown> = {}
+  openHost(on, store)
+  await $.session.start(startHere)
+  await $.command.run({ command: 'close-panel', args: '', origin: { kind: 'composer' } } as any)
+  expect(store.open).toBe(false)
+})
+
+test('/panel shows a pane waiting for room, not closes it', async ($, on) => {
+  const store: Record<string, unknown> = {}
+  const seen = openHost(on, store, false)
+  await $.session.start(startHere)
+  await toggle($)
+  expect(seen.closed).toHaveLength(0)
+  expect(store.open).toBe(true)
 })
