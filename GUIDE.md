@@ -326,7 +326,7 @@ Claude Code's [status line](https://code.claude.com/docs/en/statusline) page exp
 
 If you installed the panel, it is a pane with two tab bars. The top bar is about this chat: Overview, Decisions and History. The bottom bar is about the repo: File, Tree and Git. Decisions and Tree are dimmed and say "coming in v1.8". It shows how Claude read your request and what it is doing, and it lets you move around a long chat without scrolling. If you did not install it, run `~/claudzilla/install.sh --add panel` in a terminal.
 
-To open or close the panel, press **alt+h** or type `/panel`. A new session opens it if you left it open, and the first session opens it too; on a narrow terminal it waits for room. In the fullscreen layout, on a terminal 110 columns or wider, it docks beside the chat; otherwise it opens over the prompt. It opens on the Overview tab; click a tab name to switch. On macOS, alt is the Option key, and your terminal must send it as Meta; see [Option key shortcuts on macOS](https://code.claude.com/docs/en/terminal-config#enable-option-key-shortcuts-on-macos).
+To open or close the panel, press **alt+h** or type `/panel`. A new session opens it if you left it open, and the first session opens it too; on a terminal under 144 columns it waits for room (110 once you have opened it yourself); **alt+h** shows it at any width. In the fullscreen layout, on a terminal 110 columns or wider, it docks beside the chat; otherwise it opens over the prompt. It opens on the Overview tab; click a tab name to switch. On macOS, alt is the Option key, and your terminal must send it as Meta; see [Option key shortcuts on macOS](https://code.claude.com/docs/en/terminal-config#enable-option-key-shortcuts-on-macos).
 
 **Overview** shows, at the top, whether Claude is `● working`, `✓ done` or `■ stopped`, or, when its turn ended with background agents still running, `◌ waiting on N agents`, then:
 
@@ -336,7 +336,7 @@ To open or close the panel, press **alt+h** or type `/panel`. A new session open
 - **STEPS:** its steps: `✓` done, `●` in progress, `○` pending.
   - Agents Claude starts hang under their step: `○` planned, `◌` working, `✓` done, `✗` failed, `■` stopped. Past 3, the rest fold into `… N more`; click it to see them all, `… less` to fold them. Click an agent to open its transcript (its row lights blue); click it again, click its step, or press **Esc** to go back.
 
-From the moment you submit until Claude reports, the header shows `planning…` over last turn's dimmed report. The current step is lit blue. Claude fills ASK, PLAN and STEPS by calling a hidden `intent` tool at the start of each turn. TOPICS, ASK, PLAN and STEPS are written in the language you write in; the labels stay in English. Check ASK first: if Claude misread you, press **Esc** and correct it. Each report and each topics read uses a little of your usage limits; see *Usage and cost* (`/claudzilla limits`). To turn the reports off, set the panel's `intent` option to off in `/config`; it applies from the next session.
+From the moment you submit until Claude reports, the header shows `planning…` over last turn's dimmed report. The current step is lit blue. When STEPS runs past the pane's last row, a dim `… N more` counts the rows left out; the `⇕` rule under TOPICS gives them more rows. Claude fills ASK, PLAN and STEPS by calling a hidden `intent` tool at the start of each turn. TOPICS, ASK, PLAN and STEPS are written in the language you write in; the labels stay in English. Check ASK first: if Claude misread you, press **Esc** and correct it. Each report and each topics read uses a little of your usage limits; see *Usage and cost* (`/claudzilla limits`). To turn the reports off, set the panel's `intent` option to off in `/config`; it applies from the next session.
 
 **History** lists this chat's prompts, newest first:
 
@@ -632,10 +632,12 @@ Headline features of recent versions. Restart Claude after an update to use them
 
 #### v1.5.0
 
+- The panel opens at the start of each session as you left it, open the first time. Its tabs sit in two bars: Overview, Decisions and History at the top; File, Tree and Git at the bottom.
 - Overview writes TOPICS, ASK, PLAN and STEPS in the language you write in.
 - Agents Claude starts show as rows under the step that started them, and Overview shows `◌ waiting on N agents` while they run. Click one to open its transcript; click it again or press Esc to go back.
 - A file path in Claude's reply is a link: click it to see those lines in the panel's new File tab, ctrl+click to open the file.
 - In the Git tab, a pushed commit or branch links to its GitHub, GitLab, Codeberg or SourceHut page: alt+click opens it.
+- A picks card answer goes into the prompt box in your voice: "show you the diff" becomes "show me the diff".
 - When context grows large, a **Compact** line and a toast say so; `/claudzilla compact` drafts a `/compact` line into your prompt box.
 - A toast shows when your 5-hour or weekly limit passes 50%, 75% and 90%.
 
