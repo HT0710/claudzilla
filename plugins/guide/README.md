@@ -4,7 +4,7 @@ Adds `/claudzilla`: a pane listing the guide's topics, grouped by part, with the
 
 `/claudzilla` with no topic toggles the pane. claudzilla's `install.sh` binds alt+g unless you bound it. Each section shows its topic name under its title.
 
-`/claudzilla compact` has Claude draft a `/compact` line naming what to keep and drop; its `compact_draft` tool puts the line in the prompt box when the turn ends.
+`/claudzilla report [what happened]` has Claude draft a problem report from the local trace (`claudzilla-report` skill). `/claudzilla compact` has Claude draft a `/compact` line naming what to keep and drop; its `compact_draft` tool puts the line in the prompt box when the turn ends.
 
 It finds the claudzilla clone through the `~/.claude/hooks/claudzilla-update.sh` link (as update-toast does), reads `GUIDE.md` from it, and shows the version as the status line does. With no clone or no `GUIDE.md`, it shows the GitHub URL of `GUIDE.md`.
 

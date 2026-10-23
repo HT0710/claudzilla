@@ -15,11 +15,11 @@ Everything past the defaults. Back to the [README](README.md).
 settings.base.json     ──merge────▶  ~/.claude/settings.json  your own keys survive re-installs
 ```
 
-- **Linked:** instructions, rules, hooks (rules guard, trace, display filter, updater), skills (`pr`, `rule-review`, `claudzilla-report`; your own stay), theme and statusline. The repo stays the source of truth.
+- **Linked:** instructions, rules, hooks (rules guard, trace, display filter, updater), skills (`pr`, `rule-review`, `claudzilla-report`, `claudzilla-compact`; your own stay), theme and statusline. The repo stays the source of truth.
 - **Merged:** `settings.json` (Claude Code rewrites it). Repo values win, and extras you add on a machine are kept.
 - **Plugins:** claudzilla's own (`panel`, `picks`, `guide`, `update-toast`, `response-dividers`, `attribution`) install from this clone as a local marketplace, so they load in place and update with the repo; `guide` always installs, with the updater. caveman and ponytail stay on the `ref` tag in `settings.base.json`; change the tag to upgrade.
 - **WSL:** adds `export COLORTERM=truecolor` to existing `~/.bashrc` / `~/.zshrc` that don't set COLORTERM, else the theme falls back to 256 colours.
-- **Font:** unless MesloLGS NF is already installed, asks (in the terminal, or as a Claude question when Claude runs the install; not when `hud` is chosen this run) to install MesloLGS NF (draws the statusline symbols) to `~/.local/share/fonts` or `~/Library/Fonts`. On WSL it also installs it on Windows and sets it in Windows Terminal unless you picked a font. Elsewhere, set it as your terminal font. Say no and the statusline uses basic symbols; `CLAUDZILLA_FONT=yes` or `no` answers without asking.
+- **Font:** unless MesloLGS NF is already installed, asks (in the terminal, or as a Claude question when Claude runs the install; not when `hud` is chosen this run) to install MesloLGS NF (draws the statusline symbols) to `~/.local/share/fonts` or `~/Library/Fonts`. On WSL it also installs it on Windows and sets it in Windows Terminal unless you picked a font. Elsewhere, set it as your terminal font. Say no and the statusline uses basic symbols; the no is remembered, also against a later `hud` install. `CLAUDZILLA_FONT=yes` or `no` answers without asking.
 - **Saved choice:** `install` key in `~/.claude/claudzilla.json`. `{"skip":[...]}` = Full minus those parts; new parts reach these installs. `{"only":[...]}` = just those parts; new parts stay out. No key = Full. `--full` clears it; `--add` / `--remove` edit it. Other keys stay.
 - **Record:** `~/.claude/.claudzilla-installed.json` lists what install added outside `~/.claude` (node, rc lines, plugins, marketplaces, Windows fonts, the Windows Terminal font). `--uninstall` undoes only those.
 - **Theme:** with `hud` installed, a `"theme"` in `settings.overrides.json` wins over claudzilla's.
@@ -42,12 +42,12 @@ Optional JSON files, applied in this order. Later files win; objects merge and a
 2. `<repo>/.claude/claudzilla.json`: shared, commit it
 3. `<repo>/.claude/claudzilla.local.json`: yours, git-ignore it
 
-An example; the values are not the defaults. Defaults: `subjectMax` 50, `commitTypes` without `ci`.
+An example; some values are not the defaults. Defaults: `subjectMax` 50, `commitTypes` without `ci`.
 
 ```json
 {"rulesGuard": {
   "rules": { "pushVerify": "remind", "tldr": "off" },
-  "keywords": { "debug": ["bug", "broken", "crash"] },
+  "keywords": { "debug": ["bug", "broken", "crash"], "review": ["code review", "PR comment"] },
   "commitTypes": ["feat", "fix", "refactor", "chore", "docs", "test", "ci"],
   "subjectMax": 72,
   "tldrMinLines": 15,
@@ -81,7 +81,7 @@ A bad file or value is skipped and named on your next prompt; unknown keys are i
 
 ## Keybindings
 
-`~/.claude/keybindings.json` holds your keys. Install adds alt+h for the panel, alt+k to focus the picks card and alt+g to toggle the guide (`/claudzilla`), each unless you bound that key (`Chat` or `Global`) or gave its action a key; a symlinked file is left alone; `"alt+h": null`, `"alt+k": null` or `"alt+g": null` in `Chat` opts out.
+`~/.claude/keybindings.json` holds your keys. Install adds alt+h for the panel, alt+k to focus the picks card and alt+g to toggle the guide (`/claudzilla`), each with its part (removing the part removes the key), and each unless you bound that key (`Chat` or `Global`) or gave its action a key; a symlinked file is left alone; `"alt+h": null`, `"alt+k": null` or `"alt+g": null` in `Chat` opts out.
 
 ## Notes
 

@@ -1,6 +1,6 @@
 # attribution
 
-Removes Claude session links (`Claude-Session:` lines, `claude.ai/code/session_…` URLs) from the commit trailer and PR footer Claude Code asks Claude to write, so they never reach a commit or PR. claudzilla's guard hook still blocks one that slips through.
+Removes Claude session links (`Claude-Session:` lines, `claude.ai/code/session_…` URLs) from the commit trailer and PR footer Claude Code asks Claude to write, so they never reach a commit or PR. Where Claude Code's own default guard (`cc-plugin-sec-default`) runs first, as on Team sign-ins, it skips this hook; claudzilla's guard hook still blocks a link that slips through.
 
 ## Install
 
