@@ -1,0 +1,5 @@
+{
+  "name": "ledger",
+  "description": "Pauses Claude's first edit of a file another live session edited in the last 30 minutes, and tells that session",
+  "author": { "name": "HT0710", "url": "https://github.com/HT0710" }
+}

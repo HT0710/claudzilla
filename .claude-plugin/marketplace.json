@@ -8,6 +8,7 @@
     { "name": "attribution", "source": "./plugins/attribution" },
     { "name": "picks", "source": "./plugins/picks" },
     { "name": "update-toast", "source": "./plugins/update-toast" },
-    { "name": "guide", "source": "./plugins/guide" }
+    { "name": "guide", "source": "./plugins/guide" },
+    { "name": "ledger", "source": "./plugins/ledger" }
   ]
 }

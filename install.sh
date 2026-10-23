@@ -190,7 +190,7 @@ Claude: ask the user with AskUserQuestion: "Full (recommended)" or "Custom".
   Custom: one AskUserQuestion call with three multiSelect questions, ticked = install:
     Screen: hud panel picks
     Replies: caveman ponytail dividers
-    Background: rtk toast attribution
+    Background: rtk toast attribution ledger
   Then run $REPO/install.sh --full --remove <unticked parts, comma-separated> (all ticked: --full).
 core (rules, hooks, settings) is always installed.
 Parts:
@@ -203,6 +203,7 @@ Parts:
   rtk - token-saving command filter
   toast - update and usage notices
   attribution - commit credit
+  ledger - pause edits another session made
 EOF
   exit 2
 }
@@ -218,14 +219,14 @@ menu() {
     read -r ans <&3 || true; [ "${ans:-1}" = 2 ] && mode=2
   fi
   if [ "$mode" = 2 ]; then
-    for g in "Screen:hud panel picks" "Replies:caveman ponytail dividers" "Background:rtk toast attribution"; do
+    for g in "Screen:hud panel picks" "Replies:caveman ponytail dividers" "Background:rtk toast attribution ledger"; do
       echo "${g%%:*}"
       for p in ${g#*:}; do n=$((n+1)); case "$on" in *" $p "*) echo "  $n) [x] $p" ;; *) echo "  $n) [ ] $p" ;; esac; done
     done
     printf 'numbers to toggle, space separated (Enter keeps these): '
     read -r ans <&3 || true
     n=0
-    for p in hud panel picks caveman ponytail dividers rtk toast attribution; do
+    for p in hud panel picks caveman ponytail dividers rtk toast attribution ledger; do
       n=$((n+1)); case " $ans " in *" $n "*) case "$on" in *" $p "*) on="${on/ $p / }" ;; *) on="$on $p " ;; esac ;; esac
     done
   else on=" $ALL_PARTS "; fi
