@@ -1736,16 +1736,18 @@ export const register: Register = (on, options) => {
           // The name centered in spaces across the slot: a Button presses and lights as wide as it draws.
           // The tab shown is no Button, lit across its slot as a focused one is.
           const notice = flagged.includes(one) ? ' !' : ''
-          const left = Math.max(0, Math.floor((width - one.length - notice.length) / 2))
-          const right = Math.max(0, width - left - one.length - notice.length)
+          // Cut, not wrapped: a wrapped bar grows and pushes the bottom bar out of the pane.
+          const name = one.slice(0, Math.max(0, width - notice.length))
+          const left = Math.max(0, Math.floor((width - name.length - notice.length) / 2))
+          const right = Math.max(0, width - left - name.length - notice.length)
           return [
             ...(i > 0 ? [<Text color="promptBorder"> │ </Text>] : []),
             <Box key={`tab:${one}`} width={width}>
               {one === current ? (
-                <Text bold inverse color="claude">{`${' '.repeat(left)}${one}${notice}${' '.repeat(right)}`}</Text>
+                <Text bold inverse color="claude">{`${' '.repeat(left)}${name}${notice}${' '.repeat(right)}`}</Text>
               ) : (
                 <Button key={one} plain onPress={() => pick($, one)}>
-                  <Text color={SOON.includes(one) ? HUD.faint : HUD.idle}>{`${' '.repeat(left)}${one}`}</Text>
+                  <Text color={SOON.includes(one) ? HUD.faint : HUD.idle}>{`${' '.repeat(left)}${name}`}</Text>
                   {notice ? <Text color="warning">{notice}</Text> : ''}
                   <Text color={SOON.includes(one) ? HUD.faint : HUD.idle}>{' '.repeat(right)}</Text>
                 </Button>

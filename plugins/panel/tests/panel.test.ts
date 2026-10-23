@@ -601,6 +601,16 @@ test('top bar holds Overview, Decisions, History; bottom bar File, Tree, Git', a
   expect((await ui.find({ key: 'tab:Git' }))?.props.width).toBe(Math.floor((props.bodyColumns - 4 - 6) / 3))
 })
 
+test('in the narrowest dock a tab name is cut to its slot, never wrapped', async ($, on) => {
+  noHistory(on)
+  // 23 body columns: 13 for three slots, 4 + 4 + 5.
+  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 23 }, requestId: 'panel' })
+  expect(await ui.find({ type: 'Text', text: 'Over' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Deci' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Histo' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Overview|Decisions|History/ })).toBeUndefined()
+})
+
 test('a tab not built yet is dim and says when it comes', async ($, on) => {
   noHistory(on)
   const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
