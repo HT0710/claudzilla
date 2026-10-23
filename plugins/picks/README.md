@@ -2,19 +2,6 @@
 
 After a reply with one `Decision — <topic>` (or `Decision: <topic>`, or an `## Options` heading with a Recommend) table of two or more options, a card above the prompt asks the reply's question and numbers the answers:
 
-```text
-╭──────────────────────────────────────────────╮
-│ How to finish the branch?                    │
-│                                              │
-│ 1: merge to main locally                     │
-│ 2: push + PR                                 │
-│ 3: keep the branch as-is                     │
-│ 4: go ahead, except…                         │
-│                                              │
-│ Why: PR, merge once CI is green              │
-╰──────────────────────────────────────────────╯
-```
-
 <img src="../../.github/assets/picks.gif" alt="The picks card above the prompt; pressing 1 puts option A and its text in the prompt box, then Enter sends it" width="720">
 
 *Real speed. Press 1, then Enter.*
