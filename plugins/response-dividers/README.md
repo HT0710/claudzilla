@@ -6,6 +6,10 @@ It redraws any whole line of `━`, `─` or `┈` outside a code fence, so a li
 
 It also turns a code span holding an existing file path (`path`, `path:line` or `path:line-line`) into a link. Click opens it on the panel's File tab; the terminal's own link click (such as ctrl+click) opens the file; Claude Code itself ignores modifier clicks on it. Commands, flags, directories and missing files stay plain. Needs the fullscreen layout. Without the panel part, a click shows a toast saying so.
 
+<img src="../../.github/assets/filelink.gif" alt="Clicking auth/token.js:3 in a reply opens the panel's File tab with line 3 marked" width="720">
+
+*Real speed. Click `auth/token.js:3`: the File tab opens on it.*
+
 ## Install
 
 claudzilla's `install.sh` installs it.

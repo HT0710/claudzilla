@@ -301,7 +301,7 @@ From top to bottom:
 - **Top row:** the folder, the git branch, and uncommitted changes: `!3` files changed, `?2` new files git does not track, and `+40 -12` lines added and removed that are not yet staged. On the right: the email of the account you are logged in with, and the claudzilla version.
 - **Two thin lines** frame the meters: the top one shows the time, the bottom one the date.
 - **`ctx` meter:** how full context is, as a percentage, and the token count, such as `150k`.
-- **`5h` and `wk` meters:** how much of your 5-hour and weekly usage limits you used, and the time until each resets, such as `2h13m` or `3d4h`. Claude Code sends these only to Pro and Max subscribers, after the first reply of a session; on other accounts the two rows do not show.
+- **`5h` and `wk` meters:** how much of your 5-hour and weekly usage limits you used, and the time until each resets, such as `2h13m` or `3d4h`. Claude Code sends these only to a Claude subscription login, such as Pro, Max or Team, after the first reply of a session; on other accounts the two rows do not show.
 - **Bottom row:** the model and the effort level, such as `high`; the last skill Claude loaded; and `◇ thinking` when Claude was thinking in the last 30 seconds. On the right: the session name, the first 8 characters of the session id, and the time since the session started, such as `up 42m`.
 
 Each meter bar runs from blue to orange: the cells past about two thirds of the bar are orange. The status line redraws every second. The folder name shifts color slowly, and every 90 seconds a highlight sweeps across the meters for 30 seconds. The motion is decoration only.

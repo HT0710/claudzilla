@@ -4,7 +4,7 @@ Toasts claudzilla's update progress: an update is available, it is installing, i
 
 It reads the lines `claude/hooks/claudzilla-update.sh` appends to `.git/claudzilla-update.events` in the claudzilla clone.
 
-It also toasts when the 5-hour or weekly usage limit passes 50%, 75% or 90%, such as `5-hour usage 77% · resets in 2h10m`. Each point toasts once per limit window: the highest point toasted and the window's reset time are kept in the plugin's store, which outlives the session. Claude Code reports these limits only on Pro and Max subscriptions.
+It also toasts when the 5-hour or weekly usage limit passes 50%, 75% or 90%, such as `5-hour usage 77% · resets in 2h10m`. Each point toasts once per limit window: the highest point toasted and the window's reset time are kept in the plugin's store, which outlives the session. Claude Code reports these limits only on a Claude subscription login, such as Pro, Max or Team.
 
 It also toasts when context passes rules-guard's `compactNudge` threshold, at 1×, 2× and 4× and every 30 min after: `Compact — optional: /claudzilla compact, or /clear for new work` (`suggest` at 2×, `recommend` at 4×). After 30 idle minutes the reminder stays under the prompt until the next message.
 

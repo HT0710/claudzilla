@@ -63,6 +63,8 @@ New here? Read [GUIDE.md](GUIDE.md), or type `/claudzilla` in Claude.
 
 Answer first, evidence cited, one fix proposed, nothing edited until you say go, and "fixed" only after the test ran.
 
+*Every picture is a real capture of one small demo repo, shot with permission prompts off (`--dangerously-skip-permissions`, hence the red `bypass permissions on` line); only the account email is blanked out.*
+
 ### Answers you can scan
 - **Terse replies:** TL;DR first, tables over prose, every claim backed by a `file:line` or a command, or marked unverified.
 
@@ -74,9 +76,15 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 
 - **Picks card:** a reply that ends in a decision shows a card above the prompt; press a digit to answer ([details](plugins/picks/README.md)).
 
-  <img src=".github/assets/picks.png" alt="The picks card above the prompt, numbering the options so a digit answers" width="720">
+  <img src=".github/assets/picks.gif" alt="The picks card above the prompt; pressing 1 puts option A and its text in the prompt box, then Enter sends it" width="720">
 
-- **Dividers:** lines frame the TL;DR, `Next:` and each `---`, fitted to the chat width. A file path in a reply is a link that opens in the panel ([details](plugins/response-dividers/README.md)).
+  *Real speed. Press 1: the option's id and text go into the prompt box; Enter sends it. Needs the `picks` part.*
+
+- **Dividers and file links:** lines frame the TL;DR, `Next:` and each `---`, fitted to the chat width. A file path in a reply is a link: click it to see those lines in the panel ([details](plugins/response-dividers/README.md)).
+
+  <img src=".github/assets/filelink.gif" alt="Clicking auth/token.js:3 in a reply opens the panel's File tab with line 3 marked" width="720">
+
+  *Real speed. Click `auth/token.js:3`: the File tab shows the lines around it, line 3 marked `▶`. Needs the fullscreen layout and the `dividers` and `panel` parts. Your terminal's own link click, such as ctrl+click, opens the file; Claude Code does not.*
 
 ### Code that stays small
 - **Lazy by default:** the smallest change that fully works ([ponytail](https://github.com/DietrichGebert/ponytail)).
@@ -100,12 +108,35 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 ### A better terminal
 - **Statusline:** cwd, branch, context / 5h / weekly meters, model, effort, active skill, claudzilla version.
 
-  <img src=".github/assets/statusline.png" alt="Statusline: cwd, branch, context, 5-hour and weekly meters, model, effort and active skill" width="720">
+  <img src=".github/assets/statusline.gif" alt="The status line during one turn: the context meter climbs and the loaded skill appears beside the model" width="720">
+
+  *3× speed. One real turn: the context meter climbs and the skill Claude loaded appears. The `5h` and `wk` meters show only on a Claude subscription login, such as Pro, Max or Team. The symbols need the MesloLGS NF font; without it, basic symbols.*
 
 - **Prompt panel:** `/panel` shows what Claude plans and does, lists this chat's prompts, previews files and shows git; click to jump, reuse or rewind ([details](plugins/panel/README.md)).
+
+  <img src=".github/assets/overview.gif" alt="The panel's Overview tab during a fix: planning, then ASK, PLAN and steps that tick off one by one until done" width="720">
+
+  *2× speed. After `planning…`, Claude's reading of the request (ASK, PLAN) fills in, and each step goes ○ → ● → ✓ until the header reads `✓ done`. Docks beside the chat in the fullscreen layout, from 110 columns. Costs: a short tool call per report (the panel's `intent` option in `/config` turns it off), and while the Overview tab shows, an Opus request at low effort after each prompt to sort topics.*
 - **Toasts:** updates install in the background and say so; a toast also shows when the 5-hour or weekly limit passes 50%, 75% and 90%, and when context is worth compacting ([details](plugins/update-toast/README.md)).
 - **Theme + settings:** muted dark truecolor theme, `opus[1m]`, normal permission prompts.
 - **Local trace:** a record of what claudzilla's parts did, kept in `~/.claude/claudzilla-trace/`, never uploaded; `{"rulesGuard":{"trace":false}}` in `~/.claude/claudzilla.json` turns it off. See the guide topic `bugs` (`/claudzilla bugs`).
+
+<details>
+<summary>More screenshots</summary>
+
+Panel Git tab: the branch, changed files and recent commits.
+
+<img src=".github/assets/git.png" alt="The panel's Git tab: master with one changed file under CHANGES and one commit under COMMITS" width="720">
+
+Panel History tab: this chat's prompts, newest first, with rewind and latest.
+
+<img src=".github/assets/history.png" alt="The panel's History tab listing two prompts under Today" width="720">
+
+Guide pane: `/claudzilla` or alt+g, topics beside a section.
+
+<img src=".github/assets/guide.png" alt="The guide pane: topic list grouped by part, the What claudzilla is section under it" width="720">
+
+</details>
 
 ### Skills and commands
 
