@@ -2625,6 +2625,26 @@ test("a step's mark is colored apart from its text", async ($, on) => {
   expect(await colorOf(ui, /^○ $/)).toBe('#4f5c68')
 })
 
+// 20 body rows: the status row, its rule, ASK, PLAN's rule, PLAN and STEPS' rule leave 12 for steps.
+test('steps past the body end in a dim "… N more" row; steps that fit get none', async ($, on) => {
+  const ui = await intentPane($, on)
+  const steps = Array.from({ length: 25 }, (_, i) => ({ text: `step ${i + 1}`, status: 'pending' }))
+  await $.tool.call({ tool: INTENT, ...REPORT, steps } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'step 11' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'step 12' })).toBeUndefined()
+  expect(await colorOf(ui, '… 14 more')).toBe('#4f5c68')
+  // An ASK wrapping to 3 rows at the 29-column text width takes 2 of them.
+  await $.tool.call({ tool: INTENT, ...REPORT, wants: Array(7).fill('abcdefghi').join(' '), steps } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'step 9' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'step 10' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: '… 16 more' })).toBeDefined()
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: /more$/ })).toBeUndefined()
+})
+
 const THREE = { ...REPORT, steps: [{ text: 'spec', status: 'in_progress' }, { text: 'plan', status: 'pending' }, { text: 'ship', status: 'pending' }] }
 test('a now ping marks the steps before it done and its own in progress', async ($, on) => {
   const ui = await intentPane($, on)

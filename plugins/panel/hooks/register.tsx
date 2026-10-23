@@ -1605,6 +1605,27 @@ export const register: Register = (on, options) => {
         zones: !hasReport && !hasAbout ? 'empty' : zoned ? 'report+topics zone' : hasReport ? 'report' : 'topics',
         steps: shown.steps.length, topics: about.topics.length, topicsRows, reading: about.running, failed: about.failed,
       }
+      // Rows a text takes wrapped at w: words packed greedily, one past the width broken, as Text wraps.
+      // shortcut: counts characters, not cells; CJK and emoji take two, so the count runs short. Upgrade: string-width.
+      const wrapRows = (text: string, w: number) =>
+        text.split('\n').reduce((sum, para) => {
+          let rows = 1
+          let at = 0
+          for (const word of para.split(' ')) {
+            const need = at ? at + 1 + word.length : word.length
+            if (need <= w) at = need
+            else {
+              if (at) rows++
+              for (at = word.length; at > w; at -= w) rows++
+            }
+          }
+          return sum + rows
+        }, 0)
+      // The body never scrolls (its bars stay pinned): STEPS gets the rows left under PLAN, the last one a "… N more"
+      // when they run out. The status row and its rule, TOPICS' header, zone and divider, ASK, PLAN and their rules.
+      const stepRoom =
+        e.props.scroll.bodyRows - 2 - BAR_ROWS - (hasReport ? 2 : 0) - (zoned ? 2 + topicsRows : 0) -
+        wrapRows(shown.wants, Math.max(1, width - LABEL)) - wrapRows(shown.plan, Math.max(1, width - LABEL)) - 2
       const topicRows = shownTopics.map(({ topic, i }) => (
         <Box key={`topic:${i}`} paddingLeft={2} flexShrink={0}>
           <Text wrap="wrap" color={i === about.topics.length - 1 ? 'claude' : SCOPE}>{topic}</Text>
@@ -1663,7 +1684,13 @@ export const register: Register = (on, options) => {
                     <Text bold color={HUD.label}>STEPS</Text>
                   </Box>
                   <Box flexDirection="column">
-                    {shown.steps.flatMap((step, i) => {
+                    {((rows: unknown[]) =>
+                      rows.length <= stepRoom
+                        ? rows
+                        : [
+                            ...rows.slice(0, Math.max(0, stepRoom - 1)),
+                            <Text key="cut" color={shade(HUD.faint)}>{`… ${rows.length - Math.max(0, stepRoom - 1)} more`}</Text>,
+                          ])(shown.steps.flatMap((step, i) => {
                       const all = agentRows[i] ?? []
                       // Past 3, the rest fold into a count, so a fan-out does not push later steps out of view.
                       const folds = all.length > 3
@@ -1718,8 +1745,8 @@ export const register: Register = (on, options) => {
                           <Box key={`agent:${i}:${j}`}>{agentLine(row, j === rows.length - 1 && !folds ? '└ ' : '├ ')}</Box>
                         )),
                         folds && (hidden.length ? toggle(`more:${i}`, `… ${hidden.length} more  ${counts}`, i) : toggle('less', '… less', -1)),
-                      ]
-                    })}
+                      ].filter(Boolean)
+                    }))}
                   </Box>
                 </Box>
               ),
