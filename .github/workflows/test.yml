@@ -26,6 +26,7 @@ jobs:
       - run: bash tests/rule-review.test.sh
       - run: bash tests/hud.test.sh
       - run: bash tests/guide.test.sh
+      - run: bash tests/visuals.test.sh
       - run: bash tests/release.test.sh
 
   release:
