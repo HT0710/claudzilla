@@ -21,6 +21,8 @@ curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh |
 
 **Requires:** `git`, `curl`, `tar`, `perl` and [Claude Code](https://claude.com/claude-code). Missing `node` or [`rtk`](https://github.com/rtk-ai/rtk) is installed to `~/.local` without sudo; keep `~/.local/bin` on your `PATH`. Native Windows is not supported; use WSL.
 
+### Pick parts
+
 On a fresh install it asks **Full (recommended)** or **Custom**; re-runs keep your saved choice. Full installs every part; Custom lets you untick parts. Run by Claude (no terminal), it stops and prints the questions for Claude to ask you. A fresh `--add hud` installs only `hud` plus the updater (no rules, no core settings).
 
 | flag | does |
@@ -31,6 +33,8 @@ On a fresh install it asks **Full (recommended)** or **Custom**; re-runs keep yo
 | `--remove a,b` | remove parts from your install |
 | `--uninstall` | remove claudzilla (asks first) |
 | `--yes` | skip the `--uninstall` confirmation |
+
+Flags go after `bash -s --`. For example, only the status line:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh | bash -s -- --add hud
@@ -49,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh |
 | `toast` | update and usage notices |
 | `attribution` | commit credit |
 
-`core` is not in the menu; `--add` and `--remove` accept it. The updater always ships; it also carries the guide and `/claudzilla report`. Your choice is saved, see [How install works](CONFIGURATION.md#how-install-works).
+`core` is not in the menu; `--add` and `--remove` accept it. The updater always ships; it also carries the guide, `/claudzilla report` and `/claudzilla compact`. Your choice is saved, see [How install works](CONFIGURATION.md#how-install-works).
 
 Safe to re-run. Anything replaced is backed up to `~/.claude/.claudzilla-backup/`.
 
@@ -98,7 +102,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 
   <img src=".github/assets/statusline.png" alt="Statusline: cwd, branch, context, 5-hour and weekly meters, model, effort and active skill" width="720">
 
-- **Prompt panel:** `/panel` lists this chat's prompts, previews files and shows git; click to jump, reuse or rewind ([details](plugins/panel/README.md)).
+- **Prompt panel:** `/panel` shows what Claude plans and does, lists this chat's prompts, previews files and shows git; click to jump, reuse or rewind ([details](plugins/panel/README.md)).
 - **Toasts:** updates install in the background and say so; a toast also shows when the 5-hour or weekly limit passes 50%, 75% and 90%, and when context is worth compacting ([details](plugins/update-toast/README.md)).
 - **Theme + settings:** muted dark truecolor theme, `opus[1m]`, normal permission prompts.
 - **Local trace:** a record of what claudzilla's parts did, kept in `~/.claude/claudzilla-trace/`, never uploaded; `{"rulesGuard":{"trace":false}}` in `~/.claude/claudzilla.json` turns it off. See the guide topic `bugs` (`/claudzilla bugs`).
@@ -109,7 +113,8 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 |---|---|
 | `/claudzilla [topic]` | the guide, one topic at a time |
 | `/claudzilla report [what happened]` | drafts a problem report from the local trace (nothing uploaded); files an issue only on your yes |
-| `/panel` | side pane of this chat's prompts |
+| `/claudzilla compact` | drafts a `/compact` line into the prompt box |
+| `/panel` | side panel: Claude's plan and steps, this chat's prompts, files, git |
 | `/rule-review` | how often each rule slipped; weekly summary at startup; on your yes, shares the counts (no text) as a claudzilla issue |
 | `pr` skill | pre-PR checks + description template, runs before every PR |
 
@@ -125,7 +130,7 @@ Full reference, install internals and keybindings: **[CONFIGURATION.md](CONFIGUR
 
 ## Update
 
-Each push to `main` with a feature or fix ships a release, once the tests pass. At most once a day, a new session or `/clear` installs the newest release in the background, unless the clone has local changes; then you get a notice. To update by hand (latest `main`, may be ahead of the release):
+Each push to `main` with a feature, fix or refactor ships a release, once the tests pass. At most once a day, a new session or `/clear` installs the newest release in the background, unless the clone has local changes; then you get a notice. After an update, `/claudzilla news` lists what changed. To update by hand (latest `main`, may be ahead of the release):
 
 ```bash
 cd ~/claudzilla && git pull && ./install.sh
@@ -137,7 +142,7 @@ cd ~/claudzilla && git pull && ./install.sh
 ~/claudzilla/install.sh --uninstall
 ```
 
-Removes claudzilla's links, settings entries, plugins and record from `~/.claude`, then lists what it left (node, rtk, fonts, the clone) with the commands to delete them. Claude runs it with `--yes` after you confirm.
+Removes claudzilla's links, settings entries, keys, plugins and record from `~/.claude`, and undoes what the install recorded (node, fonts, shell lines). It lists what is still there (rtk, copies it did not install, the clone) with the commands to delete them. Claude runs it with `--yes` after you confirm.
 
 ## Credits
 

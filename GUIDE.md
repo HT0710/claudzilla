@@ -18,7 +18,7 @@ What changes compared with stock Claude Code:
 - **Proof:** Claude says "fixed" only after the check ran. The guard sends an unchecked "done" back to be checked.
 - **Git:** the guard blocks force-pushes, discarding work, and commits on `main`.
 - **Permissions:** sessions start in Manual mode, so Claude asks before it edits files or runs commands. Recent versions of stock Claude Code start in auto mode, where a classifier reviews most actions instead of asking you.
-- **Screen:** if you installed them, the status line, the panel and the picks card.
+- **Screen:** if you installed them, the status line, the panel, the picks card, the response dividers and the toasts.
 
 A Full install includes every part; a Custom install includes the parts you kept. Sections about an optional part say "if you installed" it.
 
@@ -117,7 +117,7 @@ claudzilla's rules shape every reply so you can scan it instead of reading it al
 - **Evidence:** a claim carries a `file:line` reference (file and line number) or the command that showed it. A claim Claude did not check is marked *unverified*; treat it as a guess.
 - **Decision:** options `A`, `B` in a table, then `**Recommend:**` with one pick and a **Why:** line with its source. With several decisions, they are numbered: `Decision 1`, `Decision 2`.
 - **Picks:** with two or more choices, a `**Picks:**` line lists the recommended answers, such as `1B, 2A`.
-- **File links:** a code span with the path of an existing file, such as `src/app.ts:42`, is a link. Click it to see the lines around it in the panel's File tab, but only in the fullscreen terminal; elsewhere a click does what the terminal does. ctrl+click or alt+click opens the file through the terminal. Needs the response dividers and the panel. Without the panel, a click shows a toast saying so.
+- **File links:** a code span with the path of an existing file, such as `src/app.ts:42`, is a link. Click it to see the lines around it in the panel's File tab, but only in the fullscreen terminal; elsewhere a click does what the terminal does. Your terminal's own link click, such as ctrl+click, opens the file; Claude Code does not. Needs the response dividers and the panel. Without the panel, a click shows a toast saying so.
 - **Next:** the last line, the single next action.
 - **Dividers:** a heavy line frames a reply that has a TL;DR. A thin line follows the TL;DR and comes before the Picks or Next line. A dotted line marks a change of group: what Claude found, what to choose, what to do.
 
@@ -147,7 +147,7 @@ A trivial edit, or one you state exactly, skips steps 1 to 3: Claude makes it at
 
 Some rules apply only to certain files:
 
-- **Python:** these rules load once Claude reads a `.py`, `.ipynb`, `pyproject.toml` or `requirements` file. An existing project keeps its own tools. New code uses `uv` for packages, `pyproject.toml` for dependencies, `ruff check --fix` and `ruff format` for lint and formatting, and `pytest` for tests.
+- **Python:** these rules load once Claude reads a `.py`, `.pyi`, `.ipynb`, `pyproject.toml` or `requirements` file. An existing project keeps its own tools. New code uses `uv` for packages, `pyproject.toml` for dependencies, `ruff check --fix` and `ruff format` for lint and formatting, and `pytest` for tests.
 - **Comments:** if the project has a comment style, Claude matches it. Otherwise it writes a comment only to explain a reason the code cannot show, and never history such as "was X, now Y": git holds that.
 
 Claude Code's [common workflows](https://code.claude.com/docs/en/common-workflows) show how to explore code, fix bugs and refactor with Claude.
@@ -193,6 +193,9 @@ Claude uses these skills without asking when the task fits:
 | writing non-trivial code | `test-driven-development`: writes a failing test first |
 | before it says "done" after edits | `verification-before-completion`: runs a check |
 | you pass on code review feedback | `receiving-code-review` |
+| you ask to push, open a pull request or merge, and the branch had no review yet | `requesting-code-review`: an agent reviews the branch first |
+
+With caveman, a refactor or a migration runs `caveman:safe-refactor` or `caveman:migration`; with ponytail, asking what's next runs `ponytail:ponytail-debt`.
 
 When your prompt contains words such as "bug", "error" or "crash", the guard reminds Claude to use the debugging skill.
 
@@ -200,10 +203,11 @@ For bigger steps, Claude suggests a skill and waits. The reply names it on the *
 
 Some skills hand tasks to *subagents*: helpers that each work in their own context and return a summary. They keep your context small, but their requests count toward the same usage limits.
 
-claudzilla adds two skills of its own:
+claudzilla adds four skills of its own:
 
 - **`pr`:** Claude runs it before it opens or edits a pull request: pre-PR checks, then the description template. The guard blocks a pull request without it.
 - **`/rule-review`:** counts how often each claudzilla rule slipped, from your local transcripts. Only you run it; a weekly summary appears at startup. It shares the counts, never the text, as a GitHub issue only after you say yes.
+- **`claudzilla-report` and `claudzilla-compact`:** run by `/claudzilla report` and `/claudzilla compact`. See *Report a problem* and *Manage context*.
 
 If you installed caveman (terse replies), `/caveman` turns it on, `/caveman status` shows its mode, and `stop caveman` turns it off. If you installed ponytail (smallest change), `/ponytail lite`, `/ponytail full` or `/ponytail ultra` sets its level, and `stop ponytail` turns it off. `normal mode` turns both off.
 
@@ -300,7 +304,7 @@ From top to bottom:
 - **`5h` and `wk` meters:** how much of your 5-hour and weekly usage limits you used, and the time until each resets, such as `2h13m` or `3d4h`. Claude Code sends these only to Pro and Max subscribers, after the first reply of a session; on other accounts the two rows do not show.
 - **Bottom row:** the model and the effort level, such as `high`; the last skill Claude loaded; and `◇ thinking` when Claude was thinking in the last 30 seconds. On the right: the session name, the first 8 characters of the session id, and the time since the session started, such as `up 42m`.
 
-Each meter bar runs from blue to orange: orange cells mean the meter is past 70%. The status line redraws every second. The folder name shifts color slowly, and every 90 seconds a highlight sweeps across the meters for 30 seconds. The motion is decoration only.
+Each meter bar runs from blue to orange: the cells past about two thirds of the bar are orange. The status line redraws every second. The folder name shifts color slowly, and every 90 seconds a highlight sweeps across the meters for 30 seconds. The motion is decoration only.
 
 > **Your email is visible:** it shows whenever the status line does. Anyone who sees your screen, a screen share or a screenshot sees it too.
 
@@ -377,7 +381,7 @@ The picks card appears after a reply with one `Decision` table of two or more op
 - Press **alt+k** to move into the picks card, on the recommended row. **Arrow keys** move between rows, **Enter** puts the answer in the prompt box, and **Esc** goes back without one. Without the claudzilla key, `ctrl+x tab` does the same. On macOS, alt is the Option key, and your terminal must send it as Meta; see [Option key shortcuts on macOS](https://code.claude.com/docs/en/terminal-config#enable-option-key-shortcuts-on-macos).
 - Or ignore the picks card and type your own answer.
 
-The picks card hides while Claude works and goes once you send any prompt. When a reply has nothing to choose, such as a `**Picks:**` line or a Next line that says `say go`, no picks card appears: only the dim answer, such as `1B, 2A` or `go`, waits in the prompt box.
+The picks card hides while Claude works and goes once you send any prompt. When a reply has nothing to choose, such as a `**Picks:**` line, a Next line that says `say go`, or a **Compact** line with no Next, no picks card appears: only the dim answer, such as `1B, 2A` or `go`, waits in the prompt box.
 
 An answer you send speaks in your voice, so the history reads as you wrote it: Claude's `show you the diff` comes back as `show me the diff`, and `your branch` as `my branch`. Code and double-quoted text stay as written.
 
@@ -421,7 +425,7 @@ claudzilla does some things without being asked. This list names each one, so no
 - **Transcript reads by the guard:** the guard reads the end of the current session's transcript, the saved file of the session, to measure context and to see whether a check ran. It keeps its notes in a temporary file for each session.
 - **Rule counts:** at startup, if the last `/rule-review` report is missing or a week old, a background job scans your transcripts in `~/.claude/projects/` and saves counts in `~/.claude/claudzilla-reports/`. When rules slipped, the next session shows a one-line summary once. The counts leave your machine only if you say yes in `/rule-review`. To stop the scan and the summary, put `{"rulesGuard":{"reviewNudge":false}}` in `~/.claude/claudzilla.json`.
 - **Command rewriting:** if you installed rtk, a hook passes each shell command Claude runs through rtk, which shortens the output Claude reads. Run `rtk gain` in a terminal to see the tokens it saved.
-- **Lines added to each prompt:** the guard tells Claude your terminal width, so its tables fit. If you use the panel, it also reminds Claude to send its intent report. To drop the width line, put `{"rulesGuard":{"rules":{"tableWidth":"off"}}}` in `~/.claude/claudzilla.json`.
+- **Lines added to each prompt:** the guard tells Claude your terminal width, so its tables fit. If you use the panel, it also reminds Claude to send its intent report. Past the `compactNudge` threshold it adds the compact reminder, and a prompt with words such as "bug" or "code review" gets a reminder to use the matching skill; `compactNudge` `0` and the rules `debugTrigger` and `reviewTrigger` set to `off` drop them. To drop the width line, put `{"rulesGuard":{"rules":{"tableWidth":"off"}}}` in `~/.claude/claudzilla.json`.
 - **Plans kept out of git:** when Claude writes a spec or plan under `docs/superpowers/` in a repository that tracks no files there, the guard adds `docs/superpowers/` to the repository's `.git/info/exclude` file. Git then ignores those files, so they stay out of your commits. To stop it, put `{"rulesGuard":{"rules":{"specExclude":"off"}}}` in `~/.claude/claudzilla.json`.
 - **Settings reset on update:** each update runs the installer again, which puts claudzilla's values back in `~/.claude/settings.json`, such as the model or effort level that a `/model` or `/effort` pick saved. Put lasting choices in `~/.claude/settings.overrides.json`.
 - **Local trace:** the guard and other claudzilla parts write what they did to `~/.claude/claudzilla-trace/` on your machine. Nothing is uploaded. To turn it off, put `{"rulesGuard":{"trace":false}}` in `~/.claude/claudzilla.json`. See *Report a problem* (`/claudzilla bugs`).
@@ -506,6 +510,7 @@ Type a word or command at the prompt and press **Enter**. Items marked "if insta
 | `/claudzilla [topic]` | open or close this guide, or open one section |
 | `/claudzilla report [what happened]` | draft a problem report from the local trace |
 | `/claudzilla compact` | draft a `/compact` line into the prompt box |
+| `/rule-review` | count how often each claudzilla rule slipped |
 | `/panel` | open or close the panel (if installed) |
 | `/caveman` | turn caveman on (if installed) |
 | `/ponytail lite` | set ponytail's level: `lite`, `full`, `ultra` (if installed) |
@@ -557,7 +562,7 @@ In this list, `env`, `permissions` and `model` go in `~/.claude/settings.overrid
 - **Set how strictly Claude keeps changes small:** set `PONYTAIL_DEFAULT_MODE` to `full` to stop Claude pushing back on parts of a request, `lite` to build what you asked, or `off` (if you installed ponytail).
 - **Get fewer permission prompts:** set `permissions.defaultMode` to `acceptEdits` or `auto`. See *Approve actions* (`/claudzilla approve`).
 - **Use another model or effort:** run `/model` or `/effort` in a session. A default that `/model` or `/effort` saves lasts only until the next update; for every session, set `model` or `effortLevel` in `settings.overrides.json`, such as `"model": "sonnet"`.
-- **Loosen a guard rule:** set it under `rules`. Values: blocks take `deny`, `remind` or `off`; `doneClaim` takes `now`, `flag` or `off`; skill reminders take `remind` or `off`; reply format checks take `flag` or `off`. The rule names are in [CONFIGURATION.md](https://github.com/HT0710/claudzilla/blob/main/CONFIGURATION.md#guard-hook-config).
+- **Loosen a guard rule:** set it under `rules`. Values: blocks take `deny`, `remind` or `off`; `doneClaim` takes `now`, `flag` or `off`; skill reminders take `remind` or `off`; reply format checks take `flag` or `off`; `specExclude` takes `on` or `off`. The rule names are in [CONFIGURATION.md](https://github.com/HT0710/claudzilla/blob/main/CONFIGURATION.md#guard-hook-config).
 - **Commit to `main` in a solo repository:** put `{"rulesGuard":{"allowMain":true}}` in `<repo>/.claude/claudzilla.local.json`.
 - **Stop auto-update:** put `{"rulesGuard":{"autoUpdate":false}}` in `~/.claude/claudzilla.json`; you still get the notice.
 - **Change other guard settings:** `compactNudge` (the context size, in tokens, at which Claude suggests compacting; `0` turns it off), `reviewNudge`, `autoUpdate` and `trace` (`false` stops the local trace; machine file only) sit next to `rules`, not inside it.
@@ -587,7 +592,7 @@ A guard file, such as `~/.claude/claudzilla.json`. If the file already has other
 
 #### How updates arrive
 
-Each feature or fix pushed to claudzilla's `main` branch ships as a release once its tests pass. At most once a day, a new session or `/clear` installs the newest release in the background. If you installed the update toast, a toast tells you when an update is available, installing, installed, or failed; otherwise a notice appears when a session starts. Restart Claude to apply an update; `/claudzilla news` lists what changed. If the clone has local changes, the update waits and the notice gives the command to run. Auto-update is described in *What runs on its own* (`/claudzilla background`).
+Each feature, fix or refactor pushed to claudzilla's `main` branch ships as a release once its tests pass. At most once a day, a new session or `/clear` installs the newest release in the background. A notice appears when a session starts; if you installed the update toast, a toast also tells you when an update is available, installing, installed, or failed. Restart Claude to apply an update; `/claudzilla news` lists what changed. If the clone has local changes, the update waits and the notice gives the command to run. Auto-update is described in *What runs on its own* (`/claudzilla background`).
 
 #### Update by hand
 
@@ -609,14 +614,14 @@ Run this in a terminal:
 ~/claudzilla/install.sh --uninstall
 ```
 
-It asks first, then removes claudzilla's links, settings entries and plugins from `~/.claude`. It lists what it left, such as node, rtk, fonts and the clone, with the commands to delete them.
+It asks first, then removes claudzilla's links, settings entries, keys and plugins from `~/.claude`, and undoes what the install recorded, such as the node, fonts and shell lines it added. What is still there, such as rtk, copies it did not install and the clone, it lists with the commands to delete them.
 
 #### Get help
 
 - Run `/help` to list Claude Code's commands, or `/doctor` to check your Claude Code setup.
 - Report a claudzilla problem or ask a question in [claudzilla's GitHub issues](https://github.com/HT0710/claudzilla/issues).
 - Read every claudzilla setting in [CONFIGURATION.md](https://github.com/HT0710/claudzilla/blob/main/CONFIGURATION.md).
-- Read each plugin's README: [panel](https://github.com/HT0710/claudzilla/blob/main/plugins/panel/README.md), [picks](https://github.com/HT0710/claudzilla/blob/main/plugins/picks/README.md), [response dividers](https://github.com/HT0710/claudzilla/blob/main/plugins/response-dividers/README.md), [attribution](https://github.com/HT0710/claudzilla/blob/main/plugins/attribution/README.md), [update toast](https://github.com/HT0710/claudzilla/blob/main/plugins/update-toast/README.md).
+- Read each plugin's README: [panel](https://github.com/HT0710/claudzilla/blob/main/plugins/panel/README.md), [picks](https://github.com/HT0710/claudzilla/blob/main/plugins/picks/README.md), [response dividers](https://github.com/HT0710/claudzilla/blob/main/plugins/response-dividers/README.md), [attribution](https://github.com/HT0710/claudzilla/blob/main/plugins/attribution/README.md), [guide](https://github.com/HT0710/claudzilla/blob/main/plugins/guide/README.md), [update toast](https://github.com/HT0710/claudzilla/blob/main/plugins/update-toast/README.md).
 - Learn Claude Code itself in [Claude Code's docs](https://code.claude.com/docs/en/overview).
 - claudzilla is built on [caveman](https://github.com/JuliusBrussee/caveman), [ponytail](https://github.com/DietrichGebert/ponytail), [superpowers](https://github.com/obra/superpowers) and [rtk](https://github.com/rtk-ai/rtk).
 
