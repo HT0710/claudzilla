@@ -47,6 +47,8 @@ finish_fail_ok() { ( finish() { return 1; }; ! retry 3 ok 2>/dev/null ); }
 check "retry: fails when restore fails" finish_fail_ok
 dead_ok() { ( LIVE=1 PANEL0=on; ! finish 2>"$H/dead.err" ) && grep -q 'not restored' "$H/dead.err"; }
 check "finish: fails when the session died before restore" dead_ok
+docks_ok() { ( DOCKS=" 150:83 110: "; [ "$(dock_saved 150)" = 83 ] && dock_saved 110 >/dev/null && [ -z "$(dock_saved 110)" ] && ! dock_saved 80 ); }
+check "dock: one saved border column per width" docks_ok
 
 masks_cfg_ok() { masks | grep -qxF someone@example.test && masks | grep -qxF someone; }
 masks_none_ok() { ! CLAUDE_CONFIG_DIR="$H/none" masks >/dev/null 2>&1; }
@@ -100,8 +102,8 @@ speed_ok() {
     n=${n%×}; [ "$n" -gt 1 ] || continue
     for f in $READMES; do
       grep -qF "assets/$name.gif" "$f" || continue
-      awk -v g="assets/$name.gif" -v want="$n× speed" 'index($0, g) { s = 1; next } s && NF { exit !index($0, want) } END { if (!s) exit 1 }' "$f" ||
-        { echo "  no '$n× speed' under $name.gif in $f"; ok=1; }
+      awk -v g="assets/$name.gif" -v want="${n}× speed" 'index($0, g) { s = 1; next } s && NF { exit !index($0, want) } END { if (!s) exit 1 }' "$f" ||
+        { echo "  no '${n}× speed' under $name.gif in $f"; ok=1; }
     done
   done < "$REPO/.github/visuals/speeds.txt"
   return $ok
