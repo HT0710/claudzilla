@@ -150,6 +150,21 @@ test('parse: the go detail is sent in the person\'s voice, I and you swapped; th
   expect(go('ask what you mean, as that is how you work.')).toBe('ask what I mean, as that is how I work')
   expect(go('push it, but you run it since you asked.')).toBe('push it, but I run it since I asked')
   expect(go('edit my.config and I’ll wait.')).toBe('edit my.config and you’ll wait')
+  // A bare "you" is the subject unless a verb or preposition takes it, or a stop word or the end follows.
+  expect(go('fix the 3 issues you flagged.')).toBe('fix the 3 issues I flagged')
+  expect(go('keep the API you wrote.')).toBe('keep the API I wrote')
+  expect(go('check it, and do you want it merged?')).toBe('check it, and do I want it merged?')
+  expect(go('fix it and let you know.')).toBe('fix it and let me know')
+  expect(go('help you fix the test.')).toBe('help me fix the test')
+  expect(go('send you the diff.')).toBe('send me the diff')
+  expect(go('merge it and notify you once CI passes.')).toBe('merge it and notify me once CI passes')
+  expect(go("ship it; I'll update you after the merge.")).toBe("ship it; you'll update me after the merge")
+  expect(go('split it between you and me.')).toBe('split it between me and you')
+  // A Roman numeral after a numbered word is no pronoun; after a name it still is.
+  expect(go('start Phase I tests.')).toBe('start Phase I tests')
+  expect(go('rebase after the PR I merge.')).toBe('rebase after the PR you merge')
+  expect(go('push once on GitHub I see it.')).toBe('push once on GitHub you see it')
+  expect(go('apply the option I picked.')).toBe('apply the option you picked')
   // The word to say is typed as written.
   expect(parse('**Next:** reply `your call` (recommended)')?.go).toBe('your call')
   expect(parse('**Next:** say "you decide" when ready.')?.go).toBe('you decide')

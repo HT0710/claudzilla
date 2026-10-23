@@ -40,12 +40,20 @@ const SWAP: Record<string, string> = {
 }
 // Code and quoted text match first and stay as written; "I/O" and "my.config" hold no pronoun.
 const VOICE = /(`[^`]*`|"[^"]*"|“[^”]*”)|(?<![\w/-])(?:I(?:\s+(?:am|was)|['’](?:m|ve|ll|d))?|[Yy]ou(?:\s+(?:are|were)|['’](?:re|ve|ll|d))?|[Mm](?:e|y|ine|yself)|[Yy]our(?:s|self)?)(?![\w/-]|\.\w)/g
-// A bare "you" opening a clause is its subject ("then you run" → "I"); elsewhere an object ("show you" → "me").
+// A bare "you" opening a clause is its subject ("then you run" → "I"). Taken by a verb or preposition ("show you",
+// "let you know", "to you"), or before a stop word or the end ("you the diff", "you."), an object ("me"); else the subject
+// ("the issues you flagged" → "I").
 const SUBJECT = /(?:^|[,;:—–(]|\b(?:and|or|then|so|if|when|once|until|unless|before|after|while|because|since|but|that|whether|what|how|where|why|who|which)\s)\s*$/i
+const TAKEN = /\b(?:(?:to|for|with|from|at|by|about|of|into|on|between|let|lets|help|make|have|see|watch|hear|tell|ask|show|give|send|get|want|need|remind|thank|ping|notify|update|tag|email|message|brief|assign|keep|leave|walk|guide|bring|hand|owe|wish)|I(?:['’](?:ll|d)|\s+(?:will|can|could))\s+\w+)\s+$/i
+const ENDS = /^(?:\s*(?:$|[.,;:!?)\]—–])|\s+(?:the|a|an|this|that|these|those|to|for|when|if|which|what|how|it|them|my|our|about|with|in|on|at|now|here|there|back|again|first|too|both|all|around|through|up|down|out|once|after|before|until|as|later|soon|today|tomorrow|by|via|while|since|because)\b)/i
+const youTo = (before: string, after: string) => SUBJECT.test(before) ? 'I' : TAKEN.test(before) || ENDS.test(after) ? 'me' : 'I'
+// "Phase I", "Type I": a lone I after a numbered word is a numeral; after a name ("the PR I merge") it is no.
+const NUMERAL = /\b(?:Phase|Type|Part|Section|Option|Step|Stage|Level|Tier|Class|Chapter|Round|Wave|Milestone)\s+$/
 const voice = (s: string) => s.replace(VOICE, (w, quoted: string | undefined, at: number) => {
   if (quoted) return w
+  if (w === 'I' && NUMERAL.test(s.slice(0, at))) return w
   const key = w.toLowerCase().replace(/\s+/, ' ').replace('’', "'")
-  let to = key === 'you' ? (SUBJECT.test(s.slice(0, at)) ? 'I' : 'me') : SWAP[key]!
+  let to = key === 'you' ? youTo(s.slice(0, at), s.slice(at + w.length)) : SWAP[key]!
   if (/^[A-HJ-Z]/.test(w)) to = `${to.charAt(0).toUpperCase()}${to.slice(1)}`
   return w.includes('’') ? to.replace("'", '’') : to
 })
