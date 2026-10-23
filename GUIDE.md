@@ -285,6 +285,8 @@ When Claude edited files and its reply says "done", "fixed" or "passing" with no
 
 Claude also never pushes, opens a PR or tags unless you ask. Before a push, it regroups its commits into one logical change each. If you installed the attribution plugin, it removes session links from the commit trailer and PR footer that Claude Code asks Claude to write.
 
+If you installed the ledger plugin and two sessions work in one folder, Claude pauses before it edits a file that the other session edited in the last 30 minutes. The other session gets a message, Claude re-reads the file, and it waits or asks you only when both changes touch the same lines.
+
 > **Prompt injection:** text in a file, web page or command output that tries to give Claude instructions. The guard does not stop it. Your defense is the permission prompt, so read each command before you approve it. Trust only folders you know: once trusted, a folder's settings can allow commands.
 
 Each blocked action in the table can be set to `deny`, `remind` or `off`, and the done check to `now`, `flag` or `off`. For a solo repository that commits straight to `main`, put `{"rulesGuard":{"allowMain":true}}` in `.claude/claudzilla.local.json`. See *Customize claudzilla* (`/claudzilla customize`). If the guard blocked something you need, see *Fix common problems* (`/claudzilla stuck`).
@@ -429,6 +431,7 @@ claudzilla does some things without being asked. This list names each one, so no
 - **Plans kept out of git:** when Claude writes a spec or plan under `docs/superpowers/` in a repository that tracks no files there, the guard adds `docs/superpowers/` to the repository's `.git/info/exclude` file. Git then ignores those files, so they stay out of your commits. To stop it, put `{"rulesGuard":{"rules":{"specExclude":"off"}}}` in `~/.claude/claudzilla.json`.
 - **Settings reset on update:** each update runs the installer again, which puts claudzilla's values back in `~/.claude/settings.json`, such as the model or effort level that a `/model` or `/effort` pick saved. Put lasting choices in `~/.claude/settings.overrides.json`.
 - **Local trace:** the guard and other claudzilla parts write what they did to `~/.claude/claudzilla-trace/` on your machine. Nothing is uploaded. To turn it off, put `{"rulesGuard":{"trace":false}}` in `~/.claude/claudzilla.json`. See *Report a problem* (`/claudzilla bugs`).
+- **Messages between sessions:** if you installed the ledger plugin, a session about to edit a file that another session edited recently sends that session a message. An idle session wakes to read it, which starts one short turn there.
 - **Your email:** if you installed the status line, it shows the email of the account you are logged in with. Anyone who sees your screen sees it.
 - **Agent teams:** claudzilla sets `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` to `1`. This experimental Claude Code feature lets Claude start *teammates*: separate Claude sessions that work in parallel and message each other. A team uses far more tokens than one session. While it is on, a subagent that Claude names can start as a teammate instead. To turn it off, put `{"env":{"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS":"0"}}` in `~/.claude/settings.overrides.json`, then run `~/claudzilla/install.sh`. See Claude Code's [agent teams](https://code.claude.com/docs/en/agent-teams) page.
 
@@ -604,7 +607,7 @@ cd ~/claudzilla && git pull && ./install.sh
 
 #### Add or remove parts
 
-Run `~/claudzilla/install.sh --add panel` to add a part, or `--remove panel` to take it out. The [README](https://github.com/HT0710/claudzilla/blob/main/README.md#install) lists the other flags, such as `--full`, `--custom` and `--yes`. The parts are `hud` (the status line), `rtk`, `caveman`, `ponytail`, `dividers`, `panel`, `picks`, `toast` and `attribution`.
+Run `~/claudzilla/install.sh --add panel` to add a part, or `--remove panel` to take it out. The [README](https://github.com/HT0710/claudzilla/blob/main/README.md#install) lists the other flags, such as `--full`, `--custom` and `--yes`. The parts are `hud` (the status line), `rtk`, `caveman`, `ponytail`, `dividers`, `panel`, `picks`, `toast`, `attribution` and `ledger`.
 
 #### Uninstall
 
@@ -621,7 +624,7 @@ It asks first, then removes claudzilla's links, settings entries, keys and plugi
 - Run `/help` to list Claude Code's commands, or `/doctor` to check your Claude Code setup.
 - Report a claudzilla problem or ask a question in [claudzilla's GitHub issues](https://github.com/HT0710/claudzilla/issues).
 - Read every claudzilla setting in [CONFIGURATION.md](https://github.com/HT0710/claudzilla/blob/main/CONFIGURATION.md).
-- Read each plugin's README: [panel](https://github.com/HT0710/claudzilla/blob/main/plugins/panel/README.md), [picks](https://github.com/HT0710/claudzilla/blob/main/plugins/picks/README.md), [response dividers](https://github.com/HT0710/claudzilla/blob/main/plugins/response-dividers/README.md), [attribution](https://github.com/HT0710/claudzilla/blob/main/plugins/attribution/README.md), [guide](https://github.com/HT0710/claudzilla/blob/main/plugins/guide/README.md), [update toast](https://github.com/HT0710/claudzilla/blob/main/plugins/update-toast/README.md).
+- Read each plugin's README: [panel](https://github.com/HT0710/claudzilla/blob/main/plugins/panel/README.md), [picks](https://github.com/HT0710/claudzilla/blob/main/plugins/picks/README.md), [response dividers](https://github.com/HT0710/claudzilla/blob/main/plugins/response-dividers/README.md), [attribution](https://github.com/HT0710/claudzilla/blob/main/plugins/attribution/README.md), [guide](https://github.com/HT0710/claudzilla/blob/main/plugins/guide/README.md), [update toast](https://github.com/HT0710/claudzilla/blob/main/plugins/update-toast/README.md), [ledger](https://github.com/HT0710/claudzilla/blob/main/plugins/ledger/README.md).
 - Learn Claude Code itself in [Claude Code's docs](https://code.claude.com/docs/en/overview).
 - claudzilla is built on [caveman](https://github.com/JuliusBrussee/caveman), [ponytail](https://github.com/DietrichGebert/ponytail), [superpowers](https://github.com/obra/superpowers) and [rtk](https://github.com/rtk-ai/rtk).
 
