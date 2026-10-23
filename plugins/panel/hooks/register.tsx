@@ -168,7 +168,7 @@ export const parseTopics = (text: string) =>
 let overviewSeq = 0
 let overviewStale = true
 const overviewShown = async ($: EngineInterface) =>
-  (await read($, tab)) === 'Overview' && (await $.ui.panes()).some(pane => pane.id === PANE)
+  (await read($, tab)) === 'Overview' && (await $.ui.panes()).some(pane => pane.id === PANE && pane.isPlaced)
 // Reads only while the tab shows, so its cost follows use.
 const readOverview = async ($: EngineInterface) => {
   overviewStale = true

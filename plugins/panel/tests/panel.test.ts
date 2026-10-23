@@ -2433,14 +2433,14 @@ test('parseTopics: every bullet line, no cap', () => {
 const TOPICS = '- Intent tab for the panel\n- shipping the branch'
 // This chat's prompts in the history file, Opus answering `reply(n)`, the pane open.
 // The hosts a TOPICS read needs, the pane open; `asks` records each Opus request.
-const overviewHosts = (on: Parameters<TestBody>[1], reply: (n: number) => unknown = () => ({ isAnswered: true, text: TOPICS, usage: {} }), typed = ['add an intent tab', 'ship it']) => {
+const overviewHosts = (on: Parameters<TestBody>[1], reply: (n: number) => unknown = () => ({ isAnswered: true, text: TOPICS, usage: {} }), typed = ['add an intent tab', 'ship it'], isPlaced = true) => {
   const clock = mock.clock(on)
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('fs.read', () => ({ value: '' }))
   const lines = typed.map((display, i) => JSON.stringify({ display, timestamp: i + 1, sessionId: 'chat-1' }))
   on('process.run', (_, e) => ran(isHistoryGrep(e.argv) ? lines.join('\n') : ''))
-  on('ui.panes', () => ({ value: [{ id: 'panel' }] }) as any)
+  on('ui.panes', () => ({ value: [{ id: 'panel', isPlaced }] }) as any)
   on('prompt.submit', (_, e) => ({ text: e.text }) as any)
   on('session.end', (_, e) => ({ sessionId: e.sessionId }) as any)
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -2471,6 +2471,16 @@ test('a session starting with the pane open reads TOPICS on the default tab', as
   await ui.drawn()
   expect(asks).toHaveLength(1)
   expect(await ui.find({ type: 'Text', text: 'shipping the branch' })).toBeDefined()
+})
+
+// Opened at start on a narrow terminal, the pane waits undrawn: nobody sees TOPICS, so no Opus request.
+test('a pane waiting for room reads no TOPICS', async ($, on) => {
+  const { clock, asks } = overviewHosts(on, undefined, undefined, false)
+  await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await $.session.start({ source: 'startup', cwd: '/home/me' } as any)
+  await send($, 'ship it')
+  await clock.settle()
+  expect(asks).toHaveLength(0)
 })
 
 test('TOPICS: Opus groups the prompts into topics, drawn newest first', async ($, on) => {
