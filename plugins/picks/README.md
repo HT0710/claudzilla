@@ -15,6 +15,10 @@ After a reply with one `Decision — <topic>` (or `Decision: <topic>`, or an `##
 ╰──────────────────────────────────────────────╯
 ```
 
+<img src="../../.github/assets/picks.gif" alt="The picks card above the prompt; pressing 1 puts option A and its text in the prompt box, then Enter sends it" width="720">
+
+*Real speed. Press 1, then Enter.*
+
 - **One `Decision` table in the reply:** its heading is the question, and each option row is a choice; its tradeoff stays in the reply's table, just above. The recommended row is blue, and when the reply gives a `Why:`, a `Why:` line in the same blue under the rows gives the reason. A choice puts its option's id and text (`2: push + PR`) in the prompt box, so the history reads on its own; Enter sends it.
 - **Nothing to choose** (a `**Picks:**` line, a `**Next:**` that says "say go" or `say <word> and I'll X`, or a one-option table): no card, only the dim answer in the prompt box: `1B, 2A` with the Picks (`1B, 2A, then X` when Next says `say go and I'll X`), else `run X` from `say go → I run X` (or `X` from `say go and I'll X` or `say commit and I'll X`; `B: X` from `say B and I'll X`), else `go`; a one-option table with no Picks gives its option. X stops at its first sentence or at `, or say`. A Next that asks `want me to X?` or `should I X?` suggests `X`, and `Go?` suggests `go`.
 - **Your voice:** an answer put in the prompt box swaps I and you (`show you the diff` → `show me the diff`, `then you run` → `then I run`, `your branch` → `my branch`); `code`, double-quoted text and "we" stay. The card shows the reply's words as written.

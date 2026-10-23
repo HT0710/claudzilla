@@ -2,6 +2,12 @@
 
 A side pane that opens on its Overview tab, at session start as the last session left it (open the first time; on a narrow terminal it waits for room); the History tab lists this chat's prompts, newest first. Two tab bars: Overview, Decisions and History (this chat) on top; File, Tree and Git (the repo) below. Decisions and Tree are dimmed: coming in v1.8.
 
+<img src="../../.github/assets/overview.gif" alt="The Overview tab during a fix: planning, then ASK, PLAN and steps that tick off one by one until done" width="720">
+
+*2× speed. Each step report is a short tool call; while the Overview tab shows, an Opus request at low effort after each prompt sorts topics.*
+
+<img src="../../.github/assets/git.png" alt="The Git tab: master with one changed file under CHANGES and one commit under COMMITS" width="720">
+
 - **Click a prompt:** the chat scrolls to it.
 - **`↻`:** puts the prompt back in the prompt box.
 - **`⟲ rewind`:** opens the `/rewind` picker.
