@@ -62,10 +62,13 @@ An example; some values are not the defaults. Defaults: `subjectMax` 50, `commit
 | rules | values |
 |---|---|
 | gates: `pushVerify` `prSkill` `forcePush` `discard` `mainCommit` `commitSubject` `sessionLink` `envStaged` `worktreePath` | `deny` `remind` `off` |
-| triggers: `debugTrigger` `reviewTrigger` `debugGate` `releaseSync` | `remind` `off` |
+| triggers: `debugTrigger` `reviewTrigger` `debugGate` | `remind` `off` |
+| `releaseSync` | `off` `remind` |
 | `doneClaim` | `now` `flag` `off` |
 | `specExclude` | `on` `off` |
 | format: `tldr` `emoji` `brInTable` `boxAlign` `tableWidth` | `flag` `off` |
+
+`releaseSync` (off by default): for a release-branch flow, where features collect on `release/X.Y` before `main`. Set to `remind`, every `gh pr merge` in a repo with a `release/*` branch reminds Claude that a merge into `main` means rebasing the newest release branch onto it and pushing with `--force-with-lease`, after your ok.
 
 `reviewNudge` sits next to `allowMain`, not under `rules`: `false` turns off the weekly `/rule-review` summary at startup.
 
