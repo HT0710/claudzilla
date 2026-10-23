@@ -32,7 +32,7 @@ start() {
   [ "$COLS" -ge 110 ] || return 0
   [ -n "${PANEL0:-}" ] || panel_save
   # The dock border column depends on the terminal width: saved once per width.
-  [ -n "${DOCKS[$COLS]+set}" ] || DOCKS[$COLS]=$(panel_open && dock_col)
+  dock_saved "$COLS" >/dev/null || DOCKS="$DOCKS$COLS:$(panel_open && dock_col) "
 }
 
 # wait_for TEXT SECS: poll the pane for TEXT (grep -E); 1 on timeout.
@@ -197,10 +197,14 @@ if c:
     col, n = c.most_common(1)[0]
     if n >= len(rows) // 2: print(col)'
 }
-declare -gA DOCKS
+# Saved border columns as " COLS:COL ..." (bash 3.2 on macOS has no associative arrays).
+DOCKS=" "
+# dock_saved COLS: prints the column saved for COLS (empty when the panel was closed); 1 if none saved.
+dock_saved() { case "$DOCKS" in *" $1:"*) local x=${DOCKS#* $1:}; echo "${x%% *}" ;; *) return 1 ;; esac; }
 # Focus the dock, then ctrl+x left/right move its border 4 columns per press.
 dock_restore() {
-  local want=${DOCKS[${COLS:-0}]:-} now i
+  local want now i
+  want=$(dock_saved "${COLS:-0}")
   [ -n "$want" ] || return 0
   tm send-keys -t "$SHOT" C-x Tab
   for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
@@ -220,7 +224,7 @@ finish() {
     LIVE=; echo "finish: session $SHOT ended early; panel and dock width not restored, check them" >&2; return 1
   fi
   local ok=0
-  [ -z "${DOCKS[${COLS:-0}]:-}" ] || { panel_want on && dock_restore; } || ok=1
+  [ -z "$(dock_saved "${COLS:-0}")" ] || { panel_want on && dock_restore; } || ok=1
   panel_restore || ok=1
   tm kill-session -t "$SHOT"; LIVE=
   return $ok
