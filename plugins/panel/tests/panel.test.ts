@@ -1073,6 +1073,30 @@ test('gone runs: an empty read marks nothing rather than calling it all compacte
   expect(gone(asPrompts('a', 'b'), [], [])).toEqual([{ isLive: true }, { isLive: true }])
 })
 
+const MID_TURN = (text: string) => `The user sent a new message while you were working:\n${text}\n\nThis is how Claude Code surfaces messages`
+
+test('gone runs: a mid-turn note keeps its prompt live while the model holds it', () => {
+  expect(gone(asPrompts('A', 'B'), ['B'], ['B', MID_TURN('A')], ['A'], undefined, false)).toEqual([{ isLive: true }, { isLive: true }])
+})
+
+test('gone runs: a mid-turn note is not held live by a longer one that starts with it', () => {
+  expect(gone(asPrompts('fix the bug', 'fix', 'B'), ['B'], ['B', MID_TURN('fix the bug')], ['fix', 'fix the bug'], undefined, false)).toEqual([
+    { isLive: true },
+    { isLive: false, marker: 'Rewound' },
+    { isLive: true },
+  ])
+})
+
+test('gone runs: a mid-turn prompt rewound out of the chat and sent again shows once', () => {
+  // A typed mid-turn, its turn failed, /rewind, A sent again: the note outlives the rewind.
+  expect(gone(asPrompts('A', '/rewind', 'A', 'B'), ['B', 'A'], ['B', 'A'], ['A'], undefined, false)).toEqual([
+    { isLive: true },
+    { isLive: true },
+    { isLive: false, marker: 'Rewound' },
+    { isLive: true },
+  ])
+})
+
 test('gone runs: a chat reloaded after a compaction, no prompt typed since, is compacted whole', () => {
   expect(gone(asPrompts('/compact', 'b', 'a'), ['summary', '<command-name>/compact</command-name>'], ['summary'])).toEqual([
     { isLive: true },

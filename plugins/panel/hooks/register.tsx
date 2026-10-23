@@ -332,9 +332,14 @@ export const gone = (
   // A stored mid-turn note is never a chat message: it counts while a prompt sent before it does,
   // which a reload after a compaction drops along with it.
   const oldest = found(prompts, chat).lastIndexOf(true)
+  // A /rewind drops the note from what the model is sent, never from the store: with that read whole
+  // and no compaction, a note counts only while the model still holds it.
+  // shortcut: matches the engine's mid-turn wording; if it changes, mid-turn prompts show dim. Upgrade
+  // to a mod API field for mid-turn messages if one ships.
+  const isModelWhole = model.length > 0 && !capped.model && !compacted
   const kept = notes.filter(note => {
     const at = prompts.findIndex(prompt => flat(prompt.display) === flat(note))
-    return at >= 0 && at < oldest
+    return at >= 0 && at < oldest && (!isModelWhole || model.some(text => text.includes(`user sent a new message while you were working:\n${note}\n\n`)))
   })
   const inChat = found(prompts, chat.concat(kept)).map((hit, i) => hit && real[i])
   const inModel = found(prompts, model).map((hit, i) => hit && real[i])
