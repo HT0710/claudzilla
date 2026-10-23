@@ -735,7 +735,8 @@ export const fileView = (path: string, line: number, read: string | undefined): 
   if (read === undefined || read.includes('\0')) return { path, line, first: 1, text: '' }
   const all = read.replace(/\r?\n$/, '').split(/\r?\n/)
   const from = Math.max(0, Math.min(line - 1 - FILE_SPAN, all.length - (2 * FILE_SPAN + 1)))
-  const kept = all.slice(from, from + 2 * FILE_SPAN + 1).map(one => one.slice(0, FILE_LINE))
+  // Code refuses control characters (ESC in a log, ^L in a source): each shows as a space; tabs stay.
+  const kept = all.slice(from, from + 2 * FILE_SPAN + 1).map(one => one.slice(0, FILE_LINE).replace(/[\x00-\x08\x0b-\x1f\x7f]/g, ' '))
   return { path, line, first: from + 1, text: kept.join('\n') }
 }
 // `rows` lines of the view with the clicked one in the middle, clamped to the slice's ends.

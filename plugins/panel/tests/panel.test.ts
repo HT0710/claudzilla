@@ -3273,6 +3273,12 @@ test('a file that cannot be shown says so in the File tab', async ($, on) => {
   expect(await ui.find({ type: 'Code' })).toBeUndefined()
 })
 
+test('a file holding ESC or a form feed still shows, the control characters as spaces', async ($, on) => {
+  const ui = await fileTab($, on, fileView('/repo/a.log', 2, 'one\n\x1b[31mred\x1b[0m\n\fpage\tend\n'))
+  const code = await ui.find({ type: 'Code' })
+  expect(code?.props.source).toBe('one\n [31mred [0m\n page\tend')
+})
+
 test('fileView keeps a bounded slice, each line cut, and maps a failed or binary read to empty text', () => {
   expect(fileView('/a', 5, undefined).text).toBe('')
   expect(fileView('/a', 5, 'ab\0cd').text).toBe('')
