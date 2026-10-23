@@ -52,6 +52,7 @@ curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh |
 | `picks` | suggested next steps |
 | `toast` | update and usage notices |
 | `attribution` | commit credit |
+| `ledger` | pause edits another session made |
 
 `core` is not in the menu; `--add` and `--remove` accept it. The updater always ships; it also carries the guide, `/claudzilla report` and `/claudzilla compact`. Your choice is saved, see [How install works](CONFIGURATION.md#how-install-works).
 
@@ -104,6 +105,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
   <img src=".github/assets/verify.png" alt="The stop hook sends a done claim back; Claude reruns the checks, including one that proves the test fails if the code is broken again" width="720">
 
 - **Clean history:** Conventional Commits enforced, Claude session links stripped from commits and PRs ([details](plugins/attribution/README.md)).
+- **Two sessions, one file:** before Claude edits a file another session edited in the last 30 minutes, it pauses once and the other session is told ([details](plugins/ledger/README.md)).
 
 ### A better terminal
 - **Statusline:** cwd, branch, context / 5h / weekly meters, model, effort, active skill, claudzilla version.
