@@ -50,7 +50,7 @@ check "finish: fails when the session died before restore" dead_ok
 docks_ok() { ( DOCKS=" 150:83 110: "; [ "$(dock_saved 150)" = 83 ] && dock_saved 110 >/dev/null && [ -z "$(dock_saved 110)" ] && ! dock_saved 80 ); }
 check "dock: one saved border column per width" docks_ok
 
-masks_cfg_ok() { masks | grep -qxF someone@example.test && masks | grep -qxF someone; }
+masks_cfg_ok() { masks | grep -xF someone@example.test >/dev/null && masks | grep -xF someone >/dev/null; }
 masks_none_ok() { ! CLAUDE_CONFIG_DIR="$H/none" masks >/dev/null 2>&1; }
 # A mid-line 8-char start of a mask string gets past ansi2html; render must refuse it.
 leak_ok() { ( masks() { echo abcdefghijkl; }; printf 'id abcdefghZ x\n' > "$H/l.ansi" && ! render "$H/l.ansi" "$H/l.png" 2>/dev/null ) && [ ! -e "$H/l.png" ]; }
@@ -91,7 +91,7 @@ refs_exist_ok() {
 }
 assets_used_ok() {
   local a ok=0
-  for a in "$REPO"/.github/assets/*; do refs | grep -qxF "$(basename "$a")" || { echo "  unused: $(basename "$a")"; ok=1; }; done
+  for a in "$REPO"/.github/assets/*; do refs | grep -xF "$(basename "$a")" >/dev/null || { echo "  unused: $(basename "$a")"; ok=1; }; done
   return $ok
 }
 gif_size_ok() { local g; for g in "$REPO"/.github/assets/*.gif; do [ "$(wc -c < "$g")" -le 2097152 ] || return 1; done; }
