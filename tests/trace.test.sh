@@ -92,10 +92,10 @@ mask_node < "$TMP/mask.in" > "$TMP/mask.node"; mask_perl < "$TMP/mask.in" > "$TM
 mask_ts < "$TMP/mask.in" > "$TMP/mask.ts"
 check "mask parity: node and perl outputs identical" cmp -s "$TMP/mask.node" "$TMP/mask.perl"
 check "mask parity: node and ts outputs identical" cmp -s "$TMP/mask.node" "$TMP/mask.ts"
-for p in panel picks update-toast response-dividers attribution; do
+for p in panel picks update-toast response-dividers attribution ledger; do
   check "trace.ts copy in $p identical to guide" cmp -s "$REPO/plugins/guide/hooks/trace.ts" "$REPO/plugins/$p/hooks/trace.ts"
 done
-for p in picks update-toast response-dividers attribution guide; do
+for p in picks update-toast response-dividers attribution guide ledger; do
   check "trace-io.ts copy in $p identical to panel" cmp -s "$REPO/plugins/panel/hooks/trace-io.ts" "$REPO/plugins/$p/hooks/trace-io.ts"
 done
 check "mask parity: fixture really masks (not a no-op)" bash -c '! grep -q -e sk-ant -e ghp_ -e AKIA -e eyJ "$1" && grep -q "~/proj/x" "$1" && grep -q "kept" "$1"' _ "$TMP/mask.perl"
