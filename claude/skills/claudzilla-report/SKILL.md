@@ -60,7 +60,7 @@ Rules:
    | `account email domain …` | your Claude account email isn't a personal address |
    | `git email domain …` | your git email isn't a personal address |
    | `no Claude account email` | no Claude account email |
-   | `api-key/bedrock/vertex auth` | you sign in with an API key, Bedrock or Vertex |
+   | `api-key/bedrock/vertex auth` | you sign in with an API key or token, Bedrock, Vertex or Foundry |
    | `git email is malformed` | your git email is malformed |
 
    Otherwise ask: "file it, or copy?"
