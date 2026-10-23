@@ -99,7 +99,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
   <img src=".github/assets/statusline.png" alt="Statusline: cwd, branch, context, 5-hour and weekly meters, model, effort and active skill" width="720">
 
 - **Prompt panel:** `/panel` lists this chat's prompts, previews files and shows git; click to jump, reuse or rewind ([details](plugins/panel/README.md)).
-- **Toasts:** updates install in the background and say so; a toast also shows when the 5-hour or weekly limit passes 50%, 75% and 90% ([details](plugins/update-toast/README.md)).
+- **Toasts:** updates install in the background and say so; a toast also shows when the 5-hour or weekly limit passes 50%, 75% and 90%, and when context is worth compacting ([details](plugins/update-toast/README.md)).
 - **Theme + settings:** muted dark truecolor theme, `opus[1m]`, normal permission prompts.
 - **Local trace:** a record of what claudzilla's parts did, kept in `~/.claude/claudzilla-trace/`, never uploaded; `{"rulesGuard":{"trace":false}}` in `~/.claude/claudzilla.json` turns it off. See the guide topic `bugs` (`/claudzilla bugs`).
 

@@ -628,10 +628,10 @@ Headline features of recent versions. Restart Claude after an update to use them
 #### v1.5.0
 
 - Overview writes TOPICS, ASK, PLAN and STEPS in the language you write in.
-- Overview shows `◌ waiting on N agents` while Claude waits on agents it started.
-- Agents Claude starts show as rows under the step that started them. Click one to open its transcript; click it again or press Esc to go back.
-- A file path in Claude's reply is a link: click it to see those lines in the panel's File tab, ctrl+click to open the file.
-- The panel has two tab bars: Overview, Decisions and History in the top bar; File, Tree and Git in the bottom bar.
+- Agents Claude starts show as rows under the step that started them, and Overview shows `◌ waiting on N agents` while they run. Click one to open its transcript; click it again or press Esc to go back.
+- A file path in Claude's reply is a link: click it to see those lines in the panel's new File tab, ctrl+click to open the file.
+- In the Git tab, a pushed commit or branch links to its GitHub, GitLab, Codeberg or SourceHut page: alt+click opens it.
+- When context grows large, a **Compact** line and a toast say so; `/claudzilla compact` drafts a `/compact` line into your prompt box.
 - A toast shows when your 5-hour or weekly limit passes 50%, 75% and 90%.
 
 #### v1.4.0
