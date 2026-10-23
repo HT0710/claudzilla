@@ -39,7 +39,7 @@ const GATE = ["deny", "remind", "off"];
 const LEVELS = {
   pushVerify: GATE, prSkill: GATE, forcePush: GATE, discard: GATE, mainCommit: GATE,
   commitSubject: GATE, sessionLink: GATE, envStaged: GATE, worktreePath: GATE,
-  debugTrigger: ["remind", "off"], reviewTrigger: ["remind", "off"], debugGate: ["remind", "off"], releaseSync: ["remind", "off"],
+  debugTrigger: ["remind", "off"], reviewTrigger: ["remind", "off"], debugGate: ["remind", "off"], releaseSync: ["off", "remind"],
   specExclude: ["on", "off"],
   doneClaim: ["now", "flag", "off"], tldr: ["flag", "off"], emoji: ["flag", "off"], brInTable: ["flag", "off"], boxAlign: ["flag", "off"], tableWidth: ["flag", "off"],
 };
@@ -272,7 +272,7 @@ const WHY = {
   sessionLink: "No Claude session link (git.md:55).",
   envStaged: "`.env` staged; unstage it (git.md:21).",
   worktreePath: "Worktree goes at ../<repo>-<slug> (git.md:27).",
-  releaseSync: "If this merge lands on main, rebase the open release branch onto main and push it with --force-with-lease, after the user's ok (docs/how-i-work.md, Fix released code).",
+  releaseSync: "If this merge lands on main, rebase the open release branch onto main and push it with --force-with-lease, after the user's ok.",
 };
 function firedRules(text) {
   const ids = [];
@@ -480,12 +480,17 @@ function queryFile(a, cwd, text) {
     return st.isFile() && st.size < 1e6 ? readFileSync(p, "utf8") : "";
   } catch { return ""; }
 }
-function ghPr(t, cwd, text) {
+// gh's words after `gh`, less -R/--repo and its value.
+function ghWords(t) {
   const a = [];
   for (let i = 1; i < t.length; i++) {
     if (!REPO_FLAG.test(t[i])) a.push(t[i]);
     else if (t[i] === "-R" || t[i] === "--repo") i++;
   }
+  return a;
+}
+function ghPr(t, cwd, text) {
+  const a = ghWords(t);
   if (a[0] === "pr") return ["create", "edit"].includes(a[1]) && { op: a[1], describes: prDescribes(["gh", ...a]) };
   if (a[0] !== "api") return;
   if (a.includes("graphql")) {
@@ -560,7 +565,7 @@ function checkBash(cmd, cwd, s) {
     else if (t[0] === "gh") {
       const pr = ghPr(t, cwd, cmd);
       if (pr) prGates(pr, cwd, cmd, s, hits);
-      else if (/\bpr merge\b/.test(t.join(" "))) releaseSync(cwd, hits);
+      else if (ghWords(t).slice(0, 2).join(" ") === "pr merge") releaseSync(cwd, hits);
     }
     // Any other command counts as the check, even earlier in this same command line.
     else if (hasSkill(s, VERIFY) && !NOT_CHECK.has(t[0])) s.checked = true;
