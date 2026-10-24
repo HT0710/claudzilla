@@ -2464,7 +2464,8 @@ const overviewHosts = (on: Parameters<TestBody>[1], reply: (n: number) => unknow
   on('fs.read', () => ({ value: '' }))
   const lines = typed.map((display, i) => JSON.stringify({ display, timestamp: i + 1, sessionId: 'chat-1' }))
   on('process.run', (_, e) => ran(isHistoryGrep(e.argv) ? lines.join('\n') : ''))
-  on('ui.panes', () => ({ value: [{ id: 'panel', isPlaced }] }) as any)
+  const pane = { isOpen: true }
+  on('ui.panes', () => ({ value: pane.isOpen ? [{ id: 'panel', isPlaced }] : [] }) as any)
   on('prompt.submit', (_, e) => ({ text: e.text }) as any)
   on('session.end', (_, e) => ({ sessionId: e.sessionId }) as any)
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -2476,7 +2477,7 @@ const overviewHosts = (on: Parameters<TestBody>[1], reply: (n: number) => unknow
     const value = reply(asks.push(e as any))
     return (value instanceof Promise ? value.then(answer => ({ value: answer })) : { value }) as any
   })
-  return { clock, asks }
+  return { clock, asks, pane }
 }
 // Mounted on History, so a test picks Overview when its read should start.
 const overviewPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], reply?: (n: number) => unknown, typed?: string[]) => {
@@ -2495,6 +2496,23 @@ test('a session starting with the pane open reads TOPICS on the default tab', as
   await ui.drawn()
   expect(asks).toHaveLength(1)
   expect(await ui.find({ type: 'Text', text: 'shipping the branch' })).toBeDefined()
+})
+
+// The session's own open places the pane: a read before it found none and never ran.
+test('a session opening the pane itself reads TOPICS', async ($, on) => {
+  const { clock, asks, pane } = overviewHosts(on)
+  pane.isOpen = false
+  on('ui.open', () => {
+    pane.isOpen = true
+    return { value: { isPlaced: true } } as any
+  })
+  // Live, the start's timers fire while it waits on the engine.
+  on('store.get', async () => (await clock.settle(), { value: undefined }))
+  await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await $.session.start({ source: 'resume', cwd: '/home/me', surface: 'terminal', isInteractive: true } as any)
+  await clock.settle()
+  expect(pane.isOpen).toBe(true)
+  expect(asks).toHaveLength(1)
 })
 
 // Opened at start on a narrow terminal, the pane waits undrawn: nobody sees TOPICS, so no Opus request.
