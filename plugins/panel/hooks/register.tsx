@@ -797,8 +797,6 @@ export const register: Register = (on, options) => {
     await t.start(traceIo($))
     // A reload drops the module's runs; the atom stays, maybe mid-run, and would show reading… for good.
     await update($, overview, now => (now.running ? { ...now, running: false } : now))
-    // A reload or resume with the tab open: read now, not at the next prompt.
-    $.clock.after(0, () => readOverview($))
     // immediate: alt+h mid-turn opens the pane now, not once the turn ends; it prints nothing.
     await $.command.register({ name: 'panel', description: 'Toggle the side panel', immediate: true })
     // Keys come back in the order first set: the oldest sessions' notes go.
@@ -807,6 +805,8 @@ export const register: Register = (on, options) => {
     if (isIntentOn) await $.tool.register(INTENT_SPEC).catch(() => undefined)
     // Opens as the last session left it; never asked yet, open. Below 144 columns (110 once asked) it waits for room.
     if (e.isInteractive && (await $.store.get('open').catch(() => undefined)) !== false) await $.ui.open({ id: PANE, title: 'Panel', columns: 40 }).catch(() => undefined)
+    // A reload or resume with the tab open: read now, not at the next prompt. After the open: before it, no pane to read for.
+    $.clock.after(0, () => readOverview($))
 
     return next(e)
   })
