@@ -16,7 +16,7 @@ What changes compared with stock Claude Code:
 - **Replies:** short, with the answer first. Each claim carries a `file:line` reference or a command, or is marked *unverified*.
 - **Changes:** Claude investigates, proposes one fix, and waits for your `go` before a multi-file or risky edit. It changes only what the task needs.
 - **Proof:** Claude says "fixed" only after the check ran. The guard sends an unchecked "done" back to be checked.
-- **Git:** the guard blocks force-pushes, discarding work, and commits on `main`.
+- **Git:** the guard asks you before a force-push or a command that discards work, and blocks commits on `main`.
 - **Permissions:** sessions start in Manual mode, so Claude asks before it edits files or runs commands. Recent versions of stock Claude Code start in auto mode, where a classifier reviews most actions instead of asking you.
 - **Screen:** if you installed them, the status line, the panel, the picks card, the response dividers and the toasts.
 
@@ -254,7 +254,7 @@ If you installed the panel, the `⟲ rewind` button on its History tab opens the
 
 **Use git as the safety net.** Checkpoints are for quick recovery in one session; git keeps history for good. When you work with Claude step by step, it leaves its changes uncommitted until you say `commit`, so say it when a step works.
 
-**Discard work yourself.** The guard blocks Claude from commands that throw away uncommitted work, such as `git reset --hard`, `git clean -f`, `git checkout -- <file>`, `git restore <file>` and `git stash drop`. Claude asks you instead. If you agree, type the command at the prompt after `!`, for example `! git restore src/app.py`.
+**Discard work.** A command that throws away uncommitted work, such as `git reset --hard`, `git clean -f`, `git checkout -- <file>`, `git restore <file>` or `git stash drop`, stops at a permission prompt. The prompt lists what the command would lose, such as the changed files or the stash entry. Pick Yes to run it, or No to stop Claude. You can also run a command yourself: type it at the prompt after `!`, for example `! git restore src/app.py`.
 
 > **Not checked:** a `!` command runs directly, without going through Claude, so the guard does not check it.
 
@@ -267,12 +267,12 @@ The *guard* is a hook: it checks each git and GitHub command Claude runs, before
 
 > **A guardrail, not security:** if the guard itself fails, the command goes through.
 
+A force-push, or a command that discards work such as `git reset --hard`, waits for you: the permission prompt lists what it would lose, and you pick Yes to run it or No to stop Claude. See *Stop and undo* (`/claudzilla undo`).
+
 By default, the guard blocks these and tells Claude what to do instead:
 
 | Claude tries to | instead, Claude |
 |---|---|
-| force-push | uses `--force-with-lease`, and only when you ask |
-| discard work, such as `git reset --hard` | asks you; you run it yourself, see *Stop and undo* (`/claudzilla undo`) |
 | commit on `main` or `master` | creates a branch first, named `<type>/<short-slug>` |
 | push or open a PR before verification | runs `verification-before-completion`, then a check |
 | open or edit a PR without the `pr` skill | runs the `pr` skill: checks and description template |
@@ -289,7 +289,7 @@ If you installed the ledger plugin and two sessions work in one folder, Claude p
 
 > **Prompt injection:** text in a file, web page or command output that tries to give Claude instructions. The guard does not stop it. Your defense is the permission prompt, so read each command before you approve it. Trust only folders you know: once trusted, a folder's settings can allow commands.
 
-Each blocked action in the table can be set to `deny`, `remind` or `off`, and the done check to `now`, `flag` or `off`. For a solo repository that commits straight to `main`, put `{"rulesGuard":{"allowMain":true}}` in `.claude/claudzilla.local.json`. See *Customize claudzilla* (`/claudzilla customize`). If the guard blocked something you need, see *Fix common problems* (`/claudzilla stuck`).
+Each blocked action in the table can be set to `deny`, `remind` or `off`, and the done check to `now`, `flag` or `off`. The force-push and discard holds take `ask` (the default), or the same three; `deny` brings back the old block. For a solo repository that commits straight to `main`, put `{"rulesGuard":{"allowMain":true}}` in `.claude/claudzilla.local.json`. See *Customize claudzilla* (`/claudzilla customize`). If the guard blocked something you need, see *Fix common problems* (`/claudzilla stuck`).
 
 ## Screen
 
@@ -442,7 +442,7 @@ Find the problem you see, then follow its steps.
 
 #### The guard blocked a command
 
-The block message tells Claude what to do instead, such as create a branch before it commits, and Claude usually does that next. *Git and safety* (`/claudzilla guard`) lists each block. If you need the blocked command, run it yourself: type `!` and the command at the prompt, such as `! git restore src/app.py`. To change a rule for good, see *Customize claudzilla* (`/claudzilla customize`).
+The block message tells Claude what to do instead, such as create a branch before it commits, and Claude usually does that next. *Git and safety* (`/claudzilla guard`) lists each block. If you need the blocked command, run it yourself: type `!` and the command at the prompt, such as `! git push`. To change a rule for good, see *Customize claudzilla* (`/claudzilla customize`).
 
 #### "Done" got sent back
 

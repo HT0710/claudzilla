@@ -61,12 +61,15 @@ An example; some values are not the defaults. Defaults: `subjectMax` 50, `commit
 
 | rules | values |
 |---|---|
-| gates: `pushVerify` `prSkill` `forcePush` `discard` `mainCommit` `commitSubject` `sessionLink` `envStaged` `worktreePath` | `deny` `remind` `off` |
+| holds: `forcePush` `discard` | `ask` `deny` `remind` `off` |
+| gates: `pushVerify` `prSkill` `mainCommit` `commitSubject` `sessionLink` `envStaged` `worktreePath` | `deny` `remind` `off` |
 | triggers: `debugTrigger` `reviewTrigger` `debugGate` | `remind` `off` |
 | `releaseSync` | `off` `remind` |
 | `doneClaim` | `now` `flag` `off` |
 | `specExclude` | `on` `off` |
 | format: `tldr` `emoji` `brInTable` `boxAlign` `tableWidth` | `flag` `off` |
+
+`ask` (the default for holds): the command waits for your Yes or No in a permission prompt that lists what it would lose: the changed files, the files `git clean` removes, the stash entry, or the remote commits a force push drops, as of the last fetch. A `claude -p` run has nobody to answer, so the command is refused.
 
 `releaseSync` (off by default): for a release-branch flow, where features collect on `release/X.Y` before `main`. Set to `remind`, every `gh pr merge` in a repo with a `release/*` branch reminds Claude that a merge into `main` means rebasing the newest release branch onto it and pushing with `--force-with-lease`, after your ok.
 

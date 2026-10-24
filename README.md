@@ -96,7 +96,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 - **Fewer tokens:** short-form voice ([caveman](https://github.com/JuliusBrussee/caveman)), and every Bash call is filtered through [`rtk`](https://github.com/rtk-ai/rtk).
 
 ### Git that can't bite
-- **Guard hook:** blocks force-pushes, discarding work and commits on `main`.
+- **Guard hook:** asks before a force-push or a command that discards work, listing what it would lose; blocks commits on `main`.
 
   <img src=".github/assets/guard.png" alt="Asked to commit straight to master, Claude reports the guard hook blocked it and names the opt-in setting" width="720">
 
