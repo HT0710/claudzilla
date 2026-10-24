@@ -26,6 +26,8 @@ console.log(JSON.stringify(o));' "$@" | node "$RG"
 new_session() { SID="s$((++n))"; }
 has() { grep -qF -- "$2" <<<"$1"; }
 denied() { has "$1" '"permissionDecision":"deny"'; }
+asked() { has "$1" '"permissionDecision":"ask"'; }
+not() { ! "$@"; }
 state() { node -p "JSON.stringify(require('$STATE/$SID.json')$1)"; }
 
 # --- UserPromptSubmit ---
@@ -138,9 +140,9 @@ check "gh pr create: no pr skill -> deny" denied "$out"
 check "gh pr create: deny names pr skill" has "$out" "invoke the pr skill"
 hook PostToolUse tool_name=Skill tool_input.skill=pr >/dev/null
 check "gh pr create: pr + verified -> allowed" [ -z "$(sh_ 'gh pr create --fill')" ]
-check "push: compound --force -> deny" denied "$(sh_ 'npm test && git push --force')"
-check "push: -f -> deny" denied "$(sh_ 'git push -f')"
-check "push: +refspec -> deny" denied "$(sh_ 'git push origin +main')"
+check "push: compound --force -> ask" asked "$(sh_ 'npm test && git push --force')"
+check "push: -f -> ask" asked "$(sh_ 'git push -f')"
+check "push: +refspec -> ask" asked "$(sh_ 'git push origin +main')"
 check "push: --force-with-lease allowed" [ -z "$(sh_ 'git push --force-with-lease')" ]
 # The Bash hook only sees git/gh commands (settings `if`); a check between them is read from the transcript.
 use() { printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"%s","name":"%s","input":%s}]}}\n' "$@"; }
@@ -167,10 +169,51 @@ check "transcript: check in an earlier turn -> deny" denied "$(txpush "$TX" 'git
 check "transcript: check after the skill -> allowed" [ -z "$(txpush "$TX" 'git push')" ]
 SID=$saved
 for c in 'git reset --hard' 'git clean -fd' 'git checkout -- .' 'git checkout .' 'git checkout -f main' 'git switch --discard-changes main' 'git switch -f main' 'git restore a.txt' 'git stash drop' 'git stash clear'; do
-  check "discard: $c -> deny" denied "$(sh_ "$c")"
+  check "discard: $c -> ask" asked "$(sh_ "$c")"
 done
 check "discard: checkout branch allowed" [ -z "$(sh_ 'git checkout main')" ]
 check "discard: restore --staged allowed" [ -z "$(sh_ 'git restore --staged a.txt')" ]
+# The ask shows what the held command throws away.
+B=$(repo); cd "$B"; BG="git -c user.name=t -c user.email=t@t"
+printf 1 > a.txt; printf 1 > b.txt; git add .; $BG commit -qm files
+printf 2 > a.txt; printf 2 > b.txt; printf u > u.txt
+out=$(sh_ 'git reset --hard')
+check "hold: reset lists changed files" has "$out" 'M a.txt'
+check "hold: reset leaves untracked out" not has "$out" 'u.txt'
+out=$(sh_ 'git restore b.txt')
+check "hold: restore lists its path" has "$out" 'M b.txt'
+check "hold: restore lists only its path" not has "$out" 'a.txt'
+check "hold: checkout -- lists its path" not has "$(sh_ 'git checkout -- b.txt')" 'a.txt'
+check "hold: clean lists what it removes" has "$(sh_ 'git clean -fd')" 'u.txt'
+check "hold: quiet clean still lists" has "$(sh_ 'git clean -fdq')" 'u.txt'
+check "hold: restore of a missing path lists only it" not has "$(sh_ 'git restore gone.txt')" 'a.txt'
+check "hold: deny wins over ask" denied "$(sh_ 'git commit -m "update stuff"; git reset --hard')"
+check "hold: reset to a ref counts commits" has "$(sh_ 'git reset --hard HEAD~1')" '1 commit leaves the branch'
+$BG stash -q
+check "hold: nothing to lose says so" has "$(sh_ 'git reset --hard')" 'no uncommitted changes'
+check "hold: stash drop names the entry" has "$(sh_ 'git stash drop')" 'stash@{0}: WIP on main'
+for i in 1 2 3 4 5 6 7; do printf 1 > "c$i"; done; git add c*; $BG commit -qm many; for i in 1 2 3 4 5 6 7; do printf 2 > "c$i"; done
+check "hold: long list capped" has "$(sh_ 'git reset --hard')" '… 2 more'
+git remote add origin "$TMP/nowhere"; side=$($BG commit-tree -p HEAD -m remote-only 'HEAD^{tree}')
+git update-ref refs/remotes/origin/main "$side"; git branch -q -u origin/main
+mkdir -p .claude; printf '{"rulesGuard":{"rules":{"pushVerify":"off"}}}' > .claude/claudzilla.local.json
+out=$(sh_ 'git push -f origin main')
+check "hold: force push -> ask" asked "$out"
+check "hold: force push lists remote commits it drops" has "$out" 'remote-only'
+check "hold: force push names the remote branch" has "$out" 'origin/main loses'
+check "hold: force push to upstream lists its commits" has "$(sh_ 'git push --force')" 'remote-only'
+check "hold: unfetched remote branch says so" has "$(sh_ 'git push -f origin nope')" 'no fetched copy of origin/nope'
+check "hold: HEAD refspec is the current branch" has "$(sh_ 'git push -f origin HEAD')" 'origin/main loses'
+check "hold: failed git look says so" has "$(sh_ 'git push -f origin nolocal:main')" 'could not check'
+check "hold: extra refspecs named" has "$(sh_ 'git push -f origin main other')" '1 more refspec not checked'
+check "hold: push option value is not the remote" has "$(sh_ 'git push -f -o ci.skip origin main')" 'origin/main loses'
+printf '{"rulesGuard":{"rules":{"pushVerify":"remind"}}}' > .claude/claudzilla.local.json
+saved=$SID; new_session; out=$(sh_ 'git push -f origin main'); SID=$saved
+check "hold: reminder rides on the ask" bash -c 'grep -qF "\"permissionDecision\":\"ask\"" <<<"$1" && grep -qF "Reminder: " <<<"$1"' _ "$out"
+printf '{"rulesGuard":{"rules":{"pushVerify":"off","discard":"deny","forcePush":"deny"}}}' > .claude/claudzilla.local.json
+check "hold: discard deny level still denies" denied "$(sh_ 'git reset --hard')"
+check "hold: forcePush deny level still denies" denied "$(sh_ 'git push -f')"
+rm -rf .claude; cd "$R"
 check "commit: on main -> deny" denied "$(sh_ 'git commit -m "fix: x"')"
 mkdir -p .claude; printf '{"rulesGuard":{"allowMain":true}}' > .claude/claudzilla.local.json
 check "commit: main with allowMain allowed" [ -z "$(sh_ 'git commit -m "fix: x"')" ]
@@ -493,7 +536,7 @@ check "branch: switch main then commit denied" denied "$(sh_ 'git switch main &&
 git switch -q main
 check "branch: switch -c then commit allowed" [ -z "$(sh_ 'git switch -c feat/z && git commit -m "fix: x"')" ]
 echo a > a.txt; git add a.txt; git -c user.name=t -c user.email=t@t commit -qm "chore: a"
-check "checkout: file path denied" denied "$(sh_ 'git checkout a.txt')"
+check "checkout: file path held" asked "$(sh_ 'git checkout a.txt')"
 check "checkout: branch name allowed" [ -z "$(sh_ 'git checkout feat/m')" ]
 SP="$TMP/sp ace"; mkdir -p "$SP"; git -C "$SP" init -q -b main
 cd "$REPO"
@@ -527,12 +570,12 @@ side=$'```text\n┌──┐  ┌──┐\n│a │   │b │\n└──┘  �
 hook UserPromptSubmit prompt=q >/dev/null; stop "$side" >/dev/null
 check "diagram: side-by-side misaligned second box flagged" has "$(state .flags)" "misaligned"
 cd "$M"; git switch -q main
-check "shell -c: inner reset --hard denied" denied "$(sh_ 'bash -c "git status; git reset --hard"')"
+check "shell -c: inner reset --hard held" asked "$(sh_ 'bash -c "git status; git reset --hard"')"
 check "shell -c: inner force push denied" denied "$(sh_ "sh -c 'cd /tmp && git push --force'")"
-check "eval: inner reset denied" denied "$(sh_ 'eval "git reset --hard"')"
+check "eval: inner reset held" asked "$(sh_ 'eval "git reset --hard"')"
 check "branch: switch to missing branch keeps main" denied "$(sh_ 'git switch nope; git commit -m "fix: x"')"
 git switch -q feat/m
-check "checkout: ref + path is a discard" denied "$(sh_ 'git checkout HEAD a.txt')"
+check "checkout: ref + path is a discard" asked "$(sh_ 'git checkout HEAD a.txt')"
 check "checkout: branch + path is a discard, not a switch" has "$(sh_ 'git checkout main a.txt && git commit -m "fix: x"')" "Discards work"
 check "split: line continuation joins words" denied "$(sh_ $'git switch \\\n  main && git commit -m "fix: x"')"
 check "split: line continuation in worktree path" [ -z "$(sh_ $'git worktree add \\\n  ../'"$(basename "$M")"'-x -b feat/q')" ]
@@ -628,6 +671,8 @@ new_session; hook UserPromptSubmit prompt="login is broken" >/dev/null
 check "trace: prompt with bug word logs guard.prompt with rule systematic-debugging" bash -c "grep '\"event\":\"guard.prompt\"' '$TD/$SID.rules-guard.jsonl' | grep -q 'debugTrigger'"
 new_session; rp=$(repo); out=$(cd "$rp" && hook PreToolUse tool_name=Bash 'tool_input.command=git commit -m "update stuff"')
 check "trace: denied commit logs guard.pretool deny" bash -c "grep '\"event\":\"guard.pretool\"' '$TD/$SID.rules-guard.jsonl' | grep -q '\"decision\":\"deny\"'"
+new_session; out=$(cd "$rp" && hook PreToolUse tool_name=Bash 'tool_input.command=git reset --hard')
+check "trace: held reset logs guard.pretool ask" bash -c "grep '\"event\":\"guard.pretool\"' '$TD/$SID.rules-guard.jsonl' | grep '\"decision\":\"ask\"' | grep -q '\"discard\"'"
 rm -rf "$TD"; out=$(echo nope | node "$RG"); code=$?
 check "trace: bad JSON input logs guard.crash, stdout empty" bash -c "[ -z '$out' ] && [ $code -eq 0 ] && grep -q '\"event\":\"guard.crash\"' '$TD/nosession.rules-guard.jsonl' && grep -q '\"level\":\"error\"' '$TD/nosession.rules-guard.jsonl'"
 new_session; a=$(hook UserPromptSubmit prompt="login is broken"); ac=$?

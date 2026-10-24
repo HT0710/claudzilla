@@ -104,7 +104,8 @@ function scan(root, days) {
           if (sub === "push") {
             add("pushVerify", "applies"); add("forcePush", "applies");
             if (ran && !has(c.skills, VERIFY)) add("pushVerify", "slips");
-            if (ran && forceFlag(a)) add("forcePush", "slips");
+            // At ask, a force push that ran had the person's Yes.
+            if (ran && forceFlag(a) && cfg.rules.forcePush !== "ask") add("forcePush", "slips");
           } else if (sub === "commit") {
             add("sessionLink", "applies");
             if (!moved && dir === "." && !allowsMain(c.cwd)) {
@@ -188,8 +189,11 @@ function scan(root, days) {
       } else if (o.type === "user") {
         for (const x of blocks(o.message?.content)) {
           const text = textOf(x.content);
-          if (x.type !== "tool_result" || !x.is_error || !/^PreToolUse:\S+ hook error:/.test(text)) continue;
+          if (x.type !== "tool_result" || !x.is_error) continue;
           const c = cmds.get(x.tool_use_id);
+          // No at a permission prompt: the command never ran.
+          if (/^The user doesn't want to proceed/.test(text)) { if (c) c.denied = true; continue; }
+          if (!/^PreToolUse:\S+ hook error:/.test(text)) continue;
           if (c) c.denied = true;
           fired(text, false);
         }

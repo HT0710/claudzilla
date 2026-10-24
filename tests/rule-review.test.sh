@@ -31,7 +31,7 @@ check "hooks: suite unchanged" bash -c "bash '$REPO/tests/hooks.test.sh' | tail 
 SCAN="$REPO/claude/skills/rule-review/scan.mjs"
 PROJ="$TMP/projects/p"; mkdir -p "$PROJ"
 # session <name> <js array>: write transcript <name>.jsonl from short event specs
-#   ["user", text, {daysAgo, branch, meta, cwd}] ["skill", name] ["bash", cmd, {denied, branch}] ["edit"] ["tool", name, input]
+#   ["user", text, {daysAgo, branch, meta, cwd}] ["skill", name] ["bash", cmd, {denied, rejected, branch}] ["edit"] ["tool", name, input]
 #   ["text", reply] ["ctx", event, text] ["stop", text] ["raw", line]
 session() {
   node - "$PROJ/$1.jsonl" "$2" <<'EOF'
@@ -46,7 +46,7 @@ const result = (id, text, is_error) => push({ type: "user", message: { role: "us
 for (const [kind, a, o = {}] of eval(spec)) {
   if (kind === "user") { day = o.daysAgo ?? 0; branch = o.branch ?? "feat/x"; cwd = o.cwd; push({ type: "user", isMeta: o.meta, message: { role: "user", content: a } }); }
   if (kind === "skill") result(use("Skill", { skill: a }), "Launching skill");
-  if (kind === "bash") { if (o.branch) branch = o.branch; const id = use("Bash", { command: a }); result(id, o.denied ? `PreToolUse:Bash hook error: ${o.denied}` : "ok", !!o.denied); }
+  if (kind === "bash") { if (o.branch) branch = o.branch; const id = use("Bash", { command: a }); result(id, o.denied ? `PreToolUse:Bash hook error: ${o.denied}` : o.rejected ? "The user doesn't want to proceed with this tool use." : "ok", !!(o.denied || o.rejected)); }
   if (kind === "edit") result(use("Edit", { file_path: "/x/a.js" }), "ok");
   if (kind === "tool") result(use(a, o), "ok");
   if (kind === "text") push({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: a }] } });
@@ -86,7 +86,13 @@ check "denied push: hook fire" [ "$(rule pushVerify hookFires)" = 1 ]
 reset_proj; session a '[["user","ship"],["bash","git push",{denied:"Run superpowers:verification-before-completion this turn before push/PR (superpowers.md:47)."}]]'; scan
 check "hook fire under older citation still counted" [ "$(rule pushVerify hookFires)" = 1 ]
 reset_proj; session a '[["user","go"],["bash","git push -f"]]'; scan
-check "force push: slip" [ "$(rule forcePush slips)" = 1 ]
+check "force push at ask: Yes is no slip" [ "$(rule forcePush slips)" = 0 ]
+echo '{"rulesGuard":{"rules":{"forcePush":"deny"}}}' > "$CLAUDE_CONFIG_DIR/claudzilla.json"
+reset_proj; session a '[["user","go"],["bash","git push -f"]]'; scan
+check "force push at deny: slip" [ "$(rule forcePush slips)" = 1 ]
+rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"
+reset_proj; session a '[["user","ship"],["bash","git push",{rejected:true}]]'; scan
+check "push the person said No to: no slip" [ "$(rule pushVerify slips)" = 0 ]
 reset_proj; session a '[["user","go"],["bash","git commit -m \"update stuff\""]]'; scan
 check "bad subject: slip" [ "$(rule commitSubject slips)" = 1 ]
 reset_proj; session a '[["user","go"],["bash","git commit -m \"fix: x\"",{branch:"main"}]]'; scan
