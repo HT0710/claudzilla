@@ -36,8 +36,10 @@ const MACHINE_PROMPT = /^(?:<task-notification>|Another Claude session sent a me
 
 // Config: built-in defaults ← ~/.claude/claudzilla.json ← <repo>/.claude/claudzilla.json ← <repo>/.claude/claudzilla.local.json
 const GATE = ["deny", "remind", "off"];
+// ask: the person approves or cancels in the permission prompt, which lists what the command loses.
+const HOLD = ["ask", ...GATE];
 const LEVELS = {
-  pushVerify: GATE, prSkill: GATE, forcePush: GATE, discard: GATE, mainCommit: GATE,
+  pushVerify: GATE, prSkill: GATE, forcePush: HOLD, discard: HOLD, mainCommit: GATE,
   commitSubject: GATE, sessionLink: GATE, envStaged: GATE, worktreePath: GATE,
   debugTrigger: ["remind", "off"], reviewTrigger: ["remind", "off"], debugGate: ["remind", "off"], releaseSync: ["off", "remind"],
   specExclude: ["on", "off"],
@@ -165,11 +167,13 @@ const out = (event, fields) => {
   process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: event, ...fields } })}\n`);
 };
 const deny = (reason) => out("PreToolUse", { permissionDecision: "deny", permissionDecisionReason: reason });
-function git(cwd, ...args) {
+// null when git fails or times out, so a failed look never reads as nothing lost.
+function gitOut(cwd, ...args) {
   try {
-    return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] }).trim();
-  } catch { return ""; }
+    return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] });
+  } catch { return null; }
 }
+const git = (cwd, ...args) => gitOut(cwd, ...args)?.trim() ?? "";
 function gitOk(cwd, ...args) {
   try { execFileSync("git", ["-C", cwd, ...args], { timeout: 2000, stdio: "ignore" }); return true; } catch { return false; }
 }
@@ -274,19 +278,24 @@ const WHY = {
   worktreePath: "Worktree goes at ../<repo>-<slug> (git.md:27).",
   releaseSync: "If this merge lands on main, rebase the open release branch onto main and push it with --force-with-lease, after the user's ok.",
 };
+// The permission prompt's first line at level ask; what the command loses follows.
+const ASK = {
+  forcePush: "Force push rewrites the remote branch (git.md:7).",
+  discard: "Discards work (git.md:8).",
+};
 function firedRules(text) {
-  const ids = [];
+  const ids = new Set();
   // First sentence, no "(file:line)" citation: fires survive later wording and citation edits.
   const head = (t) => t.split(/(?<=\.) /)[0].replace(/ \([^()]*\)\.$/, "");
   // WHY and MSG are keyed by rule id, so rule-review can count fires from transcripts.
-  for (const [id, t] of Object.entries({ ...WHY, ...MSG })) if (text.includes(head(t))) ids.push(id);
-  if (/Commit subject (?:must be|is \d+ chars)/.test(text)) ids.push("commitSubject");
+  for (const [id, t] of [...Object.entries({ ...WHY, ...MSG }), ...Object.entries(ASK)]) if (text.includes(head(t))) ids.add(id);
+  if (/Commit subject (?:must be|is \d+ chars)/.test(text)) ids.add("commitSubject");
   const prev = text.match(/Previous reply broke: (.*)\. Apply from this reply on\./);
   for (const f of prev ? prev[1].split("; ") : []) {
     const id = Object.keys(FLAG).find((k) => f.startsWith(FLAG[k]));
-    if (id) ids.push(id);
+    if (id) ids.add(id);
   }
-  return ids;
+  return [...ids];
 }
 
 // Word lists per simple command. Heredoc bodies are message text; quotes group
@@ -410,6 +419,48 @@ function gitParse(t, cwd) {
   return { dir, sub, a };
 }
 const forceFlag = (a) => a.some((x) => x === "--force" || /^-[a-zA-Z]*f[a-zA-Z]*$/.test(x) || /^\+./.test(x));
+const MAX_LOST = 5;
+const listed = (out, none) => {
+  if (out === null) return "\n  could not check";
+  const l = out.split("\n").map((x) => x.trim().replace(/^Would remove /, "")).filter(Boolean);
+  if (!l.length) return `\n  ${none}`;
+  return l.slice(0, MAX_LOST).map((x) => `\n  ${x}`).join("") + (l.length > MAX_LOST ? `\n  … ${l.length - MAX_LOST} more` : "");
+};
+// What a held discard throws away, for the person answering the ask.
+function lostWork(dir, sub, a) {
+  if (sub === "stash") {
+    const all = gitOut(dir, "stash", "list");
+    const r = operand(a.slice(1)) ?? "0";
+    const ref = /^\d+$/.test(r) ? `stash@{${r}}` : r;
+    return listed(all && (a[0] === "clear" ? all : all.split("\n").filter((l) => l.startsWith(`${ref}:`)).join("\n")), "no stash entry");
+  }
+  if (sub === "clean") {
+    // -n lists; -f, -i and -q would act, prompt or print nothing.
+    const flags = a.map((x) => /^-[a-zA-Z]+$/.test(x) ? x.replace(/[fiq]/g, "") : x).filter((x) => !["-", "--force", "--interactive", "--quiet"].includes(x));
+    return listed(gitOut(dir, "clean", "-n", ...flags), "nothing to remove");
+  }
+  const dd = a.indexOf("--");
+  // restore takes only paths (and a --source ref); checkout's first operand may be a ref, so only paths on disk count.
+  const paths = dd !== -1 ? a.slice(dd + 1)
+    : sub === "restore" ? a.filter((x, k) => !x.startsWith("-") && !["-s", "--source"].includes(a[k - 1]))
+    : a.filter((x) => !x.startsWith("-") && existsSync(resolve(dir, x)));
+  const files = listed(gitOut(dir, "status", "--porcelain", "--untracked-files=no", "--", ...paths), "no uncommitted changes");
+  const ref = sub === "reset" && operand(a);
+  const n = ref ? Number(git(dir, "rev-list", "--count", "--end-of-options", `${ref}..HEAD`)) : 0;
+  return files + (n ? `\n  ${n} commit${n > 1 ? "s leave" : " leaves"} the branch` : "");
+}
+// What a force push drops from the remote branch, as the last fetch saw it.
+const PUSH_VALUE = ["-o", "--push-option", "--repo", "--receive-pack", "--exec"];
+function lostRemote(dir, a) {
+  const [remote, spec, ...rest] = a.filter((x, k) => !x.startsWith("-") && !PUSH_VALUE.includes(a[k - 1]));
+  const [src, dst] = (spec ?? "").replace(/^\+/, "").split(":");
+  const b = (dst || src || "HEAD").replace(/^refs\/heads\//, "");
+  const target = remote ? `refs/remotes/${remote}/${b === "HEAD" ? git(dir, "symbolic-ref", "--short", "HEAD") : b}` : "@{push}";
+  const name = remote ? target.slice("refs/remotes/".length) : git(dir, "rev-parse", "--abbrev-ref", target) || "the push branch";
+  const more = rest.length ? `\n${rest.length} more refspec${rest.length > 1 ? "s" : ""} not checked` : "";
+  if (!gitOk(dir, "rev-parse", "--verify", "-q", target)) return `\nno fetched copy of ${name} to compare${more}`;
+  return `\n${name} loses, as of the last fetch:${listed(gitOut(dir, "log", "--format=%h %s", "--end-of-options", `${src || "HEAD"}..${target}`), "nothing you lack")}${more}`;
+}
 // Label/reviewer/base edits don't touch the description, so the template doesn't apply.
 const prDescribes = (t) => t[2] === "create" || t.slice(3).some((x) => /^(?:--(?:title|body|body-file)(?:=|$)|-[tbF])/.test(x));
 
@@ -419,7 +470,8 @@ function checkGit(t, cwd, cmd, s, hits, branches) {
   if (!CHECKED.has(sub)) return;
   const { cfg } = loadConfig(dir);
   const hit = hitter(cfg, hits);
-  const discard = (cond) => hit("discard", cond && WHY.discard);
+  const held = (id, lost) => cfg.rules[id] === "ask" ? ASK[id] + lost() : WHY[id];
+  const discard = (cond) => hit("discard", cond && held("discard", () => lostWork(dir, sub, a)));
   const isBranch = (x) => gitOk(dir, "rev-parse", "--verify", "-q", `refs/heads/${x}`);
   const root = () => git(dir, "rev-parse", "--show-toplevel") || dir;
   const moveTo = (b) => {
@@ -451,7 +503,7 @@ function checkGit(t, cwd, cmd, s, hits, branches) {
   }
   switch (sub) {
     case "push":
-      hit("forcePush", forceFlag(a) && WHY.forcePush);
+      hit("forcePush", forceFlag(a) && held("forcePush", () => lostRemote(dir, a)));
       return hit("pushVerify", !verified(s) && WHY.pushVerify);
     case "reset": return discard(a.includes("--hard"));
     case "clean": return discard(a.some((x) => x === "--force" || /^-[a-zA-Z]*f/.test(x)));
@@ -570,9 +622,9 @@ function checkBash(cmd, cwd, s) {
     // Any other command counts as the check, even earlier in this same command line.
     else if (hasSkill(s, VERIFY) && !NOT_CHECK.has(t[0])) s.checked = true;
   }
-  // A denied command never ran, so neither did its check.
+  // A denied command never ran, and a held one may not, so neither did its check.
   const denied = hits.some((h) => h.level === "deny");
-  if (denied) s.checked = was;
+  if (denied || hits.some((h) => h.level === "ask")) s.checked = was;
   report(hits);
   return denied;
 }
@@ -581,7 +633,10 @@ function report(hits) {
   // Any deny wins; a rule set to "remind" never weakens another rule.
   const blocked = hits.filter((h) => h.level === "deny");
   if (blocked.length) return deny([...new Set(blocked.map((h) => h.why))].join(" "));
-  if (hits.length) out("PreToolUse", { additionalContext: hits.map((h) => `Reminder: ${h.why}`).join("\n") });
+  const held = [...new Set(hits.filter((h) => h.level === "ask").map((h) => h.why))];
+  const reminders = hits.filter((h) => h.level === "remind").map((h) => `Reminder: ${h.why}`).join("\n");
+  if (held.length) return out("PreToolUse", { permissionDecision: "ask", permissionDecisionReason: held.join("\n\n"), ...(reminders && { additionalContext: reminders }) });
+  if (reminders) out("PreToolUse", { additionalContext: reminders });
 }
 
 function excludeSpecs(file) {
@@ -755,14 +810,14 @@ function traceEvent(d, before, ts) {
   const after = load(d.session_id), changed = {};
   for (const k of Object.keys(after)) if (JSON.stringify(after[k]) !== JSON.stringify(before[k])) changed[k] = after[k];
   const data = {
-    decision: emitted?.permissionDecision === "deny" ? "deny" : emitted ? "nudge" : "none",
+    decision: emitted?.permissionDecision ?? (emitted ? "nudge" : "none"),
     rules: firedRules(text), state: changed,
   };
   if (d.tool_name) data.tool = d.tool_name;
   if (d.tool_name === "Skill") data.skill = d.tool_input?.skill;
   if (d.tool_name === "Bash") data.command = d.tool_input?.command;
   if (d.hook_event_name === "UserPromptSubmit") data.prompt = d.prompt;
-  if (data.decision === "deny") data.reason = text;
+  if (emitted?.permissionDecision) data.reason = text;
   traceWrite({ session: d.session_id, part: "rules-guard", event: EVENT[d.hook_event_name], ts, end: new Date().toISOString(), data });
 }
 
