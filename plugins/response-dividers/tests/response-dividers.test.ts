@@ -228,3 +228,31 @@ test('a failing working directory leaves the chunk plain and the lines drawn', a
   expect(await ui.find({ type: 'Text', text: 'see `m.ts`' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^─+$/ })).toBeDefined()
 })
+
+test("records the chat's width for md-display.pl once per change", async ($, on) => {
+  const writes: [string, string][] = []
+  on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['you'] }))
+  on('env.get', (_: any, e: any) => ({ value: e.name === 'TMPDIR' ? '/t' : undefined }))
+  on('session.id', () => ({ value: 's1' }))
+  on('fs.write', (_: any, e: any) => { writes.push([e.path, e.text]); return { value: undefined } })
+  const ui = await $.ui.mount({ plugin: 'response-dividers', surface: 'terminal', component: 'UserMessage', requestId: 'u1',
+    props: { text: 'hi' }, viewport: { columns: 103, rows: 20 } })
+  await ui.redraw()
+  expect(writes).toEqual([['/t/claudzilla-rules/cols-s1', '103']])
+})
+
+test('a /clear writes the width again for the new session id', async ($, on) => {
+  const writes: string[] = []
+  let id = 's1'
+  on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['you'] }))
+  on('env.get', (_: any, e: any) => ({ value: e.name === 'TMPDIR' ? '/t' : undefined }))
+  on('session.id', () => ({ value: id }))
+  on('fs.write', (_: any, e: any) => { writes.push(e.path); return { value: undefined } })
+  on('session.end', () => ({ sessionId: id }))
+  const ui = await $.ui.mount({ plugin: 'response-dividers', surface: 'terminal', component: 'UserMessage', requestId: 'u2',
+    props: { text: 'hi' }, viewport: { columns: 103, rows: 20 } })
+  await $.session.end({ reason: 'clear' })
+  id = 's2'
+  await ui.redraw()
+  expect(writes.filter(p => p.includes('/cols-'))).toEqual(['/t/claudzilla-rules/cols-s1', '/t/claudzilla-rules/cols-s2'])
+})
