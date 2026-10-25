@@ -59,6 +59,8 @@ const files = new Set<string>()
 const misses = new Map<string, number>()
 const MISS_MS = 5_000
 let toldNoPanel = false
+// shortcut: one cols-<session> file per session stays in TMPDIR ($.fs has no delete); clean it on session.end if $.fs gains one.
+let wroteColumns = 0
 
 // The chunk's spans that name an existing file, by span; none when the engine cannot say.
 async function links($: EngineInterface, text: string): Promise<Map<string, Link>> {
@@ -108,7 +110,21 @@ export const register: Register = on => {
   })
 
   on('session.end', async ($, e, next) => {
+    // A /clear or resume goes on under a new session id, which needs its own cols file.
+    wroteColumns = 0
     await t.flush(traceIo($))
+    return next(e)
+  })
+
+  // A reply still streaming skips the hook below, so md-display.pl draws its lines from this width.
+  on('ui.render', { component: ['UserMessage', 'AssistantMessage'] }, async ($, e, next) => {
+    const columns = e.surface === 'terminal' ? e.viewport?.columns : undefined
+    if (columns && columns !== wroteColumns) {
+      wroteColumns = columns
+      try {
+        await $.fs.write(`${(await $.env.get('TMPDIR')) || '/tmp'}/claudzilla-rules/cols-${await $.session.id()}`, String(columns))
+      } catch {}
+    }
     return next(e)
   })
 
