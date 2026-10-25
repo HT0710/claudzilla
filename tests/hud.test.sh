@@ -99,6 +99,24 @@ B="$TMP/big.jsonl"
 kv=$(data <<<"{\"transcript_path\":\"$B\"}")
 check "data: big transcript up"    [ "$(key up "$kv")" = 2m ]
 check "data: big transcript skill" [ "$(key skill "$kv")" = big ]
+# cache: newest main-chat reply with tokens starts the clock; TTL from the newest reply that wrote cache
+reply() { # <secs ago> <5m written> <1h written> [sidechain]
+  echo "{\"type\":\"assistant\",\"isSidechain\":${4:-false},\"timestamp\":\"$(iso "$1")\",\"message\":{\"usage\":{\"input_tokens\":2,\"cache_read_input_tokens\":9000,\"cache_creation_input_tokens\":$(($2 + $3)),\"cache_creation\":{\"ephemeral_5m_input_tokens\":$2,\"ephemeral_1h_input_tokens\":$3}}}}"
+}
+# cache -> "<percent of TTL used> <note>"
+cache() { printf '%s\n' "$@" > "$TMP/c.jsonl"; kv=$(data <<<"{\"transcript_path\":\"$TMP/c.jsonl\"}"); [ -n "$(key cch "$kv")" ] && echo "$(key cch "$kv") $(key cch_note "$kv")"; }
+check "data: cache 1h warm"     [ "$(cache "$(reply 1200 0 500)")" = "33 40m" ]
+check "data: cache 5m warm"     [ "$(cache "$(reply 120 500 0)")" = "40 3m" ]
+check "data: cache 1h cold"     [ "$(cache "$(reply 3660 0 500)")" = "100 cold" ]
+check "data: cache read keeps earlier TTL" [ "$(cache "$(reply 1800 0 500)" "$(reply 600 0 0)")" = "16 50m" ]
+check "data: cache sidechain ignored" [ "$(cache "$(reply 1800 0 500)" "$(reply 60 500 0 true)")" = "50 30m" ]
+synthetic="{\"type\":\"assistant\",\"timestamp\":\"$(iso 10)\",\"message\":{\"model\":\"<synthetic>\",\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":0}}}"
+check "data: cache synthetic reply ignored" [ "$(cache "$(reply 1800 0 500)" "$synthetic")" = "50 30m" ]
+check "data: cache future reply clamps to fresh" [ "$(cache "$(reply -60 0 500)")" = "0 60m" ]
+check "data: cache seconds left not shown as 100%" [ "$(cache "$(reply 3595 0 500)")" = "99 1m" ]
+check "data: cache no TTL seen -> none" [ -z "$(cache "$(reply 600 0 0)")" ]
+check "data: cache no reply -> none" [ -z "$(key cch "$(data <<<"$full")")" ]
+
 kv=$(data <<<'{"model":{"display_name":"a\u001b]52;c;aGk=\u0007b"}}')
 check "data: control chars dropped" [ "$(key model "$kv")" = "a ]52;c;aGk= b" ]
 kv=$(data <<<'{"model":{"display_name":"a\u009d52;c;aGk=\u009cb"}}')
@@ -107,14 +125,29 @@ check "data: C1 control chars dropped" [ "$(key model "$kv")" = "a 52;c;aGk= b" 
 # --- hud-filter.pl ---
 render() { data <<<"$1" | COLUMNS=120 perl "$HUD/hud-filter.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
 out=$(render "$full")
-check "render: ctx row"  grep -q '^ctx .* 42% *$' <<<"$out"
-check "render: ctx used" grep -q '^ctx .* 42%  *417k$' <<<"$(render "$used")"
-check "render: 5h row"   grep -q '^5h .* 30%  *2h0m$' <<<"$out"
-check "render: wk row"   grep -q '^wk .* 12%  *2d7h$' <<<"$out"
+# meters in two columns: ctx over cache | 5h over wk; no cache yet leaves its slot blank
+check "render: ctx | 5h row" grep -q '^ctx .* 42%  *┃ 5h  .* 30%  *2h0m$' <<<"$out"
+check "render: ctx used" grep -q '^ctx .* 42%  *417k ┃ 5h ' <<<"$(render "$used")"
+check "render: no cache -> blank | wk row" grep -q '^  *┃ wk  .* 12%  *2d7h$' <<<"$out"
 check "render: profile"  grep -qE 'me@example\.test(  v[0-9.]+)?$' <<<"$out"
 check "render: activity" grep -q '^Opus  high  ⚑ pr .*abcdef12  up 90m$' <<<"$out"
+printf '%s\n' "$(reply 1200 0 500)" >> "$T"
+out=$(render "$full")
+check "render: cch | wk row" grep -q '^cch .* 33%  40m ┃ wk  .* 12%  2d7h$' <<<"$out"
+check "render: two meter rows" [ "$(grep -cE '(^|┃ )(ctx|cch|5h|wk) ' <<<"$out")" -eq 2 ]
+check "render: cache not in bottom row" bash -c "! tail -1 <<<'$out' | grep -q cch"
+# colours: pick a session id whose highlight sweep is resting now (hud-filter.pl \$OFF, 30 s sweep in 90)
+rest=$(perl -e 'for my $i (0..999) { my $id = "r$i"; my $o = 0; $o = ($o * 31 + ord) % 3600 for split //, $id; my $t = (time() + $o) % 90; if ($t >= 35 && $t <= 80) { print $id; last } }')
+raw() { data <<<"{\"session_id\":\"$rest\",\"transcript_path\":\"$TMP/c.jsonl\",\"rate_limits\":{\"five_hour\":{\"used_percentage\":30}}}" | COLUMNS=120 perl "$HUD/hud-filter.pl"; }
+cache "$(reply 0 0 500)" >/dev/null
+check "render: fresh cache one blue bar" grep -q $'cch \e\\[38;2;36;58;93m▬[^\e ]*   0%' <<<"$(raw)"
+cache "$(reply 1800 0 500)" >/dev/null
+check "render: half cache one light blue bar" grep -q $'cch \e\\[38;2;146;188;228m▬[^\e ]*  50%' <<<"$(raw)"
+cache "$(reply 3660 0 500)" >/dev/null
+check "render: cold cache one orange bar" grep -q $'cch \e\\[38;2;255;170;90m▬[^\e ]* 100%  \e\\[38;2;64;71;80mcold' <<<"$(raw)"
 out=$(render "$nolim")
 check "render: no limits -> ctx only" [ "$(grep -cE '^(ctx|5h|wk) ' <<<"$out")" -eq 1 ]
+check "render: no limits -> cache below ctx, no divider" bash -c "grep -q '^cch .* 33%  *40m$' <<<'$out' && ! grep -q '┃' <<<'$out'"
 
 check "render: not a repo -> no branch" bash -c "! head -1 <<<'$(render "$full")' | grep -q '⎇'"
 narrow=$(data <<<"$full" | COLUMNS=60 perl "$HUD/hud-filter.pl" | perl -pe 's/\e\[[0-9;]*m//g')
@@ -129,6 +162,7 @@ touch "$C/.claudzilla-basic-glyphs"
 basic=$(CLAUDE_CONFIG_DIR="$C" render "$full")
 check "render basic: meter uses ■□" bash -c "grep -q '^ctx ■' <<<'$basic' && ! grep -q '[▰▱]' <<<'$basic'"
 check "render basic: skill uses ▸" grep -q '^Opus  high  ▸ pr ' <<<"$basic"
+check "render basic: cache bar uses ■" grep -q $'cch \e\\[[0-9;]*m■' <<<"$(CLAUDE_CONFIG_DIR="$C" raw)"
 check "render basic: branch uses ›" bash -c "grep -q '› nhánh' <<<'$(row1 "$U" HOME="$UH")'"
 rm "$C/.claudzilla-basic-glyphs"
 CJK="$TMP/项目文件夹中文路径很长很长很长很长很长"; mkdir -p "$CJK"
