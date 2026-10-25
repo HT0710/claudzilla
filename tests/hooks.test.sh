@@ -654,6 +654,10 @@ check "frame: tilde line inside backtick fence does not close it" [ -z "$(mdm h 
 check "frame: matching fence closes it" sub "$(mdm h 1 $'```\n---\n')" "$G"
 check "frame: no message_id, no frame" [ -z "$(md $'**TL;DR** x\n')" ]
 check "frame: state removed after final" bash -c "! ls '$TMP'/claudzilla-rules/md-* 2>/dev/null"
+# response-dividers writes the chat's width; a docked panel leaves it narrower than COLUMNS
+printf 34 >"$TMP/claudzilla-rules/cols-mdw"
+out=$(node -e 'console.log(JSON.stringify({ hook_event_name: "MessageDisplay", session_id: "mdw", message_id: "w", final: true, delta: "**TL;DR** x\n" }))' | COLUMNS=24 perl "$MD")
+check "frame: chat width file beats COLUMNS" sub "$out" ":\"$(printf '━%.0s' {1..30})\\n"
 
 # display.frame: traced where md-display already writes state
 MTD="$CLAUDE_CONFIG_DIR/claudzilla-trace"
