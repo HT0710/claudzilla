@@ -87,6 +87,27 @@ if (d.transcript_path) {
       if (Date.now() - Date.parse(e.timestamp) <= THINKING_MS) out.thinking = 1;
       break;
     }
+    // Prompt cache: each main-chat request restarts its TTL; a pure cache read keeps the TTL the last write chose.
+    // Subagents cache apart, and a synthetic reply (API error) sent nothing.
+    // shortcut: the reply's timestamp is its end, so a long reply overstates the time left by its length; read the request time if the transcript gains one.
+    let last, ttl;
+    for (let i = tail.length - 1; i >= 0 && ttl === undefined; i--) {
+      if (!tail[i].includes('"assistant"')) continue;
+      const e = parse(tail[i]);
+      const u = e?.message?.usage;
+      if (e?.type !== "assistant" || e.isSidechain || !u) continue;
+      if (last === undefined && count(u.input_tokens) + count(u.cache_read_input_tokens) + count(u.cache_creation_input_tokens) > 0) last = Date.parse(e.timestamp);
+      if (last === undefined) continue;
+      if (count(u.cache_creation?.ephemeral_1h_input_tokens) > 0) ttl = 3_600_000;
+      else if (count(u.cache_creation?.ephemeral_5m_input_tokens) > 0) ttl = 300_000;
+    }
+    if (last && ttl) {
+      // clamped: a clock stepped back puts the reply in the future
+      const left = Math.min(ttl, Math.max(0, last + ttl - Date.now()));
+      // floor: 100% only once cold
+      out.cch = Math.floor((1 - left / ttl) * 100);
+      out.cch_note = left > 0 ? `${Math.ceil(left / 60_000)}m` : "cold";
+    }
   } catch { /* transcript gone or unreadable */ } finally {
     if (fd !== undefined) closeSync(fd);
   }
