@@ -1,5 +1,5 @@
 #!/usr/bin/perl -0777
-# hud-data.mjs key/value lines -> E2 layout: identity row, rule, three full-width gradient meters, rule, activity row.
+# hud-data.mjs key/value lines -> E2 layout: identity row, rule, meters in two columns (ctx over cch | 5h over wk), rule, activity row.
 use strict; use warnings;
 # stdin, stdout, files and `git` output are UTF-8: decode on read, so non-ASCII paths aren't encoded twice.
 # Invalid bytes (a branch name git allows) become U+FFFD, quietly: a statusline has no stderr reader.
@@ -21,10 +21,10 @@ my $W = 114;
 }
 
 # install.sh leaves this marker when the user declines MesloLGS NF: fall back to symbols every mono font has
-my ($G_ON, $G_OFF, $G_BRANCH, $G_SKILL) =
+my ($G_ON, $G_OFF, $G_BRANCH, $G_SKILL, $G_CACHE) =
     -e (($ENV{CLAUDE_CONFIG_DIR} // "$ENV{HOME}/.claude") . '/.claudzilla-basic-glyphs')
-    ? ("\x{25A0}", "\x{25A1}", "\x{203A}", "\x{25B8}")
-    : ("\x{25B0}", "\x{25B1}", "\x{2387}", "\x{2691}");
+    ? ("\x{25A0}", "\x{25A1}", "\x{203A}", "\x{25B8}", "\x{25A0}")
+    : ("\x{25B0}", "\x{25B1}", "\x{2387}", "\x{2691}", "\x{25AC}");
 
 my %f = map { /^([^\t]+)\t(.*)$/ ? ($1, $2) : () } split /\n/, $txt;
 my ($id, $META_CWD, $EFFORT, $SID) = @f{qw(id cwd effort sid)};
@@ -79,7 +79,7 @@ if ($META_CWD) {
 }
 my ($model, $session, $skill, $thinking) = @f{qw(model up skill thinking)};
 
-my @m = map { [$_, $f{$_}, $f{"${_}_note"} // ''] } grep { ($f{$_} // '') =~ /^\d+$/ } qw(ctx 5h wk);
+my %mv = map { $_ => [$_, $f{$_}, $f{"${_}_note"} // ''] } grep { ($f{$_} // '') =~ /^\d+$/ } qw(ctx cch 5h wk);
 
 # --- helpers ---------------------------------------------------------------
 # terminal cells: East Asian wide chars take two
@@ -113,16 +113,19 @@ sub ramp {
 sub meter_line {
     my ($label,$pct,$note,$n,$tw,@hs) = @_;
     my $f = int($pct / 100 * $n + 0.5); $f = $n if $f > $n;
+    # cache is a clock, not a fill: a solid full bar in one ramp colour, dim blue when fresh to orange when cold
+    my $cc = $label eq 'cch' ? [map { int($_+0.5) } @{ ramp(0.1 + 0.9 * ($pct/100) ** 0.85) }] : undef;
+    $f = $n if $cc;
     my @cell;
     push @cell, [$_, [163,150,210]] for split //, sprintf('%-3s ', $label);   # title
     for my $i (0 .. $n-1) {                                                   # bar
         my $on = $i < $f;
-        push @cell, [$on ? $G_ON : $G_OFF,
-                     $on ? [map { int($_+0.5) } @{ ramp(($n > 1 ? $i/($n-1) : 1) ** 0.85) }] : [30,42,58],
+        push @cell, [$cc ? $G_CACHE : $on ? $G_ON : $G_OFF,
+                     $on ? $cc // [map { int($_+0.5) } @{ ramp(($n > 1 ? $i/($n-1) : 1) ** 0.85) }] : [30,42,58],
                      $on ? 0.65 : 0.30];
     }
     my $x = ($pct/100) ** 0.85; $x = 0.4 if $x < 0.4;                         # figure
-    my $fc = [map { int($_+0.5) } @{ ramp($x) }];
+    my $fc = $cc // [map { int($_+0.5) } @{ ramp($x) }];
     push @cell, [$_, $fc] for split //, sprintf(' %3d%%  ', $pct);
     push @cell, [$_, [64,71,80]] for split //, sprintf("%*s", $tw, $note);    # note
     my @px;
@@ -189,8 +192,15 @@ sub cwd_str {
     push @out, pad($l, $r);
 }
 
-my $tw = 0; for (@m) { $tw = length $_->[2] if length $_->[2] > $tw }
-my $n  = $W - 4 - 5 - 2 - $tw;
+my $note_w = sub { my $w = 0; for (grep { defined } @mv{@_}) { $w = length $_->[2] if length $_->[2] > $w } $w };
+my $tw = $note_w->(qw(ctx cch 5h wk));
+# two columns, ctx over cache | 5h over wk, when each half keeps a usable bar; else one meter per row.
+# Each column right-aligns its own notes.
+my $CL = int(($W - 3) / 2); my $CRW = $W - 3 - $CL;
+my $TWO = ($mv{'5h'} || $mv{wk}) && $CL - 11 - $tw >= 8;
+my ($twl, $twr) = $TWO ? ($note_w->(qw(ctx cch)), $note_w->(qw(5h wk))) : ($tw, $tw);
+my @m = $TWO ? grep { defined } @mv{qw(ctx cch)} : grep { defined } @mv{qw(ctx cch 5h wk)};
+my $n  = ($TWO ? $CL : $W) - 4 - 5 - 2 - $twl;
 
 # --- sweep -----------------------------------------------------------------
 # One highlight pass every $SWEEP+$REST seconds, wall-clock driven so the timing
@@ -276,9 +286,21 @@ sub rule {
 my @lt = localtime;
 push @out, rule(-1, sprintf(' %02d:%02d ', @lt[2,1]));
 
-for my $r (@m) {
-    my ($label,$pct,$note) = @$r;
-    push @out, meter_line($label, $pct, $note, $n, $tw, heads($row++));
+if ($TWO) {
+    # a missing meter leaves its slot blank
+    my $nr = $CRW - 4 - 5 - 2 - $twr;
+    for my $i (0, 1) {
+        my ($l, $r) = ($mv{(qw(ctx cch))[$i]}, $mv{(qw(5h wk))[$i]});
+        my @hs = heads($row++);
+        push @out, ($l ? meter_line(@$l, $n, $twl, @hs) : ' ' x $CL)
+                 . " \e[38;2;38;50;64m\x{2503}\e[0m "
+                 . ($r ? meter_line(@$r, $nr, $twr, map { $_ - $CL - 3 } @hs) : ' ' x $CRW);
+    }
+} else {
+    for my $r (@m) {
+        my ($label,$pct,$note) = @$r;
+        push @out, meter_line($label, $pct, $note, $n, $tw, heads($row++));
+    }
 }
 
 push @out, rule(3, sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]]));
