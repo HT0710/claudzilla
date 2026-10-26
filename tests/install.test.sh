@@ -206,6 +206,9 @@ ln -s "$K/dots/kb.json" "$K/.claude/keybindings.json"; run_install "$K"
 check "keys: symlink kept" [ "$(readlink "$K/.claude/keybindings.json")" = "$K/dots/kb.json" ]
 check "keys: symlink target untouched" cmp -s "$K/dots/kb.json" "$K/k0"
 check "keys: symlink warns" grep -q 'symlink' "$K/install.log"
+K=$(new_home); mkdir -p "$K/.claude" "$K/dots"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+h":"command:panel"}}]}' > "$K/dots/kb.json"
+ln -s "$K/dots/kb.json" "$K/.claude/keybindings.json"; run_install "$K"
+check "keys: symlink with command:panel says change it" grep -q 'change command:panel to command:margin' "$K/install.log"
 
 # --- install modes: --full, --add, --remove ---
 inst() { local h=$1; shift; clean_env HOME="$h" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" "$@" >"$h/install.log" 2>&1; }
