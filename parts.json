@@ -19,11 +19,11 @@
     "keys": ["env.PONYTAIL_DEFAULT_MODE", "extraKnownMarketplaces.ponytail"],
     "plugins": ["ponytail@ponytail"]
   },
-  "dividers": { "plugins": ["folio@claudzilla"] },
-  "panel": { "plugins": ["margin@claudzilla"] },
-  "picks": { "plugins": ["ballot@claudzilla"] },
-  "toast": { "plugins": ["herald@claudzilla"] },
-  "attribution": { "plugins": ["byline@claudzilla"] },
+  "folio": { "plugins": ["folio@claudzilla"] },
+  "margin": { "plugins": ["margin@claudzilla"] },
+  "ballot": { "plugins": ["ballot@claudzilla"] },
+  "herald": { "plugins": ["herald@claudzilla"] },
+  "byline": { "plugins": ["byline@claudzilla"] },
   "ledger": { "plugins": ["ledger@claudzilla"] },
-  "updater": { "plugins": ["primer@claudzilla"], "links": ["hooks/claudzilla-update.sh", "skills/claudzilla-report", "skills/claudzilla-compact"], "hooks": ["claudzilla-update.sh"] }
+  "primer": { "plugins": ["primer@claudzilla"], "links": ["hooks/claudzilla-update.sh", "skills/claudzilla-report", "skills/claudzilla-compact"], "hooks": ["claudzilla-update.sh"] }
 }
