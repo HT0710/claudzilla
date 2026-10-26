@@ -17,7 +17,7 @@ my $t = $d->{delta} // '';
 # Per-message state across batches: o = frame open, c = closer drawn, f/t = in ``` / ~~~ fence, p = separator due after line end.
 my %s;
 if ($sf && open my $fh, '<', $sf) { %s = map { $_ => 1 } split //, <$fh> // ''; }
-# COLUMNS is the whole terminal; response-dividers writes the chat's width, narrower while the panel docks.
+# COLUMNS is the whole terminal; folio writes the chat's width, narrower while the panel docks.
 my $cols = $ENV{COLUMNS} // 0;
 my ($sid) = ($d->{session_id} // '') =~ /^([\w-]+)$/;
 if ($sid && open my $ch, '<', "$dir/cols-$sid") { my ($c) = (<$ch> // '') =~ /^(\d+)/; $cols = $c if $c; }

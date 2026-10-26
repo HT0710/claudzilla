@@ -7,7 +7,7 @@ for (const columns of [44, 84]) {
   test(`${columns} cols: heavy, separator and group lines fit the chat`, async ($, on) => {
     // Stands for the engine's own drawing of each chunk.
     on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
-    const ui = await $.ui.mount({ plugin: 'response-dividers', surface: 'terminal', component: 'AssistantMessage', requestId: 'm1',
+    const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'AssistantMessage', requestId: 'm1',
       props, viewport: { columns, rows: 20 } })
     const w = columns - 4
     expect((await ui.findAll({ type: 'Text', text: /^━+$/ })).map(t => t.text.length)).toEqual([w, w])
@@ -20,7 +20,7 @@ for (const columns of [44, 84]) {
 
 test("chunks after the bullet's keep its indent", async ($, on) => {
   on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
-  const ui = await $.ui.mount({ plugin: 'response-dividers', surface: 'terminal', component: 'AssistantMessage', requestId: 'm3',
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'AssistantMessage', requestId: 'm3',
     props, viewport: { columns: 44, rows: 20 } })
   const padOf = async (text: RegExp) => (await ui.findAll({ type: 'Box' })).find(b => text.test(b.text) && b.children.length === 1)?.props.paddingLeft
   expect(await padOf(/^## H$/)).toBe(2)
@@ -29,7 +29,7 @@ test("chunks after the bullet's keep its indent", async ($, on) => {
 
 test("a block without the bullet takes no indent and the lines its room", async ($, on) => {
   on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
-  const ui = await $.ui.mount({ plugin: 'response-dividers', surface: 'terminal', component: 'AssistantMessage', requestId: 'm4',
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'AssistantMessage', requestId: 'm4',
     props: { ...props, isFirstOfReply: false }, viewport: { columns: 44, rows: 20 } })
   expect((await ui.findAll({ type: 'Text', text: /^━+$/ })).map(t => t.text.length)).toEqual([42, 42])
   expect((await ui.findAll({ type: 'Box' })).some(b => b.props.paddingLeft === 2)).toBe(false)
@@ -37,14 +37,14 @@ test("a block without the bullet takes no indent and the lines its room", async 
 
 test('a summary block is the engine drawing, so its mark shows once', async ($, on) => {
   on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
-  const ui = await $.ui.mount({ plugin: 'response-dividers', surface: 'terminal', component: 'AssistantMessage', requestId: 'm5',
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'AssistantMessage', requestId: 'm5',
     props: { ...props, isSummary: true }, viewport: { columns: 44, rows: 20 } })
   expect(await ui.find({ type: 'Text', text })).toBeDefined()
 })
 
 test('a reply with no frame lines is the engine drawing', async ($, on) => {
   on('ui.render', { component: 'AssistantMessage' }, () => ({ type: 'Text' as const, children: ['engine'] }))
-  const ui = await $.ui.mount({ plugin: 'response-dividers', surface: 'terminal', component: 'AssistantMessage', requestId: 'm2',
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'AssistantMessage', requestId: 'm2',
     props: { text: 'plain\n', isFirstOfReply: true }, viewport: { columns: 44, rows: 20 } })
   expect(await ui.find({ type: 'Text', text: 'engine' })).toBeDefined()
 })
@@ -63,10 +63,10 @@ function sink(on: any, part: string) {
 test('traces the split decision', async ($, on) => {
   on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
   on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
-  const rows = sink(on, 'response-dividers')
-  await $.ui.mount({ plugin: 'response-dividers', surface: 'terminal', component: 'AssistantMessage', requestId: 'm9', props, viewport: { columns: 44, rows: 20 } })
+  const rows = sink(on, 'folio')
+  await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'AssistantMessage', requestId: 'm9', props, viewport: { columns: 44, rows: 20 } })
   await $.session.end({ reason: 'other' })
-  expect(rows().find(r => r.event === 'dividers.split')?.data).toMatchObject({ rules: 4, split: true })
+  expect(rows().find(r => r.event === 'folio.split')?.data).toMatchObject({ rules: 4, split: true })
 })
 
 // Answers beneath the mod: the engine's drawing, the working directory, the clock, and which paths are files.
@@ -83,7 +83,7 @@ function files(on: any, kinds: Record<string, 'file' | 'dir'>) {
   return w
 }
 const mount = ($: any, requestId: string, props: object, surface = 'terminal') =>
-  $.ui.mount({ plugin: 'response-dividers', surface, component: 'AssistantMessage', requestId, props, viewport: { columns: 44, rows: 20 } })
+  $.ui.mount({ plugin: 'folio', surface, component: 'AssistantMessage', requestId, props, viewport: { columns: 44, rows: 20 } })
 
 test('a chunk with an existing path draws a Markdown link with the bullet', async ($, on) => {
   files(on, { '/r/a.ts': 'file' })
@@ -137,12 +137,12 @@ test('a press with no panel toasts once', async ($, on) => {
   const key = (await ui.find({ type: 'Markdown' }))!.props.key
   await ui.press({ key, link: { href: 'file:///r/f.ts#L4' } })
   await ui.press({ key, link: { href: 'file:///r/f.ts#L4' } })
-  expect(toasts).toEqual(['response-dividers: install the panel part to preview files; ctrl+click opens them'])
+  expect(toasts).toEqual(['folio: install the margin part to preview files; ctrl+click opens them'])
 })
 
 test('a press whose show fails in panel says nothing', async ($, on) => {
   const toasts: string[] = []
-  on('engine.create', async (_$, e, next) => ({ ...(await next(e)), panel: { show: async () => { throw new Error('unreadable') } } }))
+  on('engine.create', async (_$, e, next) => ({ ...(await next(e)), margin: { show: async () => { throw new Error('unreadable') } } }))
   on('ui.toast', (_, e) => {
     toasts.push(e.text)
     return { value: undefined }
@@ -156,7 +156,7 @@ test('a press whose show fails in panel says nothing', async ($, on) => {
 
 test('a press calls panel.show with the path and line', async ($, on) => {
   const shown: unknown[] = []
-  on('engine.create', async (_$, e, next) => ({ ...(await next(e)), panel: { show: async (a: unknown) => { shown.push(a) } } }))
+  on('engine.create', async (_$, e, next) => ({ ...(await next(e)), margin: { show: async (a: unknown) => { shown.push(a) } } }))
   files(on, { '/r/a.ts': 'file' })
   const ui = await mount($, 'l17', { text: 'see `a.ts:65`', isFirstOfReply: true })
   const key = (await ui.find({ type: 'Markdown' }))!.props.key
@@ -235,7 +235,7 @@ test("records the chat's width for md-display.pl once per change", async ($, on)
   on('env.get', (_: any, e: any) => ({ value: e.name === 'TMPDIR' ? '/t' : undefined }))
   on('session.id', () => ({ value: 's1' }))
   on('fs.write', (_: any, e: any) => { writes.push([e.path, e.text]); return { value: undefined } })
-  const ui = await $.ui.mount({ plugin: 'response-dividers', surface: 'terminal', component: 'UserMessage', requestId: 'u1',
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'u1',
     props: { text: 'hi' }, viewport: { columns: 103, rows: 20 } })
   await ui.redraw()
   expect(writes).toEqual([['/t/claudzilla-rules/cols-s1', '103']])
@@ -249,7 +249,7 @@ test('a /clear writes the width again for the new session id', async ($, on) => 
   on('session.id', () => ({ value: id }))
   on('fs.write', (_: any, e: any) => { writes.push(e.path); return { value: undefined } })
   on('session.end', () => ({ sessionId: id }))
-  const ui = await $.ui.mount({ plugin: 'response-dividers', surface: 'terminal', component: 'UserMessage', requestId: 'u2',
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'u2',
     props: { text: 'hi' }, viewport: { columns: 103, rows: 20 } })
   await $.session.end({ reason: 'clear' })
   id = 's2'

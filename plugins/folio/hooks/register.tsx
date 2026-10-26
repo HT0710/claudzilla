@@ -4,10 +4,10 @@ import { href, linked, mentions } from './mentions'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
-// panel's noun, mirrored: listing panel as a dependency would stop this plugin loading without it.
+// margin's noun, mirrored: listing margin as a dependency would stop this plugin loading without it.
 declare module 'claude-code' {
   interface EngineInterface {
-    panel: { show: (at: { path: string; line: number }) => Promise<void> }
+    margin: { show: (at: { path: string; line: number }) => Promise<void> }
   }
 }
 
@@ -15,7 +15,7 @@ declare module 'claude-code' {
 const SHARE: Record<string, number> = { '━': 1, '─': 2, '┈': 4 }
 const RULE = /^([━─┈])\1*$/
 
-const t = tracer('response-dividers')
+const t = tracer('folio')
 // Messages whose decision is traced: a render repeats on resize and scroll.
 const traced = new Set<string>()
 const note = (id: string, decision: string, data: object) => {
@@ -23,7 +23,7 @@ const note = (id: string, decision: string, data: object) => {
   if (traced.has(key)) return
   if (traced.size > 500) traced.clear()
   traced.add(key)
-  t.event('dividers.split', { decision, ...data })
+  t.event('folio.split', { decision, ...data })
 }
 
 type Part = { text: string } | { rule: string }
@@ -176,12 +176,12 @@ export const register: Register = on => {
                   const target = at.get(link.href)
                   if (!target) return
                   try {
-                    await $.panel.show(target)
+                    await $.margin.show(target)
                   } catch (err) {
-                    // A missing noun throws TypeError; any other failure is panel's to report.
+                    // A missing noun throws TypeError; any other failure is margin's to report.
                     if (!(err instanceof TypeError) || toldNoPanel) return
                     toldNoPanel = true
-                    $.ui.toast('response-dividers: install the panel part to preview files; ctrl+click opens them')
+                    $.ui.toast('folio: install the margin part to preview files; ctrl+click opens them')
                   }
                 }}
               />
