@@ -102,7 +102,7 @@ shot_margin() {
   click $(locate 'History') && sleep 2 && grab "$WORK/history.ansi" && still "$WORK/history.ansi" "$A/history.png"
 }
 
-# The guide pane: topics beside a section.
+# The primer pane: topics beside a section.
 shot_primer() {
   local ok
   start "$DEMO" 110 42 && margin_want off || return 1
