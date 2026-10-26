@@ -36,7 +36,7 @@ test('ring keeps newest 2000', async () => {
 
 test('flush writes JSONL with part and session', async () => {
   const { $, files, runs } = fake()
-  const t = tracer('panel')
+  const t = tracer('margin')
   await t.start($)
   const id = t.event('hello', { a: 1 }, 'warn')
   t.turn()
@@ -44,8 +44,8 @@ test('flush writes JSONL with part and session', async () => {
   sp.end({ b: 2 }, 'error')
   t.error('boom', new Error('bad'), { k: 1 })
   await t.flush($)
-  const rows = lines(files.get(`${DIR}/s1.panel.jsonl`)!)
-  expect(rows[0]).toMatchObject({ session: 's1', part: 'panel', event: 'hello', id, level: 'warn', data: { a: 1 } })
+  const rows = lines(files.get(`${DIR}/s1.margin.jsonl`)!)
+  expect(rows[0]).toMatchObject({ session: 's1', part: 'margin', event: 'hello', id, level: 'warn', data: { a: 1 } })
   expect(rows[0].id).toMatch(/^[0-9a-f]{8}$/)
   expect(rows[0].ts).toMatch(/^\d{4}-\d\d-\d\dT[\d:.]+Z$/)
   expect(rows[0].turn).toBeUndefined()

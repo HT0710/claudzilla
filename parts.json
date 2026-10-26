@@ -20,7 +20,7 @@
     "plugins": ["ponytail@ponytail"]
   },
   "dividers": { "plugins": ["response-dividers@claudzilla"] },
-  "panel": { "plugins": ["panel@claudzilla"] },
+  "panel": { "plugins": ["margin@claudzilla"] },
   "picks": { "plugins": ["picks@claudzilla"] },
   "toast": { "plugins": ["update-toast@claudzilla"] },
   "attribution": { "plugins": ["attribution@claudzilla"] },

@@ -5,11 +5,11 @@ import type { AgentRow, FileView, Intent, Overview, Spawn, Step, Tab } from '../
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
-const t = tracer('panel')
+const t = tracer('margin')
 // The pane's last traced draw: a draw repeats on every scroll and click, so only a change is traced.
 let lastPane = ''
 
-const PANE = 'panel'
+const PANE = 'margin'
 const PAD = 2
 // Top bar: the chat's own state; bottom bar: the files it touches.
 const TOP: Tab[] = ['Overview', 'Decisions', 'History']
@@ -44,43 +44,43 @@ const SCOPE = '#808286'
 // A pushed commit's, or a staged file's: its color at 60%, as DIM's are.
 const dim = (hex: string) => `#${hex.slice(1).replace(/../g, c => Math.round(parseInt(c, 16) * 0.6).toString(16).padStart(2, '0'))}`
 
-const tab = atom({ plugin: 'panel', key: 'tab' } as const, 'Overview' as Tab)
+const tab = atom({ plugin: 'margin', key: 'tab' } as const, 'Overview' as Tab)
 // Content hooks flag tabs here.
-const notices = atom({ plugin: 'panel', key: 'notices' } as const, [] as Tab[])
+const notices = atom({ plugin: 'margin', key: 'notices' } as const, [] as Tab[])
 // Bumped per prompt so the History list redraws.
-const submitted = atom({ plugin: 'panel', key: 'submitted' } as const, 0)
+const submitted = atom({ plugin: 'margin', key: 'submitted' } as const, 0)
 // Bumped per tool call so the Git tab redraws.
-const toolCalls = atom({ plugin: 'panel', key: 'toolCalls' } as const, 0)
+const toolCalls = atom({ plugin: 'margin', key: 'toolCalls' } as const, 0)
 // Rows the Git tab's CHANGES zone takes, as the divider was dragged; -1 until it is.
-const split = atom({ plugin: 'panel', key: 'split' } as const, -1)
+const split = atom({ plugin: 'margin', key: 'split' } as const, -1)
 // The first row each Git zone shows, as the wheel moved it.
-const scrolled = atom({ plugin: 'panel', key: 'scrolled' } as const, { changes: 0, commits: 0 })
+const scrolled = atom({ plugin: 'margin', key: 'scrolled' } as const, { changes: 0, commits: 0 })
 // The History list's, on a key of its own: a reload keeps what older code stored under `scrolled`.
-const historyTop = atom({ plugin: 'panel', key: 'historyTop' } as const, 0)
+const historyTop = atom({ plugin: 'margin', key: 'historyTop' } as const, 0)
 // Rows the Overview's TOPICS take, as their divider was dragged; -1 until it is. Then the first topic shown.
-const topicsSplit = atom({ plugin: 'panel', key: 'topicsSplit' } as const, -1)
-const topicsTop = atom({ plugin: 'panel', key: 'topicsTop' } as const, 0)
+const topicsSplit = atom({ plugin: 'margin', key: 'topicsSplit' } as const, -1)
+const topicsTop = atom({ plugin: 'margin', key: 'topicsTop' } as const, 0)
 
 const EMPTY_INTENT: Intent = { wants: '', plan: '', steps: [], at: 0, ended: false }
 // Claude's last intent report.
-const intent = atom({ plugin: 'panel', key: 'intent' } as const, EMPTY_INTENT)
+const intent = atom({ plugin: 'margin', key: 'intent' } as const, EMPTY_INTENT)
 // Agents the main loop started, kept past their end: no event says one finished, the list does.
-const spawns = atom({ plugin: 'panel', key: 'spawns' } as const, [] as Spawn[])
+const spawns = atom({ plugin: 'margin', key: 'spawns' } as const, [] as Spawn[])
 // Bumped per user prompt: tells this turn's agents from earlier ones.
-const turns = atom({ plugin: 'panel', key: 'turns' } as const, 0)
+const turns = atom({ plugin: 'margin', key: 'turns' } as const, 0)
 // What the File tab shows: the last one, the whole text.
-const file = atom({ plugin: 'panel', key: 'file' } as const, undefined as FileView)
+const file = atom({ plugin: 'margin', key: 'file' } as const, undefined as FileView)
 // The step whose agents all show, past the 3 each shows folded; -1 for none.
-const expanded = atom({ plugin: 'panel', key: 'expanded' } as const, -1)
+const expanded = atom({ plugin: 'margin', key: 'expanded' } as const, -1)
 // The agent whose transcript the main view shows, as the pane last drew: a press on its row goes back.
 let viewing: string | undefined
 
 const EMPTY_OVERVIEW: Overview = { topics: [], running: false }
 // TOPICS: what this chat is about, read from its prompts alone.
-const overview = atom({ plugin: 'panel', key: 'overview' } as const, EMPTY_OVERVIEW)
+const overview = atom({ plugin: 'margin', key: 'overview' } as const, EMPTY_OVERVIEW)
 
 // Claude reports its own intent through this tool; the rule says when.
-const INTENT_TOOL = 'mcp__panel__intent'
+const INTENT_TOOL = 'mcp__margin__intent'
 const INTENT_RULE = [
   'Intent reporting: the user watches a side panel showing your reading of their request and your plan.',
   `Call the \`${INTENT_TOOL}\` tool with wants, plan and steps at the start of every turn that answers a user prompt, as the first block of your message, before any other tool call in it.`,
@@ -259,9 +259,9 @@ const pastPrompts = async ($: EngineInterface): Promise<Prompt[]> => {
   for (const line of text.split('\n')) {
     try {
       const row = JSON.parse(line)
-      // /quit, /exit, /resume and /clear only leave this chat, /rewind only opens its picker, /panel
+      // /quit, /exit, /resume and /clear only leave this chat, /rewind only opens its picker, /margin
       // only toggles this pane.
-      if (row.sessionId === sessionId && typeof row.display === 'string' && !/^\/(quit|exit|resume|clear|rewind|panel)\b/.test(row.display)) {
+      if (row.sessionId === sessionId && typeof row.display === 'string' && !/^\/(quit|exit|resume|clear|rewind|margin)\b/.test(row.display)) {
         const display = await unpaste($, dir, row)
         const typed = display === row.display ? {} : { typed: row.display }
         prompts.push({ display, timestamp: Number(row.timestamp), ...typed })
@@ -777,12 +777,12 @@ export const register: Register = (on, options) => {
 
   on('engine.create', async (_$, e, next) => {
     const built = await next(e)
-    // Calls on `built` only: it is refused as an argument. Not through /panel: its hook skips a run the plugin's own code raises
-    // ("command.run skipped: re-entry"). The open overlaps /panel's on purpose.
+    // Calls on `built` only: it is refused as an argument. Not through /margin: its hook skips a run the plugin's own code raises
+    // ("command.run skipped: re-entry"). The open overlaps /margin's on purpose.
     const show = async ({ path, line }: { path: string; line: number }) => {
       const text = await built.fs.read(path).then(String, () => undefined)
-      await built.state.set({ plugin: 'panel', key: 'file' } as const, fileView(path, line, text))
-      await built.state.set({ plugin: 'panel', key: 'tab' } as const, 'File')
+      await built.state.set({ plugin: 'margin', key: 'file' } as const, fileView(path, line, text))
+      await built.state.set({ plugin: 'margin', key: 'tab' } as const, 'File')
       if (!(await built.ui.panes()).some(pane => pane.id === PANE && pane.isPlaced)) {
         await built.store.set('open', true).catch(() => undefined)
         const opened = await built.ui.open({ id: PANE, title: 'Panel', columns: 40 })
@@ -790,7 +790,7 @@ export const register: Register = (on, options) => {
       }
     }
 
-    return { ...built, panel: { show } }
+    return { ...built, margin: { show } }
   })
 
   on('session.start', async ($, e, next) => {
@@ -798,7 +798,7 @@ export const register: Register = (on, options) => {
     // A reload drops the module's runs; the atom stays, maybe mid-run, and would show reading… for good.
     await update($, overview, now => (now.running ? { ...now, running: false } : now))
     // immediate: alt+h mid-turn opens the pane now, not once the turn ends; it prints nothing.
-    await $.command.register({ name: 'panel', description: 'Toggle the side panel', immediate: true })
+    await $.command.register({ name: 'margin', description: 'Toggle the side panel', immediate: true })
     // Keys come back in the order first set: the oldest sessions' notes go.
     const notes = (await $.store.keys().catch(() => [])).filter(key => key.startsWith('midTurn:'))
     await Promise.all(notes.slice(0, -MID_TURN_SESSIONS).map(key => $.store.delete(key).catch(() => undefined)))
@@ -818,7 +818,7 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('command.run', { command: 'panel' }, async $ => {
+  on('command.run', { command: 'margin' }, async $ => {
     const panes = await $.ui.panes()
     // A pane waiting for room is not shown: the person's open places it.
     if (panes.some(pane => pane.id === PANE && pane.isPlaced)) {
@@ -1010,7 +1010,7 @@ export const register: Register = (on, options) => {
 
   // /clear starts the conversation over: no report.
   on('session.end', async ($, e, next) => {
-    t.event('panel.end', { reason: e.reason })
+    t.event('margin.end', { reason: e.reason })
     await t.flush(traceIo($))
     if (e.reason === 'clear') {
       // A read still running answers for the old chat.
