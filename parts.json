@@ -21,7 +21,7 @@
   },
   "dividers": { "plugins": ["folio@claudzilla"] },
   "panel": { "plugins": ["margin@claudzilla"] },
-  "picks": { "plugins": ["picks@claudzilla"] },
+  "picks": { "plugins": ["ballot@claudzilla"] },
   "toast": { "plugins": ["update-toast@claudzilla"] },
   "attribution": { "plugins": ["attribution@claudzilla"] },
   "ledger": { "plugins": ["ledger@claudzilla"] },

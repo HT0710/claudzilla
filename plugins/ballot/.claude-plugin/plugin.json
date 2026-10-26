@@ -1,5 +1,5 @@
 {
-  "name": "picks",
+  "name": "ballot",
   "description": "After a reply with a Decision, a card above the prompt: numbered options, or go ahead, except…",
   "author": { "name": "HT0710", "url": "https://github.com/HT0710" }
 }
