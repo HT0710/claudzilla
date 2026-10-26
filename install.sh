@@ -87,12 +87,28 @@ const fs=require("fs");for(const f of process.argv.slice(1))if(fs.existsSync(f))
     { echo "claudzilla: $f is not valid JSON - fix or remove it, then re-run" >&2; exit 1; }
 }
 
-# parts.json maps every link, setting and hook to a part; updater ships always.
+# parts.json maps every link, setting and hook to a part; primer ships always.
 ALL_PARTS=""
-all_parts() { node -p 'Object.keys(require(process.argv[1])).filter(p=>p!="updater").join(" ")' "$REPO/parts.json"; }
+all_parts() { node -p 'Object.keys(require(process.argv[1])).filter(p=>p!="primer").join(" ")' "$REPO/parts.json"; }
 
-part_links() {  # $@: parts; prints their links plus the updater's
-  node -p 'const m=require(process.argv[1]);[...process.argv.slice(2),"updater"].flatMap(p=>m[p].links||[]).join(" ")' "$REPO/parts.json" "$@"
+part_links() {  # $@: parts; prints their links plus the primer's
+  node -p 'const m=require(process.argv[1]);[...process.argv.slice(2),"primer"].flatMap(p=>m[p].links||[]).join(" ")' "$REPO/parts.json" "$@"
+}
+
+# shortcut: maps pre-v1.6 part and plugin names; the updater can jump any older version to the newest tag
+# (claudzilla-update.sh:20), so keep until a major version requires updating through v1.6+.
+RENAMED="dividers:folio panel:margin picks:ballot toast:herald attribution:byline updater:primer"
+OLD_IDS="response-dividers:folio panel:margin picks:ballot guide:primer update-toast:herald attribution:byline"
+renamed() { local r; for r in $RENAMED; do [ "${r%%:*}" != "$1" ] || { echo "${r#*:}"; return 0; }; done; echo "$1"; }
+
+# Old names in a saved choice would be dropped, or fail an only-list; never fatal: the update merged already.
+migrate_choice() {
+  node -e '
+const fs=require("fs"),[f,ren]=process.argv.slice(1),R=new Map(ren.split(" ").map(r=>r.split(":")));
+let j;try{j=JSON.parse(fs.readFileSync(f,"utf8"))}catch{process.exit(0)}
+const ins=j&&typeof j=="object"&&!Array.isArray(j)?j.install:null;let hit=0;
+for(const k of ["only","skip"])if(Array.isArray(ins?.[k]))ins[k]=ins[k].map(p=>R.has(p)?(hit=1,R.get(p)):p);
+if(hit){fs.writeFileSync(f+".claudzilla",JSON.stringify(j,null,2)+"\n");fs.renameSync(f+".claudzilla",f)}' "$DEST/claudzilla.json" "$RENAMED" 2>/dev/null || true
 }
 
 # Prints the base to apply for the picked parts: the repo file itself when all are picked.
@@ -103,7 +119,7 @@ base_for() {
   node -e '
 const fs=require("fs"),[man,basef,out,...picked]=process.argv.slice(1);
 const m=JSON.parse(fs.readFileSync(man,"utf8")),b=JSON.parse(fs.readFileSync(basef,"utf8"));
-const on=new Set([...picked,"updater"]),off=Object.keys(m).filter(p=>!on.has(p));
+const on=new Set([...picked,"primer"]),off=Object.keys(m).filter(p=>!on.has(p));
 const claimed=new Set(Object.values(m).flatMap(p=>p.keys||[])),box=["env","extraKnownMarketplaces","enabledPlugins","hooks"];
 const del=path=>{const s=path.split(".");let o=b;for(const k of s.slice(0,-1)){o=o?.[k]}if(o)delete o[s.at(-1)]};
 for(const p of off){for(const k of m[p].keys||[])del(k);for(const k of m[p].plugins||[])del("enabledPlugins."+k);
@@ -128,7 +144,7 @@ parse_args() {
       --full) FULL=1 ;; --custom) CUSTOM=1 ;; --yes) YES=1 ;; --uninstall) MODE=uninstall ;;
       --add|--remove)
         [ $# -gt 0 ] || { echo "claudzilla: $a needs a part list - parts: $ALL_PARTS" >&2; exit 1; }
-        list=${1//,/ }; shift
+        list=""; for p in ${1//,/ }; do list="${list:+$list }$(renamed "$p")"; done; shift
         for p in $list; do case " $ALL_PARTS " in *" $p "*) ;; *) echo "claudzilla: unknown part '$p' - parts: $ALL_PARTS" >&2; exit 1 ;; esac; done
         if [ "$a" = --add ]; then ADD="${ADD:+$ADD }$list"; else REMOVE="${REMOVE:+$REMOVE }$list"; fi ;;
       *) echo "claudzilla: unknown flag '$a' - flags: --full --custom --add --remove --uninstall --yes" >&2; exit 1 ;;
@@ -188,21 +204,21 @@ claudzilla: no terminal to ask which parts to install.
 Claude: ask the user with AskUserQuestion: "Full (recommended)" or "Custom".
   Full: run $REPO/install.sh --full
   Custom: one AskUserQuestion call with three multiSelect questions, ticked = install:
-    Screen: hud panel picks
-    Replies: caveman ponytail dividers
-    Background: rtk toast attribution ledger
+    Screen: hud margin ballot
+    Replies: caveman ponytail folio
+    Background: rtk herald byline ledger
   Then run $REPO/install.sh --full --remove <unticked parts, comma-separated> (all ticked: --full).
 core (rules, hooks, settings) is always installed.
 Parts:
   hud - statusline
-  panel - side panel
-  picks - suggested next steps
+  margin - side panel
+  ballot - suggested next steps
   caveman - terse replies
   ponytail - smallest-change coding
-  dividers - response dividers
+  folio - response dividers
   rtk - token-saving command filter
-  toast - update and usage notices
-  attribution - commit credit
+  herald - update and usage notices
+  byline - commit credit
   ledger - pause edits another session made
 EOF
   exit 2
@@ -219,14 +235,14 @@ menu() {
     read -r ans <&3 || true; [ "${ans:-1}" = 2 ] && mode=2
   fi
   if [ "$mode" = 2 ]; then
-    for g in "Screen:hud panel picks" "Replies:caveman ponytail dividers" "Background:rtk toast attribution ledger"; do
+    for g in "Screen:hud margin ballot" "Replies:caveman ponytail folio" "Background:rtk herald byline ledger"; do
       echo "${g%%:*}"
       for p in ${g#*:}; do n=$((n+1)); case "$on" in *" $p "*) echo "  $n) [x] $p" ;; *) echo "  $n) [ ] $p" ;; esac; done
     done
     printf 'numbers to toggle, space separated (Enter keeps these): '
     read -r ans <&3 || true
     n=0
-    for p in hud panel picks caveman ponytail dividers rtk toast attribution ledger; do
+    for p in hud margin ballot caveman ponytail folio rtk herald byline ledger; do
       n=$((n+1)); case " $ans " in *" $n "*) case "$on" in *" $p "*) on="${on/ $p / }" ;; *) on="$on $p " ;; esac ;; esac
     done
   else on=" $ALL_PARTS "; fi
@@ -237,7 +253,7 @@ menu() {
 
 picked() { case " $PICKED " in *" $1 "*) ;; *) return 1 ;; esac; }
 
-# alt+h toggles the panel, alt+k focuses the band (the picks card), alt+g toggles
+# alt+h toggles margin, alt+k focuses the band (the ballot card), alt+g toggles
 # the guide. Each is left alone if the user chose: the key under any alias in
 # Chat or Global (null unbinds), the action on another key, or a symlink (a
 # dotfiles tool owns it).
@@ -250,7 +266,8 @@ let j={bindings:[]};
 if(fs.existsSync(dst))try{j=JSON.parse(fs.readFileSync(dst,"utf8"))}catch{process.exit(2)}
 if(!isObj(j)||!Array.isArray(j.bindings)||!j.bindings.every(b=>isObj(b)&&isObj(b.bindings)))process.exit(2);
 const chat=j.bindings.filter(b=>b.context==="Chat");
-const keys=[["h","command:panel","panel"],["k","abovePrompt:focus","picks"],["g","command:claudzilla","updater"]],msg=[];
+const keys=[["h","command:margin","margin"],["k","abovePrompt:focus","ballot"],["g","command:claudzilla","primer"]],msg=[];
+for(const b of j.bindings)if(["Chat","Global"].includes(b.context))for(const x in b.bindings)if(b.bindings[x]==="command:panel"){b.bindings[x]="command:margin";msg.push(`${x} -> command:margin`)}
 for(const[k,a,p]of keys)if(!has(p))for(const b of chat)if(b.bindings[`alt+${k}`]===a){delete b.bindings[`alt+${k}`];msg.push(`alt+${k} removed`)}
 j.bindings=j.bindings.filter(b=>b.context!=="Chat"||Object.keys(b.bindings).length||!msg.length);
 const own=(k,a)=>j.bindings.some(b=>(["Chat","Global"].includes(b.context)&&Object.keys(b.bindings).some(x=>new RegExp(`^(alt|opt|option|meta)\\+${k}$`,"i").test(x)))||Object.values(b.bindings).includes(a));
@@ -262,11 +279,11 @@ fs.writeFileSync(out,JSON.stringify(j,null,2)+"\n");
 console.log(msg.join(", "))' "$dst" "$tmp" "$PICKED") || rc=$?
   case $rc in
     0) if [ -L "$dst" ]; then rm -f "$tmp"; verb=add; case "$added" in *"->"*) ;; *) verb=remove ;; esac
-         echo "claudzilla: $dst is a symlink - $verb alt+h (/panel), alt+k (card focus) and alt+g (/claudzilla) yourself (see CONFIGURATION.md)" >&2
+         echo "claudzilla: $dst is a symlink - $verb alt+h (/margin), alt+k (card focus) and alt+g (/claudzilla) yourself (see CONFIGURATION.md)" >&2
        else [ -f "$dst" ] && save keybindings.json
          mv "$tmp" "$dst"; echo "keybindings: $added"; fi ;;
     3) ;;
-    *) rm -f "$tmp"; echo "claudzilla: $dst unreadable - add alt+h (/panel), alt+k (card focus) and alt+g (/claudzilla) yourself (see CONFIGURATION.md)" >&2 ;;
+    *) rm -f "$tmp"; echo "claudzilla: $dst unreadable - add alt+h (/margin), alt+k (card focus) and alt+g (/claudzilla) yourself (see CONFIGURATION.md)" >&2 ;;
   esac
 }
 
@@ -343,13 +360,13 @@ record_or_warn() { record "$@" || echo "claudzilla: could not update the install
 plugins() {
   command -v claude >/dev/null || { echo "plugins skipped: install Claude Code, then re-run install.sh" >&2; return 0; }
   local ids='try{for(const p of JSON.parse(require("fs").readFileSync(0,"utf8")))console.log(p.id||p.name)}catch{process.exit(1)}'
-  local have_p have_m plan k a b ours=0 trust=1
+  local have_p have_m plan k a b o ours=0 trust=1
   # A list we cannot read must not make everything look new: record nothing, still install.
   have_p=$(claude plugin list --json </dev/null 2>/dev/null | node -e "$ids" 2>/dev/null) || trust=0
   have_m=$(claude plugin marketplace list --json </dev/null 2>/dev/null | node -e "$ids" 2>/dev/null) || trust=0
   [ "$trust" = 1 ] || echo "claudzilla: cannot read claude's plugin lists - installing, but not recording plugins as ours" >&2
   plan=$(node -e '
-const m=require(process.argv[1]),b=require(process.argv[2]),on=new Set([...process.argv.slice(3),"updater"]),seen=new Set();
+const m=require(process.argv[1]),b=require(process.argv[2]),on=new Set([...process.argv.slice(3),"primer"]),seen=new Set();
 for(const[p,v]of Object.entries(m))for(const id of v.plugins||[]){
   if(!on.has(p)){console.log("D",id);continue}
   console.log("P",id);const n=id.split("@")[1],s=(b.extraKnownMarketplaces||{})[n]?.source;
@@ -363,18 +380,24 @@ for(const[p,v]of Object.entries(m))for(const id of v.plugins||[]){
   # claudzilla's own plugins load in place from this clone, so a pull updates them; no version bump.
   if [ "$ours" = 1 ]; then claude plugin marketplace add "$REPO" >/dev/null 2>&1 </dev/null && echo "marketplace: $REPO" || true; fi
   claude plugin marketplace update >/dev/null 2>&1 </dev/null || true
+  local failed=
   while read -r k a b; do case $k in
     P) case $'\n'"$have_p"$'\n' in *$'\n'"$a"$'\n'*) had=1 ;; *) had=0 ;; esac
        # install skips plugins already present; update moves them to the version the marketplace offers (the `ref` tag when pinned).
        if claude plugin install "$a" </dev/null && claude plugin update "$a" >/dev/null </dev/null; then
          [ "$had" = 1 ] || [ "$trust" = 0 ] || case $a in *@claudzilla) ;; *) record_or_warn plugins "$a" ;; esac
-       else echo "  ! $a failed - retry: claude plugin install $a && claude plugin update $a" >&2; fi ;;
+       else failed="$failed $a"; echo "  ! $a failed - retry: claude plugin install $a && claude plugin update $a" >&2; fi ;;
     D) case $a in
          *@claudzilla) case $'\n'"$have_p"$'\n' in *$'\n'"$a"$'\n'*) claude plugin uninstall "$a" >/dev/null 2>&1 </dev/null || true ;; esac ;;
          *) node -e 'process.exit((require(process.argv[1]).plugins||[]).includes(process.argv[2])?0:1)' "$DEST/.claudzilla-installed.json" "$a" 2>/dev/null \
               && { ! claude plugin uninstall "$a" >/dev/null 2>&1 </dev/null || record_or_warn plugins "$a" del; } ;;
        esac ;;
   esac; done <<<"$plan"
+  # a failed new id leaves the old record as the only copy (it still loads via `renames`)
+  for o in $OLD_IDS; do n="${o#*:}@claudzilla"; o="${o%%:*}@claudzilla"
+    case " $failed " in *" $n "*) continue ;; esac
+    case $'\n'"$have_p"$'\n' in *$'\n'"$o"$'\n'*) claude plugin uninstall "$o" >/dev/null 2>&1 </dev/null || true ;; esac
+  done
 }
 
 # Claude Code picks colour depth before settings.json env applies, and WSL
@@ -550,7 +573,7 @@ uninstall() {
   [ -d "$DEST" ] || { echo "claudzilla: nothing in $DEST"; return 0; }
   check_settings
   if [ -f "$DEST/.claudzilla-base.json" ] && [ -f "$DEST/settings.json" ]; then echo '{}' > "$DEST/.settings.base.claudzilla"; merge_settings "$DEST/.settings.base.claudzilla"; rm -f "$DEST/.settings.base.claudzilla"; fi
-  for p in $ALL_PARTS updater; do unlink_part "$p"; done
+  for p in $ALL_PARTS primer; do unlink_part "$p"; done
   PICKED="" keybindings
   ids=$(node -p 'Object.values(require(process.argv[1])).flatMap(p=>p.plugins||[]).filter(i=>i.endsWith("@claudzilla")).join(" ")' "$REPO/parts.json")
   ids="$ids $(node -p 'try{(require(process.argv[1]).plugins||[]).join(" ")}catch{""}' "$rec" 2>/dev/null)"
@@ -622,6 +645,7 @@ main() {
   parse_args "$@"
   [ "$MODE" != uninstall ] || { uninstall; return 0; }
   mkdir -p "$DEST"
+  migrate_choice
   resolve_parts
   [ -z "$NODE_NEW_DIR" ] || record_or_warn files "$NODE_NEW_DIR"; [ -z "$NODE_NEW_LINK" ] || record_or_warn files "$NODE_NEW_LINK"
   if [ "$CUSTOM" = 1 ] || { [ "$fresh" = 1 ] && [ "$CHOSEN" = 0 ] && [ -z "$ADD$REMOVE" ]; }; then menu; ran=1; fi
@@ -636,7 +660,7 @@ main() {
   merge_settings "$base"
   rm -f "$DEST/.settings.base.claudzilla"
   for p in $ALL_PARTS; do picked "$p" || unlink_part "$p"; done
-  PICKED="$PICKED updater" keybindings
+  PICKED="$PICKED primer" keybindings
   if picked hud; then truecolor; font; fi
   if picked core; then stamp_rules || echo "claudzilla: rule dates not saved - /rule-review skips undated rules until the next install" >&2; fi
   [ "$OFFLINE" = 1 ] || plugins
