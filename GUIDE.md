@@ -209,7 +209,7 @@ claudzilla adds four skills of its own:
 - **`/rule-review`:** counts how often each claudzilla rule slipped, from your local transcripts. Only you run it; a weekly summary appears at startup. It shares the counts, never the text, as a GitHub issue only after you say yes.
 - **`claudzilla-report` and `claudzilla-compact`:** run by `/claudzilla report` and `/claudzilla compact`. See *Report a problem* and *Manage context*.
 
-If you installed caveman (terse replies), `/caveman` turns it on, `/caveman status` shows its mode, and `stop caveman` turns it off. If you installed ponytail (smallest change), `/ponytail lite`, `/ponytail full` or `/ponytail ultra` sets its level, and `stop ponytail` turns it off. `normal mode` turns both off.
+If you installed caveman (terse replies), `/caveman` turns it on, `/caveman status` shows its mode, and `stop caveman` turns it off. If you installed ponytail (smallest change), `/ponytail lite`, `/ponytail full` or `/ponytail ultra` sets its level, and `stop ponytail` turns it off. `normal mode` turns both off. ponytail's band over the prompt box (cost, tokens, reuse per task) starts hidden: `/ponytail band on` shows it, and its board needs **Task board** (`ledger`) turned on in `/config`. claudzilla sets both the first time it installs or updates ponytail, then leaves them, so your choice stays through updates.
 
 Claude Code's [skills](https://code.claude.com/docs/en/skills) page explains how skills load.
 
