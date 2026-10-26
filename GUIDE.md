@@ -300,7 +300,7 @@ If you installed the status line (the `hud` part), it fills the bottom of the sc
 
 From top to bottom:
 
-- **Top row:** the folder, the git branch, and uncommitted changes: `!3` files changed, `?2` new files git does not track, and `+40 -12` lines added and removed that are not yet staged. On the right: the email of the account you are logged in with, and the claudzilla version.
+- **Top row:** the folder, the git branch, and uncommitted changes: `!3` files changed, `?2` new files git does not track, and `+40 -12` lines added and removed that are not yet staged. On the right: the email of the account you are logged in with, masked to the first and last letter before `@` (`a…h@gmail.com`), and the claudzilla version.
 - **Two thin lines** frame the meters: the top one shows the time, the bottom one the date.
 - **`ctx` meter:** how full context is, as a percentage, and the token count, such as `150k`.
 - **`cch` meter:** how long the prompt cache stays warm, as the share of its time used and the minutes left, such as `55m`. The prompt cache holds the conversation so far, so the next message reads it back at a fraction of the full price; it lasts 5 minutes or 1 hour after each request. The meter starts at 0% after each reply. Its bar stays full and changes colour as the cache cools, from blue to orange at 100% and `cold`: the next message then pays again for the whole conversation, so a cold cache is a good moment to `/compact` or `/clear`. Before the first reply it shows 0% and `hot`.
@@ -309,9 +309,9 @@ From top to bottom:
 
 The meters sit in two columns, `ctx` over `cch` on the left and `5h` over `wk` on the right; on a terminal too narrow for two columns they stack, one per row. Each meter bar runs from blue to orange: the cells past about two thirds of the bar are orange. The `cch` bar instead is solid and one colour. The status line redraws every second. The folder name shifts color slowly, and every 90 seconds a highlight sweeps across the meters for 30 seconds. The motion is decoration only.
 
-> **Your email is visible:** it shows whenever the status line does. Anyone who sees your screen, a screen share or a screenshot sees it too.
+> **Your email is masked:** only the first and last letter before `@` and the domain show, enough to tell your accounts apart. Anyone who sees your screen, a screen share or a screenshot sees that much.
 
-On a narrow terminal, the top row drops the version first, then shortens the email to the part before `@`, then drops it, then the changes and the branch, and finally cuts the folder from the left. The bottom row drops thinking, then the skill, the session id, the session name, and the model last.
+On a narrow terminal, the top row drops the version first, then drops the email's domain, then the rest of the email, then the changes and the branch, and finally cuts the folder from the left. The bottom row drops thinking, then the skill, the session id, the session name, and the model last.
 
 The installer offers the MesloLGS NF font, which draws the symbols. If you said no, the status line uses basic symbols every font has: `■ □` instead of `▰ ▱` in the meters, `›` instead of `⎇` for the branch, and `▸` instead of `⚑` for the skill. To switch later, run `CLAUDZILLA_FONT=yes ~/claudzilla/install.sh`, then set MesloLGS NF as your terminal font. If you see boxes instead of symbols, see *Fix common problems* (`/claudzilla stuck`).
 
@@ -320,7 +320,6 @@ What to do with it:
 - When `ctx` runs high, compact or clear. See *Manage context* (`/claudzilla context`).
 - When `5h` or `wk` nears 100%, check its reset time and plan around it. See *Usage and cost* (`/claudzilla limits`).
 - Check the branch before you ask Claude to commit.
-- Before you share your screen, remember the email.
 
 Claude Code's [status line](https://code.claude.com/docs/en/statusline) page explains how a status line works.
 
@@ -433,7 +432,7 @@ claudzilla does some things without being asked. This list names each one, so no
 - **Settings reset on update:** each update runs the installer again, which puts claudzilla's values back in `~/.claude/settings.json`, such as the model or effort level that a `/model` or `/effort` pick saved. Put lasting choices in `~/.claude/settings.overrides.json`.
 - **Local trace:** the guard and other claudzilla parts write what they did to `~/.claude/claudzilla-trace/` on your machine. Nothing is uploaded. To turn it off, put `{"rulesGuard":{"trace":false}}` in `~/.claude/claudzilla.json`. See *Report a problem* (`/claudzilla bugs`).
 - **Messages between sessions:** if you installed the ledger plugin, a session about to edit a file that another session edited recently sends that session a message. An idle session wakes to read it, which starts one short turn there.
-- **Your email:** if you installed the status line, it shows the email of the account you are logged in with. Anyone who sees your screen sees it.
+- **Your email:** if you installed the status line, it shows the email of the account you are logged in with, masked to the first and last letter before `@` and the domain. Anyone who sees your screen sees that much.
 - **Agent teams:** claudzilla sets `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` to `1`. This experimental Claude Code feature lets Claude start *teammates*: separate Claude sessions that work in parallel and message each other. A team uses far more tokens than one session. While it is on, a subagent that Claude names can start as a teammate instead. To turn it off, put `{"env":{"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS":"0"}}` in `~/.claude/settings.overrides.json`, then run `~/claudzilla/install.sh`. See Claude Code's [agent teams](https://code.claude.com/docs/en/agent-teams) page.
 
 ### Fix common problems

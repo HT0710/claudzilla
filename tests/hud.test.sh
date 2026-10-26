@@ -21,7 +21,7 @@ T="$TMP/t.jsonl"
   echo "{\"timestamp\":\"$(iso 60)\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"b\",\"name\":\"Skill\",\"input\":{\"skill\":\"pr\"}}]}}"
   echo "{\"timestamp\":\"$(iso 5)\",\"message\":{\"content\":[{\"type\":\"thinking\",\"thinking\":\"\"}]}}"
 } > "$T"
-C="$TMP/cfg"; mkdir -p "$C"; echo '{"oauthAccount":{"emailAddress":"me@example.test"}}' > "$C/.claude.json"
+C="$TMP/cfg"; mkdir -p "$C"; echo '{"oauthAccount":{"emailAddress":"alex.smith@example.test"}}' > "$C/.claude.json"
 
 full=$(cat <<JSON
 {"session_id":"abcdef1234567890","workspace":{"current_dir":"$TMP"},"transcript_path":"$T",
@@ -47,7 +47,9 @@ check "data: 5h"        [ "$(key 5h "$kv")" = 30 ]
 check "data: 5h_note"   [ "$(key 5h_note "$kv")" = 2h0m ]
 check "data: wk"        [ "$(key wk "$kv")" = 12 ]
 check "data: wk_note ms" [ "$(key wk_note "$kv")" = 2d7h ]
-check "data: profile"   [ "$(key profile "$kv")" = me@example.test ]
+check "data: profile"   [ "$(key profile "$kv")" = a…h@example.test ]
+C2="$TMP/cfg2"; mkdir -p "$C2"; echo '{"oauthAccount":{"emailAddress":"me@example.test"}}' > "$C2/.claude.json"
+check "data: short profile -> first char only" [ "$(key profile "$(CLAUDE_CONFIG_DIR="$C2" node "$HUD/hud-data.mjs" <<<"$full")")" = m…@example.test ]
 check "data: up"        [ "$(key up "$kv")" = 90m ]
 check "data: last skill" [ "$(key skill "$kv")" = pr ]
 check "data: thinking recent" [ "$(key thinking "$kv")" = 1 ]
@@ -130,7 +132,7 @@ out=$(render "$full")
 check "render: ctx | 5h row" grep -q '^ctx .* 42%  *┃ 5h  .* 30%  *2h0m$' <<<"$out"
 check "render: ctx used" grep -q '^ctx .* 42%  *417k ┃ 5h ' <<<"$(render "$used")"
 check "render: no reply -> hot cch | wk row" grep -q '^cch .*   0%  hot ┃ wk  .* 12%  *2d7h$' <<<"$out"
-check "render: profile"  grep -qE 'me@example\.test(  v[0-9.]+)?$' <<<"$out"
+check "render: profile"  grep -qE 'a…h@example\.test(  v[0-9.]+)?$' <<<"$out"
 check "render: activity" grep -q '^Opus  high  ⚑ pr .*abcdef12  up 90m$' <<<"$out"
 printf '%s\n' "$(reply 1200 0 500)" >> "$T"
 out=$(render "$full")
@@ -181,15 +183,15 @@ cp "$HUD/hud-filter.pl" "$R/claude/hud/"; cp "$REPO/.github/next-version.sh" "$R
 g() { git -C "$R" -c user.name=t -c user.email=t@t "$@"; }
 ver() { data <<<"$full" | COLUMNS=120 perl "$R/claude/hud/hud-filter.pl" | head -1 | perl -pe 's/\e\[[0-9;]*m//g'; }
 g init -q -b main; g commit -q --allow-empty -m a
-check "render: no tags -> no version" grep -q 'me@example.test$' <<<"$(ver)"
+check "render: no tags -> no version" grep -q 'a…h@example.test$' <<<"$(ver)"
 g tag v9.9.9
-check "render: on release tag -> tag far right" grep -q 'me@example.test  v9.9.9$' <<<"$(ver)"
+check "render: on release tag -> tag far right" grep -q 'a…h@example.test  v9.9.9$' <<<"$(ver)"
 g commit -q --allow-empty -m 'docs: x'
-check "render: no release due -> last tag" grep -q 'me@example.test  v9.9.9$' <<<"$(ver)"
+check "render: no release due -> last tag" grep -q 'a…h@example.test  v9.9.9$' <<<"$(ver)"
 g commit -q --allow-empty -m 'feat(hud): x'
-check "render: ahead with feat -> next minor" grep -q 'me@example.test  v9.10.0$' <<<"$(ver)"
+check "render: ahead with feat -> next minor" grep -q 'a…h@example.test  v9.10.0$' <<<"$(ver)"
 g tag backup
-check "render: non-release tag ignored" grep -q 'me@example.test  v9.10.0$' <<<"$(ver)"
+check "render: non-release tag ignored" grep -q 'a…h@example.test  v9.10.0$' <<<"$(ver)"
 
 # --- trace: hud.change only when the output changes ---
 TRC="$TMP/trcfg"; TRT="$TMP/trtmp"; mkdir -p "$TRC" "$TRT"; TR="$TMP/trrepo"; mkdir -p "$TR"

@@ -87,8 +87,10 @@ masks() {
   e=$(python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1])).get("oauthAccount",{}).get("emailAddress",""))' \
     "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" 2>/dev/null)
   [ -n "$e" ] || { echo "masks: no account email found" >&2; return 1; }
-  # A narrow status line shows only the part before @.
-  printf '%s\n' "$e" "${e%@*}" "$USER" "$(hostname)" "$HOME"
+  # The status line masks the part before @ (a…h, or a… when 2 chars or fewer); a narrow one drops the domain.
+  local l=${e%@*} m
+  if [ ${#l} -gt 2 ]; then m="${l:0:1}…${l: -1}"; else m="${l:0:1}…"; fi
+  printf '%s\n' "$e" "$m@${e#*@}" "$m" "$USER" "$(hostname)" "$HOME"
 }
 
 # leaks HTML: any mask string, or the first 8 characters of a longer one, in HTML.
