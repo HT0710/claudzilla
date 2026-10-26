@@ -1,5 +1,5 @@
 {
-  "name": "attribution",
+  "name": "byline",
   "description": "Strips Claude session links from the commit and PR attribution Claude writes",
   "author": { "name": "HT0710", "url": "https://github.com/HT0710" }
 }

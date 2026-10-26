@@ -2,11 +2,11 @@
   "name": "claudzilla",
   "description": "Plugins that ship with claudzilla",
   "owner": { "name": "HT0710", "url": "https://github.com/HT0710" },
-  "renames": { "panel": "margin", "response-dividers": "folio", "guide": "primer", "picks": "ballot", "update-toast": "herald" },
+  "renames": { "panel": "margin", "response-dividers": "folio", "guide": "primer", "picks": "ballot", "update-toast": "herald", "attribution": "byline" },
   "plugins": [
     { "name": "margin", "source": "./plugins/margin" },
     { "name": "folio", "source": "./plugins/folio" },
-    { "name": "attribution", "source": "./plugins/attribution" },
+    { "name": "byline", "source": "./plugins/byline" },
     { "name": "ballot", "source": "./plugins/ballot" },
     { "name": "herald", "source": "./plugins/herald" },
     { "name": "primer", "source": "./plugins/primer" },

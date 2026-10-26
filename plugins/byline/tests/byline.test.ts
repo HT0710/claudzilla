@@ -46,6 +46,6 @@ test('traces whether the text changed', async ($, on) => {
   await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
   await $.attribution.text({ kind: 'commit', text: '' })
   await $.session.end({ reason: 'other' })
-  const rows = [...files.entries()].find(([p]) => p.endsWith('s1.attribution.jsonl'))![1].trim().split('\n').map(l => JSON.parse(l))
+  const rows = [...files.entries()].find(([p]) => p.endsWith('s1.byline.jsonl'))![1].trim().split('\n').map(l => JSON.parse(l))
   expect(rows.find(r => r.event === 'attribution.text')?.data).toMatchObject({ kind: 'commit', changed: true })
 })
