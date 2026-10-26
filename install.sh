@@ -279,7 +279,8 @@ fs.writeFileSync(out,JSON.stringify(j,null,2)+"\n");
 console.log(msg.join(", "))' "$dst" "$tmp" "$PICKED") || rc=$?
   case $rc in
     0) if [ -L "$dst" ]; then rm -f "$tmp"; verb=add; case "$added" in *"->"*) ;; *) verb=remove ;; esac
-         echo "claudzilla: $dst is a symlink - $verb alt+h (/margin), alt+k (card focus) and alt+g (/claudzilla) yourself (see CONFIGURATION.md)" >&2
+         if grep -q 'command:panel' "$dst"; then echo "claudzilla: $dst is a symlink - change command:panel to command:margin yourself (see CONFIGURATION.md)" >&2
+         else echo "claudzilla: $dst is a symlink - $verb alt+h (/margin), alt+k (card focus) and alt+g (/claudzilla) yourself (see CONFIGURATION.md)" >&2; fi
        else [ -f "$dst" ] && save keybindings.json
          mv "$tmp" "$dst"; echo "keybindings: $added"; fi ;;
     3) ;;
