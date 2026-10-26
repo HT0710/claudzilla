@@ -52,7 +52,7 @@ function host(on: Parameters<TestBody>[1], { stdout = '/repo\nv1.4.0\n', exitCod
     seen.opened.push(e)
     return { value: { isPlaced: true } } as any
   })
-  on('ui.panes', () => ({ value: seen.opened.length > seen.closed.length ? [{ id: 'guide' }] : [] }) as any)
+  on('ui.panes', () => ({ value: seen.opened.length > seen.closed.length ? [{ id: 'primer' }] : [] }) as any)
   on('ui.close', (_, e) => {
     seen.closed.push(e)
     return { value: undefined } as any
@@ -67,10 +67,10 @@ const run = ($: Parameters<TestBody>[0], args: string) =>
 async function open($: Parameters<TestBody>[0], args = '', columns = 100, bodyRows = 40) {
   await $.session.start(start)
   await run($, args)
-  return $.ui.mount({ plugin: 'guide', surface: 'terminal', component: 'Pane', props: props(columns, 'dock', bodyRows), requestId: 'guide' })
+  return $.ui.mount({ plugin: 'primer', surface: 'terminal', component: 'Pane', props: props(columns, 'dock', bodyRows), requestId: 'primer' })
 }
 const wheel = ($: Parameters<TestBody>[0], by: number, pointer?: { column: number; row: number }) =>
-  $.ui.scroll({ component: 'Pane', requestId: 'guide', offset: 0, by, bodyRows: 6, contentRows: 6, origin: { kind: 'person' }, ...(pointer ? { pointer } : {}) })
+  $.ui.scroll({ component: 'Pane', requestId: 'primer', offset: 0, by, bodyRows: 6, contentRows: 6, origin: { kind: 'person' }, ...(pointer ? { pointer } : {}) })
 
 test('registers /claudzilla with a topic hint', async ($, on) => {
   const seen = host(on)
@@ -82,7 +82,7 @@ test('bare /claudzilla toggles the guide; a topic opens it either way', async ($
   const seen = host(on)
   await open($)
   await run($, '')
-  expect(seen.closed).toEqual([expect.objectContaining({ id: 'guide' })])
+  expect(seen.closed).toEqual([expect.objectContaining({ id: 'primer' })])
   expect(seen.opened).toHaveLength(1)
   await run($, '')
   expect(seen.opened).toHaveLength(2)
@@ -94,7 +94,7 @@ test('bare /claudzilla toggles the guide; a topic opens it either way', async ($
 test('opens on start with the topic list', async ($, on) => {
   const seen = host(on)
   const ui = await open($)
-  expect(seen.opened).toEqual([expect.objectContaining({ id: 'guide', focus: true, closeOnEscape: true })])
+  expect(seen.opened).toEqual([expect.objectContaining({ id: 'primer', focus: true, closeOnEscape: true })])
   expect(seen.read).toEqual(['/repo/GUIDE.md'])
   expect((await ui.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['topic:talk', 'topic:picks'])
   // A Button lights and presses as wide as it draws: each topic fills the column, as the shown one does.
@@ -351,7 +351,7 @@ test('report writes a snapshot and flushes', async ($, on) => {
   await $.session.start(start)
   await run($, 'report the panel is blank')
   const row = writes.map(w => w.text).join('\n').split('\n').filter(Boolean).map(l => JSON.parse(l)).find(r => r.event === 'report.snapshot')
-  expect(row).toMatchObject({ part: 'guide', level: 'info' })
+  expect(row).toMatchObject({ part: 'primer', level: 'info' })
   expect(row.data).toMatchObject({ version: 'v1.4.0', commit: 'abc123', branch: 'feat/x', dirty: true, claudeCode: '2.1.9', os: 'Linux 6', node: 'v22.1.0', columns: 120, rows: 40, mods: ['margin@claudzilla'], overrideKeys: ['model', 'env.A'], configKeys: ['rulesGuard.trace'] })
   expect(JSON.stringify(row)).not.toContain('secret-model')
   expect(seen.opened).toHaveLength(0)
@@ -421,10 +421,10 @@ test('compact_draft fills the box once the turn ends; a subagent call fills noth
   const done = (extra = {}) => ({ answer: 'x', reason: 'answer' as const, durationMs: 1, isAborted: false, turnId: 't1', ...extra })
   await $.session.start(start)
   expect(registered.map(r => r.name)).toContain('compact_draft')
-  await $.tool.call({ tool: 'mcp__guide__compact_draft', keep: 'k', drop: 'd', agentId: 'a1' } as any)
+  await $.tool.call({ tool: 'mcp__primer__compact_draft', keep: 'k', drop: 'd', agentId: 'a1' } as any)
   await $.turn.complete(done() as any)
   expect(filled).toEqual([])
-  expect(await $.tool.call({ tool: 'mcp__guide__compact_draft', keep: 'k', drop: 'd' } as any)).toMatchObject({ result: expect.stringContaining('prompt box') })
+  expect(await $.tool.call({ tool: 'mcp__primer__compact_draft', keep: 'k', drop: 'd' } as any)).toMatchObject({ result: expect.stringContaining('prompt box') })
   expect(filled).toEqual([])
   await $.turn.complete(done({ agentId: 'a1' }) as any)
   expect(filled).toEqual([])
@@ -437,9 +437,9 @@ test("compact_draft's chat rows draw nothing; other tools' rows still draw", asy
   const props = { tool_use_id: 'u1', input: { keep: 'k', drop: 'd' }, isRunning: false, isErrored: false, isInterrupted: false, output: 'ok' }
   on('ui.render', { component: ['ToolUse', 'ToolResult'] }, () => ({ type: 'Text' as const, children: ['engine row'] }) as any)
   for (const component of ['ToolUse', 'ToolResult'] as const) {
-    const ui = await $.ui.mount({ plugin: 'guide', surface: 'terminal', component, props: { ...props, tool: 'mcp__guide__compact_draft' }, requestId: 'u1' } as any)
+    const ui = await $.ui.mount({ plugin: 'primer', surface: 'terminal', component, props: { ...props, tool: 'mcp__primer__compact_draft' }, requestId: 'u1' } as any)
     expect(await ui.find({ type: 'Text' })).toBeUndefined()
   }
-  const other = await $.ui.mount({ plugin: 'guide', surface: 'terminal', component: 'ToolUse', props: { ...props, tool: 'Bash' }, requestId: 'u2' } as any)
+  const other = await $.ui.mount({ plugin: 'primer', surface: 'terminal', component: 'ToolUse', props: { ...props, tool: 'Bash' }, requestId: 'u2' } as any)
   expect(await other.find({ type: 'Text', text: 'engine row' })).toBeDefined()
 })

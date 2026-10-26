@@ -128,7 +128,7 @@ fresh
 check "excerpt with no files" bash -c '[ "$(node "$1" --excerpt </dev/null)" = "tracing off or no trace for this session" ]' _ "$R"
 
 fresh
-ent s1 guide 1 report.snapshot '{"version":"v9"}'
+ent s1 primer 1 report.snapshot '{"version":"v9"}'
 ent s1 hook 3 b.second; ent s1 mod 4 a.first; ent s1 hook.1 4 a.first.rot
 ent s2 hook 3 other.session
 ent nosession updater 3 updater.run
@@ -138,14 +138,14 @@ check "excerpt merges parts in ts order" bash -c 'e=$(sed 1d "$1" | node -e "con
 
 fresh
 ent s1 hook 30 before; ent s1 report 20 report.mark '{"phase":"start"}'; ent s1 hook 15 inside
-ent s1 report 10 report.mark '{"phase":"end"}'; ent s1 hook 6 after; ent s1 guide 5 report.snapshot '{"v":1}'
+ent s1 report 10 report.mark '{"phase":"end"}'; ent s1 hook 6 after; ent s1 primer 5 report.snapshot '{"v":1}'
 rep --excerpt | sed 1d | grep -q . && w=$(rep --excerpt | sed 1d | node -e 'console.log(require("fs").readFileSync(0,"utf8").trim().split("\n").map(l=>JSON.parse(l).event).join(","))')
 check "excerpt uses the mark window" [ "${w:-}" = "report.mark,inside,report.mark" ]
-fresh; ent s1 guide 5 report.snapshot '{"v":1}'; ent s1 hook 20 old; ent s1 hook 7 new; ent s1 hook 2 later
+fresh; ent s1 primer 5 report.snapshot '{"v":1}'; ent s1 hook 20 old; ent s1 hook 7 new; ent s1 hook 2 later
 check "excerpt default window: 10 min before snapshot, ends at it" bash -c 'o=$(node "$1" --excerpt </dev/null); [ "$(sed 1d <<<"$o" | grep -c "\"event\":\"new\"")" = 1 ] && ! grep -q "\"event\":\"old\"" <<<"$o" && ! grep -q "\"event\":\"later\"" <<<"$o"' _ "$R"
 
 # F2: only this session's trace, from CLAUDE_CODE_SESSION_ID
-fresh; ent s1 hook 6 mine1; ent s1 guide 5 report.snapshot '{"who":"s1"}'; ent s2 hook 3 theirs2; ent s2 guide 1 report.snapshot '{"who":"s2"}'
+fresh; ent s1 hook 6 mine1; ent s1 primer 5 report.snapshot '{"who":"s1"}'; ent s2 hook 3 theirs2; ent s2 primer 1 report.snapshot '{"who":"s2"}'
 o=$(rep --excerpt)
 check "excerpt: env session picks its own snapshot and trace" bash -c 'head -1 <<<"$1" | grep -q "\"who\":\"s1\"" && grep -q mine1 <<<"$1" && ! grep -q "theirs2\|\"who\":\"s2\"" <<<"$1"' _ "$o"
 o=$(CLAUDE_CODE_SESSION_ID=s2 rep --excerpt)
@@ -164,28 +164,28 @@ check "mark: no session id -> says so, nothing written" bash -c '[ "$1" = "no se
 # I1: private text left out of the excerpt
 fresh; ent s1 hook 3 priv '{"prompt":"my secret plan","n":{"title":"abc","text":["x"]},"judged":"y","reason":"why not","keep":"shown"}'
 ent s1 hook 2 creds '{"cmd":"git clone https://bob:hunter2@host/x","env":"PASSWORD=hunter2 next","t":"token: abc123 ok","p":"pwd=zz"}'
-ent s1 guide 1 report.snapshot '{"v":1}'
+ent s1 primer 1 report.snapshot '{"v":1}'
 o=$(rep --excerpt)
 check "excerpt: prompt/judged/text/title/reason -> [N chars]" bash -c 'grep -q "\"prompt\":\"\[14 chars\]\"" <<<"$1" && grep -q "\"title\":\"\[3 chars\]\"" <<<"$1" && grep -q "\"text\":\"\[5 chars\]\"" <<<"$1" && grep -q "\"judged\":\"\[1 chars\]\"" <<<"$1" && grep -q "\"reason\":\"\[7 chars\]\"" <<<"$1" && grep -q "\"keep\":\"shown\"" <<<"$1" && ! grep -q "secret plan\|why not" <<<"$1"' _ "$o"
 check "excerpt: URL credentials and key=value secrets masked" bash -c '! grep -q hunter2 <<<"$1" && ! grep -q "abc123\|zz" <<<"$1" && grep -qF "https://[masked]@host/x" <<<"$1" && grep -qF "PASSWORD=[masked] next" <<<"$1" && grep -qF "token=[masked] ok" <<<"$1" && grep -qF "pwd=[masked]" <<<"$1"' _ "$o"
 sed 1d <<<"$o" | node -e 'require("fs").readFileSync(0,"utf8").trim().split("\n").forEach(l=>JSON.parse(l))' 2>/dev/null
 check "excerpt: lines stay valid JSON" [ $? = 0 ]
-fresh; ent s1 guide 30 report.snapshot '{"v":1}'; ent s1 hook 29 secretentry
+fresh; ent s1 primer 30 report.snapshot '{"v":1}'; ent s1 hook 29 secretentry
 check "excerpt stale snapshot: no excerpt, live snapshot" bash -c 'o=$(node "$1" --excerpt </dev/null); [[ "$o" == "no fresh snapshot"* ]] && grep -q "\"claudeCode\":\"9.9.9" <<<"$o" && ! grep -q secretentry <<<"$o"' _ "$R"
 
-fresh; ent s1 guide 1 report.snapshot '{"v":1}'
+fresh; ent s1 primer 1 report.snapshot '{"v":1}'
 rep --mark start; rep --mark end
 check "mark writes report.mark in the snapshot's session" bash -c 'f="$1/s1.report.jsonl"; [ "$(grep -c "\"event\":\"report.mark\"" "$f")" = 2 ] && grep -q "\"phase\":\"start\"" "$f" && grep -q "\"session\":\"s1\"" "$f"' _ "$T"
 
-fresh; ent s1 guide 30 report.snapshot '{"v":1}'
+fresh; ent s1 primer 30 report.snapshot '{"v":1}'
 o=$(rep --mark start)
 check "mark: stale snapshot -> no fresh snapshot, nothing written" bash -c '[ "$1" = "no fresh snapshot" ] && [ ! -e "$2/s1.report.jsonl" ]' _ "$o" "$T"
 
 fresh; mkdir -p "$CLAUDE_CONFIG_DIR"
-printf '{"enabledPlugins":{"guide@claudzilla":true,"off@claudzilla":false,"x@other":true}}' > "$CLAUDE_CONFIG_DIR/settings.json"
+printf '{"enabledPlugins":{"primer@claudzilla":true,"off@claudzilla":false,"x@other":true}}' > "$CLAUDE_CONFIG_DIR/settings.json"
 printf '{"a":{"b":"SECRETVALUE"}}' > "$CLAUDE_CONFIG_DIR/settings.overrides.json"
 s=$(rep --snapshot)
-check "snapshot: mods enabled only, key names only, writes nothing" bash -c '[ ! -e "$2" ] && grep -q "\"mods\":\[\"guide@claudzilla\"\]" <<<"$1" && grep -q "\"overrideKeys\":\[\"a.b\"\]" <<<"$1" && ! grep -q SECRETVALUE <<<"$1" && grep -q "\"claudeCode\":\"9.9.9" <<<"$1" && grep -q "\"commit\":\"[0-9a-f]\{40\}\"" <<<"$1"' _ "$s" "$T"
+check "snapshot: mods enabled only, key names only, writes nothing" bash -c '[ ! -e "$2" ] && grep -q "\"mods\":\[\"primer@claudzilla\"\]" <<<"$1" && grep -q "\"overrideKeys\":\[\"a.b\"\]" <<<"$1" && ! grep -q SECRETVALUE <<<"$1" && grep -q "\"claudeCode\":\"9.9.9" <<<"$1" && grep -q "\"commit\":\"[0-9a-f]\{40\}\"" <<<"$1"' _ "$s" "$T"
 rm -f "$CLAUDE_CONFIG_DIR/settings.json" "$CLAUDE_CONFIG_DIR/settings.overrides.json"
 
 fresh; d=$(rep --drafts)

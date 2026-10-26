@@ -20,4 +20,4 @@ Tested with Claude Code 2.1.308; mod events and methods can change between relea
 
 ## Develop
 
-`claude --plugin-dir plugins/guide` loads it and writes the API types `tsconfig.json` points at; `claude plugin test plugins/guide` runs the tests.
+`claude --plugin-dir plugins/primer` loads it and writes the API types `tsconfig.json` points at; `claude plugin test plugins/primer` runs the tests.
