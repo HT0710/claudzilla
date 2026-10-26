@@ -3,7 +3,7 @@ import type { Register } from 'claude-code'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
-const t = tracer('attribution')
+const t = tracer('byline')
 
 // git.md: no Claude session link in commits or PRs; rules-guard's sessionLink deny stays as the backstop.
 const URL = /\s*https?:\/\/claude\.ai\/code\/session_[\w-]+/g

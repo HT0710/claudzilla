@@ -104,7 +104,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 
   <img src=".github/assets/verify.png" alt="The stop hook sends a done claim back; Claude reruns the checks, including one that proves the test fails if the code is broken again" width="720">
 
-- **Clean history:** Conventional Commits enforced, Claude session links stripped from commits and PRs ([details](plugins/attribution/README.md)).
+- **Clean history:** Conventional Commits enforced, Claude session links stripped from commits and PRs ([details](plugins/byline/README.md)).
 - **Two sessions, one file:** before Claude edits a file another session edited in the last 30 minutes, it pauses once and the other session is told ([details](plugins/ledger/README.md)).
 
 ### A better terminal
