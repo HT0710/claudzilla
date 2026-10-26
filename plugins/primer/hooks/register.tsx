@@ -122,7 +122,7 @@ export function rows(md: string, columns: number): number {
   return n
 }
 
-// The guide lives in the claudzilla clone, found through the update hook it links into ~/.claude (as update-toast does).
+// The guide lives in the claudzilla clone, found through the update hook it links into ~/.claude (as herald does).
 // Prints the toplevel, then the version as the HUD shows it: the last v* tag, or the tag CI cuts next when ahead; empty with no tag.
 export const FIND =`f=$(readlink -f "\${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/claudzilla-update.sh") && [ -f "$f" ] && r=$(git -C "\${f%/*}" rev-parse --show-toplevel) || exit 1
 last=$(git -C "$r" describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null)

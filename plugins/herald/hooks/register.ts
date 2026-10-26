@@ -3,7 +3,7 @@ import type { EngineInterface, Register, SessionRateLimit } from 'claude-code'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
-const t = tracer('update-toast')
+const t = tracer('herald')
 
 // One line per update event, appended by claude/hooks/claudzilla-update.sh: `<epoch s>\t<kind>\t<text>`.
 export type Event = { at: number; kind: 'start' | 'live' | 'fail'; text: string }
