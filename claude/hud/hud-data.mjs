@@ -31,6 +31,7 @@ const u = d.context_window?.current_usage;
 const count = (v) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
 const used = u ? count(u.input_tokens) + count(u.cache_creation_input_tokens) + count(u.cache_read_input_tokens) : 0;
 if (used > 0) out.ctx_note = used >= 999_500 ? `${+(used / 1e6).toFixed(1)}M` : `${Math.round(used / 1e3)}k`;
+else if (out.ctx === 0) out.ctx_note = "0";
 
 function resetIn(v) {
   const n = typeof v === "number" ? v : (typeof v === "string" && v.trim() !== "" ? Number(v) : NaN);
@@ -60,6 +61,9 @@ function readSlice(fd, start, len) {
 const lines = (text) => text.split("\n").filter(Boolean);
 const parse = (line) => { try { return JSON.parse(line); } catch { return undefined; } };
 
+// no reply yet: nothing of this chat to lose, show fresh
+out.cch = 0;
+out.cch_note = "hot";
 if (d.transcript_path) {
   let fd;
   try {
@@ -107,6 +111,10 @@ if (d.transcript_path) {
       // floor: 100% only once cold
       out.cch = Math.floor((1 - left / ttl) * 100);
       out.cch_note = left > 0 ? `${Math.ceil(left / 60_000)}m` : "cold";
+    } else if (last) {
+      // replies but no cache write (caching off): the next message pays for it all
+      out.cch = 100;
+      out.cch_note = "cold";
     }
   } catch { /* transcript gone or unreadable */ } finally {
     if (fd !== undefined) closeSync(fd);

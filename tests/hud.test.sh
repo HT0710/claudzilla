@@ -57,6 +57,7 @@ kv=$(data <<<"$nolim")
 check "data: no limits -> no 5h" [ -z "$(key 5h "$kv")" ]
 check "data: no limits -> no wk" [ -z "$(key wk "$kv")" ]
 used=$(node -e 'const j=JSON.parse(process.argv[1]);j.context_window.current_usage={input_tokens:2,output_tokens:830,cache_creation_input_tokens:2018,cache_read_input_tokens:414892};console.log(JSON.stringify(j))' "$full")
+check "data: no reply yet -> ctx_note 0" [ "$(key ctx_note "$(data <<<'{}')")" = 0 ]
 check "data: ctx_note used" [ "$(key ctx_note "$(data <<<"$used")")" = 417k ]
 # usage <current_usage json>: ctx_note for that shape (printf: bash 3.2 brace-expands here-strings)
 usage() { key ctx_note "$(printf '{"context_window":{"used_percentage":1,"current_usage":%s}}' "$1" | data)"; }
@@ -114,8 +115,8 @@ synthetic="{\"type\":\"assistant\",\"timestamp\":\"$(iso 10)\",\"message\":{\"mo
 check "data: cache synthetic reply ignored" [ "$(cache "$(reply 1800 0 500)" "$synthetic")" = "50 30m" ]
 check "data: cache future reply clamps to fresh" [ "$(cache "$(reply -60 0 500)")" = "0 60m" ]
 check "data: cache seconds left not shown as 100%" [ "$(cache "$(reply 3595 0 500)")" = "99 1m" ]
-check "data: cache no TTL seen -> none" [ -z "$(cache "$(reply 600 0 0)")" ]
-check "data: cache no reply -> none" [ -z "$(key cch "$(data <<<"$full")")" ]
+check "data: cache reply but no write -> cold" [ "$(cache "$(reply 600 0 0)")" = "100 cold" ]
+check "data: cache no reply -> hot" [ "$(key cch "$(data <<<"$full")") $(key cch_note "$(data <<<"$full")")" = "0 hot" ]
 
 kv=$(data <<<'{"model":{"display_name":"a\u001b]52;c;aGk=\u0007b"}}')
 check "data: control chars dropped" [ "$(key model "$kv")" = "a ]52;c;aGk= b" ]
@@ -125,10 +126,10 @@ check "data: C1 control chars dropped" [ "$(key model "$kv")" = "a 52;c;aGk= b" 
 # --- hud-filter.pl ---
 render() { data <<<"$1" | COLUMNS=120 perl "$HUD/hud-filter.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
 out=$(render "$full")
-# meters in two columns: ctx over cache | 5h over wk; no cache yet leaves its slot blank
+# meters in two columns: ctx over cache | 5h over wk; no reply yet shows the cache hot
 check "render: ctx | 5h row" grep -q '^ctx .* 42%  *┃ 5h  .* 30%  *2h0m$' <<<"$out"
 check "render: ctx used" grep -q '^ctx .* 42%  *417k ┃ 5h ' <<<"$(render "$used")"
-check "render: no cache -> blank | wk row" grep -q '^  *┃ wk  .* 12%  *2d7h$' <<<"$out"
+check "render: no reply -> hot cch | wk row" grep -q '^cch .*   0%  hot ┃ wk  .* 12%  *2d7h$' <<<"$out"
 check "render: profile"  grep -qE 'me@example\.test(  v[0-9.]+)?$' <<<"$out"
 check "render: activity" grep -q '^Opus  high  ⚑ pr .*abcdef12  up 90m$' <<<"$out"
 printf '%s\n' "$(reply 1200 0 500)" >> "$T"
