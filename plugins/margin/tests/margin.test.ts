@@ -2197,7 +2197,7 @@ test("an answer closes the steps past agents the turn does not wait on: a subage
   const agent = { description: 'sleep', type: 'general-purpose', status: 'running' }
   const agents = [
     { ...agent, id: 'a1', parentId: 'a0' },
-    { ...agent, id: 'a2', spawnedBy: 'picks' },
+    { ...agent, id: 'a2', spawnedBy: 'ballot' },
     { ...agent, id: 'a3', teammateId: 'ann@team' },
     { ...agent, id: 'a4', status: 'idle' },
   ]
