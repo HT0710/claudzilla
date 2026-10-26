@@ -158,7 +158,7 @@ function sink(on: any, part: string) {
 
 test('traces the toast shown', async ($, on) => {
   const seen = session(on, [{ stream: 'stdout', text: line(S, 'live', 'claudzilla: updating to v1.2.0') + END }])
-  const rows = sink(on, 'update-toast')
+  const rows = sink(on, 'herald')
   await $.session.start(start)
   await until(() => seen.toasts.includes('end'))
   await $.session.end({ reason: 'other' })
