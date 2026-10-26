@@ -59,7 +59,7 @@ function entries(pred) {
 // This session only: the Bash tool env carries its id; another session's trace must never reach a report.
 const SID = safe(process.env.CLAUDE_CODE_SESSION_ID, "");
 const noTrace = () => (!SID ? "no session id" : !traceOn() ? "tracing off" : undefined);
-const newestSnapshot = () => entries((n) => n === `${SID}.guide.jsonl` || n === `${SID}.guide.1.jsonl`).all.filter((e) => e.event === "report.snapshot").pop();
+const newestSnapshot = () => entries((n) => n === `${SID}.primer.jsonl` || n === `${SID}.primer.1.jsonl`).all.filter((e) => e.event === "report.snapshot").pop();
 
 // ---- live snapshot: same fields the guide mod records, built here when tracing is off ----
 const keyNames = (v, p = "") => (v && typeof v === "object" && !Array.isArray(v) ? Object.entries(v).flatMap(([k, x]) => keyNames(x, `${p}${k}.`)) : p ? [p.slice(0, -1)] : []);

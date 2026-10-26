@@ -1,6 +1,6 @@
 declare module 'claude-code' {
   interface PluginState {
-    guide: { tocTop: number; bodyTop: number; split: number }
+    primer: { tocTop: number; bodyTop: number; split: number }
   }
 }
 

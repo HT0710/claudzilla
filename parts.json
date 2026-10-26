@@ -25,5 +25,5 @@
   "toast": { "plugins": ["update-toast@claudzilla"] },
   "attribution": { "plugins": ["attribution@claudzilla"] },
   "ledger": { "plugins": ["ledger@claudzilla"] },
-  "updater": { "plugins": ["guide@claudzilla"], "links": ["hooks/claudzilla-update.sh", "skills/claudzilla-report", "skills/claudzilla-compact"], "hooks": ["claudzilla-update.sh"] }
+  "updater": { "plugins": ["primer@claudzilla"], "links": ["hooks/claudzilla-update.sh", "skills/claudzilla-report", "skills/claudzilla-compact"], "hooks": ["claudzilla-update.sh"] }
 }

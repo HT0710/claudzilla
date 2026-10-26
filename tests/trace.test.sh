@@ -84,7 +84,7 @@ const e=L[0];if(L.length!==1||!e.end||e.end<e.ts||e.status!=="error"||e.id!==pro
 # --- perl twin ---
 # mask runners: stdin lines -> masked lines. Add a runner (e.g. TS) and one check line.
 mask_node() { node --input-type=module -e "import {mask} from '$TR';import {readFileSync} from 'node:fs';process.stdout.write(readFileSync(0,'utf8').split('\\n').slice(0,-1).map(mask).join('\\n')+'\\n')"; }
-mask_ts() { node --experimental-strip-types --no-warnings -e "import {mask} from '$REPO/plugins/guide/hooks/trace.ts';import {readFileSync} from 'node:fs';process.stdout.write(readFileSync(0,'utf8').split('\\n').slice(0,-1).map(s=>mask(s,process.env.HOME)).join('\\n')+'\\n')" ; }
+mask_ts() { node --experimental-strip-types --no-warnings -e "import {mask} from '$REPO/plugins/primer/hooks/trace.ts';import {readFileSync} from 'node:fs';process.stdout.write(readFileSync(0,'utf8').split('\\n').slice(0,-1).map(s=>mask(s,process.env.HOME)).join('\\n')+'\\n')" ; }
 mask_perl() { perl -e 'require $ARGV[0]; while(<STDIN>){chomp; print trace_mask($_),"\n"}' "$TP"; }
 : > "$TMP/mask.in"
 while IFS= read -r line; do printf '%s\n' "${line//@HOME@/$HOME}" >> "$TMP/mask.in"; done < "$REPO/tests/fixtures/mask.txt"
@@ -93,9 +93,9 @@ mask_ts < "$TMP/mask.in" > "$TMP/mask.ts"
 check "mask parity: node and perl outputs identical" cmp -s "$TMP/mask.node" "$TMP/mask.perl"
 check "mask parity: node and ts outputs identical" cmp -s "$TMP/mask.node" "$TMP/mask.ts"
 for p in margin picks update-toast folio attribution ledger; do
-  check "trace.ts copy in $p identical to guide" cmp -s "$REPO/plugins/guide/hooks/trace.ts" "$REPO/plugins/$p/hooks/trace.ts"
+  check "trace.ts copy in $p identical to primer" cmp -s "$REPO/plugins/primer/hooks/trace.ts" "$REPO/plugins/$p/hooks/trace.ts"
 done
-for p in picks update-toast folio attribution guide ledger; do
+for p in picks update-toast folio attribution primer ledger; do
   check "trace-io.ts copy in $p identical to margin" cmp -s "$REPO/plugins/margin/hooks/trace-io.ts" "$REPO/plugins/$p/hooks/trace-io.ts"
 done
 check "mask parity: fixture really masks (not a no-op)" bash -c '! grep -q -e sk-ant -e ghp_ -e AKIA -e eyJ "$1" && grep -q "~/proj/x" "$1" && grep -q "kept" "$1"' _ "$TMP/mask.perl"

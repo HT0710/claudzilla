@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Draft a compact
 
-Draft what a `/compact` must keep from this session, then hand it to the `compact_draft` tool. It is deferred: load it with ToolSearch `select:mcp__guide__compact_draft` first.
+Draft what a `/compact` must keep from this session, then hand it to the `compact_draft` tool. It is deferred: load it with ToolSearch `select:mcp__primer__compact_draft` first.
 
 - **Keep:** only what exists nowhere but this conversation: decisions and why, preferences stated, open items, branch or uncommitted state, exact errors under debug; anything in a file → its path.
 - **Drop:** finished detail.
