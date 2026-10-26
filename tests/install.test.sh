@@ -324,8 +324,8 @@ ln -s "$U/clone/claude/hooks/claudzilla-update.sh" "$U/home/.claude/hooks/claudz
 cp "$REPO/claude/hooks/rules-guard.mjs" "$U/clone/claude/hooks/"
 notice() { clean_env HOME="$U/home" sh "$U/home/.claude/hooks/claudzilla-update.sh"; }
 ev="$(git -C "$U/clone" rev-parse --absolute-git-dir)/claudzilla-update.events"
-# The update-toast mod's repo lookup, run as the mod runs it (sh -c, the session's cwd).
-FIND=$(node -e 'const s=require("fs").readFileSync(process.argv[1],"utf8");process.stdout.write(eval(s.match(/const FIND = (\x27.*\x27)\n/)[1]))' "$REPO/plugins/update-toast/hooks/register.ts")
+# The herald mod's repo lookup, run as the mod runs it (sh -c, the session's cwd).
+FIND=$(node -e 'const s=require("fs").readFileSync(process.argv[1],"utf8");process.stdout.write(eval(s.match(/const FIND = (\x27.*\x27)\n/)[1]))' "$REPO/plugins/herald/hooks/register.ts")
 find_repo() { (cd "$1" && clean_env "${@:2}" sh -c "$FIND" 2>/dev/null); }
 # The lookup resolves links (macOS: /var -> /private/var), so expect the physical path.
 mkdir -p "$U/nohome"; clone=$(cd "$U/clone" && pwd -P); gdir=$(git -C "$clone" rev-parse --absolute-git-dir)
@@ -714,7 +714,7 @@ S=$(new_stub); H=$(new_home); inst "$H"; mkdir -p "$H/.local/bin"; echo x > "$H/
 echo '{"files":[],"rcLines":[],"plugins":["ponytail@ponytail"],"marketplaces":["ponytail"],"winFonts":[],"wtFont":[]}' > "$H/.claude/.claudzilla-installed.json"
 clean_env HOME="$H" CLAUDZILLA_OFFLINE=0 PATH="$S:$PATH" bash "$REPO/install.sh" --uninstall --yes >"$H/install.log" 2>&1; rc=$?
 check "uninstall plugins: exit 0" [ "$rc" -eq 0 ]
-check "uninstall plugins: claudzilla plugins removed" bash -c "for p in margin ballot update-toast attribution folio ledger; do grep -q \"plugin uninstall \$p@claudzilla\" '$S/log' || exit 1; done"
+check "uninstall plugins: claudzilla plugins removed" bash -c "for p in margin ballot herald attribution folio ledger; do grep -q \"plugin uninstall \$p@claudzilla\" '$S/log' || exit 1; done"
 check "uninstall plugins: claudzilla marketplace removed" grep -q 'plugin marketplace remove claudzilla' "$S/log"
 check "uninstall plugins: recorded third-party removed" bash -c "grep -q 'plugin uninstall ponytail@ponytail' '$S/log' && grep -q 'plugin marketplace remove ponytail' '$S/log'"
 check "uninstall plugins: unrecorded third-party kept" bash -c "! grep -qE 'uninstall (caveman|superpowers)|remove (caveman|claude-plugins-official)' '$S/log'"

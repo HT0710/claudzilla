@@ -1,4 +1,4 @@
-# update-toast
+# herald
 
 Toasts claudzilla's update progress: an update is available, it is installing, it installed (restart to apply; `/claudzilla news` lists the changes), or it failed (ask Claude to debug it). A failure also reaches Claude with your next prompt, with the log path and the retry command.
 
@@ -18,4 +18,4 @@ Tested with Claude Code 2.1.308; mod events and methods can change between relea
 
 ## Develop
 
-`claude --plugin-dir plugins/update-toast` loads it and writes the API types `tsconfig.json` points at; `claude plugin test plugins/update-toast` runs the tests.
+`claude --plugin-dir plugins/herald` loads it and writes the API types `tsconfig.json` points at; `claude plugin test plugins/herald` runs the tests.

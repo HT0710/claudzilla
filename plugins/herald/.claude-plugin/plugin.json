@@ -1,5 +1,5 @@
 {
-  "name": "update-toast",
+  "name": "herald",
   "description": "Toasts claudzilla update progress (available, updating, updated, failed), usage limits passing 50, 75 and 90%, and when to compact",
   "author": { "name": "HT0710", "url": "https://github.com/HT0710" }
 }

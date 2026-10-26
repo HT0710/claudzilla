@@ -3,7 +3,7 @@
 # (at most daily) and, with rulesGuard.autoUpdate on (default), fast-forwards to the
 # newest release tag and re-runs install.sh; the next session reports the result.
 # Startup never waits on the network.
-# Each notice is also a line in the events file, which the update-toast mod toasts.
+# Each notice is also a line in the events file, which the herald mod toasts.
 here=$(dirname "$(readlink "$0" || echo "$0")")
 repo=$(git -C "$here" rev-parse --show-toplevel 2>/dev/null) || exit 0
 gd=$(git -C "$repo" rev-parse --absolute-git-dir)
@@ -13,7 +13,7 @@ ev=$gd/claudzilla-update.events
 trace() { perl "$here/trace.pl" nosession update "$@" >/dev/null 2>&1 </dev/null || true; }
 
 json() { printf '%s' "$1" | sed 's/[\\"]/\\&/g'; }
-# <epoch>\t<kind>\t<text>; kind start|live|fail, read by plugins/update-toast.
+# <epoch>\t<kind>\t<text>; kind start|live|fail, read by plugins/herald.
 emit() { printf '%s\t%s\t%s\n' "$(date +%s)" "$1" "$2" >> "$ev"; trace "update.$1" "$([ "$1" = fail ] && echo error || echo info)" "text=$2"; }
 ver() { git -C "$repo" describe --tags --always "$@" 2>/dev/null; }
 # Newest release tag on upstream; a fork with no tags follows the branch.
