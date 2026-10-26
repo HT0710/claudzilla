@@ -19,7 +19,7 @@
     "keys": ["env.PONYTAIL_DEFAULT_MODE", "extraKnownMarketplaces.ponytail"],
     "plugins": ["ponytail@ponytail"]
   },
-  "dividers": { "plugins": ["response-dividers@claudzilla"] },
+  "dividers": { "plugins": ["folio@claudzilla"] },
   "panel": { "plugins": ["margin@claudzilla"] },
   "picks": { "plugins": ["picks@claudzilla"] },
   "toast": { "plugins": ["update-toast@claudzilla"] },
