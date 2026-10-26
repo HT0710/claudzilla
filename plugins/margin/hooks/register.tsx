@@ -1792,14 +1792,17 @@ export const register: Register = (on, options) => {
           const name = one.slice(0, Math.max(0, width - notice.length))
           const left = Math.max(0, Math.floor((width - name.length - notice.length) / 2))
           const right = Math.max(0, width - left - name.length - notice.length)
+          // The key's letter keeps the title's case; cut off with the name, it draws no underline.
+          const at = KEYS[one] ? name.toLowerCase().indexOf(KEYS[one]!) : -1
+          const title = at < 0 ? [name] : [name.slice(0, at), <Text underline>{name[at]}</Text>, name.slice(at + 1)]
           return [
             ...(i > 0 ? [<Text color="promptBorder"> │ </Text>] : []),
             <Box key={`tab:${one}`} width={width}>
               {one === current ? (
-                <Text bold inverse color="claude">{`${' '.repeat(left)}${name}${notice}${' '.repeat(right)}`}</Text>
+                <Text bold inverse color="claude">{' '.repeat(left)}{title}{`${notice}${' '.repeat(right)}`}</Text>
               ) : (
                 <Button key={one} plain onPress={() => pick($, one)}>
-                  <Text color={SOON.includes(one) ? HUD.faint : HUD.idle}>{`${' '.repeat(left)}${name}`}</Text>
+                  <Text color={SOON.includes(one) ? HUD.faint : HUD.idle}>{' '.repeat(left)}{title}</Text>
                   {notice ? <Text color="warning">{notice}</Text> : ''}
                   <Text color={SOON.includes(one) ? HUD.faint : HUD.idle}>{' '.repeat(right)}</Text>
                 </Button>
