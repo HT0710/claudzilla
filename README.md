@@ -134,7 +134,7 @@ Margin History tab: this chat's prompts, newest first, with rewind and latest.
 
 <img src=".github/assets/history.png" alt="The margin's History tab listing two prompts under Today" width="720">
 
-Primer pane: `/claudzilla` or alt+g, topics beside a section.
+Primer pane: `/claudzilla` or alt+q, topics beside a section.
 
 <img src=".github/assets/primer.png" alt="The primer pane: topic list grouped by part, the What claudzilla is section under it" width="720">
 

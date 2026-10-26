@@ -181,7 +181,9 @@ margin_save() { if wait_for 'Overview.*Decisions' 25 2>/dev/null; then MARGIN0=o
 margin_want() {
   local now=off; margin_open && now=on
   [ "$now" = "$1" ] && return 0
-  tm send-keys -t "$SHOT" M-h
+  tm send-keys -t "$SHOT" M-o
+  # M-o closes only when Overview shows; from another tab it switches, so press again
+  if [ "$1" = off ]; then sleep 1; ! margin_open || tm send-keys -t "$SHOT" M-o; fi
   if [ "$1" = on ]; then wait_for 'Overview.*Decisions' 10; else sleep 1; ! margin_open; fi
 }
 # Under 110 columns the panel cannot dock, so its state cannot be read or set here.
