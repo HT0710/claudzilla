@@ -15,6 +15,8 @@ const PAD = 2
 const TOP: Tab[] = ['Overview', 'Decisions', 'History']
 const BOTTOM: Tab[] = ['File', 'Tree', 'Git']
 const TABS = [...TOP, ...BOTTOM]
+// The tabs with an alt key: each runs /margin-<tab>.
+const KEYS: Partial<Record<Tab, string>> = { Overview: 'o', History: 'h', File: 'l', Git: 'g' }
 // Tabs not built yet: drawn dim, their body says when.
 const SOON: Tab[] = ['Decisions', 'Tree']
 // The bottom bar's rows: its rule and its labels.
@@ -622,10 +624,22 @@ const pick = async ($: EngineInterface, next: Tab) => {
   // Picking Git reads the repo afresh: it may have changed outside this chat.
   if (next === 'Git') gitRead = logRead = undefined
   await update($, tab, () => next)
-  if (next === 'Overview' && overviewStale) $.clock.after(0, () => readOverview($))
+  if (next === 'Overview' && overviewStale && (await isPlaced($))) $.clock.after(0, () => readOverview($))
   // Each write draws the pane; a second draw could land before the first, and the terminal
   // then dropped the next click.
   if ((await read($, notices)).includes(next)) await update($, notices, list => list.filter(one => one !== next))
+}
+const tabCommand = (name: string) => `margin-${name.toLowerCase()}`
+// A pane waiting for room is not shown: the person's open places it.
+const isPlaced = async ($: EngineInterface) => (await $.ui.panes()).some(pane => pane.id === PANE && pane.isPlaced)
+const closePane = ($: EngineInterface) => $.ui.close({ id: PANE })
+const openPane = async ($: EngineInterface) => {
+  await $.store.set('open', true).catch(() => undefined)
+  const opened = await $.ui.open({ id: PANE, title: 'Margin', columns: 40 })
+  // No output text: a key toggles often, and a chat row per toggle is noise.
+  if (!opened.isPlaced) $.ui.toast('Margin waits: terminal too narrow.')
+  // Reopened on Overview: read what the closed pane missed.
+  else if (overviewStale) $.clock.after(0, () => readOverview($))
 }
 // Rows the panel shows dim until they draw, as only a drawn row can be jumped to: drawing one
 // redraws the panel.
@@ -797,8 +811,9 @@ export const register: Register = (on, options) => {
     await t.start(traceIo($))
     // A reload drops the module's runs; the atom stays, maybe mid-run, and would show reading… for good.
     await update($, overview, now => (now.running ? { ...now, running: false } : now))
-    // immediate: alt+h mid-turn opens the pane now, not once the turn ends; it prints nothing.
+    // immediate: a key mid-turn opens the pane now, not once the turn ends; it prints nothing.
     await $.command.register({ name: 'margin', description: 'Toggle the margin', immediate: true })
+    for (const name of Object.keys(KEYS)) await $.command.register({ name: tabCommand(name), description: `Margin: ${name} tab`, immediate: true })
     // Keys come back in the order first set: the oldest sessions' notes go.
     const notes = (await $.store.keys().catch(() => [])).filter(key => key.startsWith('midTurn:'))
     await Promise.all(notes.slice(0, -MID_TURN_SESSIONS).map(key => $.store.delete(key).catch(() => undefined)))
@@ -819,22 +834,26 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'margin' }, async $ => {
-    const panes = await $.ui.panes()
-    // A pane waiting for room is not shown: the person's open places it.
-    if (panes.some(pane => pane.id === PANE && pane.isPlaced)) {
-      await $.ui.close({ id: PANE })
-
-      return {}
-    }
-    await $.store.set('open', true).catch(() => undefined)
-    const opened = await $.ui.open({ id: PANE, title: 'Margin', columns: 40 })
-    // No output text: alt+h toggles often, and a chat row per toggle is noise.
-    if (!opened.isPlaced) $.ui.toast('Margin waits: terminal too narrow.')
-    // Reopened on Overview: read what the closed pane missed.
-    else if (overviewStale) $.clock.after(0, () => readOverview($))
+    if (await isPlaced($)) await closePane($)
+    else await openPane($)
 
     return {}
   })
+
+  for (const name of Object.keys(KEYS)) {
+    on('command.describe', { command: tabCommand(name) }, ($, e, next) => next({ ...e, isHidden: true }))
+    on('command.run', { command: tabCommand(name) }, async $ => {
+      const placed = await isPlaced($)
+      const shown = await read($, tab)
+      if (placed && (TABS.includes(shown) ? shown : TABS[0]) === name) await closePane($)
+      else {
+        await pick($, name as Tab)
+        if (!placed) await openPane($)
+      }
+
+      return {}
+    })
+  }
 
   on('prompt.submit', async ($, e, next) => {
     t.turn()
