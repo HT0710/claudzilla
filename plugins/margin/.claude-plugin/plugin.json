@@ -1,5 +1,5 @@
 {
-  "name": "panel",
+  "name": "margin",
   "description": "Side pane: what Claude plans and does, this chat's prompts (jump, reuse, rewind), a file view and git",
   "author": { "name": "HT0710", "url": "https://github.com/HT0710" },
   "types": "./types/index.d.ts",

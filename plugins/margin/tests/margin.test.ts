@@ -27,7 +27,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     on('env.get', () => ({ value: '/home/me' }))
     on('session.id', () => ({ value: 'chat-1' }))
     on('fs.read', () => ({ value: '' }))
-    const ui = await $.ui.mount({ plugin: 'panel', surface, component: 'Pane', props, requestId: 'panel' })
+    const ui = await $.ui.mount({ plugin: 'margin', surface, component: 'Pane', props, requestId: 'margin' })
     expect(await ui.find({ key: 'Activity' })).toBeUndefined()
     expect(await ui.find({ key: 'Git' })).toBeDefined()
     expect(await ui.find({ key: 'History' })).toBeDefined()
@@ -58,7 +58,7 @@ test('Git tab shows the branch, changed files and last commits', async ($, on) =
   }
   on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
   expect(await ui.find({ type: 'Text', text: '⎇ main ↑1 ↓2' })).toBeDefined()
@@ -117,7 +117,7 @@ test('Git tab links the pushed branch and pushed commits to their web pages, lit
   }
   on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
   const links = await ui.findAll({ type: 'Link' })
@@ -162,7 +162,7 @@ for (const [what, answers, hrefs] of unlinked)
       return out === 'fail' ? { value: { ...ran('').value, exitCode: 128 } } : ran(out)
     })
 
-    const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+    const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
     await ui.press({ key: 'Git' })
 
     expect((await ui.findAll({ type: 'Link' })).map(link => link.props.href)).toEqual(hrefs)
@@ -172,7 +172,7 @@ test('a commit subject with no Conventional Commits type shows whole', async ($,
   noHistory(on)
   on('process.run', (_, e) => ran(git({ status: '## main\n', log: 'abc1234ffff abc1234 Merge branch x\n', '--remotes': 'abc1234ffff\n' })(e.argv) ?? ''))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
   expect((await ui.find({ type: 'Text', text: /^ Merge branch x$/ }))?.props.color).toBeUndefined()
@@ -182,7 +182,7 @@ test('a changed file shows one status letter: bright while unstaged, dim once st
   noHistory(on)
   on('process.run', (_, e) => ran(git({ status: '## main\n M a.ts\nA  b.ts\nMM c.ts\n?? d.ts\n' })(e.argv) ?? ''))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
   // Unstaged changes, a file staged and edited again included: the worktree's letter, bright.
@@ -200,7 +200,7 @@ test('Git tab redraws after a tool call changes the repo', async ($, on) => {
   on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
   on('tool.call', () => ({ result: { stdout: '', stderr: '' } }) as any)
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   Object.assign(repo, { status: '## main...origin/main [ahead 1]\n', log: 'fed4321ffff fed4321 second\nabc1234ffff abc1234 first\n' })
   await $.tool.call({ tool: 'Bash', command: 'git commit -am second' })
@@ -219,7 +219,7 @@ test('the narrowest pane keeps the Git headers on one row, dropping their counts
     '--count': '142\n',
   }
   on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 23 }, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 23 }, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
   // 19 columns: "CHANGES !2 ?1" fits, the churn after it does not; "COMMITS 3 local" fits, the total does not.
@@ -235,7 +235,7 @@ test('dragging the divider gives CHANGES more rows', async ($, on) => {
   const repo = { status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' }
   on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   // 20 body rows less 7 fixed: CHANGES takes up to half of 13, 7 rows.
   expect(await ui.find({ type: 'Text', text: /file6\.ts/ })).toBeDefined()
@@ -254,10 +254,10 @@ test('a one-row CHANGES zone scrolls with no back-to-top line', async ($, on) =>
   const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
   on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
   const scroll = { offset: 0, bodyRows: 9 + BAR_ROWS }
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props: { ...props, scroll }, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll }, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   // 9 body rows less 7 fixed: COMMITS keeps 1, CHANGES the 1 left, on row 5.
-  await $.ui.scroll({ component: 'Pane', requestId: 'panel', offset: 0, by: 100, bodyRows: 9 + BAR_ROWS, contentRows: 9 + BAR_ROWS, origin: { kind: 'person' }, pointer: { column: 0, row: 5 } })
+  await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 100, bodyRows: 9 + BAR_ROWS, contentRows: 9 + BAR_ROWS, origin: { kind: 'person' }, pointer: { column: 0, row: 5 } })
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: /file9\.ts/ })).toBeDefined()
   expect(await ui.find({ key: 'top:changes' })).toBeUndefined()
@@ -269,7 +269,7 @@ test('the divider shows how far it is dragged, and resizes once let go', async (
   const repo = { status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' }
   on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'divider' })
@@ -287,7 +287,7 @@ test('a release the divider missed ends the drag at the next move', async ($, on
   const repo = { status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' }
   on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'divider' })
@@ -301,7 +301,7 @@ test('a release the divider missed ends the drag at the next move', async ($, on
 test('the divider lights its grip while the pointer is over it', async ($, on) => {
   noHistory(on)
   on('process.run', (_, e) => ran(git({ status: '## main\n M file0.ts\n', log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   const grip = async () => (await ui.find({ type: 'Text', text: '⇕', in: 'divider' }))?.props
 
@@ -331,12 +331,12 @@ test('the wheel scrolls CHANGES and COMMITS each on its own, up to their ends; �
   const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
   const log = Array.from({ length: 30 }, (_, i) => `c${i}ffff c${i} commit ${i}`).join('\n')
   on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: `${log}\n` })(e.argv) ?? ''))
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   // 7 rows of CHANGES end on row 11, 6 of COMMITS start on row 14; once scrolled, the back-to-top
   // line takes a zone's first row.
   const wheel = (by: number, row: number) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'panel', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
 
   expect(await ui.find({ key: 'top:changes' })).toBeUndefined()
   await wheel(5, 8)
@@ -385,11 +385,11 @@ test('COMMITS reads a page at a time as the wheel goes past it, down to the firs
     skips.push(skip)
     return ran(all.slice(skip, skip + Number(e.argv.find(arg => /^-\d+$/.test(arg))!.slice(1))).join(''))
   })
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   // A clean repo: 15 rows of COMMITS, 14 under the back-to-top line once scrolled.
   const wheel = (by: number) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'panel', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
 
   await wheel(150)
   expect(await ui.find({ type: 'Text', text: /commit 149$/ })).toBeUndefined()
@@ -410,10 +410,10 @@ test('with no commit count, COMMITS still scrolls page by page to the first comm
     const skip = Number(e.argv.find(arg => arg.startsWith('--skip='))?.slice(7))
     return ran(all.slice(skip, skip + Number(e.argv.find(arg => /^-\d+$/.test(arg))!.slice(1))).join(''))
   })
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   const wheel = (by: number) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'panel', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
 
   // Each page's draw lands before the next tick: until then the wheel stops at the page drawn.
   for (const by of [150, 1000, 1000]) {
@@ -428,7 +428,7 @@ test('a clean repo drops CHANGES and its divider: COMMITS takes their rows', asy
   const log = Array.from({ length: 15 }, (_, i) => `c${i}ffff c${i} commit ${i}`).join('\n')
   on('process.run', (_, e) => ran(git({ status: '## main\n', log: `${log}\n` })(e.argv) ?? ''))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
   expect(await ui.find({ type: 'Text', text: '0 changed' })).toBeDefined()
@@ -443,7 +443,7 @@ test('the divider drags up to 1 row of CHANGES, and no further', async ($, on) =
   const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
   on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   // 7 rows of CHANGES; dragged 9 rows up, past its title.
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
@@ -461,7 +461,7 @@ test('the divider drags down to 1 row of COMMITS, and no further', async ($, on)
   const log = Array.from({ length: 5 }, (_, i) => `abc123${i}ffff abc123${i} commit${i}`).join('\n')
   on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: `${log}\n` })(e.argv) ?? ''))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   // 13 free rows, 7 of CHANGES; dragged 9 rows down, past COMMITS' first row.
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
@@ -480,7 +480,7 @@ test('a one-row CHANGES zone stays put dragged up, and grows dragged down', asyn
   const log = Array.from({ length: 15 }, (_, i) => `abc12${i}ffff abc12${i} commit${i}`).join('\n')
   on('process.run', (_, e) => ran(git({ status: '## main\n M file0.ts\n', log: `${log}\n` })(e.argv) ?? ''))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   // 1 row of CHANGES, 12 of COMMITS.
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
@@ -502,7 +502,7 @@ test('a click on the divider moves it to the top, and from the top to the bottom
   const files = Array.from({ length: 15 }, (_, i) => ` M file${i}.ts`).join('\n')
   on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   // 13 free rows, 7 of CHANGES: clicked, 1; clicked again, 12.
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
@@ -521,7 +521,7 @@ test('a drag back to where it began moves the divider nowhere', async ($, on) =>
   const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
   on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'divider' })
@@ -542,7 +542,7 @@ test('Git tab reruns git after a tool call, not on every redraw', async ($, on) 
   })
   on('tool.call', () => ({ result: { stdout: '', stderr: '' } }) as any)
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   const before = runs
   // A drag redraws the pane; the repo has not changed.
@@ -566,7 +566,7 @@ test('a read-only tool call leaves git unread', async ($, on) => {
   })
   on('tool.call', () => ({ result: {} }) as any)
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   const before = runs
   await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
@@ -580,7 +580,7 @@ test('a commit subject draws its control characters as spaces', async ($, on) =>
   noHistory(on)
   on('process.run', (_, e) => ran(git({ status: '## main\n', log: 'abc1234ffff abc1234 feat: tab\there\x1bend\n' })(e.argv) ?? ''))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
   expect(await ui.find({ type: 'Text', text: 'tab here end' })).toBeDefined()
@@ -588,13 +588,13 @@ test('a commit subject draws its control characters as spaces', async ($, on) =>
 
 test('Overview tab with nothing read yet shows a note', async ($, on) => {
   noHistory(on)
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   expect(await ui.find({ type: 'Text', text: 'Nothing here yet' })).toBeDefined()
 })
 
 test('top bar holds Overview, Decisions, History; bottom bar File, Tree, Git', async ($, on) => {
   noHistory(on)
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   const cells = (await ui.findAll({ type: 'Box' })).map(b => b.key).filter(key => key?.startsWith('tab:'))
   expect(cells).toEqual(['tab:Overview', 'tab:Decisions', 'tab:History', 'tab:File', 'tab:Tree', 'tab:Git'])
   // Each bar: body less margins and two separators, split three ways.
@@ -604,7 +604,7 @@ test('top bar holds Overview, Decisions, History; bottom bar File, Tree, Git', a
 test('in the narrowest dock a tab name is cut to its slot, never wrapped', async ($, on) => {
   noHistory(on)
   // 23 body columns: 13 for three slots, 4 + 4 + 5.
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 23 }, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 23 }, requestId: 'margin' })
   expect(await ui.find({ type: 'Text', text: /^Over$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^Deci$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^Histo$/ })).toBeDefined()
@@ -613,7 +613,7 @@ test('in the narrowest dock a tab name is cut to its slot, never wrapped', async
 
 test('a tab not built yet is dim and says when it comes', async ($, on) => {
   noHistory(on)
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Tree' })
   // The same boxed note as an empty Overview, History or Git.
   expect(await ui.find({ type: 'Text', text: 'Coming in v1.8' })).toBeDefined()
@@ -622,14 +622,14 @@ test('a tab not built yet is dim and says when it comes', async ($, on) => {
 
 test("the bottom bar sits on the pane's last rows, whatever the tab holds", async ($, on) => {
   noHistory(on)
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   // Overview with nothing read is short; the body Box still fills to the bar.
   expect((await ui.find({ key: 'body' }))?.props.height).toBe(props.scroll.bodyRows - 4) // top bar + rule, bottom rule + bar
 })
 
 test('the shown tab is lit across its cell and no button; another tab presses across its cell', async ($, on) => {
   noHistory(on)
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   // The body less its margins and the separators, split: 10 columns each.
   expect(await ui.find({ type: 'Button', key: 'History' })).toBeUndefined()
@@ -654,7 +654,7 @@ test('a tab press writes only the tab when no notice is up', async ($, on) => {
     return next(e)
   })
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
   expect(keys).toEqual(['tab'])
@@ -666,7 +666,7 @@ test("a tab press switches even when the button's onPress is lost", async ($, on
   // Stands for the terminal losing onPress to a redraw that swaps the tree as the click lands.
   on('ui.press', (_, e) => ({ element: e.element }))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
   expect(await ui.find({ type: 'Text', text: '⎇ main' })).toBeDefined()
@@ -701,7 +701,7 @@ test('a git that cannot start is run once per change, not on every draw', async 
     return { deny: 'git: cannot start' }
   })
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   await ui.redraw()
   await ui.redraw()
@@ -718,7 +718,7 @@ test('Git tab outside a repo says so', async ($, on) => {
     e.argv[0] === 'git' ? { value: { exitCode: 128, stdout: '', stderr: 'fatal: not a git repository', isStdoutTruncated: false, isStderrTruncated: false } } : ran(''),
   )
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
   expect(await ui.find({ type: 'Text', text: 'Not a git repository' })).toBeDefined()
@@ -738,7 +738,7 @@ test('a long branch row is cut to fit beside its count, not wrapped', async ($, 
   const head = '## feature/a-really-long-branch-name-that-goes-on...origin/x [ahead 12, behind 3]'
   on('process.run', (_, e) => ran(git({ status: `${head}\n M a.ts\n`, log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
   const branch = (await ui.find({ type: 'Text', text: /^⎇ / }))?.text ?? ''
@@ -751,7 +751,7 @@ test('a conflict shows U, whatever git pairs it with', async ($, on) => {
   noHistory(on)
   on('process.run', (_, e) => ran(git({ status: '## main\nAA both.ts\nUU c.ts\nDD d.ts\nUD e.ts\n' })(e.argv) ?? ''))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
   expect((await ui.findAll({ type: 'Text', text: /^U$/ })).map(found => found.props.color)).toEqual(['#e06c75', '#e06c75', '#e06c75', '#e06c75'])
@@ -765,7 +765,7 @@ test('a renamed file shows its new name; paths come unescaped', async ($, on) =>
     return ran(git({ status: '## main\nR  old-name.ts -> new-name.ts\n' })(e.argv) ?? '')
   })
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
   expect(await ui.find({ type: 'Text', text: /new-name\.ts$/ })).toBeDefined()
@@ -778,7 +778,7 @@ test('divider keeps half the side margin', async ($, on) => {
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('fs.read', () => ({ value: '' }))
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   expect((await ui.find({ type: 'Text', text: /^─+$/ }))?.text.length).toBe(props.bodyColumns - 2)
 })
@@ -796,7 +796,7 @@ test("History tab lists this chat's prompts, newest first, wherever the shell cd
   on('session.id', () => ({ value: 'chat-1' }))
   on('fs.read', (_, e) => ({ value: e.path === '/home/me/.claude/history.jsonl' ? history : '' }))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
 
@@ -814,7 +814,7 @@ test('History reads the prompt history under CLAUDE_CONFIG_DIR when it is set', 
   on('session.id', () => ({ value: 'chat-1' }))
   on('fs.read', (_, e) => ({ value: e.path === '/cfg/history.jsonl' ? history : '' }))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
 
   expect((await ui.find({ key: 'jump:0' }))?.text).toContain('from the moved folder')
@@ -828,7 +828,7 @@ test('a prompt holding a control character still lists, the character drawn as a
   on('session.id', () => ({ value: 'chat-1' }))
   on('fs.read', () => ({ value: history }))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
 
   expect((await ui.find({ key: 'jump:0' }))?.text).toContain('paste [31mred')
@@ -846,7 +846,7 @@ test('History still lists prompts once the prompt history is too big to read who
     ran(e.argv.includes('/home/me/.claude/history.jsonl') && e.argv.includes('"sessionId":"chat-1"') ? `${line}\n` : ''),
   )
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
 
   expect((await ui.find({ key: 'jump:0' }))?.text).toContain('found by grep')
@@ -863,7 +863,7 @@ test('↻ puts the prompt, line breaks kept, back in the prompt box', async ($, 
     return { isFilled: true }
   })
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
   await ui.press({ key: 'reuse:0' })
@@ -883,7 +883,7 @@ test('jumping to a prompt the chat cannot find says so', async ($, on) => {
     return { value: undefined }
   })
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
   await ui.press({ key: 'jump:0' })
@@ -917,7 +917,7 @@ test('⤓ latest reads the chat file\'s tail, and says so when no row of it scro
     toasts.push(e.text)
     return { value: undefined }
   })
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   const latest = await ui.find({ key: 'latest' })
   expect(latest?.text).toBe('⤓ latest')
@@ -947,7 +947,7 @@ test('a jump whose scroll fails says so', async ($, on) => {
     return { value: undefined }
   })
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.press({ key: 'jump:0' }).catch(() => undefined)
 
@@ -971,7 +971,7 @@ test('a repeated prompt resolves to the transcript copy sent nearest its time', 
 
 test('an empty History hides the rewind and latest buttons', async ($, on) => {
   noHistory(on)
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
 
   expect(await ui.find({ type: 'Text', text: 'No prompts yet' })).toBeDefined()
@@ -990,7 +990,7 @@ test('the rewind button opens the /rewind picker', async ($, on) => {
     return { text: '' }
   })
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
   await ui.press({ key: 'rewind' })
@@ -1015,7 +1015,7 @@ test('a day divider opens each day, once', async ($, on) => {
   on('session.id', () => ({ value: 'chat-1' }))
   on('fs.read', () => ({ value: history }))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
 
@@ -1117,7 +1117,7 @@ test('gone runs: compacted prompts stay live, the marker on the first one the mo
 })
 
 test('gone runs: one Compacted marker, right under the newest /compact above it', () => {
-  const prompts = asPrompts('/compact', '/panel', '/restart', 'go', '/compact', '/restart', 'old')
+  const prompts = asPrompts('/compact', '/margin', '/restart', 'go', '/compact', '/restart', 'old')
   expect(gone(prompts, ['go'], ['summary']).map(row => row.marker)).toEqual([
     undefined,
     'Compacted',
@@ -1130,7 +1130,7 @@ test('gone runs: one Compacted marker, right under the newest /compact above it'
 })
 
 test('gone runs: a slash command inside a run goes with it, at its edge stays live', () => {
-  expect(gone(asPrompts('P4', 'P3', '/panel', 'P2', 'P1'), ['P1', 'P4'], ['P1', 'P4'])).toEqual([
+  expect(gone(asPrompts('P4', 'P3', '/margin', 'P2', 'P1'), ['P1', 'P4'], ['P1', 'P4'])).toEqual([
     { isLive: true },
     { isLive: false, marker: 'Rewound' },
     { isLive: false },
@@ -1179,7 +1179,7 @@ test('the History tab draws Rewound above a rewound run, Compacted where the mod
           ],
   }))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
 
@@ -1211,7 +1211,7 @@ test('the History tab draws a cancelled first prompt Rewound when the chat file 
         : chat.map(text => ({ role: 'user' as const, text, toolUses: [] })),
   }))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
 
@@ -1256,7 +1256,7 @@ test('a paste kept as a placeholder shows its text and matches the chat', async 
         : chat.map(text => ({ role: 'user', text, toolUses: [] })),
   }))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
 
@@ -1280,7 +1280,7 @@ test('a ! shell command matches its bash-input row, its ! in the shell prompt co
         : chat.map(text => ({ role: 'user', text, toolUses: [] })),
   }))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
 
@@ -1331,23 +1331,23 @@ test('a prompt sent mid-turn, remembered in the store, is not marked rewound', a
   }))
   mock.store(on, { 'midTurn:chat-1': ['sent mid-turn'] })
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
 
   expect((await ui.findAll({ type: 'Text', text: 'Rewound' })).length).toBe(0)
 })
 
-test('/quit, /exit, /rewind, /panel, /resume and /clear are left out', async ($, on) => {
+test('/quit, /exit, /rewind, /margin, /resume and /clear are left out', async ($, on) => {
   on('clock.now', () => ({ value: 0 }))
-  const history = ['/quit', 'kept', '/rewind', '/panel', '/resume', '/clear', '/exit', '/exited-not']
+  const history = ['/quit', 'kept', '/rewind', '/margin', '/resume', '/clear', '/exit', '/exited-not']
     .map((display, i) => JSON.stringify({ display, timestamp: i, sessionId: 'chat-1' }))
     .join('\n')
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('fs.read', () => ({ value: history }))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
 
@@ -1392,14 +1392,14 @@ test('a slash row stays dim until its output line is drawn in the chat', async (
   // Stands for the engine's own drawing of the row.
   on('ui.render', { component: 'CommandOutput' }, () => ({ type: 'Text' as const, children: ['Set model.'] }))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
   const color = async () => (await ui.find({ type: 'Text', text: /^\/model\s*$/ }))?.props.color
   expect(await color()).toBe('#4f5c68')
 
   const output = { command: 'model', args: '', text: 'Set model.', isErrored: false }
-  await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'CommandOutput', props: output, requestId: 'cmd-1' })
+  await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'CommandOutput', props: output, requestId: 'cmd-1' })
   // The list redraws within 100 ms of the row drawing.
   await clock.advance(100)
 
@@ -1419,7 +1419,7 @@ test('a slash row is live once the chat holds its command row, drawn or not', as
     value: e.as === 'api' ? [] : ['kept', command].map(text => ({ role: 'user', text, toolUses: [] })),
   }))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
 
@@ -1442,7 +1442,7 @@ test('a stored mid-turn note the chat lost to a compaction is not held live', as
         : [{ role: 'user', text: 'new', toolUses: [] }],
   }))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
 
@@ -1465,7 +1465,7 @@ test('jumping to a prompt gone from the chat says so without searching', async (
     return { value: undefined }
   })
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
   await ui.press({ key: 'jump:1' })
@@ -1486,14 +1486,14 @@ test('a mid-turn prompt stays dim until its row is drawn in the chat', async ($,
   // Stands for the engine's own drawing of the row.
   on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['sent mid-turn'] }))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
   const color = async () => (await ui.find({ type: 'Text', text: /^sent mid-turn\s*$/ }))?.props.color
   expect(await color()).toBe('#4f5c68')
 
   const row = { text: 'sent mid-turn', origin: { kind: 'composer' as const }, isExpanded: false }
-  await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'UserMessage', props: row, requestId: 'msg-1' })
+  await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', props: row, requestId: 'msg-1' })
   await clock.advance(100)
 
   expect(await color()).toBe('claude')
@@ -1505,13 +1505,13 @@ test('a slash command resolves to the output line of the run nearest its time', 
     JSON.stringify({ type: 'system', subtype: 'local_command', uuid: `${uuid}-out`, parentUuid: uuid, timestamp: at, content: '<local-command-stdout>ok</local-command-stdout>' }),
   ]
   const transcript = [
-    ...run('early', '2026-10-10T09:00:00Z', '/panel', ''),
-    ...run('right', '2026-10-10T10:00:01Z', '/panel', ''),
+    ...run('early', '2026-10-10T09:00:00Z', '/margin', ''),
+    ...run('right', '2026-10-10T10:00:01Z', '/margin', ''),
     ...run('other', '2026-10-10T10:00:00Z', '/compact', 'keep this'),
   ].join('\n')
   const at = Date.parse('2026-10-10T10:00:00Z')
 
-  expect(nearestCommandId(transcript, { display: '/panel', timestamp: at })).toBe('right-out')
+  expect(nearestCommandId(transcript, { display: '/margin', timestamp: at })).toBe('right-out')
   expect(nearestCommandId(transcript, { display: '/compact keep this', timestamp: at })).toBe('other-out')
   expect(nearestCommandId(transcript, { display: '/compact other', timestamp: at })).toBeUndefined()
 })
@@ -1535,7 +1535,7 @@ test('a prompt sent mid-turn that landed as a normal message is not held dim', a
   }))
   mock.store(on, { 'midTurn:chat-1': ['landed normally'] })
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
 
@@ -1549,7 +1549,7 @@ test('the count says 100+ when the chat holds more prompts than the list shows',
   on('session.id', () => ({ value: 'chat-1' }))
   on('fs.read', () => ({ value: history.join('\n') }))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
 
@@ -1563,7 +1563,7 @@ test('the narrowest pane keeps both buttons and drops the count', async ($, on) 
   on('session.id', () => ({ value: 'chat-1' }))
   on('fs.read', () => ({ value: JSON.stringify({ display: 'only', timestamp: 1, sessionId: 'chat-1' }) }))
   // The narrowest the terminal lets the pane be dragged.
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 23 }, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 23 }, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
 
@@ -1579,7 +1579,7 @@ test('one prompt is counted without the plural s; " this session" only where it 
   on('fs.read', () => ({ value: JSON.stringify({ display: 'only', timestamp: 1, sessionId: 'chat-1' }) }))
 
   // 40 columns hold only "1 prompt" (the 100+ test's); 60 hold " this session" too.
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 60 }, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 60 }, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
 
@@ -1642,9 +1642,9 @@ test('History lights the prompt whose turn is on screen, not the newest', async 
   // Stands for the engine's own drawing of the row.
   on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['reply'] }))
   const reply = { text: "a reply in b's turn", origin: { kind: 'composer' as const }, isExpanded: false }
-  const row = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'UserMessage', requestId: 'row-1',
+  const row = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId: 'row-1',
     props: { ...reply, onScreen: { first: 0, last: 2, of: 3 } } })
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   const color = async (text: string) => (await ui.find({ type: 'Text', text: new RegExp(`^${text}\\s*$`) }))?.props.color
 
@@ -1672,11 +1672,11 @@ test('History rereads at most once a second while the chat scrolls', async ($, o
   on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['reply'] }))
   const reply = { text: 'a reply', origin: { kind: 'composer' as const }, isExpanded: false }
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   const before = greps
   // A row coming on screen redraws the pane.
-  const row = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'UserMessage', requestId: 'row-1',
+  const row = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId: 'row-1',
     props: { ...reply, onScreen: { first: 0, last: 2, of: 3 } } })
   await clock.advance(100)
   expect(greps).toBe(before)
@@ -1705,9 +1705,9 @@ test('chat moves redraw the panel once, 100 ms later', async ($, on) => {
   // Stands for the engine's own drawing of the row.
   on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['reply'] }))
   const reply = { text: 'a reply', origin: { kind: 'composer' as const }, isExpanded: false }
-  const row = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'UserMessage', requestId: 'b-row',
+  const row = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId: 'b-row',
     props: { ...reply, onScreen: { first: 0, last: 2, of: 3 } } })
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   const color = async (text: string) => (await ui.find({ type: 'Text', text: new RegExp(`^${text}\\s*$`) }))?.props.color
   expect(await color('b')).toBe('claude')
@@ -1728,7 +1728,7 @@ test('History shows a prompt as soon as it is sent, inside the second', async ($
   on('process.run', (_, e) => ran(isHistoryGrep(e.argv) ? history : ''))
   on('prompt.submit', (_, e) => ({ text: e.text }) as any)
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   expect((await ui.find({ key: 'jump:0' }))?.text).toContain('first')
   history += `\n${JSON.stringify({ display: 'second', timestamp: 2, sessionId: 'chat-1' })}`
@@ -1746,13 +1746,13 @@ test('the wheel scrolls the History list under a fixed header, up to its end; �
   on('session.id', () => ({ value: 'chat-1' }))
   on('process.run', (_, e) => ran(isHistoryGrep(e.argv) ? history : ''))
   on('prompt.submit', (_, e) => ({ text: e.text }) as any)
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
   // The day line and 30 prompts; 17 rows show under the tabs, their rule and the header, 16 once
   // scrolled: the back-to-top line takes one.
   const wheel = (by: number) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'panel', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
 
   expect(await ui.find({ key: 'top' })).toBeUndefined()
   await wheel(5)
@@ -1805,14 +1805,14 @@ test('after a long jump, rows left on the old screen no longer stretch the lit r
   on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['reply'] }))
   const reply = { text: 'a reply', origin: { kind: 'composer' as const }, isExpanded: false }
   const mount = (requestId: string) =>
-    $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'UserMessage', requestId,
+    $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId,
       props: { ...reply, onScreen: { first: 0, last: 2, of: 3 } } })
 
   // On screen in a's turn; the jump never reports it gone.
   const old = await mount('old-1')
   now += 5_000
   const fresh = [await mount('new-1'), await mount('new-2')]
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   const color = async (text: string) => (await ui.find({ type: 'Text', text: new RegExp(`^${text}\\s*$`) }))?.props.color
 
@@ -1843,13 +1843,13 @@ test('a moved row the chat file does not hold (a tool group) leaves the highligh
   on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['reply'] }))
   const reply = { text: 'a reply', origin: { kind: 'composer' as const }, isExpanded: false }
   const mount = (requestId: string) =>
-    $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'UserMessage', requestId,
+    $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId,
       props: { ...reply, onScreen: { first: 0, last: 2, of: 3 } } })
 
   const rows = [await mount('b-row')]
   now += 5_000
   rows.push(await mount('collapse-1'))
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   const color = async (text: string) => (await ui.find({ type: 'Text', text: new RegExp(`^${text}\\s*$`) }))?.props.color
 
@@ -1890,13 +1890,13 @@ const reply = { text: 'a reply', origin: { kind: 'composer' as const }, isExpand
 
 test('a tool group at the bottom of the screen lights its turn, found by its first call', async ($, on) => {
   inViewSetup(on, start => ({ 'b-row': start + 15_000, toolu_c1: start + 25_000 }))
-  const top = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'UserMessage', requestId: 'b-row',
+  const top = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId: 'b-row',
     props: { ...reply, onScreen: { first: 4, last: 9, of: 10 } } })
   const call = { tool_use_id: 'toolu_c1', tool: 'Bash', input: {}, isRunning: false, isErrored: false, isInterrupted: false }
   const group = { calls: [call], isActive: false, isExpanded: false }
-  const tools = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'ToolGroup', requestId: 'collapsed-toolu_c1',
+  const tools = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'ToolGroup', requestId: 'collapsed-toolu_c1',
     props: { ...group, onScreen: { first: 0, last: 0, of: 2 } } })
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   const color = async (text: string) => (await ui.find({ type: 'Text', text: new RegExp(`^${text}\\s*$`) }))?.props.color
 
@@ -1909,7 +1909,7 @@ test('a tool group at the bottom of the screen lights its turn, found by its fir
 test('a row still on screen counts when it redraws without moving', async ($, on) => {
   const clock = inViewSetup(on, start => ({ 'b-top': start + 15_000, 'c-mid': start + 25_000 }))
   const mount = (requestId: string, first: number) =>
-    $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'UserMessage', requestId,
+    $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId,
       props: { ...reply, onScreen: { first, last: 9, of: 10 } } })
   const mid = await mount('c-mid', 0)
   const top = await mount('b-top', 3)
@@ -1918,7 +1918,7 @@ test('a row still on screen counts when it redraws without moving', async ($, on
   await top.redraw({ ...reply, onScreen: { first: 4, last: 9, of: 10 } })
   // The redraw it sets off makes the middle row say where it is again.
   await clock.advance(100)
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   const color = async (text: string) => (await ui.find({ type: 'Text', text: new RegExp(`^${text}\\s*$`) }))?.props.color
 
@@ -1929,9 +1929,9 @@ test('a row still on screen counts when it redraws without moving', async ($, on
 
 test('a row is looked up in the chat file once, not on every redraw', async ($, on) => {
   const setup = inViewSetup(on, start => ({ 'b-once': start + 15_000 }))
-  const row = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'UserMessage', requestId: 'b-once',
+  const row = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId: 'b-once',
     props: { ...reply, onScreen: { first: 0, last: 2, of: 3 } } })
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   const renders = setup.runs.filter(isHistoryGrep).length
   await setup.advance(5_000)
@@ -1948,11 +1948,11 @@ test('a row the chat file does not hold yet is looked for at most once a second'
   // Mid-turn: the reply streaming in is on screen before the chat file holds it.
   const setup = inViewSetup(on, start => ({ 'b-row': start + 15_000 }))
   const mount = (requestId: string, first: number) =>
-    $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'UserMessage', requestId,
+    $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId,
       props: { ...reply, onScreen: { first, last: 9, of: 10 } } })
   const streaming = await mount('not-yet', 0)
   const row = await mount('b-row', 3)
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   const looks = () => setup.runs.filter(argv => argv.join(' ').includes('not-yet')).length
   const first = looks()
@@ -1970,9 +1970,9 @@ test('a row the chat file does not hold yet is looked for at most once a second'
 
 test('a row growing below the screen, as a reply streams in, redraws nothing', async ($, on) => {
   const setup = inViewSetup(on, start => ({ 'c-grow': start + 25_000 }))
-  const row = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'UserMessage', requestId: 'c-grow',
+  const row = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId: 'c-grow',
     props: { ...reply, onScreen: { first: 0, last: 9, of: 10 } } })
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   const renders = setup.runs.filter(isHistoryGrep).length
   await setup.advance(5_000)
@@ -2012,9 +2012,9 @@ test('a clicked prompt stays lit until a move after its jump settles', () => {
 test('a jump that finds nothing drops its pin: the turn on screen stays lit', async ($, on) => {
   inViewSetup(on, start => ({ 'b-stay': start + 15_000 }))
   on('ui.toast', () => ({ value: undefined }))
-  const row = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'UserMessage', requestId: 'b-stay',
+  const row = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId: 'b-stay',
     props: { ...reply, onScreen: { first: 0, last: 2, of: 3 } } })
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   const color = async (text: string) => (await ui.find({ type: 'Text', text: new RegExp(`^${text}\\s*$`) }))?.props.color
   await ui.press({ key: 'jump:2' })
@@ -2042,7 +2042,7 @@ test('the chat file is found by session id, whatever its folder is named', async
   })
   on('ui.toast', () => ({ value: undefined }))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.press({ key: 'jump:0' })
 
@@ -2077,7 +2077,7 @@ test('a prompt older than the newest 4096 chat entries is not drawn as gone', as
     value: e.as === 'api' ? [] : [...filler, { role: 'user' as const, text: 'new', toolUses: [] }],
   }))
 
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
 
   expect((await ui.find({ type: 'Text', text: /^old\s*$/ }))?.props.color).toBeUndefined()
@@ -2101,7 +2101,7 @@ test('a new session drops all but the newest 50 sessions of mid-turn notes', asy
   expect(deleted).toEqual(Array.from({ length: 10 }, (_, i) => `midTurn:s${i}`))
 })
 
-test('/panel runs at once, even while Claude is working', async ($, on) => {
+test('/margin runs at once, even while Claude is working', async ($, on) => {
   const registered: { name: string; immediate?: true }[] = []
   on('store.keys', () => ({ value: [] }))
   on('command.register', (_, e) => {
@@ -2112,17 +2112,17 @@ test('/panel runs at once, even while Claude is working', async ($, on) => {
 
   await $.session.start({ cwd: '/proj', surface: null, isInteractive: false })
 
-  expect(registered.find(command => command.name === 'panel')?.immediate).toBe(true)
+  expect(registered.find(command => command.name === 'margin')?.immediate).toBe(true)
 })
 
-const INTENT = 'mcp__panel__intent'
+const INTENT = 'mcp__margin__intent'
 const REPORT = { wants: 'a third tab', plan: 'write the spec', steps: [{ text: 'spec', status: 'in_progress' }, { text: 'plan', status: 'pending' }] }
 // History empty, the pane mounted on the Overview tab.
 const intentPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], now?: () => number) => {
   noHistory(on, now)
   on('session.end', (_, e) => ({ sessionId: e.sessionId }) as any)
   on('turn.complete', (_, e) => ({ text: e.answer }) as any)
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   return ui
 }
 const turnEnd = ($: Parameters<TestBody>[0], agentId?: string, reason = 'answer') =>
@@ -2321,7 +2321,7 @@ test("the next prompt dims an answered report, not a stopped one", async ($, on)
   on('fs.read', () => ({ value: '' }))
   on('turn.complete', (_, e) => ({ text: e.answer }) as any)
   on('prompt.submit', (_, e) => ({ text: e.text }) as any)
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await turnEnd($, undefined, 'aborted')
   await $.prompt.submit({ text: 'go on', wait: false, origin: { kind: 'composer' } })
@@ -2411,7 +2411,7 @@ const registered = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1
   on('tool.register', (_, e) => {
     tools.push(e.name)
     described.push(e.description)
-    return { value: { tool: `mcp__panel__${e.name}` } } as any
+    return { value: { tool: `mcp__margin__${e.name}` } } as any
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   await $.session.start({ cwd: '/proj', surface: null, isInteractive: false })
@@ -2443,7 +2443,7 @@ test('intent off: a prompt shows no planning…, and its end no done', { options
 
 test("the intent tool's chat rows draw nothing", async ($, on) => {
   for (const component of ['ToolUse', 'ToolResult'] as const) {
-    const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component, props: { tool_use_id: 'u1', tool: INTENT, input: REPORT, isRunning: false, isErrored: false, isInterrupted: false, output: 'ok' }, requestId: 'u1' } as any)
+    const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component, props: { tool_use_id: 'u1', tool: INTENT, input: REPORT, isRunning: false, isErrored: false, isInterrupted: false, output: 'ok' }, requestId: 'u1' } as any)
     expect(await ui.find({ type: 'Text' })).toBeUndefined()
   }
 })
@@ -2465,13 +2465,13 @@ const overviewHosts = (on: Parameters<TestBody>[1], reply: (n: number) => unknow
   const lines = typed.map((display, i) => JSON.stringify({ display, timestamp: i + 1, sessionId: 'chat-1' }))
   on('process.run', (_, e) => ran(isHistoryGrep(e.argv) ? lines.join('\n') : ''))
   const pane = { isOpen: true }
-  on('ui.panes', () => ({ value: pane.isOpen ? [{ id: 'panel', isPlaced }] : [] }) as any)
+  on('ui.panes', () => ({ value: pane.isOpen ? [{ id: 'margin', isPlaced }] : [] }) as any)
   on('prompt.submit', (_, e) => ({ text: e.text }) as any)
   on('session.end', (_, e) => ({ sessionId: e.sessionId }) as any)
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('store.keys', () => ({ value: [] }))
   on('command.register', (_, e) => ({ value: { command: e.name } }))
-  on('tool.register', (_, e) => ({ value: { tool: `mcp__panel__${e.name}` } }) as any)
+  on('tool.register', (_, e) => ({ value: { tool: `mcp__margin__${e.name}` } }) as any)
   const asks: { model: string; prompt: string }[] = []
   on('model.complete', (_, e) => {
     const value = reply(asks.push(e as any))
@@ -2482,7 +2482,7 @@ const overviewHosts = (on: Parameters<TestBody>[1], reply: (n: number) => unknow
 // Mounted on History, so a test picks Overview when its read should start.
 const overviewPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], reply?: (n: number) => unknown, typed?: string[]) => {
   const { clock, asks } = overviewHosts(on, reply, typed)
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   return { ui, clock, asks }
 }
@@ -2490,7 +2490,7 @@ const send = ($: Parameters<TestBody>[0], text: string) => $.prompt.submit({ tex
 
 test('a session starting with the pane open reads TOPICS on the default tab', async ($, on) => {
   const { clock, asks } = overviewHosts(on)
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await $.session.start({ source: 'startup', cwd: '/home/me' } as any)
   await clock.settle()
   await ui.drawn()
@@ -2508,7 +2508,7 @@ test('a session opening the pane itself reads TOPICS', async ($, on) => {
   })
   // Live, the start's timers fire while it waits on the engine.
   on('store.get', async () => (await clock.settle(), { value: undefined }))
-  await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await $.session.start({ source: 'resume', cwd: '/home/me', surface: 'terminal', isInteractive: true } as any)
   await clock.settle()
   expect(pane.isOpen).toBe(true)
@@ -2518,7 +2518,7 @@ test('a session opening the pane itself reads TOPICS', async ($, on) => {
 // Opened at start on a narrow terminal, the pane waits undrawn: nobody sees TOPICS, so no Opus request.
 test('a pane waiting for room reads no TOPICS', async ($, on) => {
   const { clock, asks } = overviewHosts(on, undefined, undefined, false)
-  await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await $.session.start({ source: 'startup', cwd: '/home/me' } as any)
   await send($, 'ship it')
   await clock.settle()
@@ -2753,7 +2753,7 @@ test('the wheel over TOPICS scrolls them under a divider that stays put; ↑ bri
   // TOPICS starts on row 5, under the tabs, their rule, the status row, its rule and the header; once
   // scrolled, the back-to-top line takes its first row.
   const wheel = (by: number, row: number) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'panel', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
 
   expect(await ui.find({ key: 'top:topics' })).toBeUndefined()
   await wheel(3, 6)
@@ -2861,7 +2861,7 @@ test('TOPICS scrolled to the end still shows the oldest topic, though it wraps p
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'now' })
   await ui.pointer({ type: 'move', x: 0, y: -3, button: 'left', in: 'now' })
   await ui.pointer({ type: 'up', x: 0, y: -3, button: 'left', in: 'now' })
-  await $.ui.scroll({ component: 'Pane', requestId: 'panel', offset: 0, by: 100, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 5 } })
+  await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 100, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 5 } })
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: /^x+$/ })).toBeDefined()
 })
@@ -2873,7 +2873,7 @@ test('the wheel finds TOPICS by the row drawn, once the engine scrolled the Over
   // The pane drawn with the window `offset` rows down, then a wheel tick on its `row`.
   const wheel = async (offset: number, row: number) => {
     await ui.redraw({ ...props, scroll: { offset, bodyRows: 20 } })
-    await $.ui.scroll({ component: 'Pane', requestId: 'panel', offset: offset + 3, by: 3, bodyRows: 20, contentRows: 30, origin: { kind: 'person' }, pointer: { column: 0, row } })
+    await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: offset + 3, by: 3, bodyRows: 20, contentRows: 30, origin: { kind: 'person' }, pointer: { column: 0, row } })
   }
   // Row 6 of the window, 10 rows down: the report, not TOPICS.
   await wheel(10, 6)
@@ -2897,8 +2897,8 @@ function sink(on: any, part: string) {
 test('traces the pane draw', async ($, on) => {
   on('clock.now', () => ({ value: 0 }))
   on('process.run', () => ran(''))
-  const rows = sink(on, 'panel')
-  await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const rows = sink(on, 'margin')
+  await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await $.session.end({ reason: 'other' })
   expect(rows().find(r => r.event === 'pane.draw')?.data).toMatchObject({ tab: 'Overview', zones: 'empty' })
 })
@@ -2908,8 +2908,8 @@ test('scrolling the History list alone writes no new pane.draw entry', async ($,
   const history = Array.from({ length: 30 }, (_, i) => JSON.stringify({ display: `p${i}`, timestamp: start + i * 1000, sessionId: 's1' })).join('\n')
   on('clock.now', () => ({ value: 0 }))
   on('process.run', (_, e) => ran(isHistoryGrep(e.argv) ? history : ''))
-  const rows = sink(on, 'panel')
-  const ui = await $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  const rows = sink(on, 'margin')
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
   const draws = async () => {
@@ -2918,7 +2918,7 @@ test('scrolling the History list alone writes no new pane.draw entry', async ($,
   }
   const before = (await draws()).length
   expect(before).toBeGreaterThan(0)
-  for (const by of [2, 3]) await $.ui.scroll({ component: 'Pane', requestId: 'panel', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
+  for (const by of [2, 3]) await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
   expect(await ui.find({ key: 'top' })).toBeDefined()
   const after = await draws()
   expect(after.length).toBe(before)
@@ -3187,7 +3187,7 @@ test("in an agent's transcript, its step's row goes back to the main conversatio
   expect(views).toEqual([undefined])
 })
 
-// The store a session keeps across sessions, `/panel` and the pane's opens and closes, each open placed or waiting; `opened` and `closed` record the calls.
+// The store a session keeps across sessions, `/margin` and the pane's opens and closes, each open placed or waiting; `opened` and `closed` record the calls.
 const openHost = (on: Parameters<TestBody>[1], store: Record<string, unknown> = {}, isPlaced = true) => {
   const seen = { opened: [] as unknown[], closed: [] as unknown[] }
   mock.clock(on)
@@ -3198,12 +3198,12 @@ const openHost = (on: Parameters<TestBody>[1], store: Record<string, unknown> = 
     return { value: undefined }
   })
   on('command.register', (_, e) => ({ value: { command: e.name } }))
-  on('tool.register', (_, e) => ({ value: { tool: `mcp__panel__${e.name}` } }) as any)
+  on('tool.register', (_, e) => ({ value: { tool: `mcp__margin__${e.name}` } }) as any)
   on('ui.open', (_, e) => {
     seen.opened.push(e)
     return { value: { isPlaced } } as any
   })
-  on('ui.panes', () => ({ value: seen.opened.length > seen.closed.length ? [{ id: 'panel', isPlaced }] : [] }) as any)
+  on('ui.panes', () => ({ value: seen.opened.length > seen.closed.length ? [{ id: 'margin', isPlaced }] : [] }) as any)
   on('ui.close', (_, e) => {
     seen.closed.push(e)
     return { value: undefined } as any
@@ -3212,7 +3212,7 @@ const openHost = (on: Parameters<TestBody>[1], store: Record<string, unknown> = 
   return seen
 }
 const startHere = { cwd: '/proj', surface: 'terminal' as const, isInteractive: true }
-const toggle = ($: Parameters<TestBody>[0]) => $.command.run({ command: 'panel', args: '', origin: { kind: 'composer' } } as any)
+const toggle = ($: Parameters<TestBody>[0]) => $.command.run({ command: 'margin', args: '', origin: { kind: 'composer' } } as any)
 
 test('first session opens the pane', async ($, on) => {
   const seen = openHost(on)
@@ -3232,7 +3232,7 @@ test('a non-interactive session never opens the pane', async ($, on) => {
   expect(seen.opened).toHaveLength(0)
 })
 
-test('/panel remembers whether it left the pane open', async ($, on) => {
+test('/margin remembers whether it left the pane open', async ($, on) => {
   const store: Record<string, unknown> = {}
   openHost(on, store)
   await $.session.start(startHere)
@@ -3243,7 +3243,7 @@ test('/panel remembers whether it left the pane open', async ($, on) => {
 })
 
 // No test raises a person's close; another plugin's close takes the same path.
-const closer = { name: 'closer', register: (on => { on('command.run', { command: 'close-panel' }, async $ => (await $.ui.close({ id: 'panel' }), {})) }) as Register }
+const closer = { name: 'closer', register: (on => { on('command.run', { command: 'close-panel' }, async $ => (await $.ui.close({ id: 'margin' }), {})) }) as Register }
 test('closing the pane any way but an unload is remembered', { plugins: [closer] }, async ($, on) => {
   const store: Record<string, unknown> = {}
   openHost(on, store)
@@ -3252,7 +3252,7 @@ test('closing the pane any way but an unload is remembered', { plugins: [closer]
   expect(store.open).toBe(false)
 })
 
-test('/panel shows a pane waiting for room, not closes it', async ($, on) => {
+test('/margin shows a pane waiting for room, not closes it', async ($, on) => {
   const store: Record<string, unknown> = {}
   const seen = openHost(on, store, false)
   await $.session.start(startHere)
@@ -3264,7 +3264,7 @@ test('/panel shows a pane waiting for room, not closes it', async ($, on) => {
 // The File tab's rows: the body less its header row.
 const windowRows = props.scroll.bodyRows - 2 - BAR_ROWS - 2 // header row + its rule
 const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\n')
-// The File tab as `$.panel.show` leaves it: the test's `$` carries no plugin noun, and a hook in a test module that
+// The File tab as `$.margin.show` leaves it: the test's `$` carries no plugin noun, and a hook in a test module that
 // calls one is refused ("its hooks module does not call it (host rule; the scan lists no calls)"), so the two
 // values `show` writes are answered on read. An empty text stands for a file it could not show.
 const fileTab = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], file: ReturnType<typeof fileView> | undefined) => {
@@ -3273,7 +3273,7 @@ const fileTab = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], 
     const value = e.key === 'tab' ? 'File' : e.key === 'file' ? file : undefined
     return (value === undefined ? next(e) : { value: { value, version: 1 } }) as any
   })
-  return $.ui.mount({ plugin: 'panel', surface: 'terminal', component: 'Pane', props, requestId: 'panel' })
+  return $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
 }
 
 test('the File header is the path from the working directory, or from ~, with a rule under it', async ($, on) => {

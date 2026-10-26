@@ -1,6 +1,6 @@
 import type { ClientModule } from 'claude-code'
 
-// The panel plugin's divider (plugins/panel/hooks/divider.tsx), in the guide's colors: the rule between
+// The panel plugin's divider (plugins/margin/hooks/divider.tsx), in the guide's colors: the rule between
 // the topics and the section when stacked. Dragged, it posts how many rows the topics should take. `split`
 // is the rows they take as drawn, `most` the most they may; the rule sits right under them, so the pointer's
 // row counts from there.

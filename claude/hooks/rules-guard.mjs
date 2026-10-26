@@ -30,7 +30,7 @@ const FLAG = {
   boxAlign: "diagram box edge misaligned",
   tableWidth: "table wider than terminal",
 };
-const INTENT_TOOL = "mcp__panel__intent";
+const INTENT_TOOL = "mcp__margin__intent";
 // Task notifications and peer-session messages arrive as prompts; their words are not the user's.
 const MACHINE_PROMPT = /^(?:<task-notification>|Another Claude session sent a message:|\[Cross-session)/;
 

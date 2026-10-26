@@ -613,15 +613,15 @@ new_stub() {  # fake claude logs argv, prints list/mlist; fake rtk keeps deps of
   printf '#!/bin/sh\n' > "$d/rtk"; chmod +x "$d/claude" "$d/rtk"; echo '[]' > "$d/list"; echo '[]' > "$d/mlist"; : > "$d/log"; echo "$d"
 }
 pinst() { local h=$1 s=$2; shift 2; clean_env HOME="$h" CLAUDZILLA_OFFLINE=0 PATH="$s:$PATH" bash "$REPO/install.sh" "$@" >"$h/install.log" 2>&1; }
-S=$(new_stub); H=$(new_home); seedbase "$H"; echo '[{"id":"panel@claudzilla"}]' > "$S/list"; pinst "$H" "$S" --remove panel
-check "plugins: remove panel uninstalls it" grep -q 'plugin uninstall panel@claudzilla' "$S/log"
+S=$(new_stub); H=$(new_home); seedbase "$H"; echo '[{"id":"margin@claudzilla"}]' > "$S/list"; pinst "$H" "$S" --remove panel
+check "plugins: remove panel uninstalls it" grep -q 'plugin uninstall margin@claudzilla' "$S/log"
 S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S" --remove panel
 check "plugins: unpicked but not installed: no uninstall call" bash -c "! grep -q 'plugin uninstall' '$S/log'"
 S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S"
 check "plugins: re-run with all picked: no uninstall call" bash -c "! grep -q 'plugin uninstall' '$S/log'"
 S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S" --remove panel
 check "plugins: kept part still installed" grep -q 'plugin install picks@claudzilla' "$S/log"
-check "plugins: removed panel not installed" bash -c "! grep -q 'plugin install panel@claudzilla' '$S/log'"
+check "plugins: removed panel not installed" bash -c "! grep -q 'plugin install margin@claudzilla' '$S/log'"
 S=$(new_stub); H=$(new_home); pinst "$H" "$S" --remove rtk,caveman,ponytail,dividers,panel,picks,toast,attribution,ledger
 check "plugins: only core+hud installs just superpowers and guide" [ "$(grep 'plugin install' "$S/log")" = $'plugin install superpowers@claude-plugins-official\nplugin install guide@claudzilla' ]
 check "plugins: unpicked third-party not recorded-uninstalled" bash -c "! grep -q 'plugin uninstall caveman' '$S/log'"
@@ -714,7 +714,7 @@ S=$(new_stub); H=$(new_home); inst "$H"; mkdir -p "$H/.local/bin"; echo x > "$H/
 echo '{"files":[],"rcLines":[],"plugins":["ponytail@ponytail"],"marketplaces":["ponytail"],"winFonts":[],"wtFont":[]}' > "$H/.claude/.claudzilla-installed.json"
 clean_env HOME="$H" CLAUDZILLA_OFFLINE=0 PATH="$S:$PATH" bash "$REPO/install.sh" --uninstall --yes >"$H/install.log" 2>&1; rc=$?
 check "uninstall plugins: exit 0" [ "$rc" -eq 0 ]
-check "uninstall plugins: claudzilla plugins removed" bash -c "for p in panel picks update-toast attribution response-dividers ledger; do grep -q \"plugin uninstall \$p@claudzilla\" '$S/log' || exit 1; done"
+check "uninstall plugins: claudzilla plugins removed" bash -c "for p in margin picks update-toast attribution response-dividers ledger; do grep -q \"plugin uninstall \$p@claudzilla\" '$S/log' || exit 1; done"
 check "uninstall plugins: claudzilla marketplace removed" grep -q 'plugin marketplace remove claudzilla' "$S/log"
 check "uninstall plugins: recorded third-party removed" bash -c "grep -q 'plugin uninstall ponytail@ponytail' '$S/log' && grep -q 'plugin marketplace remove ponytail' '$S/log'"
 check "uninstall plugins: unrecorded third-party kept" bash -c "! grep -qE 'uninstall (caveman|superpowers)|remove (caveman|claude-plugins-official)' '$S/log'"

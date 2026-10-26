@@ -114,7 +114,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 
   *3× speed. One real turn: the context meter climbs and the skill Claude loaded appears. The `5h` and `wk` meters show only on a Claude subscription login, such as Pro, Max or Team. The symbols need the MesloLGS NF font; without it, basic symbols.*
 
-- **Prompt panel:** `/panel` shows what Claude plans and does, lists this chat's prompts, previews files and shows git; click to jump, reuse or rewind ([details](plugins/panel/README.md)).
+- **Prompt panel:** `/panel` shows what Claude plans and does, lists this chat's prompts, previews files and shows git; click to jump, reuse or rewind ([details](plugins/margin/README.md)).
 
   <img src=".github/assets/overview.gif" alt="The panel's Overview tab during a fix: planning, then ASK, PLAN and steps that tick off one by one until done" width="720">
 

@@ -2,8 +2,9 @@
   "name": "claudzilla",
   "description": "Plugins that ship with claudzilla",
   "owner": { "name": "HT0710", "url": "https://github.com/HT0710" },
+  "renames": { "panel": "margin" },
   "plugins": [
-    { "name": "panel", "source": "./plugins/panel" },
+    { "name": "margin", "source": "./plugins/margin" },
     { "name": "response-dividers", "source": "./plugins/response-dividers" },
     { "name": "attribution", "source": "./plugins/attribution" },
     { "name": "picks", "source": "./plugins/picks" },

@@ -1,4 +1,4 @@
-# panel
+# margin
 
 A side pane that opens on its Overview tab, at session start as the last session left it (open the first time; under 144 columns it waits for room, 110 once you have opened it yourself; alt+h shows it at any width); the History tab lists this chat's prompts, newest first. Two tab bars: Overview, Decisions and History (this chat) on top; File, Tree and Git (the repo) below. Decisions and Tree are dimmed: coming in v1.8.
 
@@ -25,17 +25,17 @@ A side pane that opens on its Overview tab, at session start as the last session
 claudzilla's `install.sh` installs it. Without claudzilla:
 
 ```
-/plugin install panel --marketplace HT0710/claudzilla
+/plugin install margin --marketplace HT0710/claudzilla
 ```
 
 ## Open it
 
-`/panel` toggles the pane. claudzilla's `install.sh` binds alt+h unless you bound it. Without claudzilla, add this to `~/.claude/keybindings.json`:
+`/margin` toggles the pane. claudzilla's `install.sh` binds alt+h unless you bound it. Without claudzilla, add this to `~/.claude/keybindings.json`:
 
 ```json
 {
   "bindings": [
-    { "context": "Chat", "bindings": { "alt+h": "command:panel" } }
+    { "context": "Chat", "bindings": { "alt+h": "command:margin" } }
   ]
 }
 ```
@@ -50,4 +50,4 @@ Tested with Claude Code 2.1.308; mod events and methods can change between relea
 
 ## Develop
 
-`claude --plugin-dir plugins/panel` loads it and writes the API types `tsconfig.json` points at; `claude plugin test plugins/panel` runs the tests.
+`claude --plugin-dir plugins/margin` loads it and writes the API types `tsconfig.json` points at; `claude plugin test plugins/margin` runs the tests.

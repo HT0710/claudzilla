@@ -337,7 +337,7 @@ test('report writes a snapshot and flushes', async ($, on) => {
   }
   const files = (p: string) =>
     ({
-      '/cfg/settings.json': '{"enabledPlugins":{"panel@claudzilla":true,"off@claudzilla":false,"x@other":true}}',
+      '/cfg/settings.json': '{"enabledPlugins":{"margin@claudzilla":true,"off@claudzilla":false,"x@other":true}}',
       '/cfg/settings.overrides.json': '{"model":"secret-model","env":{"A":"b"}}',
       '/cfg/claudzilla.json': '{"rulesGuard":{"trace":false}}',
     })[p]
@@ -352,7 +352,7 @@ test('report writes a snapshot and flushes', async ($, on) => {
   await run($, 'report the panel is blank')
   const row = writes.map(w => w.text).join('\n').split('\n').filter(Boolean).map(l => JSON.parse(l)).find(r => r.event === 'report.snapshot')
   expect(row).toMatchObject({ part: 'guide', level: 'info' })
-  expect(row.data).toMatchObject({ version: 'v1.4.0', commit: 'abc123', branch: 'feat/x', dirty: true, claudeCode: '2.1.9', os: 'Linux 6', node: 'v22.1.0', columns: 120, rows: 40, mods: ['panel@claudzilla'], overrideKeys: ['model', 'env.A'], configKeys: ['rulesGuard.trace'] })
+  expect(row.data).toMatchObject({ version: 'v1.4.0', commit: 'abc123', branch: 'feat/x', dirty: true, claudeCode: '2.1.9', os: 'Linux 6', node: 'v22.1.0', columns: 120, rows: 40, mods: ['margin@claudzilla'], overrideKeys: ['model', 'env.A'], configKeys: ['rulesGuard.trace'] })
   expect(JSON.stringify(row)).not.toContain('secret-model')
   expect(seen.opened).toHaveLength(0)
   // The harness hands over no callback: the hand-off is only seen scheduled, and not run inside the hook.
