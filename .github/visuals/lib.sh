@@ -30,9 +30,9 @@ start() {
   LIVE=1
   wait_for 'Try "' 40 || return 1
   [ "$COLS" -ge 110 ] || return 0
-  [ -n "${PANEL0:-}" ] || panel_save
+  [ -n "${MARGIN0:-}" ] || margin_save
   # The dock border column depends on the terminal width: saved once per width.
-  dock_saved "$COLS" >/dev/null || DOCKS="$DOCKS$COLS:$(panel_open && dock_col) "
+  dock_saved "$COLS" >/dev/null || DOCKS="$DOCKS$COLS:$(margin_open && dock_col) "
 }
 
 # wait_for TEXT SECS: poll the pane for TEXT (grep -E); 1 on timeout.
@@ -174,18 +174,18 @@ retry() {
   return 1
 }
 
-panel_open() { tm capture-pane -t "$SHOT" -p | grep 'Overview.*Decisions' >/dev/null; }
+margin_open() { tm capture-pane -t "$SHOT" -p | grep 'Overview.*Decisions' >/dev/null; }
 # The panel opens a few seconds after the prompt when the user left it open; a slow start must not read as closed.
-panel_save() { if wait_for 'Overview.*Decisions' 25 2>/dev/null; then PANEL0=on; else PANEL0=off; fi; }
-# panel_want on|off
-panel_want() {
-  local now=off; panel_open && now=on
+margin_save() { if wait_for 'Overview.*Decisions' 25 2>/dev/null; then MARGIN0=on; else MARGIN0=off; fi; }
+# margin_want on|off
+margin_want() {
+  local now=off; margin_open && now=on
   [ "$now" = "$1" ] && return 0
   tm send-keys -t "$SHOT" M-h
-  if [ "$1" = on ]; then wait_for 'Overview.*Decisions' 10; else sleep 1; ! panel_open; fi
+  if [ "$1" = on ]; then wait_for 'Overview.*Decisions' 10; else sleep 1; ! margin_open; fi
 }
 # Under 110 columns the panel cannot dock, so its state cannot be read or set here.
-panel_restore() { [ -z "${PANEL0:-}" ] || [ "${COLS:-0}" -lt 110 ] || panel_want "$PANEL0"; }
+margin_restore() { [ -z "${MARGIN0:-}" ] || [ "${COLS:-0}" -lt 110 ] || margin_want "$MARGIN0"; }
 
 # dock_col: 0-based column of the dock's left border (the column of │ on most rows); empty if none.
 dock_col() {
@@ -224,8 +224,8 @@ finish() {
     LIVE=; echo "finish: session $SHOT ended early; panel and dock width not restored, check them" >&2; return 1
   fi
   local ok=0
-  [ -z "$(dock_saved "${COLS:-0}")" ] || { panel_want on && dock_restore; } || ok=1
-  panel_restore || ok=1
+  [ -z "$(dock_saved "${COLS:-0}")" ] || { margin_want on && dock_restore; } || ok=1
+  margin_restore || ok=1
   tm kill-session -t "$SHOT"; LIVE=
   return $ok
 }

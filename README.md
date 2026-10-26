@@ -77,7 +77,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 
 - **Picks card:** a reply that ends in a decision shows a card above the prompt; press a digit to answer ([details](plugins/ballot/README.md)).
 
-  <img src=".github/assets/picks.gif" alt="The picks card above the prompt; pressing 1 puts option A and its text in the prompt box, then Enter sends it" width="720">
+  <img src=".github/assets/ballot.gif" alt="The picks card above the prompt; pressing 1 puts option A and its text in the prompt box, then Enter sends it" width="720">
 
   *Real speed. Press 1: the option's id and text go into the prompt box; Enter sends it. Needs the `picks` part.*
 
@@ -136,7 +136,7 @@ Panel History tab: this chat's prompts, newest first, with rewind and latest.
 
 Guide pane: `/claudzilla` or alt+g, topics beside a section.
 
-<img src=".github/assets/guide.png" alt="The guide pane: topic list grouped by part, the What claudzilla is section under it" width="720">
+<img src=".github/assets/primer.png" alt="The guide pane: topic list grouped by part, the What claudzilla is section under it" width="720">
 
 </details>
 

@@ -45,7 +45,7 @@ check "retry: passes on 2nd try" retry_pass_ok
 ok() { return 0; }
 finish_fail_ok() { ( finish() { return 1; }; ! retry 3 ok 2>/dev/null ); }
 check "retry: fails when restore fails" finish_fail_ok
-dead_ok() { ( LIVE=1 PANEL0=on; ! finish 2>"$H/dead.err" ) && grep -q 'not restored' "$H/dead.err"; }
+dead_ok() { ( LIVE=1 MARGIN0=on; ! finish 2>"$H/dead.err" ) && grep -q 'not restored' "$H/dead.err"; }
 check "finish: fails when the session died before restore" dead_ok
 docks_ok() { ( DOCKS=" 150:83 110: "; [ "$(dock_saved 150)" = 83 ] && dock_saved 110 >/dev/null && [ -z "$(dock_saved 110)" ] && ! dock_saved 80 ); }
 check "dock: one saved border column per width" docks_ok
