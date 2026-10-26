@@ -601,6 +601,40 @@ test('top bar holds Overview, Decisions, History; bottom bar File, Tree, Git', a
   expect((await ui.find({ key: 'tab:Git' }))?.props.width).toBe(Math.floor((props.bodyColumns - 4 - 6) / 3))
 })
 
+type TabNode = { type?: string; props?: { underline?: boolean; bold?: boolean; inverse?: boolean }; text?: string; children?: unknown[] }
+const underlined = (node: unknown): TabNode[] => {
+  const el = node as TabNode
+  if (typeof node !== 'object' || !el) return []
+  return [...(el.type === 'Text' && el.props?.underline ? [el] : []), ...(el.children ?? []).flatMap(underlined)]
+}
+
+test('tab titles underline their key letter', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  const letters = async (tab: string) => underlined(await ui.find({ key: `tab:${tab}` })).map(t => t.children?.[0])
+  expect(await letters('Overview')).toEqual(['O'])
+  expect(await letters('History')).toEqual(['H'])
+  expect(await letters('File')).toEqual(['l'])
+  expect(await letters('Git')).toEqual(['G'])
+  expect(await letters('Decisions')).toEqual([])
+  expect(await letters('Tree')).toEqual([])
+})
+
+test('the shown tab keeps its underline', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  const shown = await ui.find({ type: 'Text', text: /^\s*Overview\s*$/ })
+  expect(shown?.props.bold && shown?.props.inverse).toBe(true)
+  expect(underlined(shown).map(t => t.children?.[0])).toEqual(['O'])
+})
+
+test('a cut name shows no underline', async ($, on) => {
+  noHistory(on)
+  // 16 body columns: 6 for three slots, 2 each, so File is cut to Fi.
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 16 }, requestId: 'margin' })
+  expect(underlined(await ui.find({ key: 'tab:File' }))).toEqual([])
+})
+
 test('in the narrowest dock a tab name is cut to its slot, never wrapped', async ($, on) => {
   noHistory(on)
   // 23 body columns: 13 for three slots, 4 + 4 + 5.
