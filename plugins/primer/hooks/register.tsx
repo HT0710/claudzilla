@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
-const t = tracer('guide')
+const t = tracer('primer')
 
 const PAD = 2
 // Rows the stacked topics and section keep however far the divider is dragged.
@@ -57,7 +57,7 @@ export function find(sections: Section[], arg: string): { section?: Section; not
   return section ? { section } : { note: `No topic "${arg.trim()}". Pick one from the list.` }
 }
 
-const PANE = 'guide'
+const PANE = 'primer'
 const MISSING = 'Guide not found. Read it at https://github.com/HT0710/claudzilla/blob/main/GUIDE.md'
 const cells = (row: string) => row.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim())
 
@@ -189,9 +189,9 @@ let reveal = false
 let pinned: number | undefined
 // The first row the topics and the section show, as the wheel moved them; the rows the topics take when
 // stacked, as the divider was dragged, -1 until it is.
-const tocTop = atom({ plugin: 'guide', key: 'tocTop' } as const, 0)
-const bodyTop = atom({ plugin: 'guide', key: 'bodyTop' } as const, 0)
-const split = atom({ plugin: 'guide', key: 'split' } as const, -1)
+const tocTop = atom({ plugin: 'primer', key: 'tocTop' } as const, 0)
+const bodyTop = atom({ plugin: 'primer', key: 'bodyTop' } as const, 0)
+const split = atom({ plugin: 'primer', key: 'split' } as const, -1)
 // The pane as last drawn: the wheel left of `tocColumns` (beside) or on rows `tocFrom` to `tocTo` (stacked)
 // scrolls the topics up to `tocEnd`; anywhere else, and the keys, the section up to `bodyEnd`.
 let zones: { tocColumns: number; tocFrom: number; tocTo: number; tocEnd: number; bodyEnd: number } | undefined
@@ -268,7 +268,7 @@ export const register: Register = on => {
   })
 
   // Answered here, in place of next: core would ask permission for a tool only this skill calls.
-  on('tool.call', { tool: /^mcp__guide__compact_draft$/ }, async (_, e) => {
+  on('tool.call', { tool: /^mcp__primer__compact_draft$/ }, async (_, e) => {
     const input = e as unknown as { keep?: unknown; drop?: unknown; clear?: unknown; agentId?: string }
     if (input.agentId !== undefined) return { result: 'ok' }
     pending = draft(input)
@@ -279,7 +279,7 @@ export const register: Register = on => {
 
   // The draft shows in the prompt box, not as a chat row.
   on('ui.render', { component: ['ToolUse', 'ToolResult'] }, async ($, e, next) => {
-    if (e.props.tool !== 'mcp__guide__compact_draft') return next(e)
+    if (e.props.tool !== 'mcp__primer__compact_draft') return next(e)
     const { Box } = $.ui.resolve(e)
 
     return <Box />

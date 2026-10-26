@@ -1,5 +1,5 @@
 {
-  "name": "guide",
+  "name": "primer",
   "description": "/claudzilla [topic]: the claudzilla guide, one section at a time; /claudzilla report and /claudzilla compact",
   "author": { "name": "HT0710", "url": "https://github.com/HT0710" },
   "types": "./types/index.d.ts"
