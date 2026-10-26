@@ -329,7 +329,7 @@ Claude Code's [status line](https://code.claude.com/docs/en/statusline) page exp
 
 If you installed the margin, it is a pane with two tab bars. The top bar is about this chat: Overview, Decisions and History. The bottom bar is about the repo: File, Tree and Git. Decisions and Tree are dimmed and say "coming in v1.8". It shows how Claude read your request and what it is doing, and it lets you move around a long chat without scrolling. If you did not install it, run `~/claudzilla/install.sh --add margin` in a terminal.
 
-To open or close the margin, press **alt+h** or type `/margin`. A new session opens it if you left it open, and the first session opens it too; on a terminal under 144 columns it waits for room (110 once you have opened it yourself); **alt+h** shows it at any width. In the fullscreen layout, on a terminal 110 columns or wider, it docks beside the chat; otherwise it opens over the prompt. It opens on the Overview tab; click a tab name to switch. On macOS, alt is the Option key, and your terminal must send it as Meta; see [Option key shortcuts on macOS](https://code.claude.com/docs/en/terminal-config#enable-option-key-shortcuts-on-macos).
+To open or close the margin, type `/margin`, or press a tab's key (see the key table). A new session opens it if you left it open, and the first session opens it too; on a terminal under 144 columns it waits for room (110 once you have opened it yourself); a tab key shows it at any width. In the fullscreen layout, on a terminal 110 columns or wider, it docks beside the chat; otherwise it opens over the prompt. It opens on the Overview tab; click a tab name or press its key to switch. Each tab key opens the margin on that tab, switches to it when another tab shows, and closes the margin when that tab already shows. The key letter is underlined in the tab name; Decisions and Tree have none yet. On macOS, alt is the Option key, and your terminal must send it as Meta; see [Option key shortcuts on macOS](https://code.claude.com/docs/en/terminal-config#enable-option-key-shortcuts-on-macos).
 
 **Overview** shows, at the top, whether Claude is `● working`, `✓ done` or `■ stopped`, or, when its turn ended with background agents still running, `◌ waiting on N agents`, then:
 
@@ -542,8 +542,11 @@ Press a key at the prompt. Items marked "if installed" work only with that part.
 | Esc Esc | open the rewind menu (empty prompt) |
 | Shift+Tab | change the permission mode |
 | → or Tab | put the dim suggestion in the prompt |
-| alt+g | open or close this guide |
-| alt+h | open or close the margin (if installed) |
+| alt+q | open or close this guide |
+| alt+o | margin: Overview tab (if installed) |
+| alt+h | margin: History tab |
+| alt+l | margin: File tab |
+| alt+g | margin: Git tab |
 | alt+k | move into the ballot card (if installed) |
 
 On macOS, alt is the Option key, and your terminal must send it as Meta; see [Option key shortcuts on macOS](https://code.claude.com/docs/en/terminal-config#enable-option-key-shortcuts-on-macos). To change keys, see *Customize claudzilla* (`/claudzilla customize`). Claude Code's [interactive mode](https://code.claude.com/docs/en/interactive-mode) page lists all its keys.
@@ -571,7 +574,7 @@ In this list, `env`, `permissions` and `model` go in `~/.claude/settings.overrid
 - **Stop auto-update:** put `{"rulesGuard":{"autoUpdate":false}}` in `~/.claude/claudzilla.json`; you still get the notice.
 - **Change other guard settings:** `compactNudge` (the context size, in tokens, at which Claude suggests compacting; `0` turns it off), `reviewNudge`, `autoUpdate` and `trace` (`false` stops the local trace; machine file only) sit next to `rules`, not inside it.
 - **Add your own instructions:** write them in `~/.claude/CLAUDE.local.md`. claudzilla's rules load it in every session on this machine.
-- **Change keys:** run `/keybindings` to open `~/.claude/keybindings.json`. To free **alt+g**, **alt+h** or **alt+k**, set it to `null` in the `Chat` block. Changes apply without a restart.
+- **Change keys:** run `/keybindings` to open `~/.claude/keybindings.json`. To free **alt+q**, **alt+o**, **alt+h**, **alt+l**, **alt+g** or **alt+k**, set it to `null` in the `Chat` block. Changes apply without a restart.
 
 #### Examples
 
@@ -636,6 +639,7 @@ Headline features of recent versions. Restart Claude after an update to use them
 
 #### v1.6.0
 
+- **Tab keys:** alt+o, alt+h, alt+l and alt+g open the margin on Overview, History, File and Git; the letter is underlined in each tab. The guide moves from alt+g to alt+q. alt+o replaces Claude Code's fast-mode key; `/fast` still works.
 - **New names:** the plugins are now margin (`/margin`, was panel), folio (response-dividers), ballot (picks), primer (guide), herald (update-toast) and byline (attribution), and install parts follow. The update moves you over: once, margin opens and asks to show its pane again, and a usage toast may repeat. A `settings.overrides.json` naming an old plugin id needs the new one.
 
 #### v1.5.0

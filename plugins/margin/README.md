@@ -1,6 +1,6 @@
 # margin
 
-A side pane that opens on its Overview tab, at session start as the last session left it (open the first time; under 144 columns it waits for room, 110 once you have opened it yourself; alt+h shows it at any width); the History tab lists this chat's prompts, newest first. Two tab bars: Overview, Decisions and History (this chat) on top; File, Tree and Git (the repo) below. Decisions and Tree are dimmed: coming in v1.8.
+A side pane that opens on its Overview tab, at session start as the last session left it (open the first time; under 144 columns it waits for room, 110 once you have opened it yourself; a tab key shows it at any width); the History tab lists this chat's prompts, newest first. Two tab bars: Overview, Decisions and History (this chat) on top; File, Tree and Git (the repo) below. Decisions and Tree are dimmed: coming in v1.8.
 
 <img src="../../.github/assets/overview.gif" alt="The Overview tab during a fix: planning, then ASK, PLAN and steps that tick off one by one until done" width="720">
 
@@ -30,12 +30,17 @@ claudzilla's `install.sh` installs it. Without claudzilla:
 
 ## Open it
 
-`/margin` toggles the pane. claudzilla's `install.sh` binds alt+h unless you bound it. Without claudzilla, add this to `~/.claude/keybindings.json`:
+`/margin` toggles the pane. A tab key (alt+o Overview, alt+h History, alt+l File, alt+g Git) opens it on that tab, switches to the tab when another shows, and closes it when that tab already shows. claudzilla's `install.sh` binds them unless you bound a key or gave its command another key. Without claudzilla, add this to `~/.claude/keybindings.json`:
 
 ```json
 {
   "bindings": [
-    { "context": "Chat", "bindings": { "alt+h": "command:margin" } }
+    { "context": "Chat", "bindings": {
+      "alt+o": "command:margin-overview",
+      "alt+h": "command:margin-history",
+      "alt+l": "command:margin-file",
+      "alt+g": "command:margin-git"
+    } }
   ]
 }
 ```
