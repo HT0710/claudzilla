@@ -34,7 +34,7 @@ const Divider: ClientModule<{ split: number; min: number; max: number }, { grabb
   const word = by ? `${by > 0 ? '↓' : '↑'}${Math.abs(by)}` : '⇕'
   const isLit = surface.state?.isOver
   const side = Math.max(0, surface.columns - word.length - 2)
-  // The guide's divider colors (plugins/primer/hooks/divider.tsx), as every panel rule but History's day
+  // The primer pane's divider colors (plugins/primer/hooks/divider.tsx), as every margin rule but History's day
   // lines.
   return (
     <Box>

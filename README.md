@@ -47,14 +47,14 @@ curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh |
 | `rtk` | token-saving command filter |
 | `caveman` | terse replies |
 | `ponytail` | smallest-change coding |
-| `dividers` | response dividers |
-| `panel` | side panel |
-| `picks` | suggested next steps |
-| `toast` | update and usage notices |
-| `attribution` | commit credit |
+| `folio` | response dividers |
+| `margin` | side panel |
+| `ballot` | suggested next steps |
+| `herald` | update and usage notices |
+| `byline` | commit credit |
 | `ledger` | pause edits another session made |
 
-`core` is not in the menu; `--add` and `--remove` accept it. The updater always ships; it also carries the guide, `/claudzilla report` and `/claudzilla compact`. Your choice is saved, see [How install works](CONFIGURATION.md#how-install-works).
+`core` is not in the menu; `--add` and `--remove` accept it. The updater and `primer` always ship; `primer` carries the guide pane, `/claudzilla report` and `/claudzilla compact`. Your choice is saved, see [How install works](CONFIGURATION.md#how-install-works).
 
 Safe to re-run. Anything replaced is backed up to `~/.claude/.claudzilla-backup/`.
 
@@ -75,17 +75,17 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 
   <img src=".github/assets/decision.png" alt="A decision table with options A and B, a bold recommendation with its source, and a Next line" width="720">
 
-- **Picks card:** a reply that ends in a decision shows a card above the prompt; press a digit to answer ([details](plugins/ballot/README.md)).
+- **Ballot card:** a reply that ends in a decision shows a card above the prompt; press a digit to answer ([details](plugins/ballot/README.md)).
 
-  <img src=".github/assets/ballot.gif" alt="The picks card above the prompt; pressing 1 puts option A and its text in the prompt box, then Enter sends it" width="720">
+  <img src=".github/assets/ballot.gif" alt="The ballot card above the prompt; pressing 1 puts option A and its text in the prompt box, then Enter sends it" width="720">
 
-  *Real speed. Press 1: the option's id and text go into the prompt box; Enter sends it. Needs the `picks` part.*
+  *Real speed. Press 1: the option's id and text go into the prompt box; Enter sends it. Needs the `ballot` part.*
 
-- **Dividers and file links:** lines frame the TL;DR, `Next:` and each `---`, fitted to the chat width. A file path in a reply is a link: click it to see those lines in the panel ([details](plugins/folio/README.md)).
+- **Dividers and file links:** lines frame the TL;DR, `Next:` and each `---`, fitted to the chat width. A file path in a reply is a link: click it to see those lines in the margin ([details](plugins/folio/README.md)).
 
-  <img src=".github/assets/filelink.gif" alt="Clicking auth/token.js:3 in a reply opens the panel's File tab with line 3 marked" width="720">
+  <img src=".github/assets/filelink.gif" alt="Clicking auth/token.js:3 in a reply opens the margin's File tab with line 3 marked" width="720">
 
-  *Real speed. Click `auth/token.js:3`: the File tab shows the lines around it, line 3 marked `▶`. Needs the fullscreen layout and the `dividers` and `panel` parts. Your terminal's own link click, such as ctrl+click, opens the file; Claude Code does not.*
+  *Real speed. Click `auth/token.js:3`: the File tab shows the lines around it, line 3 marked `▶`. Needs the fullscreen layout and the `folio` and `margin` parts. Your terminal's own link click, such as ctrl+click, opens the file; Claude Code does not.*
 
 ### Code that stays small
 - **Lazy by default:** the smallest change that fully works ([ponytail](https://github.com/DietrichGebert/ponytail)).
@@ -114,11 +114,11 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 
   *3× speed. One real turn: the context meter climbs and the skill Claude loaded appears. The `5h` and `wk` meters show only on a Claude subscription login, such as Pro, Max or Team. The symbols need the MesloLGS NF font; without it, basic symbols.*
 
-- **Prompt panel:** `/panel` shows what Claude plans and does, lists this chat's prompts, previews files and shows git; click to jump, reuse or rewind ([details](plugins/margin/README.md)).
+- **Margin:** `/margin` shows what Claude plans and does, lists this chat's prompts, previews files and shows git; click to jump, reuse or rewind ([details](plugins/margin/README.md)).
 
-  <img src=".github/assets/overview.gif" alt="The panel's Overview tab during a fix: planning, then ASK, PLAN and steps that tick off one by one until done" width="720">
+  <img src=".github/assets/overview.gif" alt="The margin's Overview tab during a fix: planning, then ASK, PLAN and steps that tick off one by one until done" width="720">
 
-  *2× speed. After `planning…`, Claude's reading of the request (ASK, PLAN) fills in, and each step goes ○ → ● → ✓ until the header reads `✓ done`. Docks beside the chat in the fullscreen layout, from 110 columns. Costs: a short tool call per report (the panel's `intent` option in `/config` turns it off), and while the Overview tab shows, an Opus request at low effort after each prompt to sort topics.*
+  *2× speed. After `planning…`, Claude's reading of the request (ASK, PLAN) fills in, and each step goes ○ → ● → ✓ until the header reads `✓ done`. Docks beside the chat in the fullscreen layout, from 110 columns. Costs: a short tool call per report (the margin's `intent` option in `/config` turns it off), and while the Overview tab shows, an Opus request at low effort after each prompt to sort topics.*
 - **Toasts:** updates install in the background and say so; a toast also shows when the 5-hour or weekly limit passes 50%, 75% and 90%, and when context is worth compacting ([details](plugins/herald/README.md)).
 - **Theme + settings:** muted dark truecolor theme, `opus[1m]`, normal permission prompts.
 - **Local trace:** a record of what claudzilla's parts did, kept in `~/.claude/claudzilla-trace/`, never uploaded; `{"rulesGuard":{"trace":false}}` in `~/.claude/claudzilla.json` turns it off. See the guide topic `bugs` (`/claudzilla bugs`).
@@ -126,17 +126,17 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 <details>
 <summary>More screenshots</summary>
 
-Panel Git tab: the branch, changed files and recent commits.
+Margin Git tab: the branch, changed files and recent commits.
 
-<img src=".github/assets/git.png" alt="The panel's Git tab: master with one changed file under CHANGES and one commit under COMMITS" width="720">
+<img src=".github/assets/git.png" alt="The margin's Git tab: master with one changed file under CHANGES and one commit under COMMITS" width="720">
 
-Panel History tab: this chat's prompts, newest first, with rewind and latest.
+Margin History tab: this chat's prompts, newest first, with rewind and latest.
 
-<img src=".github/assets/history.png" alt="The panel's History tab listing two prompts under Today" width="720">
+<img src=".github/assets/history.png" alt="The margin's History tab listing two prompts under Today" width="720">
 
-Guide pane: `/claudzilla` or alt+g, topics beside a section.
+Primer pane: `/claudzilla` or alt+g, topics beside a section.
 
-<img src=".github/assets/primer.png" alt="The guide pane: topic list grouped by part, the What claudzilla is section under it" width="720">
+<img src=".github/assets/primer.png" alt="The primer pane: topic list grouped by part, the What claudzilla is section under it" width="720">
 
 </details>
 
@@ -147,7 +147,7 @@ Guide pane: `/claudzilla` or alt+g, topics beside a section.
 | `/claudzilla [topic]` | the guide, one topic at a time |
 | `/claudzilla report [what happened]` | drafts a problem report from the local trace (nothing uploaded); files an issue only on your yes |
 | `/claudzilla compact` | drafts a `/compact` line into the prompt box |
-| `/panel` | side panel: Claude's plan and steps, this chat's prompts, files, git |
+| `/margin` | side panel: Claude's plan and steps, this chat's prompts, files, git |
 | `/rule-review` | how often each rule slipped; weekly summary at startup; on your yes, shares the counts (no text) as a claudzilla issue |
 | `pr` skill | pre-PR checks + description template, runs before every PR |
 

@@ -18,7 +18,7 @@ What changes compared with stock Claude Code:
 - **Proof:** Claude says "fixed" only after the check ran. The guard sends an unchecked "done" back to be checked.
 - **Git:** the guard asks you before a force-push or a command that discards work, and blocks commits on `main`.
 - **Permissions:** sessions start in Manual mode, so Claude asks before it edits files or runs commands. Recent versions of stock Claude Code start in auto mode, where a classifier reviews most actions instead of asking you.
-- **Screen:** if you installed them, the status line, the panel, the picks card, the response dividers and the toasts.
+- **Screen:** if you installed them, the status line, the margin, the ballot card, the folio dividers and the toasts.
 
 A Full install includes every part; a Custom install includes the parts you kept. Sections about an optional part say "if you installed" it.
 
@@ -53,7 +53,7 @@ These words come up in Claude Code and in this guide. Each one names a single id
 - **Skill:** a file of instructions for one kind of task, such as debugging. Claude loads it when the task fits, or you run it with `/skill-name`. See *Use skills* (`/claudzilla skills`).
 - **Hook:** a script Claude Code runs at a fixed point, such as before a tool runs or when Claude stops. The guard is a hook.
 - **Rule file (`CLAUDE.md`):** a markdown file of instructions that Claude Code loads at the start of every session. claudzilla's rules live in `~/.claude/CLAUDE.md` and `~/.claude/rules/`. A project can add its own `CLAUDE.md`.
-- **Plugin:** a package of skills, hooks and other parts that installs as one unit. claudzilla installs superpowers and, if you installed them, its own plugins (such as the panel and the picks card), caveman and ponytail.
+- **Plugin:** a package of skills, hooks and other parts that installs as one unit. claudzilla installs superpowers and, if you installed them, its own plugins (such as the margin and the ballot card), caveman and ponytail.
 - **Mode (caveman, ponytail):** if you installed them, caveman makes replies terse and ponytail keeps code changes to the smallest one that works. Both start at the `ultra` level. Say `stop caveman`, `stop ponytail` or `normal mode` to turn them off.
 - **Subagent:** a helper Claude starts for one task. It works in its own context and returns a summary, so a large search does not fill yours.
 - **Transcript:** a session saved as a file under `~/.claude/projects/`. Claude Code reads it back when you resume the session.
@@ -117,7 +117,7 @@ claudzilla's rules shape every reply so you can scan it instead of reading it al
 - **Evidence:** a claim carries a `file:line` reference (file and line number) or the command that showed it. A claim Claude did not check is marked *unverified*; treat it as a guess.
 - **Decision:** options `A`, `B` in a table, then `**Recommend:**` with one pick and a **Why:** line with its source. With several decisions, they are numbered: `Decision 1`, `Decision 2`.
 - **Picks:** with two or more choices, a `**Picks:**` line lists the recommended answers, such as `1B, 2A`.
-- **File links:** a code span with the path of an existing file, such as `src/app.ts:42`, is a link. Click it to see the lines around it in the panel's File tab, but only in the fullscreen terminal; elsewhere a click does what the terminal does. Your terminal's own link click, such as ctrl+click, opens the file; Claude Code does not. Needs the response dividers and the panel. Without the panel, a click shows a toast saying so.
+- **File links:** a code span with the path of an existing file, such as `src/app.ts:42`, is a link. Click it to see the lines around it in the margin's File tab, but only in the fullscreen terminal; elsewhere a click does what the terminal does. Your terminal's own link click, such as ctrl+click, opens the file; Claude Code does not. Needs the folio and margin parts. Without the margin, a click shows a toast saying so.
 - **Next:** the last line, the single next action.
 - **Dividers:** a heavy line frames a reply that has a TL;DR. A thin line follows the TL;DR and comes before the Picks or Next line. A dotted line marks a change of group: what Claude found, what to choose, what to do.
 
@@ -127,7 +127,7 @@ To answer, type one of these and press **Enter**, or write a question or correct
 - `1B` picks option B of Decision 1.
 - `go, but 2B` accepts the rest and changes one pick.
 
-If you installed the picks plugin, the picks card numbers the options so a digit answers. See *The picks card* (`/claudzilla picks`).
+If you installed the ballot plugin, the ballot card numbers the options so a digit answers. See *The ballot card* (`/claudzilla ballot`).
 
 ## Working
 
@@ -248,7 +248,7 @@ You can stop Claude at any point and take back what it changed.
 - **Restore conversation:** go back in the conversation and keep the files.
 - **Summarize from here:** compress the later conversation to free context.
 
-If you installed the panel, the `⟲ rewind` button on its History tab opens the same menu. See *The panel* (`/claudzilla panel`).
+If you installed the margin, the `⟲ rewind` button on its History tab opens the same menu. See *The margin* (`/claudzilla margin`).
 
 > **Rewind cannot undo:** files changed by shell commands, such as `rm`, `mv` or `cp`; most edits made by subagents; and changes made outside Claude Code.
 
@@ -283,7 +283,7 @@ By default, the guard blocks these and tells Claude what to do instead:
 
 When Claude edited files and its reply says "done", "fixed" or "passing" with no command run after the last edit, the guard sends the reply back: Claude must run a check, such as the tests, and report the output.
 
-Claude also never pushes, opens a PR or tags unless you ask. Before a push, it regroups its commits into one logical change each. If you installed the attribution plugin, it removes session links from the commit trailer and PR footer that Claude Code asks Claude to write.
+Claude also never pushes, opens a PR or tags unless you ask. Before a push, it regroups its commits into one logical change each. If you installed the byline plugin, it removes session links from the commit trailer and PR footer that Claude Code asks Claude to write.
 
 If you installed the ledger plugin and two sessions work in one folder, Claude pauses before it edits a file that the other session edited in the last 30 minutes. The other session gets a message, Claude re-reads the file, and it waits or asks you only when both changes touch the same lines.
 
@@ -324,12 +324,12 @@ What to do with it:
 
 Claude Code's [status line](https://code.claude.com/docs/en/statusline) page explains how a status line works.
 
-### The panel
-<!-- topic: panel -->
+### The margin
+<!-- topic: margin -->
 
-If you installed the panel, it is a pane with two tab bars. The top bar is about this chat: Overview, Decisions and History. The bottom bar is about the repo: File, Tree and Git. Decisions and Tree are dimmed and say "coming in v1.8". It shows how Claude read your request and what it is doing, and it lets you move around a long chat without scrolling. If you did not install it, run `~/claudzilla/install.sh --add panel` in a terminal.
+If you installed the margin, it is a pane with two tab bars. The top bar is about this chat: Overview, Decisions and History. The bottom bar is about the repo: File, Tree and Git. Decisions and Tree are dimmed and say "coming in v1.8". It shows how Claude read your request and what it is doing, and it lets you move around a long chat without scrolling. If you did not install it, run `~/claudzilla/install.sh --add margin` in a terminal.
 
-To open or close the panel, press **alt+h** or type `/panel`. A new session opens it if you left it open, and the first session opens it too; on a terminal under 144 columns it waits for room (110 once you have opened it yourself); **alt+h** shows it at any width. In the fullscreen layout, on a terminal 110 columns or wider, it docks beside the chat; otherwise it opens over the prompt. It opens on the Overview tab; click a tab name to switch. On macOS, alt is the Option key, and your terminal must send it as Meta; see [Option key shortcuts on macOS](https://code.claude.com/docs/en/terminal-config#enable-option-key-shortcuts-on-macos).
+To open or close the margin, press **alt+h** or type `/margin`. A new session opens it if you left it open, and the first session opens it too; on a terminal under 144 columns it waits for room (110 once you have opened it yourself); **alt+h** shows it at any width. In the fullscreen layout, on a terminal 110 columns or wider, it docks beside the chat; otherwise it opens over the prompt. It opens on the Overview tab; click a tab name to switch. On macOS, alt is the Option key, and your terminal must send it as Meta; see [Option key shortcuts on macOS](https://code.claude.com/docs/en/terminal-config#enable-option-key-shortcuts-on-macos).
 
 **Overview** shows, at the top, whether Claude is `● working`, `✓ done` or `■ stopped`, or, when its turn ended with background agents still running, `◌ waiting on N agents`, then:
 
@@ -339,7 +339,7 @@ To open or close the panel, press **alt+h** or type `/panel`. A new session open
 - **STEPS:** its steps: `✓` done, `●` in progress, `○` pending.
   - Agents Claude starts hang under their step: `○` planned, `◌` working, `✓` done, `✗` failed, `■` stopped. Past 3, the rest fold into `… N more`; click it to see them all, `… less` to fold them. Click an agent to open its transcript (its row lights blue); click it again, click its step, or press **Esc** to go back.
 
-From the moment you submit until Claude reports, the header shows `planning…` over last turn's dimmed report. The current step is lit blue. When STEPS runs past the pane's last row, a dim `… N more` counts the rows left out; the `⇕` rule under TOPICS gives them more rows. Claude fills ASK, PLAN and STEPS by calling a hidden `intent` tool at the start of each turn. TOPICS, ASK, PLAN and STEPS are written in the language you write in; the labels stay in English. Check ASK first: if Claude misread you, press **Esc** and correct it. Each report and each topics read uses a little of your usage limits; see *Usage and cost* (`/claudzilla limits`). To turn the reports off, set the panel's `intent` option to off in `/config`; it applies from the next session.
+From the moment you submit until Claude reports, the header shows `planning…` over last turn's dimmed report. The current step is lit blue. When STEPS runs past the pane's last row, a dim `… N more` counts the rows left out; the `⇕` rule under TOPICS gives them more rows. Claude fills ASK, PLAN and STEPS by calling a hidden `intent` tool at the start of each turn. TOPICS, ASK, PLAN and STEPS are written in the language you write in; the labels stay in English. Check ASK first: if Claude misread you, press **Esc** and correct it. Each report and each topics read uses a little of your usage limits; see *Usage and cost* (`/claudzilla limits`). To turn the reports off, set the margin's `intent` option to off in `/config`; it applies from the next session.
 
 **History** lists this chat's prompts, newest first:
 
@@ -350,18 +350,18 @@ From the moment you submit until Claude reports, the header shows `planning…` 
 - `⟲ rewind` and `⤓ latest` show once there is a prompt; with History empty they are hidden.
 - A dim prompt was rewound or compacted, or is not drawn in the chat yet. A compacted prompt still jumps while the chat shows it; the others do not. `↻` works on all of them.
 
-**File** shows the lines around a file mentioned in Claude's reply, with the line marked `▶`. Click the file link in the reply to open it here; the panel opens if it was closed. See *Read a reply* (`/claudzilla replies`).
+**File** shows the lines around a file mentioned in Claude's reply, with the line marked `▶`. Click the file link in the reply to open it here; the margin opens if it was closed. See *Read a reply* (`/claudzilla replies`).
 
 **Git** shows the session folder's branch, with `↑` for commits ahead of its remote and `↓` for commits behind, the changed files under CHANGES, and recent commits under COMMITS. It redraws after each tool call and each prompt. Scrolled, a `↑` line goes back to the top of CHANGES or COMMITS. When the `origin` remote is on GitHub, GitLab, Codeberg or SourceHut, a pushed commit's id, or the branch once pushed to origin, links to its web page: its row lights up while the pointer is on it. Alt+click opens it; Ctrl+click opens it twice until a Claude Code bug is fixed ([anthropics/claude-code#76110](https://github.com/anthropics/claude-code/issues/76110)).
 
-The mouse wheel scrolls each list. The `⇕` rule between CHANGES and COMMITS, and the one under TOPICS, sets how the rows are shared: drag it, and each side keeps at least one row; click it to move it to the top, and click it there to move it to the bottom. The [panel README](https://github.com/HT0710/claudzilla/blob/main/plugins/margin/README.md) has the full detail.
+The mouse wheel scrolls each list. The `⇕` rule between CHANGES and COMMITS, and the one under TOPICS, sets how the rows are shared: drag it, and each side keeps at least one row; click it to move it to the top, and click it there to move it to the bottom. The [margin README](https://github.com/HT0710/claudzilla/blob/main/plugins/margin/README.md) has the full detail.
 
-### The picks card
-<!-- topic: picks -->
+### The ballot card
+<!-- topic: ballot -->
 
-If you installed the picks card, it appears over the prompt box when a reply asks you to choose. It turns the reply's decision into numbered answers, so one key answers instead of a typed reply. If you did not install it, run `~/claudzilla/install.sh --add picks` in a terminal.
+If you installed the ballot card, it appears over the prompt box when a reply asks you to choose. It turns the reply's decision into numbered answers, so one key answers instead of a typed reply. If you did not install it, run `~/claudzilla/install.sh --add ballot` in a terminal.
 
-The picks card appears after a reply with one `Decision` table of two or more options; see *Read a reply* (`/claudzilla replies`). The table's heading becomes the question and each option a numbered row. The recommended row is blue; when the reply gives a `Why:`, it shows under the rows. The last row is always `go ahead, except…`.
+The ballot card appears after a reply with one `Decision` table of two or more options; see *Read a reply* (`/claudzilla replies`). The table's heading becomes the question and each option a numbered row. The recommended row is blue; when the reply gives a `Why:`, it shows under the rows. The last row is always `go ahead, except…`.
 
 ```text
 ╭─────────────────────────────────╮
@@ -381,14 +381,14 @@ The picks card appears after a reply with one `Decision` table of two or more op
 - Type a row's digit into the empty prompt, then pause. The option's id and text, such as `2: push + PR`, go into the prompt box. Press **Enter** to send.
 - The recommended answer waits dim in the empty prompt. Press **→** or **Tab**, then **Enter**, to send it.
 - Pick `go ahead, except…` to get `go, but ` in the prompt box, then type your changes, such as `go, but 2B`.
-- Press **alt+k** to move into the picks card, on the recommended row. **Arrow keys** move between rows, **Enter** puts the answer in the prompt box, and **Esc** goes back without one. Without the claudzilla key, `ctrl+x tab` does the same. On macOS, alt is the Option key, and your terminal must send it as Meta; see [Option key shortcuts on macOS](https://code.claude.com/docs/en/terminal-config#enable-option-key-shortcuts-on-macos).
-- Or ignore the picks card and type your own answer.
+- Press **alt+k** to move into the ballot card, on the recommended row. **Arrow keys** move between rows, **Enter** puts the answer in the prompt box, and **Esc** goes back without one. Without the claudzilla key, `ctrl+x tab` does the same. On macOS, alt is the Option key, and your terminal must send it as Meta; see [Option key shortcuts on macOS](https://code.claude.com/docs/en/terminal-config#enable-option-key-shortcuts-on-macos).
+- Or ignore the ballot card and type your own answer.
 
-The picks card hides while Claude works and goes once you send any prompt. When a reply has nothing to choose, such as a `**Picks:**` line, a Next line that says `say go`, or a **Compact** line with no Next, no picks card appears: only the dim answer, such as `1B, 2A` or `go`, waits in the prompt box.
+The ballot card hides while Claude works and goes once you send any prompt. When a reply has nothing to choose, such as a `**Picks:**` line, a Next line that says `say go`, or a **Compact** line with no Next, no ballot card appears: only the dim answer, such as `1B, 2A` or `go`, waits in the prompt box.
 
 An answer you send speaks in your voice, so the history reads as you wrote it: Claude's `show you the diff` comes back as `show me the diff`, and `your branch` as `my branch`. Code and double-quoted text stay as written.
 
-The [picks README](https://github.com/HT0710/claudzilla/blob/main/plugins/ballot/README.md) has the full detail.
+The [ballot README](https://github.com/HT0710/claudzilla/blob/main/plugins/ballot/README.md) has the full detail.
 
 ## Own it
 
@@ -401,7 +401,7 @@ Every request to Claude uses *tokens*: the text it reads, writes and thinks. On 
 
 - Run `/usage` to see your plan limits and when they reset.
 - If you installed the status line, its `5h` and `wk` meters show the same, with the time to each reset. See *The status line* (`/claudzilla hud`).
-- If you installed the `toast` part, a toast shows when the 5-hour or weekly limit passes 50%, 75% and 90%, such as `5-hour usage 77% · resets in 2h10m`. Each point shows once per limit window, even across sessions.
+- If you installed the `herald` part, a toast shows when the 5-hour or weekly limit passes 50%, 75% and 90%, such as `5-hour usage 77% · resets in 2h10m`. Each point shows once per limit window, even across sessions.
 
 #### What uses more
 
@@ -413,8 +413,8 @@ Every request to Claude uses *tokens*: the text it reads, writes and thinks. On 
 
 Each of these costs tokens; here is how to turn it off.
 
-- **Intent reports:** if you installed the panel, Claude calls a hidden `intent` tool at the start of each turn. To stop it, set the panel's `intent` option to off in `/config`; it applies from the next session.
-- **Topics:** while the panel's Overview tab shows, an Opus request at low effort sorts your prompts into topics after each prompt. Switch to another tab or close the panel to stop it.
+- **Intent reports:** if you installed the margin, Claude calls a hidden `intent` tool at the start of each turn. To stop it, set the margin's `intent` option to off in `/config`; it applies from the next session.
+- **Topics:** while the margin's Overview tab shows, an Opus request at low effort sorts your prompts into topics after each prompt. Switch to another tab or close the margin to stop it.
 - **Done check:** when Claude says "done" with no check after its last edit, the guard sends the reply back, and Claude takes another turn to run a check. To get a note on the next prompt instead, put `{"rulesGuard":{"rules":{"doneClaim":"flag"}}}` in `~/.claude/claudzilla.json`, or use `"off"`. See *Customize claudzilla* (`/claudzilla customize`).
 
 Two parts save tokens: caveman shortens replies, and rtk shortens command output. Claude Code's [costs](https://code.claude.com/docs/en/costs) page has more ways to reduce usage.
@@ -428,7 +428,7 @@ claudzilla does some things without being asked. This list names each one, so no
 - **Transcript reads by the guard:** the guard reads the end of the current session's transcript, the saved file of the session, to measure context and to see whether a check ran. It keeps its notes in a temporary file for each session.
 - **Rule counts:** at startup, if the last `/rule-review` report is missing or a week old, a background job scans your transcripts in `~/.claude/projects/` and saves counts in `~/.claude/claudzilla-reports/`. When rules slipped, the next session shows a one-line summary once. The counts leave your machine only if you say yes in `/rule-review`. To stop the scan and the summary, put `{"rulesGuard":{"reviewNudge":false}}` in `~/.claude/claudzilla.json`.
 - **Command rewriting:** if you installed rtk, a hook passes each shell command Claude runs through rtk, which shortens the output Claude reads. Run `rtk gain` in a terminal to see the tokens it saved.
-- **Lines added to each prompt:** the guard tells Claude your terminal width, so its tables fit. If you use the panel, it also reminds Claude to send its intent report. Past the `compactNudge` threshold it adds the compact reminder, and a prompt with words such as "bug" or "code review" gets a reminder to use the matching skill; `compactNudge` `0` and the rules `debugTrigger` and `reviewTrigger` set to `off` drop them. To drop the width line, put `{"rulesGuard":{"rules":{"tableWidth":"off"}}}` in `~/.claude/claudzilla.json`.
+- **Lines added to each prompt:** the guard tells Claude your terminal width, so its tables fit. If you use the margin, it also reminds Claude to send its intent report. Past the `compactNudge` threshold it adds the compact reminder, and a prompt with words such as "bug" or "code review" gets a reminder to use the matching skill; `compactNudge` `0` and the rules `debugTrigger` and `reviewTrigger` set to `off` drop them. To drop the width line, put `{"rulesGuard":{"rules":{"tableWidth":"off"}}}` in `~/.claude/claudzilla.json`.
 - **Plans kept out of git:** when Claude writes a spec or plan under `docs/superpowers/` in a repository that tracks no files there, the guard adds `docs/superpowers/` to the repository's `.git/info/exclude` file. Git then ignores those files, so they stay out of your commits. To stop it, put `{"rulesGuard":{"rules":{"specExclude":"off"}}}` in `~/.claude/claudzilla.json`.
 - **Settings reset on update:** each update runs the installer again, which puts claudzilla's values back in `~/.claude/settings.json`, such as the model or effort level that a `/model` or `/effort` pick saved. Put lasting choices in `~/.claude/settings.overrides.json`.
 - **Local trace:** the guard and other claudzilla parts write what they did to `~/.claude/claudzilla-trace/` on your machine. Nothing is uploaded. To turn it off, put `{"rulesGuard":{"trace":false}}` in `~/.claude/claudzilla.json`. See *Report a problem* (`/claudzilla bugs`).
@@ -459,11 +459,11 @@ The status line draws its symbols with the MesloLGS NF font. Set MesloLGS NF as 
 
 #### A plugin misbehaves
 
-Run `/plugin`, press **Tab** to reach the Installed tab, select the plugin and press **Space** to turn it off. The installer turns the plugins it installed back on when it runs again, such as on an auto-update. To keep one off, remove its part in a terminal, such as `~/claudzilla/install.sh --remove picks`.
+Run `/plugin`, press **Tab** to reach the Installed tab, select the plugin and press **Space** to turn it off. The installer turns the plugins it installed back on when it runs again, such as on an auto-update. To keep one off, remove its part in a terminal, such as `~/claudzilla/install.sh --remove ballot`.
 
 #### Claude keeps missing
 
-After two failed corrections, run `/clear` and write a better first prompt with what you learned. If you installed the panel, check its ASK line to see how Claude read your request. See *Talk to Claude* (`/claudzilla talk`).
+After two failed corrections, run `/clear` and write a better first prompt with what you learned. If you installed the margin, check its ASK line to see how Claude read your request. See *Talk to Claude* (`/claudzilla talk`).
 
 For problems with Claude Code itself, run `/doctor`, or see Claude Code's [troubleshooting](https://code.claude.com/docs/en/troubleshooting) page.
 
@@ -475,7 +475,7 @@ claudzilla keeps a trace of each session so a problem can be reported with facts
 #### What is recorded
 
 - **Where:** `~/.claude/claudzilla-trace/` (or `$CLAUDE_CONFIG_DIR/claudzilla-trace/`). The folder is readable only by you.
-- **What:** which claudzilla hooks and plugins (panel, picks, guide and the rest) ran and what they decided, plus a snapshot of your setup. The snapshot lists enabled claudzilla plugins and the names of settings, never their values. Secrets, such as API keys and tokens, are masked before anything is written.
+- **What:** which claudzilla hooks and plugins (margin, ballot, primer and the rest) ran and what they decided, plus a snapshot of your setup. The snapshot lists enabled claudzilla plugins and the names of settings, never their values. Secrets, such as API keys and tokens, are masked before anything is written.
 - **How long:** files older than 7 days are removed, and the folder is kept under 50 MB. Both happen when a session starts.
 - **Off switch:** put `{"rulesGuard":{"trace":false}}` in `~/.claude/claudzilla.json`. It takes effect at the next session start. Traces already written stay and are removed after 7 days. With tracing off nothing is written, and a report uses the conversation plus a snapshot built on the spot.
 
@@ -515,7 +515,7 @@ Type a word or command at the prompt and press **Enter**. Items marked "if insta
 | `/claudzilla report [what happened]` | draft a problem report from the local trace |
 | `/claudzilla compact` | draft a `/compact` line into the prompt box |
 | `/rule-review` | count how often each claudzilla rule slipped |
-| `/panel` | open or close the panel (if installed) |
+| `/margin` | open or close the margin (if installed) |
 | `/caveman` | turn caveman on (if installed) |
 | `/ponytail lite` | set ponytail's level: `lite`, `full`, `ultra` (if installed) |
 
@@ -543,8 +543,8 @@ Press a key at the prompt. Items marked "if installed" work only with that part.
 | Shift+Tab | change the permission mode |
 | → or Tab | put the dim suggestion in the prompt |
 | alt+g | open or close this guide |
-| alt+h | open or close the panel (if installed) |
-| alt+k | move into the picks card (if installed) |
+| alt+h | open or close the margin (if installed) |
+| alt+k | move into the ballot card (if installed) |
 
 On macOS, alt is the Option key, and your terminal must send it as Meta; see [Option key shortcuts on macOS](https://code.claude.com/docs/en/terminal-config#enable-option-key-shortcuts-on-macos). To change keys, see *Customize claudzilla* (`/claudzilla customize`). Claude Code's [interactive mode](https://code.claude.com/docs/en/interactive-mode) page lists all its keys.
 
@@ -596,7 +596,7 @@ A guard file, such as `~/.claude/claudzilla.json`. If the file already has other
 
 #### How updates arrive
 
-Each feature, fix or refactor pushed to claudzilla's `main` branch ships as a release once its tests pass. At most once a day, a new session or `/clear` installs the newest release in the background. A notice appears when a session starts; if you installed the update toast, a toast also tells you when an update is available, installing, installed, or failed. Restart Claude to apply an update; `/claudzilla news` lists what changed. If the clone has local changes, the update waits and the notice gives the command to run. Auto-update is described in *What runs on its own* (`/claudzilla background`).
+Each feature, fix or refactor pushed to claudzilla's `main` branch ships as a release once its tests pass. At most once a day, a new session or `/clear` installs the newest release in the background. A notice appears when a session starts; if you installed the herald plugin, a toast also tells you when an update is available, installing, installed, or failed. Restart Claude to apply an update; `/claudzilla news` lists what changed. If the clone has local changes, the update waits and the notice gives the command to run. Auto-update is described in *What runs on its own* (`/claudzilla background`).
 
 #### Update by hand
 
@@ -608,7 +608,7 @@ cd ~/claudzilla && git pull && ./install.sh
 
 #### Add or remove parts
 
-Run `~/claudzilla/install.sh --add panel` to add a part, or `--remove panel` to take it out. The [README](https://github.com/HT0710/claudzilla/blob/main/README.md#install) lists the other flags, such as `--full`, `--custom` and `--yes`. The parts are `hud` (the status line), `rtk`, `caveman`, `ponytail`, `dividers`, `panel`, `picks`, `toast`, `attribution` and `ledger`.
+Run `~/claudzilla/install.sh --add margin` to add a part, or `--remove margin` to take it out. The [README](https://github.com/HT0710/claudzilla/blob/main/README.md#install) lists the other flags, such as `--full`, `--custom` and `--yes`. The parts are `hud` (the status line), `rtk`, `caveman`, `ponytail`, `folio`, `margin`, `ballot`, `herald`, `byline` and `ledger`.
 
 #### Uninstall
 
@@ -625,7 +625,7 @@ It asks first, then removes claudzilla's links, settings entries, keys and plugi
 - Run `/help` to list Claude Code's commands, or `/doctor` to check your Claude Code setup.
 - Report a claudzilla problem or ask a question in [claudzilla's GitHub issues](https://github.com/HT0710/claudzilla/issues).
 - Read every claudzilla setting in [CONFIGURATION.md](https://github.com/HT0710/claudzilla/blob/main/CONFIGURATION.md).
-- Read each plugin's README: [panel](https://github.com/HT0710/claudzilla/blob/main/plugins/margin/README.md), [picks](https://github.com/HT0710/claudzilla/blob/main/plugins/ballot/README.md), [response dividers](https://github.com/HT0710/claudzilla/blob/main/plugins/folio/README.md), [attribution](https://github.com/HT0710/claudzilla/blob/main/plugins/byline/README.md), [guide](https://github.com/HT0710/claudzilla/blob/main/plugins/primer/README.md), [update toast](https://github.com/HT0710/claudzilla/blob/main/plugins/herald/README.md), [ledger](https://github.com/HT0710/claudzilla/blob/main/plugins/ledger/README.md).
+- Read each plugin's README: [margin](https://github.com/HT0710/claudzilla/blob/main/plugins/margin/README.md), [ballot](https://github.com/HT0710/claudzilla/blob/main/plugins/ballot/README.md), [folio](https://github.com/HT0710/claudzilla/blob/main/plugins/folio/README.md), [byline](https://github.com/HT0710/claudzilla/blob/main/plugins/byline/README.md), [primer](https://github.com/HT0710/claudzilla/blob/main/plugins/primer/README.md), [herald](https://github.com/HT0710/claudzilla/blob/main/plugins/herald/README.md), [ledger](https://github.com/HT0710/claudzilla/blob/main/plugins/ledger/README.md).
 - Learn Claude Code itself in [Claude Code's docs](https://code.claude.com/docs/en/overview).
 - claudzilla is built on [caveman](https://github.com/JuliusBrussee/caveman), [ponytail](https://github.com/DietrichGebert/ponytail), [superpowers](https://github.com/obra/superpowers) and [rtk](https://github.com/rtk-ai/rtk).
 
@@ -634,14 +634,18 @@ It asks first, then removes claudzilla's links, settings entries, keys and plugi
 
 Headline features of recent versions. Restart Claude after an update to use them.
 
+#### v1.6.0
+
+- **New names:** the plugins are now margin (`/margin`, was panel), folio (response-dividers), ballot (picks), primer (guide), herald (update-toast) and byline (attribution), and install parts follow. The update moves you over: once, margin opens and asks to show its pane again, and a usage toast may repeat. A `settings.overrides.json` naming an old plugin id needs the new one.
+
 #### v1.5.0
 
-- The panel opens at the start of each session as you left it, open the first time. Its tabs sit in two bars: Overview, Decisions and History at the top; File, Tree and Git at the bottom.
+- The margin opens at the start of each session as you left it, open the first time. Its tabs sit in two bars: Overview, Decisions and History at the top; File, Tree and Git at the bottom.
 - Overview writes TOPICS, ASK, PLAN and STEPS in the language you write in.
 - Agents Claude starts show as rows under the step that started them, and Overview shows `◌ waiting on N agents` while they run. Click one to open its transcript; click it again or press Esc to go back.
-- A file path in Claude's reply is a link: click it to see those lines in the panel's new File tab, ctrl+click to open the file.
+- A file path in Claude's reply is a link: click it to see those lines in the margin's new File tab, ctrl+click to open the file.
 - In the Git tab, a pushed commit or branch links to its GitHub, GitLab, Codeberg or SourceHut page: alt+click opens it.
-- A picks card answer goes into the prompt box in your voice: "show you the diff" becomes "show me the diff".
+- A ballot card answer goes into the prompt box in your voice: "show you the diff" becomes "show me the diff".
 - When context grows large, a **Compact** line and a toast say so; `/claudzilla compact` drafts a `/compact` line into your prompt box.
 - A toast shows when your 5-hour or weekly limit passes 50%, 75% and 90%.
 
