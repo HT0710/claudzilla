@@ -253,10 +253,10 @@ menu() {
 
 picked() { case " $PICKED " in *" $1 "*) ;; *) return 1 ;; esac; }
 
-# alt+h toggles margin, alt+k focuses the band (the ballot card), alt+g toggles
-# the guide. Each is left alone if the user chose: the key under any alias in
-# Chat or Global (null unbinds), the action on another key, or a symlink (a
-# dotfiles tool owns it).
+# alt+o/h/l/g open the margin tabs, alt+k focuses the band (the ballot card),
+# alt+q toggles the guide. Each is left alone if the user chose: the key under
+# any alias in Chat or Global (null unbinds), the action on another key, or a
+# symlink (a dotfiles tool owns it).
 keybindings() {
   local dst="$DEST/keybindings.json" tmp="$DEST/.keybindings.json.claudzilla" rc=0 added verb
   added=$(node -e '
@@ -266,8 +266,11 @@ let j={bindings:[]};
 if(fs.existsSync(dst))try{j=JSON.parse(fs.readFileSync(dst,"utf8"))}catch{process.exit(2)}
 if(!isObj(j)||!Array.isArray(j.bindings)||!j.bindings.every(b=>isObj(b)&&isObj(b.bindings)))process.exit(2);
 const chat=j.bindings.filter(b=>b.context==="Chat");
-const keys=[["h","command:margin","margin"],["k","abovePrompt:focus","ballot"],["g","command:claudzilla","primer"]],msg=[];
+const keys=[["o","command:margin-overview","margin"],["h","command:margin-history","margin"],["l","command:margin-file","margin"],["g","command:margin-git","margin"],["k","abovePrompt:focus","ballot"],["q","command:claudzilla","primer"]],msg=[];
 for(const b of j.bindings)if(["Chat","Global"].includes(b.context))for(const x in b.bindings)if(b.bindings[x]==="command:panel"){b.bindings[x]="command:margin";msg.push(`${x} -> command:margin`)}
+const A=b=>b.bindings;for(const b of chat){if(A(b)["alt+h"]==="command:margin"){A(b)["alt+h"]="command:margin-history";msg.push("alt+h -> command:margin-history")}
+  // alt+q judged by key only: the action-on-another-key rule would always hold while alt+g keeps the guide
+  if(A(b)["alt+g"]==="command:claudzilla"&&(!has("primer")||!j.bindings.some(c=>["Chat","Global"].includes(c.context)&&Object.keys(c.bindings).some(x=>/^(alt|opt|option|meta)\+q$/i.test(x))))){delete A(b)["alt+g"];msg.push("alt+g -> alt+q")}}
 for(const[k,a,p]of keys)if(!has(p))for(const b of chat)if(b.bindings[`alt+${k}`]===a){delete b.bindings[`alt+${k}`];msg.push(`alt+${k} removed`)}
 j.bindings=j.bindings.filter(b=>b.context!=="Chat"||Object.keys(b.bindings).length||!msg.length);
 const own=(k,a)=>j.bindings.some(b=>(["Chat","Global"].includes(b.context)&&Object.keys(b.bindings).some(x=>new RegExp(`^(alt|opt|option|meta)\\+${k}$`,"i").test(x)))||Object.values(b.bindings).includes(a));
@@ -279,12 +282,12 @@ fs.writeFileSync(out,JSON.stringify(j,null,2)+"\n");
 console.log(msg.join(", "))' "$dst" "$tmp" "$PICKED") || rc=$?
   case $rc in
     0) if [ -L "$dst" ]; then rm -f "$tmp"; verb=add; case "$added" in *"->"*) ;; *) verb=remove ;; esac
-         if grep -q 'command:panel' "$dst"; then echo "claudzilla: $dst is a symlink - change command:panel to command:margin yourself (see CONFIGURATION.md)" >&2
-         else echo "claudzilla: $dst is a symlink - $verb alt+h (/margin), alt+k (card focus) and alt+g (/claudzilla) yourself (see CONFIGURATION.md)" >&2; fi
+         if grep -qE 'command:panel|"command:margin"|"alt\+g": *"command:claudzilla"' "$dst"; then echo "claudzilla: $dst is a symlink - move alt+h to command:margin-history and /claudzilla to alt+q yourself (see CONFIGURATION.md)" >&2
+         else echo "claudzilla: $dst is a symlink - $verb alt+o/h/l/g (margin tabs), alt+k (card focus) and alt+q (/claudzilla) yourself (see CONFIGURATION.md)" >&2; fi
        else [ -f "$dst" ] && save keybindings.json
          mv "$tmp" "$dst"; echo "keybindings: $added"; fi ;;
     3) ;;
-    *) rm -f "$tmp"; echo "claudzilla: $dst unreadable - add alt+h (/margin), alt+k (card focus) and alt+g (/claudzilla) yourself (see CONFIGURATION.md)" >&2 ;;
+    *) rm -f "$tmp"; echo "claudzilla: $dst unreadable - add alt+o/h/l/g (margin tabs), alt+k (card focus) and alt+q (/claudzilla) yourself (see CONFIGURATION.md)" >&2 ;;
   esac
 }
 
