@@ -785,8 +785,8 @@ export const register: Register = (on, options) => {
       await built.state.set({ plugin: 'margin', key: 'tab' } as const, 'File')
       if (!(await built.ui.panes()).some(pane => pane.id === PANE && pane.isPlaced)) {
         await built.store.set('open', true).catch(() => undefined)
-        const opened = await built.ui.open({ id: PANE, title: 'Panel', columns: 40 })
-        if (!opened.isPlaced) built.ui.toast('Panel waits: terminal too narrow.')
+        const opened = await built.ui.open({ id: PANE, title: 'Margin', columns: 40 })
+        if (!opened.isPlaced) built.ui.toast('Margin waits: terminal too narrow.')
       }
     }
 
@@ -798,13 +798,13 @@ export const register: Register = (on, options) => {
     // A reload drops the module's runs; the atom stays, maybe mid-run, and would show reading… for good.
     await update($, overview, now => (now.running ? { ...now, running: false } : now))
     // immediate: alt+h mid-turn opens the pane now, not once the turn ends; it prints nothing.
-    await $.command.register({ name: 'margin', description: 'Toggle the side panel', immediate: true })
+    await $.command.register({ name: 'margin', description: 'Toggle the margin', immediate: true })
     // Keys come back in the order first set: the oldest sessions' notes go.
     const notes = (await $.store.keys().catch(() => [])).filter(key => key.startsWith('midTurn:'))
     await Promise.all(notes.slice(0, -MID_TURN_SESSIONS).map(key => $.store.delete(key).catch(() => undefined)))
     if (isIntentOn) await $.tool.register(INTENT_SPEC).catch(() => undefined)
     // Opens as the last session left it; never asked yet, open. Below 144 columns (110 once asked) it waits for room.
-    if (e.isInteractive && (await $.store.get('open').catch(() => undefined)) !== false) await $.ui.open({ id: PANE, title: 'Panel', columns: 40 }).catch(() => undefined)
+    if (e.isInteractive && (await $.store.get('open').catch(() => undefined)) !== false) await $.ui.open({ id: PANE, title: 'Margin', columns: 40 }).catch(() => undefined)
     // A reload or resume with the tab open: read now, not at the next prompt. After the open: before it, no pane to read for.
     $.clock.after(0, () => readOverview($))
 
@@ -827,9 +827,9 @@ export const register: Register = (on, options) => {
       return {}
     }
     await $.store.set('open', true).catch(() => undefined)
-    const opened = await $.ui.open({ id: PANE, title: 'Panel', columns: 40 })
+    const opened = await $.ui.open({ id: PANE, title: 'Margin', columns: 40 })
     // No output text: alt+h toggles often, and a chat row per toggle is noise.
-    if (!opened.isPlaced) $.ui.toast('Panel waits: terminal too narrow.')
+    if (!opened.isPlaced) $.ui.toast('Margin waits: terminal too narrow.')
     // Reopened on Overview: read what the closed pane missed.
     else if (overviewStale) $.clock.after(0, () => readOverview($))
 
@@ -1431,7 +1431,7 @@ export const register: Register = (on, options) => {
             )}
             <Text color={HUD.faint}>{changed}</Text>
           </Box>
-          {/* The guide's rule color, as every panel rule but History's day lines. */}
+          {/* The primer pane's rule color, as every margin rule but History's day lines. */}
           <Text color="promptBorder">{bodyRule}</Text>
           {files.length > 0 && (
             <Box justifyContent="space-between">
