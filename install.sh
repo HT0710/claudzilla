@@ -346,7 +346,7 @@ record() {  # $1: kind, $2: value, $3: "del" removes it; adds skip duplicates
   local f="$DEST/.claudzilla-installed.json"
   node -e '
 const fs=require("fs"),[f,kind,val,del]=process.argv.slice(1);
-const r={files:[],rcLines:[],plugins:[],marketplaces:[],winFonts:[],wtFont:[]};
+const r={files:[],rcLines:[],plugins:[],marketplaces:[],winFonts:[],wtFont:[],seeds:[]};
 if(fs.existsSync(f))Object.assign(r,JSON.parse(fs.readFileSync(f,"utf8")));
 if(!Array.isArray(r[kind]))process.exit(1);
 const v=kind=="rcLines"?(([file,...l])=>({file,line:l.join("|")}))(val.split("|")):kind=="winFonts"?(([file,...l])=>({file,reg:l.join("|")}))(val.split("|")):val;
@@ -357,6 +357,20 @@ fs.writeFileSync(f+".tmp",JSON.stringify(r,null,2)+"\n")' "$f" "$1" "$2" "${3:-}
 
 # A bad record must not abort the install.
 record_or_warn() { record "$@" || echo "claudzilla: could not update the install record" >&2; }
+
+# ponytail's band and its CSV ledger start off, once: the "ponytail" seed marks it done, so a later
+# `/ponytail band on` (deletes the flag) or `ledger` in /config stays the user's choice.
+ponytail_defaults() {
+  local f="$DEST/.ponytail-band" s="$DEST/settings.json"
+  node -e 'process.exit(require(process.argv[1]).seeds?.includes("ponytail")?0:1)' "$DEST/.claudzilla-installed.json" 2>/dev/null && return 0
+  node -e '
+const fs=require("fs"),f=process.argv[1],j=JSON.parse(fs.readFileSync(f,"utf8"));
+const o=((j.pluginConfigs??={})["ponytail@ponytail"]??={}).options??={};
+if(!("ledger" in o)){o.ledger=false;fs.writeFileSync(f+".claudzilla",JSON.stringify(j,null,2)+"\n");fs.renameSync(f+".claudzilla",f)}' "$s" 2>/dev/null &&
+    record seeds ponytail || return 1
+  # Only after the seed is recorded: an unrecordable seed must not re-hide the band on every run.
+  [ -e "$f" ] || printf off > "$f"
+}
 
 # Third-party plugins/marketplaces are recorded only when absent before this run; claudzilla's own never are,
 # nor is claude-plugins-official (the user's other official plugins live there).
@@ -667,6 +681,7 @@ main() {
   PICKED="$PICKED primer" keybindings
   if picked hud; then truecolor; font; fi
   if picked core; then stamp_rules || echo "claudzilla: rule dates not saved - /rule-review skips undated rules until the next install" >&2; fi
+  if picked ponytail; then ponytail_defaults || echo "claudzilla: could not save ponytail's defaults - its band stays shown" >&2; fi
   [ "$OFFLINE" = 1 ] || plugins
   [ -d "$BACKUP" ] && echo "replaced files backed up -> $BACKUP"
   [ "$OFFLINE" = 1 ] || case ":$ORIG_PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "note: add ~/.local/bin to PATH (node/rtk live there)" ;; esac

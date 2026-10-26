@@ -52,7 +52,7 @@ H2=$(new_home); mkdir -p "$H2/.claude/skills/mine"; echo x > "$H2/.claude/skills
 check "skills: own skill kept" [ "$(cat "$H2/.claude/skills/mine/SKILL.md")" = x ]
 check "skills: pr linked beside own" [ "$(readlink "$H2/.claude/skills/pr")" = "$REPO/claude/skills/pr" ]
 check "fresh: CLAUDE.local.md created" [ -f "$H/.claude/CLAUDE.local.md" ]
-check "fresh: settings == base" [ "$(q "$H/.claude/settings.json" '')" = "$(q "$REPO/settings.base.json" '')" ]
+check "fresh: settings == base + ponytail seed" [ "$(node -p 'const j=require(process.argv[1]);delete j.pluginConfigs["ponytail@ponytail"];if(!Object.keys(j.pluginConfigs).length)delete j.pluginConfigs;JSON.stringify(j)' "$H/.claude/settings.json")" = "$(q "$REPO/settings.base.json" '')" ]
 check "fresh: permissions ask by default" [ "$(q "$H/.claude/settings.json" .permissions.defaultMode)" = '"default"' ]
 check "fresh: no bypass-prompt skip" [ "$(q "$H/.claude/settings.json" .skipDangerousModePermissionPrompt)" = undefined ]
 check "fresh: update hook in settings" grep -q 'claudzilla-update.sh' "$H/.claude/settings.json"
@@ -650,7 +650,7 @@ R="$H/.claude/.claudzilla-installed.json"
 check "record: new superpowers+ponytail recorded, pre-existing caveman not" [ "$(q "$R" .plugins)" = '["superpowers@claude-plugins-official","ponytail@ponytail"]' ]
 check "record: pre-existing caveman marketplace not recorded" bash -c "[ \"\$(node -p 'require(process.argv[1]).marketplaces.includes(\"caveman\")' '$R')\" = false ] && node -p 'require(process.argv[1]).marketplaces.includes(\"ponytail\")' '$R' | grep -q true"
 check "record: claudzilla plugins never recorded" bash -c "! grep -q claudzilla '$R'"
-check "record: shape has every key" [ "$(node -p 'Object.keys(require(process.argv[1])).join()' "$R")" = 'files,rcLines,plugins,marketplaces,winFonts,wtFont' ]
+check "record: shape has every key" [ "$(node -p 'Object.keys(require(process.argv[1])).join()' "$R")" = 'files,rcLines,plugins,marketplaces,winFonts,wtFont,seeds' ]
 check "plugins: claudzilla marketplace added" grep -q "marketplace add $REPO" "$S/log"
 pinst "$H" "$S"
 check "record: re-run adds no duplicates" [ "$(q "$R" .plugins.length)" = 2 ]
@@ -661,10 +661,10 @@ check "plugins: unpicked pre-existing third-party kept" bash -c "! grep -q 'plug
 # unreadable list: install as usual, record nothing
 S=$(new_stub); H=$(new_home); printf '#!/bin/sh\necho "$*" >> "$(dirname "$0")/log"\ncase "$1 $2" in "plugin list") exit 1 ;; esac\n' > "$S/claude"; pinst "$H" "$S"
 check "record: failing list still installs" grep -q 'plugin install ponytail@ponytail' "$S/log"
-check "record: failing list records nothing" [ ! -e "$H/.claude/.claudzilla-installed.json" ]
+check "record: failing list records nothing" [ "$(node -p 'const r=require(process.argv[1]);r.plugins.length+r.files.length+r.marketplaces.length' "$H/.claude/.claudzilla-installed.json")" = 0 ]
 check "record: failing list warns" grep -q 'cannot read claude' "$H/install.log"
 S=$(new_stub); H=$(new_home); echo 'not json' > "$S/list"; pinst "$H" "$S"
-check "record: unparseable list records nothing" [ ! -e "$H/.claude/.claudzilla-installed.json" ]
+check "record: unparseable list records nothing" [ "$(node -p 'const r=require(process.argv[1]);r.plugins.length+r.files.length+r.marketplaces.length' "$H/.claude/.claudzilla-installed.json")" = 0 ]
 # removing a recorded plugin drops its record entry
 check "record: removed plugin's entry gone, others kept" [ "$(q "$R" .plugins)" = '["superpowers@claude-plugins-official"]' ]
 
@@ -833,5 +833,29 @@ S=$(new_stub); H=$(new_home); seedbase "$H"; echo '[{"id":"margin@claudzilla"}]'
 check "rename: second run no old uninstall" bash -c "! grep -q 'plugin uninstall' '$S/log'"
 S=$(new_stub); H=$(new_home); seedbase "$H"; echo '[{"id":"panel@claudzilla"}]' > "$S/list"; echo 'plugin install margin@claudzilla' > "$S/fail"; pinst "$H" "$S"
 check "rename: old plugin kept when new id install fails" bash -c "! grep -q 'plugin uninstall panel@claudzilla' '$S/log'"
+
+# --- ponytail band + ledger: off once, then the user's choice stands ---
+ledger() { q "$1/.claude/settings.json" '.pluginConfigs?.["ponytail@ponytail"]?.options?.ledger'; }
+P=$(new_home); inst "$P" --remove rtk
+check "ponytail: band flag off" [ "$(cat "$P/.claude/.ponytail-band" 2>/dev/null)" = off ]
+check "ponytail: ledger off" [ "$(ledger "$P")" = false ]
+rm "$P/.claude/.ponytail-band"
+node -e 'const f=process.argv[1],j=require(f);j.pluginConfigs["ponytail@ponytail"].options.ledger=true;require("fs").writeFileSync(f,JSON.stringify(j))' "$P/.claude/settings.json"
+inst "$P" --remove rtk
+check "ponytail: band on survives a rerun" [ ! -e "$P/.claude/.ponytail-band" ]
+check "ponytail: ledger on survives a rerun" [ "$(ledger "$P")" = true ]
+P2=$(new_home); mkdir -p "$P2/.claude"; echo '{"pluginConfigs":{"ponytail@ponytail":{"options":{"ledger":true}}}}' > "$P2/.claude/settings.json"; inst "$P2" --remove rtk
+check "ponytail: ledger set before install kept" [ "$(ledger "$P2")" = true ]
+P3=$(new_home); inst "$P3" --remove ponytail
+check "ponytail: unpicked, no band flag" [ ! -e "$P3/.claude/.ponytail-band" ]
+check "ponytail: unpicked, no ledger" [ "$(ledger "$P3")" = undefined ]
+P4=$(new_home); inst "$P4" --remove ponytail; inst "$P4" --add ponytail
+check "ponytail: --add later seeds band off" [ "$(cat "$P4/.claude/.ponytail-band" 2>/dev/null)" = off ]
+P5=$(new_home); seedbase "$P5"; echo '{"files":[],"plugins":["ponytail@ponytail"]}' > "$P5/.claude/.claudzilla-installed.json"; inst "$P5" --remove rtk
+check "ponytail: update from a record with no seeds seeds once" [ "$(cat "$P5/.claude/.ponytail-band" 2>/dev/null)$(ledger "$P5")$(q "$P5/.claude/.claudzilla-installed.json" .seeds)" = 'offfalse["ponytail"]' ]
+P6=$(new_home); inst "$P6" --remove rtk; rm "$P6/.claude/.ponytail-band"; echo '{bad' > "$P6/.claude/.claudzilla-installed.json"; inst "$P6" --remove rtk
+check "ponytail: unreadable record never re-hides the band" [ ! -e "$P6/.claude/.ponytail-band" ]
+P7=$(new_home); mkdir -p "$P7/.claude"; echo '{"pluginConfigs":{"ponytail@ponytail":{"options":1}}}' > "$P7/.claude/settings.json"; inst "$P7" --remove rtk
+check "ponytail: odd pluginConfigs leaves the band alone" [ ! -e "$P7/.claude/.ponytail-band" ]
 
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
