@@ -714,7 +714,7 @@ S=$(new_stub); H=$(new_home); inst "$H"; mkdir -p "$H/.local/bin"; echo x > "$H/
 echo '{"files":[],"rcLines":[],"plugins":["ponytail@ponytail"],"marketplaces":["ponytail"],"winFonts":[],"wtFont":[]}' > "$H/.claude/.claudzilla-installed.json"
 clean_env HOME="$H" CLAUDZILLA_OFFLINE=0 PATH="$S:$PATH" bash "$REPO/install.sh" --uninstall --yes >"$H/install.log" 2>&1; rc=$?
 check "uninstall plugins: exit 0" [ "$rc" -eq 0 ]
-check "uninstall plugins: claudzilla plugins removed" bash -c "for p in margin picks update-toast attribution response-dividers ledger; do grep -q \"plugin uninstall \$p@claudzilla\" '$S/log' || exit 1; done"
+check "uninstall plugins: claudzilla plugins removed" bash -c "for p in margin picks update-toast attribution folio ledger; do grep -q \"plugin uninstall \$p@claudzilla\" '$S/log' || exit 1; done"
 check "uninstall plugins: claudzilla marketplace removed" grep -q 'plugin marketplace remove claudzilla' "$S/log"
 check "uninstall plugins: recorded third-party removed" bash -c "grep -q 'plugin uninstall ponytail@ponytail' '$S/log' && grep -q 'plugin marketplace remove ponytail' '$S/log'"
 check "uninstall plugins: unrecorded third-party kept" bash -c "! grep -qE 'uninstall (caveman|superpowers)|remove (caveman|claude-plugins-official)' '$S/log'"
