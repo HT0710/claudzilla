@@ -162,7 +162,7 @@ check "record: unparsable record rewritten" cmp -s "$R" "$REPO/settings.base.jso
 # --- keybindings: alt+h toggles the panel, alt+k focuses the band, alt+g opens the guide ---
 key() { node -p 'const [f,c,k]=process.argv.slice(1);JSON.stringify(require(f).bindings.filter(b=>b.context===c).map(b=>b.bindings[k]).find(v=>v!==undefined))' "$1/.claude/keybindings.json" "$2" "$3" 2>/dev/null; }
 K=$(new_home); run_install "$K"
-check "keys: fresh alt+h opens panel" [ "$(key "$K" Chat alt+h)" = '"command:panel"' ]
+check "keys: fresh alt+h opens panel" [ "$(key "$K" Chat alt+h)" = '"command:margin"' ]
 check "keys: fresh alt+k focuses band" [ "$(key "$K" Chat alt+k)" = '"abovePrompt:focus"' ]
 check "keys: fresh alt+g opens guide" [ "$(key "$K" Chat alt+g)" = '"command:claudzilla"' ]
 K=$(new_home); mkdir -p "$K/.claude"
@@ -170,7 +170,7 @@ echo '{"bindings":[{"context":"Global","bindings":{"ctrl+t":"app:toggleTodos"}},
 run_install "$K"
 check "keys: own binding kept" [ "$(key "$K" Global ctrl+t)" = '"app:toggleTodos"' ]
 check "keys: own Chat binding kept" [ "$(key "$K" Chat ctrl+e)" = '"chat:externalEditor"' ]
-check "keys: alt+h added beside own" [ "$(key "$K" Chat alt+h)" = '"command:panel"' ]
+check "keys: alt+h added beside own" [ "$(key "$K" Chat alt+h)" = '"command:margin"' ]
 check "keys: alt+k added beside own" [ "$(key "$K" Chat alt+k)" = '"abovePrompt:focus"' ]
 check "keys: added to existing Chat block" node -e 'process.exit(require(process.argv[1]).bindings.filter(b=>b.context==="Chat").length===1?0:1)' "$K/.claude/keybindings.json"
 check "keys: own file backed up" bash -c "ls '$K'/.claude/.claudzilla-backup/*/keybindings.json >/dev/null"
@@ -182,16 +182,16 @@ n() { grep -o "$2" "$1" | wc -l; }
 for own in '{"bindings":[{"context":"Chat","bindings":{"alt+h":null}}]}' \
            '{"bindings":[{"context":"Chat","bindings":{"opt+h":null}}]}' \
            '{"bindings":[{"context":"Global","bindings":{"Meta+H":"app:toggleTodos"}}]}' \
-           '{"bindings":[{"context":"Global","bindings":{"ctrl+p":"command:panel"}}]}'; do
+           '{"bindings":[{"context":"Global","bindings":{"ctrl+p":"command:margin"}}]}'; do
   K=$(new_home); mkdir -p "$K/.claude"; printf '%s\n' "$own" | tee "$K/k0" > "$K/.claude/keybindings.json"; run_install "$K"
-  check "keys: alt+h left alone: $own" [ "$(n "$K/.claude/keybindings.json" command:panel)" -eq "$(n "$K/k0" command:panel)" ]
+  check "keys: alt+h left alone: $own" [ "$(n "$K/.claude/keybindings.json" command:margin)" -eq "$(n "$K/k0" command:margin)" ]
   check "keys: alt+k still added: $own" [ "$(key "$K" Chat alt+k)" = '"abovePrompt:focus"' ]
 done
 for own in '{"bindings":[{"context":"Chat","bindings":{"alt+k":null}}]}' \
            '{"bindings":[{"context":"Global","bindings":{"ctrl+f":"abovePrompt:focus"}}]}'; do
   K=$(new_home); mkdir -p "$K/.claude"; printf '%s\n' "$own" | tee "$K/k0" > "$K/.claude/keybindings.json"; run_install "$K"
   check "keys: alt+k left alone: $own" [ "$(n "$K/.claude/keybindings.json" abovePrompt:focus)" -eq "$(n "$K/k0" abovePrompt:focus)" ]
-  check "keys: alt+h still added: $own" [ "$(key "$K" Chat alt+h)" = '"command:panel"' ]
+  check "keys: alt+h still added: $own" [ "$(key "$K" Chat alt+h)" = '"command:margin"' ]
 done
 K=$(new_home); mkdir -p "$K/.claude"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+h":null,"alt+k":null,"alt+g":null}}]}' | tee "$K/k0" > "$K/.claude/keybindings.json"; run_install "$K"
 check "keys: all own, file untouched" cmp -s "$K/.claude/keybindings.json" "$K/k0"
@@ -215,14 +215,14 @@ check "add: no rules" [ ! -e "$A/.claude/rules" ]
 check "add: updater linked" [ -L "$A/.claude/hooks/claudzilla-update.sh" ]
 check "add: alt+g without core" [ "$(key "$A" Chat alt+g)" = '"command:claudzilla"' ]
 check "add: only saved" [ "$(q "$A/.claude/claudzilla.json" .install)" = '{"only":["hud"]}' ]
-inst "$A" --add panel
-check "add: stacks" [ "$(q "$A/.claude/claudzilla.json" .install.only)" = '["hud","panel"]' ]
-check "add: alt+h with panel" [ "$(key "$A" Chat alt+h)" = '"command:panel"' ]
+inst "$A" --add margin
+check "add: stacks" [ "$(q "$A/.claude/claudzilla.json" .install.only)" = '["hud","margin"]' ]
+check "add: alt+h with panel" [ "$(key "$A" Chat alt+h)" = '"command:margin"' ]
 check "add: no alt+k without picks" [ "$(key "$A" Chat alt+k)" = undefined ]
 inst "$A" --remove hud
 check "remove: hud unlinked" [ ! -e "$A/.claude/hud" ]
 check "remove: statusLine gone" [ "$(q "$A/.claude/settings.json" .statusLine)" = undefined ]
-inst "$A" --remove panel
+inst "$A" --remove margin
 check "remove panel: alt+h gone, alt+g kept" [ "$(key "$A" Chat alt+h)$(key "$A" Chat alt+g)" = 'undefined"command:claudzilla"' ]
 R=$(new_home); inst "$R" --remove rtk
 check "remove fresh: skip saved" [ "$(q "$R/.claude/claudzilla.json" .install)" = '{"skip":["rtk"]}' ]
@@ -561,8 +561,8 @@ O=$(new_home); clean_env HOME="$O" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT=off bash
 check "font: CLAUDZILLA_FONT=off declines" [ -f "$O/.claude/.claudzilla-basic-glyphs" ]
 
 # symlinked keybindings.json on a removal: the warning says remove, not add
-K=$(new_home); mkdir -p "$K/dots"; inst "$K"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+h":"command:panel","alt+k":"abovePrompt:focus","alt+g":"command:claudzilla"}}]}' > "$K/dots/kb.json"
-rm -f "$K/.claude/keybindings.json"; ln -s "$K/dots/kb.json" "$K/.claude/keybindings.json"; inst "$K" --remove panel
+K=$(new_home); mkdir -p "$K/dots"; inst "$K"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+h":"command:margin","alt+k":"abovePrompt:focus","alt+g":"command:claudzilla"}}]}' > "$K/dots/kb.json"
+rm -f "$K/.claude/keybindings.json"; ln -s "$K/dots/kb.json" "$K/.claude/keybindings.json"; inst "$K" --remove margin
 check "keys: symlink on removal says remove" grep -q 'symlink - remove alt+h' "$K/install.log"
 # bad flag with no terminal: the flag error, not the ask-the-user stop
 K=$(new_home); notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY HOME="$K" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" --bogus >"$K/install.log" 2>&1 </dev/null; rc=$?
@@ -577,7 +577,7 @@ for fl in "--remove hud" "--uninstall --yes"; do
 done
 # --- menu / Claude run ---
 M=$(new_home); printf '2\n7 6\n' > "$M/ans"; clean_env HOME="$M" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_TTY="$M/ans" bash "$REPO/install.sh" >"$M/install.log" 2>&1
-check "menu: custom skip saved" [ "$(q "$M/.claude/claudzilla.json" .install.skip)" = '["rtk","dividers"]' ]
+check "menu: custom skip saved" [ "$(q "$M/.claude/claudzilla.json" .install.skip)" = '["rtk","folio"]' ]
 C=$(new_home); notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY HOME="$C" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" >"$C/install.log" 2>&1 </dev/null; rc=$?
 check "claude run: exit 2" [ "$rc" -eq 2 ]
 check "claude run: nothing written" [ ! -e "$C/.claude" ]
@@ -585,17 +585,17 @@ check "claude run: tells Claude to ask" grep -q 'AskUserQuestion.*multiSelect' "
 check "claude run: names --full and --remove" bash -c "grep -q -e '--full' '$C/install.log' && grep -q -e '--full --remove <unticked' '$C/install.log'"
 F=$(new_home); notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY -u CLAUDZILLA_FONT HOME="$F" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT_URL="file://$TMP/badfont" bash "$REPO/install.sh" --full >"$F/install.log" 2>&1 </dev/null
 check "full no tty: font step runs without asking (hud chosen this run)" bash -c "grep -q 'checksum mismatch' '$F/install.log' && ! grep -q AskUserQuestion '$F/install.log'"
-PARTS=$(node -p 'Object.keys(require(process.argv[1])).filter(p=>p!="updater").join(" ")' "$REPO/parts.json")
+PARTS=$(node -p 'Object.keys(require(process.argv[1])).filter(p=>p!="primer").join(" ")' "$REPO/parts.json")
 stop_lists() { local p; grep -q 'Full (recommended)' "$1" && grep -q Custom "$1" && grep -q -e '--full' "$1" && grep -q -e '--remove' "$1" || return 1; for p in $PARTS; do grep -qw "$p" "$1" || return 1; done; }
 check "claude run: asks Full or Custom, lists every part" stop_lists "$C/install.log"
 # --full --remove x = Full minus x, whatever was saved before
 L=$(new_home); inst "$L" --full --remove rtk
 check "full+remove fresh: skip only x" [ "$(q "$L/.claude/claudzilla.json" .install)" = '{"skip":["rtk"]}' ]
-inst "$L" --full --remove panel
-check "full+remove over saved skip: replaces, not stacks" [ "$(q "$L/.claude/claudzilla.json" .install)" = '{"skip":["panel"]}' ]
+inst "$L" --full --remove margin
+check "full+remove over saved skip: replaces, not stacks" [ "$(q "$L/.claude/claudzilla.json" .install)" = '{"skip":["margin"]}' ]
 check "full+remove over saved skip: rtk linked back" bash -c "grep -q 'rtk hook' '$L/.claude/settings.json'"
-L=$(new_home); inst "$L" --add hud; inst "$L" --full --remove panel
-check "full+remove over saved only: skip only x" [ "$(q "$L/.claude/claudzilla.json" .install)" = '{"skip":["panel"]}' ]
+L=$(new_home); inst "$L" --add hud; inst "$L" --full --remove margin
+check "full+remove over saved only: skip only x" [ "$(q "$L/.claude/claudzilla.json" .install)" = '{"skip":["margin"]}' ]
 check "full+remove over saved only: rules back" [ -L "$L/.claude/rules" ]
 Y=$(new_home); seedbase "$Y"; cp -a "$Y/.claude" "$Y/copy"; notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY HOME="$Y" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" --custom >"$Y/install.log" 2>&1 </dev/null; rc=$?
 check "custom no tty: exit 2" [ "$rc" -eq 2 ]
@@ -609,20 +609,20 @@ check "full with font installed another way: no download" bash -c "! grep -q 'ch
 # --- plugins per part + ownership record ---
 new_stub() {  # fake claude logs argv, prints list/mlist; fake rtk keeps deps offline
   local d; d=$(mktemp -d "$TMP/stub.XXXX")
-  printf '#!/bin/sh\necho "$*" >> "$(dirname "$0")/log"\ncase "$1 $2 $3" in "plugin list"*) cat "$(dirname "$0")/list" ;; "plugin marketplace list") cat "$(dirname "$0")/mlist" ;; esac\n' > "$d/claude"
+  printf '#!/bin/sh\necho "$*" >> "$(dirname "$0")/log"\ngrep -qxF "$*" "$(dirname "$0")/fail" 2>/dev/null && exit 1\ncase "$1 $2 $3" in "plugin list"*) cat "$(dirname "$0")/list" ;; "plugin marketplace list") cat "$(dirname "$0")/mlist" ;; esac\n' > "$d/claude"
   printf '#!/bin/sh\n' > "$d/rtk"; chmod +x "$d/claude" "$d/rtk"; echo '[]' > "$d/list"; echo '[]' > "$d/mlist"; : > "$d/log"; echo "$d"
 }
 pinst() { local h=$1 s=$2; shift 2; clean_env HOME="$h" CLAUDZILLA_OFFLINE=0 PATH="$s:$PATH" bash "$REPO/install.sh" "$@" >"$h/install.log" 2>&1; }
-S=$(new_stub); H=$(new_home); seedbase "$H"; echo '[{"id":"margin@claudzilla"}]' > "$S/list"; pinst "$H" "$S" --remove panel
+S=$(new_stub); H=$(new_home); seedbase "$H"; echo '[{"id":"margin@claudzilla"}]' > "$S/list"; pinst "$H" "$S" --remove margin
 check "plugins: remove panel uninstalls it" grep -q 'plugin uninstall margin@claudzilla' "$S/log"
-S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S" --remove panel
+S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S" --remove margin
 check "plugins: unpicked but not installed: no uninstall call" bash -c "! grep -q 'plugin uninstall' '$S/log'"
 S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S"
 check "plugins: re-run with all picked: no uninstall call" bash -c "! grep -q 'plugin uninstall' '$S/log'"
-S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S" --remove panel
+S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S" --remove margin
 check "plugins: kept part still installed" grep -q 'plugin install ballot@claudzilla' "$S/log"
 check "plugins: removed panel not installed" bash -c "! grep -q 'plugin install margin@claudzilla' '$S/log'"
-S=$(new_stub); H=$(new_home); pinst "$H" "$S" --remove rtk,caveman,ponytail,dividers,panel,picks,toast,attribution,ledger
+S=$(new_stub); H=$(new_home); pinst "$H" "$S" --remove rtk,caveman,ponytail,folio,margin,ballot,herald,byline,ledger
 check "plugins: only core+hud installs just superpowers and primer" [ "$(grep 'plugin install' "$S/log")" = $'plugin install superpowers@claude-plugins-official\nplugin install primer@claudzilla' ]
 check "plugins: unpicked third-party not recorded-uninstalled" bash -c "! grep -q 'plugin uninstall caveman' '$S/log'"
 check "plugins: primer keeps the claudzilla marketplace added" grep -q "marketplace add $REPO" "$S/log"
@@ -794,5 +794,23 @@ echo n > "$TMP/ans"; clean_env HOME="$H" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_TTY="$T
 check "uninstall prompt: lists what goes outside the config dir" bash -c "grep -q 'npm packages' '$H/u.log' && grep -q 'export COLORTERM=truecolor' '$H/u.log' && grep -q 'Windows font' '$H/u.log' && grep -q 'Windows Terminal font' '$H/u.log' && grep -q 'plugin ponytail@ponytail' '$H/u.log' && grep -q 'marketplace ponytail' '$H/u.log'"
 notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY HOME="$H" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" --uninstall >"$H/u.log" 2>&1 </dev/null; rc=$?
 check "uninstall no tty: message lists them too" bash -c "[ $rc -eq 2 ] && grep -q 'npm packages' '$H/u.log' && grep -q 'plugin ponytail@ponytail' '$H/u.log'"
+
+# --- rename migration ---
+H=$(new_home); seedbase "$H"; echo '{"install":{"skip":["panel","toast"]},"rulesGuard":{"releaseSync":true}}' > "$H/.claude/claudzilla.json"; inst "$H"
+check "rename: saved skip mapped" bash -c "[ '$(q "$H/.claude/claudzilla.json" .install.skip)' = '[\"margin\",\"herald\"]' ] && [ '$(q "$H/.claude/claudzilla.json" .rulesGuard)' = '{\"releaseSync\":true}' ]"
+H=$(new_home); seedbase "$H"; echo '{"install":{"only":["core","panel"]}}' > "$H/.claude/claudzilla.json"; inst "$H"; rc=$?
+check "rename: saved only mapped" bash -c "[ $rc -eq 0 ] && [ '$(q "$H/.claude/claudzilla.json" .install.only)' = '[\"core\",\"margin\"]' ]"
+H=$(new_home); inst "$H" --remove panel
+check "rename: --remove old part name" [ "$(q "$H/.claude/claudzilla.json" .install)" = '{"skip":["margin"]}' ]
+H=$(new_home); seedbase "$H"; echo '{bad' | tee "$H/c0" > "$H/.claude/claudzilla.json"; inst "$H"; rc=$?
+check "rename: bad claudzilla.json untouched" bash -c "[ $rc -eq 0 ] && cmp -s '$H/c0' '$H/.claude/claudzilla.json'"
+H=$(new_home); seedbase "$H"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+h":"command:panel"}}]}' > "$H/.claude/keybindings.json"; inst "$H"
+check "rename: alt+h command:panel moved" bash -c "[ '$(key "$H" Chat alt+h)' = '\"command:margin\"' ] && [ \"\$(grep -c '\"alt+h\"' '$H/.claude/keybindings.json')\" -eq 1 ]"
+S=$(new_stub); H=$(new_home); seedbase "$H"; echo '[{"id":"panel@claudzilla"}]' > "$S/list"; pinst "$H" "$S"
+check "rename: old plugin id uninstalled after new install" bash -c "i=\$(grep -n -m1 -x 'plugin install margin@claudzilla' '$S/log' | cut -d: -f1); u=\$(grep -n -m1 -x 'plugin uninstall panel@claudzilla' '$S/log' | cut -d: -f1); [ -n \"\$i\" ] && [ -n \"\$u\" ] && [ \"\$i\" -lt \"\$u\" ]"
+S=$(new_stub); H=$(new_home); seedbase "$H"; echo '[{"id":"margin@claudzilla"}]' > "$S/list"; pinst "$H" "$S"
+check "rename: second run no old uninstall" bash -c "! grep -q 'plugin uninstall' '$S/log'"
+S=$(new_stub); H=$(new_home); seedbase "$H"; echo '[{"id":"panel@claudzilla"}]' > "$S/list"; echo 'plugin install margin@claudzilla' > "$S/fail"; pinst "$H" "$S"
+check "rename: old plugin kept when new id install fails" bash -c "! grep -q 'plugin uninstall panel@claudzilla' '$S/log'"
 
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
