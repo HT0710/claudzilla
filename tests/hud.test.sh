@@ -206,7 +206,8 @@ check "trace hud: branch change -> second entry" [ "$(grep -c '"event":"hud.chan
 check "trace hud: entry names the new branch" bash -c "tail -1 '$TRF' | grep -q 'feat/x'"
 check "trace hud: part is hud" grep -q '"part":"hud"' "$TRF"
 rm -rf "$TRC/claudzilla-trace" "$TRT"; a=$(trun); ac=$?; rm -rf "$TRC/claudzilla-trace" "$TRT"; : > "$TRC/claudzilla-trace"; b=$(trun); bc=$?
-check "trace hud: output unchanged with unwritable trace" [ "$a" = "$b" ]
+# cwd colours drift with the clock (hud-filter.pl $DRIFT): compare text only
+check "trace hud: output unchanged with unwritable trace" [ "$(perl -pe 's/\e\[[0-9;]*m//g' <<<"$a")" = "$(perl -pe 's/\e\[[0-9;]*m//g' <<<"$b")" ]
 check "trace hud: exit code unchanged with unwritable trace" [ "$ac" = "$bc" ]
 
 echo "hud: $pass passed, $fail failed"
