@@ -51,7 +51,9 @@ for (const [key, src] of [["5h", "five_hour"], ["wk", "seven_day"]]) {
 
 try {
   const cfg = process.env.CLAUDE_CONFIG_DIR ? join(process.env.CLAUDE_CONFIG_DIR, ".claude.json") : join(homedir(), ".claude.json");
-  out.profile = JSON.parse(readFileSync(cfg, "utf8"))?.oauthAccount?.emailAddress;
+  // first + last char of the local part only: tells accounts apart without showing the address on screen
+  out.profile = JSON.parse(readFileSync(cfg, "utf8"))?.oauthAccount?.emailAddress
+    ?.replace(/^(.).+(.)@/, "$1…$2@").replace(/^(.).?@/, "$1…@");
 } catch { /* not logged in, or no config */ }
 
 function readSlice(fd, start, len) {
