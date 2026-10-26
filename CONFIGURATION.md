@@ -87,7 +87,7 @@ A bad file or value is skipped and named on your next prompt; unknown keys are i
 
 ## Keybindings
 
-`~/.claude/keybindings.json` holds your keys. Install adds alt+h for the margin, alt+k to focus the ballot card and alt+g to toggle the guide (`/claudzilla`), each with its part (removing the part removes the key), and each unless you bound that key (`Chat` or `Global`) or gave its action a key; a symlinked file is left alone; `"alt+h": null`, `"alt+k": null` or `"alt+g": null` in `Chat` opts out.
+`~/.claude/keybindings.json` holds your keys. Install adds alt+o, alt+h, alt+l and alt+g for the margin's Overview, History, File and Git tabs, alt+k to focus the ballot card and alt+q to toggle the guide (`/claudzilla`), each with its part (removing the part removes the key), and each unless you bound that key (`Chat` or `Global`) or gave its action a key; a symlinked file is left alone; `"alt+o": null`, `"alt+h": null`, `"alt+l": null`, `"alt+g": null`, `"alt+k": null` or `"alt+q": null` in `Chat` opts out.
 
 ## Notes
 
