@@ -14,9 +14,9 @@ export type FileView = { path: string; line: number; first: number; text: string
 
 declare module 'claude-code' {
   interface EngineInterface {
-    panel: Panel
+    margin: Panel
   }
   interface PluginState {
-    panel: { tab: Tab; notices: Tab[]; submitted: number; toolCalls: number; split: number; scrolled: { changes: number; commits: number }; historyTop: number; topicsSplit: number; topicsTop: number; intent: Intent; overview: Overview; spawns: Spawn[]; turns: number; expanded: number; file: FileView }
+    margin: { tab: Tab; notices: Tab[]; submitted: number; toolCalls: number; split: number; scrolled: { changes: number; commits: number }; historyTop: number; topicsSplit: number; topicsTop: number; intent: Intent; overview: Overview; spawns: Spawn[]; turns: number; expanded: number; file: FileView }
   }
 }
