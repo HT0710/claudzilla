@@ -9,7 +9,7 @@ SPEEDS="$REPO/.github/visuals/speeds.txt"
 # shellcheck source=lib.sh
 . "$REPO/.github/visuals/lib.sh"
 DEMO="$HOME/acme-api"
-SHOTS="statusline picks panel guide"
+SHOTS="statusline ballot margin primer"
 
 # ask PROMPT SECS: send PROMPT, wait until its turn ends: a "✻ Sautéed for 21s · done 5:03 am" line
 # not on screen before (a long reply scrolls the prompt itself away).
@@ -38,7 +38,7 @@ clip() {
 # prompt_row: the prompt box's text (the last ❯ row).
 prompt_row() { tm capture-pane -t "$SHOT" -p | grep -F '❯' | tail -1; }
 
-# card_row N: the first 14 characters of the picks card's row N.
+# card_row N: the first 14 characters of the ballot card's row N.
 card_row() { tm capture-pane -t "$SHOT" -p | sed -n "s/.*│ *$1: \(.\{1,14\}\).*/\1/p" | head -1; }
 
 # has DIR REGEX: some frame in DIR shows REGEX.
@@ -47,7 +47,7 @@ has() { cat "$1"/*.ansi | sed 's/\x1b\[[0-9;:]*m//g' | grep -E -- "$2" >/dev/nul
 shot_statusline() {
   local d="$WORK/statusline"; rm -rf "$d"
   # Under ~30 rows the status line drops its model/skill row; keep the bottom 13 (spinner to status line).
-  start "$DEMO" 110 30 && panel_want off || return 1
+  start "$DEMO" 110 30 && margin_want off || return 1
   frames "$d" 240 17 & local f=$!
   ask "why does the auth test fail?" 200; local ok=$?
   sleep 2; touch "$d/stop"; wait "$f"
@@ -58,9 +58,9 @@ shot_statusline() {
 }
 
 # Card appears, a digit picks, the answer lands in the prompt box, Enter sends.
-shot_picks() {
-  local d="$WORK/picks" top end opt before pick f ok; rm -rf "$d"
-  start "$DEMO" 110 42 && panel_want off || return 1
+shot_ballot() {
+  local d="$WORK/ballot" top end opt before pick f ok; rm -rf "$d"
+  start "$DEMO" 110 42 && margin_want off || return 1
   ask "why does the auth test fail?" 200 && wait_for '│ *1: ' 10 && wait_for '│ *2: ' 2 || return 1
   top=$(row '╭'); end=$(row '❯')
   # Press the row that is not the dim suggestion, so the pick visibly changes the prompt box.
@@ -73,15 +73,15 @@ shot_picks() {
   sleep 0.5; tm send-keys -t "$SHOT" Enter; sleep 1.5
   touch "$d/stop"; wait "$f"
   tm send-keys -t "$SHOT" Escape   # stop the turn the answer started: it is not part of the clip
-  [ "$ok" = 0 ] && clip picks "$d"
+  [ "$ok" = 0 ] && clip ballot "$d"
 }
 
 # One session: the Overview fills during a fix (GIF), a cited path opens in the File tab (GIF),
 # then the Git and History tabs (stills).
-shot_panel() {
+shot_margin() {
   local d="$WORK/overview" l="$WORK/filelink" f ok at
   rm -rf "$d" "$l"
-  start "$DEMO" 110 42 && panel_want on || return 1
+  start "$DEMO" 110 42 && margin_want on || return 1
   frames "$d" 300 & f=$!
   sleep 1
   say "make isValid accept the expiry second, run the test, then show git diff"
@@ -103,14 +103,14 @@ shot_panel() {
 }
 
 # The guide pane: topics beside a section.
-shot_guide() {
+shot_primer() {
   local ok
-  start "$DEMO" 110 42 && panel_want off || return 1
+  start "$DEMO" 110 42 && margin_want off || return 1
   tm send-keys -t "$SHOT" M-g   # alt+g: the guide, as /claudzilla opens it
-  wait_for 'BASICS' 20 && wait_for 'WORKING' 2 && sleep 1.5 && grab "$WORK/guide.ansi"; ok=$?
+  wait_for 'BASICS' 20 && wait_for 'WORKING' 2 && sleep 1.5 && grab "$WORK/primer.ansi"; ok=$?
   tm send-keys -t "$SHOT" M-g   # close it: the dock must be free for finish to bring the panel back
   sleep 1
-  [ "$ok" = 0 ] && still "$WORK/guide.ansi" "$A/guide.png"
+  [ "$ok" = 0 ] && still "$WORK/primer.ansi" "$A/primer.png"
 }
 
 [ $# -gt 0 ] || set -- $SHOTS
