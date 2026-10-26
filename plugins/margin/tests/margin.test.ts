@@ -3187,17 +3187,19 @@ test("in an agent's transcript, its step's row goes back to the main conversatio
   expect(views).toEqual([undefined])
 })
 
-// The store a session keeps across sessions, `/margin` and the pane's opens and closes, each open placed or waiting; `opened` and `closed` record the calls.
+// The store a session keeps across sessions, `/margin` and the pane's opens and closes, each open placed or waiting; `opened`, `closed` and `registered` record the calls.
 const openHost = (on: Parameters<TestBody>[1], store: Record<string, unknown> = {}, isPlaced = true) => {
-  const seen = { opened: [] as unknown[], closed: [] as unknown[] }
-  mock.clock(on)
+  const seen = { opened: [] as unknown[], closed: [] as unknown[], registered: [] as [string, unknown][], clock: mock.clock(on) }
   on('store.keys', () => ({ value: Object.keys(store) }))
   on('store.get', (_, e) => ({ value: store[e.key] }) as any)
   on('store.set', (_, e) => {
     store[e.key] = e.value
     return { value: undefined }
   })
-  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('command.register', (_, e) => {
+    seen.registered.push([e.name, e.immediate])
+    return { value: { command: e.name } }
+  })
   on('tool.register', (_, e) => ({ value: { tool: `mcp__margin__${e.name}` } }) as any)
   on('ui.open', (_, e) => {
     seen.opened.push(e)
@@ -3259,6 +3261,99 @@ test('/margin shows a pane waiting for room, not closes it', async ($, on) => {
   await toggle($)
   expect(seen.closed).toHaveLength(0)
   expect(store.open).toBe(true)
+})
+
+// The shown tab as the plugin leaves it: the test's `$` cannot read an atom, so `tab` is answered here.
+const shownTab = (on: Parameters<TestBody>[1], initial?: string) => {
+  const shown = { tab: initial, version: 1 }
+  on('state.get', (_$, e, next) => (e.key === 'tab' && shown.tab !== undefined ? { value: { value: shown.tab, version: shown.version } } : next(e)) as any)
+  on('state.set', (_$, e, next) => {
+    if (e.key !== 'tab') return next(e)
+    shown.tab = e.value as string
+    return { value: { isSet: true, version: ++shown.version } } as any
+  })
+  return shown
+}
+const tabKey = ($: Parameters<TestBody>[0], name: string) => $.command.run({ command: `margin-${name}`, args: '', origin: { kind: 'composer' } } as any)
+
+test('session start registers the four tab commands', async ($, on) => {
+  const seen = openHost(on)
+  await $.session.start(startHere)
+  for (const name of ['overview', 'history', 'file', 'git']) expect(seen.registered).toContainEqual([`margin-${name}`, true])
+})
+
+test('tab commands are hidden', async ($, on) => {
+  openHost(on)
+  on('command.describe', (_, e) => ({ description: e.description, isHidden: e.isHidden }))
+  const describe = (command: string) => $.command.describe({ command, description: '', isHidden: false, immediate: true, provider: { plugin: 'margin', tier: 'user' } } as any)
+  expect((await describe('margin-git')).isHidden).toBe(true)
+  expect((await describe('margin')).isHidden).toBe(false)
+})
+
+test('tab key on a closed pane opens it on that tab', async ($, on) => {
+  const store: Record<string, unknown> = { open: false }
+  const seen = openHost(on, store)
+  const shown = shownTab(on)
+  await $.session.start(startHere)
+  await tabKey($, 'git')
+  expect(seen.opened).toHaveLength(1)
+  expect(shown.tab).toBe('Git')
+  expect(store.open).toBe(true)
+})
+
+test('tab key on another tab switches, no close', async ($, on) => {
+  const seen = openHost(on)
+  const shown = shownTab(on, 'Overview')
+  await $.session.start(startHere)
+  await tabKey($, 'history')
+  expect(seen.closed).toHaveLength(0)
+  expect(shown.tab).toBe('History')
+})
+
+test('tab key on its own tab closes the pane', async ($, on) => {
+  const store: Record<string, unknown> = {}
+  const seen = openHost(on, store)
+  shownTab(on, 'Git')
+  await $.session.start(startHere)
+  await tabKey($, 'git')
+  expect(seen.closed).toHaveLength(1)
+  expect(store.open).toBe(false)
+})
+
+test('tab key on a pane waiting for room opens it', async ($, on) => {
+  const seen = openHost(on, {}, false)
+  const shown = shownTab(on)
+  await $.session.start(startHere)
+  const before = seen.opened.length
+  await tabKey($, 'file')
+  expect(seen.closed).toHaveLength(0)
+  expect(seen.opened.length).toBeGreaterThan(before)
+  expect(shown.tab).toBe('File')
+})
+
+test('alt+o on an open pane with a stale tab closes it', async ($, on) => {
+  const seen = openHost(on)
+  shownTab(on, 'Nope')
+  await $.session.start(startHere)
+  await tabKey($, 'overview')
+  expect(seen.closed).toHaveLength(1)
+})
+
+test('alt+o on a closed pane reads TOPICS once', async ($, on) => {
+  const { clock } = openHost(on, { open: false })
+  shownTab(on, 'History')
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('fs.read', () => ({ value: '' }))
+  const lines = ['add an intent tab'].map((display, i) => JSON.stringify({ display, timestamp: i + 1, sessionId: 'chat-1' }))
+  on('process.run', (_, e) => ran(isHistoryGrep(e.argv) ? lines.join('\n') : ''))
+  let asks = 0
+  on('model.complete', () => ((asks += 1), { value: { isAnswered: true, text: TOPICS, usage: {} } }) as any)
+  await $.session.start(startHere)
+  await clock.settle()
+  await tabKey($, 'overview')
+  await clock.settle()
+  expect(asks).toBe(1)
 })
 
 // The File tab's rows: the body less its header row.
