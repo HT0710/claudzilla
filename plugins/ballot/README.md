@@ -24,4 +24,4 @@ Tested with Claude Code 2.1.308; mod events and methods can change between relea
 
 ## Develop
 
-`claude --plugin-dir plugins/picks` loads it and writes the API types `tsconfig.json` points at; `claude plugin test plugins/picks` runs the tests.
+`claude --plugin-dir plugins/ballot` loads it and writes the API types `tsconfig.json` points at; `claude plugin test plugins/ballot` runs the tests.

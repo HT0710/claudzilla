@@ -17,7 +17,7 @@ let offer: Offer | null = null
 // The command of the last reply's Compact reminder when it offered nothing else: the dim suggestion.
 let compact: string | null = null
 
-const t = tracer('picks')
+const t = tracer('ballot')
 // The band's last recorded state: a render runs on every scroll and keystroke, so only a change is traced.
 let lastBand = ''
 
@@ -222,7 +222,7 @@ export const register: Register = on => {
       offer = parsed ?? await carried($)
       // A Next that asks nothing still names the next step: the engine's guess of it stays.
       compact = offer || /^\*\*Next:\*\*/m.test(e.answer) ? null : compactCommand(e.answer)
-      t.event('picks.offer', {
+      t.event('ballot.offer', {
         matched: !!offer,
         source: parsed ? 'reply' : offer ? 'carried' : 'none',
         title: offer?.title,
@@ -230,19 +230,19 @@ export const register: Register = on => {
         picked: offer?.rows.find(row => row.picked)?.id,
       })
       $.ui.invalidate('ui.render')
-    } else t.event('picks.offer', { skipped: e.agentId ? 'agent turn' : e.reason }, 'debug')
+    } else t.event('ballot.offer', { skipped: e.agentId ? 'agent turn' : e.reason }, 'debug')
     const result = await next(e)
     // After next: the box takes no suggestion while the turn still runs.
     const text = e.reason === 'answer' && !e.agentId ? (offer ? suggestion(offer) : compact) : null
     if (text) await $.prompt.suggest({ text })
-    if (offer && e.reason === 'answer' && !e.agentId) t.event('picks.suggest', { filled: !!text })
+    if (offer && e.reason === 'answer' && !e.agentId) t.event('ballot.suggest', { filled: !!text })
     return result
   })
 
   // The engine's own next-prompt guess would replace the pick; another mod's is left alone.
   on('prompt.suggest', async ($, e, next) => {
     const text = e.origin.kind === 'suggestion' ? (offer ? suggestion(offer) : compact) : null
-    if (offer && e.origin.kind === 'suggestion') t.event('picks.suggest', { replaced: !!text }, 'debug')
+    if (offer && e.origin.kind === 'suggestion') t.event('ballot.suggest', { replaced: !!text }, 'debug')
     return next(text ? { ...e, text } : e)
   })
 
@@ -251,7 +251,7 @@ export const register: Register = on => {
     void t.flush(traceIo($))
     compact = null
     if (offer) {
-      t.event('picks.offer', { cleared: 'prompt sent' }, 'debug')
+      t.event('ballot.offer', { cleared: 'prompt sent' }, 'debug')
       offer = null
       $.ui.invalidate('ui.render')
     }
@@ -272,7 +272,7 @@ export const register: Register = on => {
     const key = hidden ? `hidden:${hidden}` : `shown:${shown!.title}`
     if (key !== lastBand) {
       lastBand = key
-      t.event('picks.band', hidden ? { shown: false, reason: hidden } : { shown: true, options: shown!.rows.length })
+      t.event('ballot.band', hidden ? { shown: false, reason: hidden } : { shown: true, options: shown!.rows.length })
     }
     // Under two options there is nothing to choose: the suggestion alone answers.
     if (!shown || hidden) return next(e)

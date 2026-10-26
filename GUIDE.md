@@ -388,7 +388,7 @@ The picks card hides while Claude works and goes once you send any prompt. When 
 
 An answer you send speaks in your voice, so the history reads as you wrote it: Claude's `show you the diff` comes back as `show me the diff`, and `your branch` as `my branch`. Code and double-quoted text stay as written.
 
-The [picks README](https://github.com/HT0710/claudzilla/blob/main/plugins/picks/README.md) has the full detail.
+The [picks README](https://github.com/HT0710/claudzilla/blob/main/plugins/ballot/README.md) has the full detail.
 
 ## Own it
 
@@ -625,7 +625,7 @@ It asks first, then removes claudzilla's links, settings entries, keys and plugi
 - Run `/help` to list Claude Code's commands, or `/doctor` to check your Claude Code setup.
 - Report a claudzilla problem or ask a question in [claudzilla's GitHub issues](https://github.com/HT0710/claudzilla/issues).
 - Read every claudzilla setting in [CONFIGURATION.md](https://github.com/HT0710/claudzilla/blob/main/CONFIGURATION.md).
-- Read each plugin's README: [panel](https://github.com/HT0710/claudzilla/blob/main/plugins/margin/README.md), [picks](https://github.com/HT0710/claudzilla/blob/main/plugins/picks/README.md), [response dividers](https://github.com/HT0710/claudzilla/blob/main/plugins/folio/README.md), [attribution](https://github.com/HT0710/claudzilla/blob/main/plugins/attribution/README.md), [guide](https://github.com/HT0710/claudzilla/blob/main/plugins/primer/README.md), [update toast](https://github.com/HT0710/claudzilla/blob/main/plugins/update-toast/README.md), [ledger](https://github.com/HT0710/claudzilla/blob/main/plugins/ledger/README.md).
+- Read each plugin's README: [panel](https://github.com/HT0710/claudzilla/blob/main/plugins/margin/README.md), [picks](https://github.com/HT0710/claudzilla/blob/main/plugins/ballot/README.md), [response dividers](https://github.com/HT0710/claudzilla/blob/main/plugins/folio/README.md), [attribution](https://github.com/HT0710/claudzilla/blob/main/plugins/attribution/README.md), [guide](https://github.com/HT0710/claudzilla/blob/main/plugins/primer/README.md), [update toast](https://github.com/HT0710/claudzilla/blob/main/plugins/update-toast/README.md), [ledger](https://github.com/HT0710/claudzilla/blob/main/plugins/ledger/README.md).
 - Learn Claude Code itself in [Claude Code's docs](https://code.claude.com/docs/en/overview).
 - claudzilla is built on [caveman](https://github.com/JuliusBrussee/caveman), [ponytail](https://github.com/DietrichGebert/ponytail), [superpowers](https://github.com/obra/superpowers) and [rtk](https://github.com/rtk-ai/rtk).
 

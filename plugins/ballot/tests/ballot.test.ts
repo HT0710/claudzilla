@@ -244,7 +244,7 @@ test('parse: several Decision tables or none give no rows', () => {
 test('card: promptBorder frame, bold title, blank line', async ($, on) => {
   engine(on)
   await $.turn.complete(done(LONE))
-  const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
+  const ui = await $.ui.mount({ plugin: 'ballot', surface: 'terminal', ...BAND })
   const frame = (await ui.findAll({ type: 'Box' })).find((b: any) => b.props.borderStyle === 'round')
   expect(frame?.props.borderColor).toBe('promptBorder')
   expect((await ui.find({ type: 'Text', text: 'How to finish the branch?' }))?.props.bold).toBe(true)
@@ -254,7 +254,7 @@ test('card: promptBorder frame, bold title, blank line', async ($, on) => {
 test('the pick is blue; a "Why: reason" line in the same blue gives its reason', async ($, on) => {
   engine(on)
   await $.turn.complete(done(LONE))
-  const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
+  const ui = await $.ui.mount({ plugin: 'ballot', surface: 'terminal', ...BAND })
   expect((await ui.find({ type: 'Text', text: /^push \+ PR\s*$/ }))?.props.color).toBe('claude')
   const line = (await ui.findAll({ type: 'Box' })).find((b: any) => b.text === 'Why: your finish-via-pr memory says PR, merge once CI is green.')
   expect(line).toBeDefined()
@@ -267,7 +267,7 @@ test('the pick is blue; a "Why: reason" line in the same blue gives its reason',
 test('ctrl+x tab lands on the pick', async ($, on) => {
   engine(on)
   await $.turn.complete(done(LONE))
-  const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
+  const ui = await $.ui.mount({ plugin: 'ballot', surface: 'terminal', ...BAND })
   expect((await ui.findAll({ type: 'Button' })).filter((b: any) => b.props.autoFocus).map((b: any) => b.props.label)).toEqual(['push + PR'])
 })
 
@@ -292,7 +292,7 @@ test('no card without 2+ options: go, with Picks or the run as detail, or the lo
   on('prompt.suggest', (_: any, e: any) => { shown.push(e.text); return { isShown: true } })
   for (const reply of [PICKS, '**Next:** say go → I run executing-plans.', '**Next:** say go.', ONE, ONE.replace('**Recommend: A**', '**Recommend: A**\n\n**Picks:** A, fixes 1–3'), ONE.replace('**Recommend: A**', '')]) {
     await $.turn.complete(done(reply))
-    const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
+    const ui = await $.ui.mount({ plugin: 'ballot', surface: 'terminal', ...BAND })
     expect(await ui.findAll({ type: 'Button' })).toEqual([])
     await ui.unmount()
   }
@@ -329,7 +329,7 @@ test('a Stop hook continuation with no ask keeps the ask before it, unless a too
 test('no Why under Recommend: no footer line', async ($, on) => {
   engine(on)
   await $.turn.complete(done(LETTERS))
-  const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
+  const ui = await $.ui.mount({ plugin: 'ballot', surface: 'terminal', ...BAND })
   expect(await ui.find({ type: 'Text', text: 'Why: ' })).toBeUndefined()
 })
 
@@ -338,7 +338,7 @@ test('one decision: plain rows, no tradeoffs; each drafts its id and option', as
   engine(on)
   on('prompt.fill', (_: any, e: any) => { filled.push(e.text); return { isFilled: true } })
   await $.turn.complete(done(LONE))
-  const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
+  const ui = await $.ui.mount({ plugin: 'ballot', surface: 'terminal', ...BAND })
   expect(await labels(ui)).toEqual(['merge to main locally', 'push + PR', 'keep the branch as-is', 'go ahead, except…'])
   expect((await ui.findAll({ type: 'Button' })).every((b: any) => b.props.plain)).toBe(true)
   // The reply's table, just above, already holds them.
@@ -355,7 +355,7 @@ test('a press puts its id and option in the prompt box, unsent, so the box clear
   on('prompt.submit', (_: any, e: any) => { sent.push(e.text); return { text: e.text } as any })
   on('prompt.fill', (_: any, e: any) => { filled.push(e.text); return { isFilled: true } })
   await $.turn.complete(done(LETTERS))
-  const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
+  const ui = await $.ui.mount({ plugin: 'ballot', surface: 'terminal', ...BAND })
   expect(await labels(ui)).toEqual(['no retry', 'retry', 'go ahead, except…'])
   await ui.press({ key: 'pick:B' })
   expect(filled).toEqual(['B: retry'])
@@ -367,7 +367,7 @@ test('a row press drafts its option in the person\'s voice; the row shows it as 
   engine(on)
   on('prompt.fill', (_: any, e: any) => { filled.push(e.text); return { isFilled: true } })
   await $.turn.complete(done(LETTERS.replace('| B | retry |', '| B | you retry by hand |')))
-  const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
+  const ui = await $.ui.mount({ plugin: 'ballot', surface: 'terminal', ...BAND })
   expect(await labels(ui)).toEqual(['no retry', 'you retry by hand', 'go ahead, except…'])
   await ui.press({ key: 'pick:B' })
   expect(filled).toEqual(['B: I retry by hand'])
@@ -378,7 +378,7 @@ test('go ahead, except… drafts "go, but "', async ($, on) => {
   engine(on)
   on('prompt.fill', (_: any, e: any) => { filled.push(e.text); return { isFilled: true } })
   await $.turn.complete(done(LETTERS))
-  const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
+  const ui = await $.ui.mount({ plugin: 'ballot', surface: 'terminal', ...BAND })
   expect((await ui.find({ key: 'own' }))?.props.hotkey).toBe('3')
   await ui.press({ key: 'own' })
   expect(filled).toEqual(['go, but '])
@@ -390,11 +390,11 @@ test('no band for a subagent turn, an aborted turn, or while working', async ($,
   await $.turn.complete(done('plain'))
   await $.turn.complete(done(LETTERS, { agentId: 'a1' }))
   await $.turn.complete(done(LETTERS, { reason: 'aborted', isAborted: true }))
-  let ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
+  let ui = await $.ui.mount({ plugin: 'ballot', surface: 'terminal', ...BAND })
   expect(await ui.find({ key: 'pick:A' })).toBeUndefined()
   await ui.unmount()
   await $.turn.complete(done(LETTERS))
-  ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND, props: { ...BAND.props, isWorking: true } })
+  ui = await $.ui.mount({ plugin: 'ballot', surface: 'terminal', ...BAND, props: { ...BAND.props, isWorking: true } })
   expect(await ui.find({ key: 'pick:A' })).toBeUndefined()
 })
 
@@ -402,7 +402,7 @@ test('a typed prompt clears the band', async ($, on) => {
   engine(on)
   on('prompt.submit', (_: any, e: any) => ({ text: e.text }) as any)
   await $.turn.complete(done(LETTERS))
-  const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
+  const ui = await $.ui.mount({ plugin: 'ballot', surface: 'terminal', ...BAND })
   expect(await ui.find({ key: 'pick:A' })).toBeDefined()
   await $.prompt.submit({ text: 'something else', wait: false, origin: { kind: 'composer' } })
   await ui.drawn()
@@ -413,7 +413,7 @@ test('/clear (session.end) clears the band', async ($, on) => {
   engine(on)
   on('session.end', () => ({ sessionId: 's1' }))
   await $.turn.complete(done(LETTERS))
-  const ui = await $.ui.mount({ plugin: 'picks', surface: 'terminal', ...BAND })
+  const ui = await $.ui.mount({ plugin: 'ballot', surface: 'terminal', ...BAND })
   expect(await ui.find({ key: 'pick:A' })).toBeDefined()
   await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
   await ui.drawn()
@@ -434,10 +434,10 @@ function sink(on: any, part: string) {
 test('traces the offer matched', async ($, on) => {
   engine(on)
   on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
-  const rows = sink(on, 'picks')
+  const rows = sink(on, 'ballot')
   await $.turn.complete(done(LONE))
   await $.session.end({ reason: 'other' })
-  expect(rows().find(r => r.event === 'picks.offer')?.data).toMatchObject({ matched: true, options: 3 })
+  expect(rows().find(r => r.event === 'ballot.offer')?.data).toMatchObject({ matched: true, options: 3 })
 })
 
 const CLINE = '**Compact — suggest:** `~320k` tokens re-sent every turn; Task 3 done, Task 4 needs only the plan. Run `/claudzilla compact`.'
