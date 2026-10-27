@@ -1,4 +1,6 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
+
+import { runText, split } from '../hooks/register'
 
 const text = '━━━━\n\n**TL;DR** x\n\n──\n\n## H\n\n┈┈\n\nmore\n\n```text\n━━━━\n```\n\n━━━━'
 const props = { text, isFirstOfReply: true }
@@ -255,4 +257,104 @@ test('a /clear writes the width again for the new session id', async ($, on) => 
   id = 's2'
   await ui.redraw()
   expect(writes.filter(p => p.includes('/cols-'))).toEqual(['/t/claudzilla-rules/cols-s1', '/t/claudzilla-rules/cols-s2'])
+})
+
+test('run text keeps the block as a script, so pipes, ifs, heredocs and comments run as written', () => {
+  const body = "ls |\n  wc -l  # count\nif true; then\n  echo yes\nfi\ncat <<'EOF'\nx\nEOF"
+  expect(runText('bash', body)).toBe(body)
+})
+
+test('run text takes only the $ lines of a transcript, whatever its tag', () => {
+  expect(runText('console', '$ ls\na.txt\n$ pwd')).toBe('ls\npwd')
+  expect(runText('bash', '$ ls\nfoo.txt')).toBe('ls')
+})
+
+test('a non-shell fence, an untagged one and a comment-only block have no run text', () => {
+  expect(runText('ts', 'run()')).toBeUndefined()
+  expect(runText('', 'ls')).toBeUndefined()
+  expect(runText('bash', '# only a comment\n')).toBeUndefined()
+})
+
+test('a fence inside a longer fence stays in its block', () => {
+  expect(split('````md\n```bash\nls\n```\n````\nafter')).toEqual([
+    { text: '````md\n```bash\nls\n```\n````' }, { code: { lang: 'md', body: '```bash\nls\n```' } }, { text: 'after' }])
+})
+
+test('a tilde fence and a fence in a list item are blocks too', () => {
+  expect(split('~~~sh\nls\n~~~')).toEqual([{ text: '~~~sh\nls\n~~~' }, { code: { lang: 'sh', body: 'ls' } }])
+  expect(split('- step\n\n  ```bash\n  ls\n    -la\n  ```')).toEqual([
+    { text: '- step\n\n  ```bash\n  ls\n    -la\n  ```' }, { code: { lang: 'bash', body: 'ls\n  -la' } }])
+})
+
+test('a fence line with text after it does not close the block', () => {
+  expect(split('```\n```bash\n```')).toEqual([{ text: '```\n```bash\n```' }, { code: { lang: '', body: '```bash' } }])
+})
+
+const SHELL = 'Fix:\n\n```bash\ngit pull\n./install.sh\n```\n\nthen\n\n```\nsome output\n```'
+const fenced = (on: any) => {
+  const w = { copied: [] as string[], filled: [] as string[], toasts: [] as string[], box: '', takes: true }
+  on('ui.render', { component: 'AssistantMessage' }, (_$: any, e: any) => ({ type: 'Text' as const, children: [e.props.text] }))
+  on('ui.copy', (_: any, e: any) => { w.copied.push(e.text); return { value: { isCopied: true } } })
+  on('prompt.read', () => ({ value: { text: w.box, cursor: 0 } }) as any)
+  on('prompt.fill', (_: any, e: any) => { w.filled.push(e.text); return { isFilled: w.takes } as any })
+  on('ui.toast', (_: any, e: any) => { w.toasts.push(e.text); return { value: undefined } })
+  return w
+}
+
+test('a shell fence gets Run and Copy, an untagged one Copy only', async ($, on) => {
+  fenced(on)
+  const ui = await mount($, 'f1', { text: SHELL, isFirstOfReply: true })
+  expect((await ui.findAll({ type: 'Button' })).map((b: any) => b.props.key)).toEqual(['run:f1:1', 'copy:f1:1', 'copy:f1:3'])
+  expect(await ui.find({ type: 'Text', text: 'bash · 2 lines' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '1 line' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^then\n\n```\nsome output\n```$/ })).toBeDefined()
+})
+
+test('Copy puts the block on the clipboard and says so for 2 s', async ($, on) => {
+  const w = fenced(on)
+  const clock = mock.clock(on, { now: 0 })
+  const ui = await mount($, 'f2', { text: SHELL, isFirstOfReply: true })
+  await ui.press({ key: 'copy:f2:1' })
+  expect(w.copied).toEqual(['git pull\n./install.sh'])
+  await ui.redraw()
+  expect((await ui.find({ key: 'copy:f2:1' }))?.text).toBe('✓ Copied')
+  await clock.advance(2000)
+  await ui.redraw()
+  expect((await ui.find({ key: 'copy:f2:1' }))?.text).toBe('⧉ Copy')
+})
+
+test('Run fills the command into an empty prompt box, unsent', async ($, on) => {
+  const w = fenced(on)
+  const ui = await mount($, 'f3', { text: SHELL, isFirstOfReply: true })
+  await ui.press({ key: 'run:f3:1' })
+  expect(w.filled).toEqual(['! git pull\n./install.sh'])
+})
+
+test('Run leaves typed text alone and says why', async ($, on) => {
+  const w = fenced(on)
+  w.box = 'half a thought'
+  const ui = await mount($, 'f4', { text: SHELL, isFirstOfReply: true })
+  await ui.press({ key: 'run:f4:1' })
+  expect(w.filled).toEqual([])
+  expect(w.toasts).toEqual(['folio: clear the prompt box to run this'])
+})
+
+test('Run says so when the box takes nothing', async ($, on) => {
+  const w = fenced(on)
+  w.takes = false
+  const ui = await mount($, 'f5', { text: SHELL, isFirstOfReply: true })
+  await ui.press({ key: 'run:f5:1' })
+  expect(w.toasts).toEqual(['folio: the prompt box took nothing; close the dialog and try again'])
+})
+
+test('a second Copy press keeps its own 2 s', async ($, on) => {
+  fenced(on)
+  const clock = mock.clock(on, { now: 0 })
+  const ui = await mount($, 'f6', { text: SHELL, isFirstOfReply: true })
+  await ui.press({ key: 'copy:f6:1' })
+  await clock.advance(1500)
+  await ui.press({ key: 'copy:f6:1' })
+  await clock.advance(1000)
+  await ui.redraw()
+  expect((await ui.find({ key: 'copy:f6:1' }))?.text).toBe('✓ Copied')
 })

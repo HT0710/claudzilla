@@ -26,21 +26,36 @@ const note = (id: string, decision: string, data: object) => {
   t.event('folio.split', { decision, ...data })
 }
 
-type Part = { text: string } | { rule: string }
+type Part = { text: string } | { rule: string } | { code: { lang: string; body: string } }
 
-// Splits a reply at frame lines outside ``` / ~~~ fences.
+// Splits a reply at frame lines and after each fenced block, outside ``` / ~~~ fences.
 export function split(text: string): Part[] {
   const parts: Part[] = []
   let chunk: string[] = []
   let fence = ''
+  let open = { lang: '', body: [] as string[] }
+  let pad = 0
   const flush = () => {
     const t = chunk.join('\n').replace(/^\n+|\n+$/g, '')
     if (t) parts.push({ text: t })
     chunk = []
   }
   for (const line of text.split('\n')) {
-    const mark = line.match(/^\s*(```|~~~)/)?.[1]
-    if (mark && (!fence || fence === mark)) fence = fence ? '' : mark
+    const m = line.match(/^(\s*)(`{3,}|~{3,})(.*)$/)
+    const mark = m?.[2]
+    // CommonMark's close: the opener's character, at least as long, nothing after it.
+    if (mark && fence && mark[0] === fence[0] && mark.length >= fence.length && !m[3]!.trim()) {
+      chunk.push(line)
+      flush()
+      parts.push({ code: { lang: open.lang, body: open.body.join('\n') } })
+      fence = ''
+      continue
+    }
+    if (mark && !fence) {
+      fence = mark
+      pad = m[1]!.length
+      open = { lang: m[3]!.trim().split(/\s+/)[0]!.toLowerCase(), body: [] }
+    } else if (fence) open.body.push(line.slice(Math.min(pad, line.search(/\S|$/))))
     const rule = !fence && !mark ? line.match(RULE)?.[1] : undefined
     if (rule) {
       flush()
@@ -50,6 +65,42 @@ export function split(text: string): Part[] {
   flush()
 
   return parts
+}
+
+const SHELL = new Set(['bash', 'sh', 'zsh', 'shell', 'console'])
+
+const PROMPT = /^\s*\$ /
+
+// What Run puts after `!`: the block as one script; a transcript's commands are its `$ ` lines.
+export function runText(lang: string, body: string): string | undefined {
+  if (!SHELL.has(lang)) return undefined
+  const lines = body.split('\n')
+  const cmds = lines.some(l => PROMPT.test(l)) ? lines.filter(l => PROMPT.test(l)).map(l => l.replace(PROMPT, '')) : lines
+  return cmds.some(l => l.trim() && !l.trim().startsWith('#')) ? cmds.join('\n').trim() : undefined
+}
+
+// Copy buttons pressed in the last 2 s: key to the press that set it, so an older press's timer leaves a newer one lit.
+const copied = new Map<string, number>()
+let presses = 0
+
+async function copy($: EngineInterface, key: string, text: string, surface: Parameters<EngineInterface['ui']['copy']>[0]['surface']) {
+  const done = await $.ui.copy({ text, surface })
+  if (!done.isCopied) return $.ui.toast(`folio: copy failed (${done.reason})`)
+  const press = ++presses
+  copied.set(key, press)
+  $.ui.invalidate('ui.render')
+  void $.clock.after(2000, () => {
+    if (copied.get(key) !== press) return
+    copied.delete(key)
+    $.ui.invalidate('ui.render')
+  })
+}
+
+// Fills, never sends: the person reads the command and presses Enter.
+async function run($: EngineInterface, cmd: string) {
+  if ((await $.prompt.read()).text.trim()) return $.ui.toast('folio: clear the prompt box to run this')
+  // Under a dialog the box takes nothing.
+  if (!(await $.prompt.fill({ text: `! ${cmd}` })).isFilled) $.ui.toast('folio: the prompt box took nothing; close the dialog and try again')
 }
 
 type Link = { href: string; path: string; line: number }
@@ -137,15 +188,16 @@ export const register: Register = on => {
     }
     const parts = split(e.props.text)
     const rules = parts.filter(p => 'rule' in p).length
+    const codes = parts.filter(p => 'code' in p).length
     // Only the fullscreen terminal hands a plain click on a link to the plugin.
     const found = e.surface === 'terminal' ? await Promise.all(parts.map(p => ('text' in p ? links($, p.text) : undefined))) : []
-    if (!rules && !found[0]?.size) {
+    if (!rules && !codes && !found.some(f => f?.size)) {
       note(e.requestId, 'plain', { split: false, reason: 'no frame lines' })
       return next(e)
     }
     if (rules) note(e.requestId, 'split', { split: true, rules, chunks: parts.length - rules, columns: e.viewport?.columns ?? 80, first: !!e.props.isFirstOfReply })
-    else note(e.requestId, 'linked', { split: false, reason: 'file links' })
-    const { Box, Text, Markdown } = $.ui.resolve(e)
+    else note(e.requestId, codes ? 'fenced' : 'linked', { split: false, reason: codes ? 'code blocks' : 'file links', codes, links: found.filter(f => f?.size).length })
+    const { Box, Text, Markdown, Button } = $.ui.resolve(e)
     // The engine indents only the block that draws the bullet, so later chunks take its two columns here.
     const indent = e.props.isFirstOfReply ? 2 : 0
     const room = Math.max((e.viewport?.columns ?? 80) - indent - 2, 4)
@@ -156,6 +208,20 @@ export const register: Register = on => {
         rows.push(
           <Box paddingLeft={indent} marginTop={1}>
             <Text wrap="truncate">{p.rule.repeat(Math.floor(room / SHARE[p.rule]!))}</Text>
+          </Box>,
+        )
+      } else if ('code' in p) {
+        const { lang, body } = p.code
+        const cmd = runText(lang, body)
+        const lines = body.split('\n').length
+        const key = `copy:${e.requestId}:${i}`
+        rows.push(
+          <Box paddingLeft={indent} paddingRight={2} justifyContent="space-between">
+            <Box columnGap={3}>
+              {cmd ? <Button key={`run:${e.requestId}:${i}`} label="▶ Run" plain dimColor onPress={() => void run($, cmd).catch(() => undefined)} /> : null}
+              <Button key={key} label={copied.has(key) ? '✓ Copied' : '⧉ Copy'} plain dimColor onPress={press => void copy($, key, body, press.surface).catch(() => undefined)} />
+            </Box>
+            <Text dimColor>{`${lang ? `${lang} · ` : ''}${lines} line${lines === 1 ? '' : 's'}`}</Text>
           </Box>,
         )
       } else {
