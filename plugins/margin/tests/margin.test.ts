@@ -1372,6 +1372,66 @@ test('a prompt sent mid-turn, remembered in the store, is not marked rewound', a
   expect((await ui.findAll({ type: 'Text', text: 'Rewound' })).length).toBe(0)
 })
 
+test('a mid-turn note the model holds inside a tool result is not marked rewound', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
+  const history = ['kept', 'sent mid-turn']
+    .map((display, i) => JSON.stringify({ display, timestamp: Date.now() - 2 + i, sessionId: 'chat-1' }))
+    .join('\n')
+  on('env.get', (_, e) => ({ value: e.name === 'HOME' ? '/home/me' : undefined }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('process.run', (_, e) => {
+    if (isHistoryGrep(e.argv)) return ran(history)
+    if (e.argv[0] === 'find') return ran('/home/me/.claude/projects/-proj/chat-1.jsonl\n')
+    if (e.argv.includes('"subtype":"compact_boundary"')) return { value: { ...ran('').value, exitCode: 1 } }
+    return ran('')
+  })
+  on('session.messages', (_, e) => ({
+    value:
+      e.as === 'api'
+        ? [
+            { role: 'user' as const, content: [{ type: 'text', text: 'kept' }] },
+            { role: 'user' as const, content: [{ type: 'tool_result', content: `done\n\n<system-reminder>\n${MID_TURN('sent mid-turn')}\n</system-reminder>` }] },
+          ]
+        : [{ role: 'user' as const, text: 'kept', toolUses: [] }],
+  }))
+  mock.store(on, { 'midTurn:chat-1': ['sent mid-turn'] })
+
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await ui.redraw()
+
+  expect((await ui.findAll({ type: 'Text', text: 'Rewound' })).length).toBe(0)
+})
+
+test('a tool result reading as a compacted prompt does not hold it in the model', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
+  const history = ['old', 'new']
+    .map((display, i) => JSON.stringify({ display, timestamp: Date.now() - 2 + i, sessionId: 'chat-1' }))
+    .join('\n')
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('fs.read', () => ({ value: history }))
+  on('session.messages', (_, e) => ({
+    value:
+      e.as === 'api'
+        ? [
+            { role: 'user', content: [{ type: 'text', text: 'summary' }] },
+            { role: 'user', content: [{ type: 'text', text: 'new' }] },
+            { role: 'user', content: [{ type: 'tool_result', content: 'old' }] },
+          ]
+        : [
+            { role: 'user', text: 'old', toolUses: [] },
+            { role: 'user', text: 'new', toolUses: [] },
+          ],
+  }))
+
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await ui.redraw()
+
+  expect((await ui.findAll({ type: 'Text', text: 'Compacted' })).length).toBe(1)
+})
+
 test('/quit, /exit, /rewind, /margin, /resume and /clear are left out', async ($, on) => {
   on('clock.now', () => ({ value: 0 }))
   const history = ['/quit', 'kept', '/rewind', '/margin', '/resume', '/clear', '/exit', '/exited-not']
