@@ -374,51 +374,57 @@ function idle(on: On, { transcript = reply(H1), box = '', cfg = '' } = {}) {
   return { ...seen, fills, box: prompt }
 }
 const COLD = 'Cache goes cold in 15 min: press Enter to draft a compact'
+const AUTO = `${COLD}, or it compacts itself in 10 min`
+// The fill comes at 1x compactNudge (150k by default), the compact at coldCompact times it (2x by default).
+const L1 = 150_000
+const L2 = 300_000
+const cold = (toasts: [string, number | undefined][]) => toasts.filter(([text]) => text.startsWith('Cache goes cold'))
 
-test('15 min before a 1h cache goes cold: toast and fill /claudzilla compact', async ($, on) => {
+test('15 min before a 1h cache goes cold, past 1x: toast and fill /claudzilla compact', async ($, on) => {
   const { clock, toasts, fills } = idle(on)
   await $.session.start(start)
-  await ctxMeasure($, 60_000)
+  await ctxMeasure($, L1)
   await clock.advance(FILL_MS - 1)
   expect(fills).toEqual([])
   await clock.advance(1)
   expect(fills).toEqual(['/claudzilla compact'])
-  expect(toasts).toEqual([[COLD, 60000]])
+  expect(cold(toasts)).toEqual([[COLD, 60000]])
 })
 
 for (const [name, opts, tokens] of [
-  ['a 5m TTL', { transcript: reply(M5) }, 60_000],
-  ['context under 50k', {}, 49_999],
-  ['coldCompact off', { cfg: '{"rulesGuard":{"coldCompact":"off"}}' }, 60_000],
+  ['a 5m TTL', { transcript: reply(M5) }, L2],
+  ['context under 1x compactNudge', {}, L1 - 1],
+  ['compactNudge 0', { cfg: '{"rulesGuard":{"compactNudge":0}}' }, 900_000],
 ] as const) {
-  test(`${name}: no cold-cache fill`, async ($, on) => {
-    const { clock, toasts, fills } = idle(on, opts)
+  test(`${name}: no cold-cache fill or compact`, async ($, on) => {
+    const { clock, toasts, fills, compacts } = idle(on, opts)
     await $.session.start(start)
     await ctxMeasure($, tokens)
-    await clock.advance(FILL_MS)
+    await clock.advance(AUTO_MS)
     expect(fills).toEqual([])
-    expect(toasts).toEqual([])
+    expect(compacts).toEqual([])
+    expect(cold(toasts)).toEqual([])
   })
 }
 
 test('text in the prompt box stays: toast only', async ($, on) => {
   const { clock, toasts, fills } = idle(on, { box: 'half typed' })
   await $.session.start(start)
-  await ctxMeasure($, 60_000)
+  await ctxMeasure($, L1)
   await clock.advance(FILL_MS)
   expect(fills).toEqual([])
-  expect(toasts).toEqual([['Cache goes cold in 15 min: /claudzilla compact', 60000]])
+  expect(cold(toasts)).toEqual([['Cache goes cold in 15 min: /claudzilla compact', 60000]])
 })
 
 test('a turn or a new reply restarts the cold-cache clock', async ($, on) => {
   const { clock, fills } = idle(on)
   await $.session.start(start)
-  await ctxMeasure($, 60_000)
+  await ctxMeasure($, L1)
   await clock.advance(FILL_MS - 10)
   await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } } as any)
   await clock.advance(FILL_MS - 10)
   expect(fills).toEqual([])
-  await ctxMeasure($, 61_000)
+  await ctxMeasure($, L1 + 1000)
   await clock.advance(FILL_MS)
   expect(fills).toEqual(['/claudzilla compact'])
 })
@@ -426,43 +432,58 @@ test('a turn or a new reply restarts the cold-cache clock', async ($, on) => {
 test('a non-interactive session arms no cold-cache fill', async ($, on) => {
   const { clock, fills } = idle(on)
   await $.session.start({ cwd: '/proj', surface: null, isInteractive: false })
-  await ctxMeasure($, 60_000)
-  await clock.advance(FILL_MS)
+  await ctxMeasure($, L2)
+  await clock.advance(AUTO_MS)
   expect(fills).toEqual([])
 })
 
-const AUTO = '{"rulesGuard":{"coldCompact":"auto"}}'
-
-test('coldCompact auto: 5 min before cold, still away, compacts and clears the filled box', async ($, on) => {
-  const { clock, toasts, fills, compacts, box } = idle(on, { cfg: AUTO })
+test('past 2x by default: 5 min before cold, still away, compacts and clears the filled box', async ($, on) => {
+  const { clock, toasts, fills, compacts, box } = idle(on)
   await $.session.start(start)
-  await ctxMeasure($, 60_000)
+  await ctxMeasure($, L2)
   await clock.advance(FILL_MS)
-  expect(toasts).toEqual([['Cache goes cold in 15 min: press Enter to draft a compact, or it compacts itself in 10 min', 60000]])
+  expect(cold(toasts)).toEqual([[AUTO, 60000]])
   box.text = '/claudzilla compact'
   await clock.advance(AUTO_MS - FILL_MS)
   expect(compacts).toEqual([undefined])
   expect(fills).toEqual(['/claudzilla compact', ''])
 })
 
-test('coldCompact auto: text typed in the box means someone is there, no compact', async ($, on) => {
-  const { clock, compacts } = idle(on, { cfg: AUTO, box: 'half typed' })
+test('under 2x by default: fill, no compact', async ($, on) => {
+  const { clock, toasts, compacts } = idle(on)
   await $.session.start(start)
-  await ctxMeasure($, 60_000)
+  await ctxMeasure($, L2 - 1)
+  await clock.advance(AUTO_MS)
+  expect(cold(toasts)).toEqual([[COLD, 60000]])
+  expect(compacts).toEqual([])
+})
+
+for (const [n, tokens, compacted] of [
+  [1, L1, true],
+  [4, 4 * L1 - 1, false],
+  [4, 4 * L1, true],
+  [0, 900_000, false],
+] as const) {
+  test(`coldCompact ${n} at ${tokens}: ${compacted ? 'compacts' : 'no compact'}`, async ($, on) => {
+    const { clock, compacts, fills } = idle(on, { cfg: `{"rulesGuard":{"coldCompact":${n}}}` })
+    await $.session.start(start)
+    await ctxMeasure($, tokens)
+    await clock.advance(AUTO_MS)
+    expect(compacts).toHaveLength(compacted ? 1 : 0)
+    expect(fills[0]).toBe('/claudzilla compact')
+  })
+}
+
+test('text typed in the box means someone is there, no compact', async ($, on) => {
+  const { clock, compacts } = idle(on, { box: 'half typed' })
+  await $.session.start(start)
+  await ctxMeasure($, L2)
   await clock.advance(AUTO_MS)
   expect(compacts).toEqual([])
 })
 
-test('coldCompact fill (the default): no compact', async ($, on) => {
-  const { clock, compacts } = idle(on)
-  await $.session.start(start)
-  await ctxMeasure($, 60_000)
-  await clock.advance(AUTO_MS)
-  expect(compacts).toEqual([])
-})
-
-test('coldCompact auto: its own compact starts the context levels over', async ($, on) => {
-  const { clock, toasts } = idle(on, { cfg: AUTO })
+test('its own compact starts the context levels over', async ($, on) => {
+  const { clock, toasts } = idle(on, { cfg: '{"rulesGuard":{"coldCompact":1}}' })
   await $.session.start(start)
   await ctxMeasure($, 160_000)
   await clock.advance(AUTO_MS)
@@ -470,23 +491,23 @@ test('coldCompact auto: its own compact starts the context levels over', async (
   expect(toasts.filter(([text]) => text === T160)).toHaveLength(2)
 })
 
-test('coldCompact auto: text typed while the compact runs stays', async ($, on) => {
-  const { clock, fills, box, during } = idle(on, { cfg: AUTO })
+test('text typed while the compact runs stays', async ($, on) => {
+  const { clock, fills, box, during } = idle(on)
   during.compact = () => (box.text = 'back already')
   await $.session.start(start)
-  await ctxMeasure($, 60_000)
+  await ctxMeasure($, L2)
   await clock.advance(FILL_MS)
   box.text = '/claudzilla compact'
   await clock.advance(AUTO_MS - FILL_MS)
   expect(fills).toEqual(['/claudzilla compact'])
 })
 
-test('coldCompact auto: with text in the box, the toast promises no compact', async ($, on) => {
-  const { clock, toasts } = idle(on, { cfg: AUTO, box: 'half typed' })
+test('with text in the box, the toast promises no compact', async ($, on) => {
+  const { clock, toasts } = idle(on, { box: 'half typed' })
   await $.session.start(start)
-  await ctxMeasure($, 60_000)
+  await ctxMeasure($, L2)
   await clock.advance(FILL_MS)
-  expect(toasts).toEqual([['Cache goes cold in 15 min: /claudzilla compact', 60000]])
+  expect(cold(toasts)).toEqual([['Cache goes cold in 15 min: /claudzilla compact', 60000]])
 })
 
 for (const [name, e] of [
@@ -496,7 +517,7 @@ for (const [name, e] of [
   test(`${name} keeps the cold-cache timers`, async ($, on) => {
     const { clock, fills } = idle(on)
     await $.session.start(start)
-    await ctxMeasure($, 60_000)
+    await ctxMeasure($, L1)
     await $.session.compact(e as any)
     await clock.advance(FILL_MS)
     expect(fills).toEqual(['/claudzilla compact'])

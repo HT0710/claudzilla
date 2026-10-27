@@ -510,8 +510,12 @@ check "config: bad param warned" has "$out" "rulesGuard.subjectMax ignored"
 check "config: bad commit type warned" has "$out" "rulesGuard.commitTypes ignored"
 mcfg '{"rulesGuard":{"autoUpdate":"yes"}}'
 new_session; check "config: bad autoUpdate warned" has "$(hook UserPromptSubmit prompt=hi)" "rulesGuard.autoUpdate ignored: expected true or false"
-mcfg '{"rulesGuard":{"coldCompact":"soon"}}'
+mcfg '{"rulesGuard":{"coldCompact":"auto"}}'
 new_session; check "config: bad coldCompact warned" has "$(hook UserPromptSubmit prompt=hi)" "rulesGuard.coldCompact ignored: expected"
+mcfg '{"rulesGuard":{"coldCompact":-1}}'
+new_session; check "config: negative coldCompact warned" has "$(hook UserPromptSubmit prompt=hi)" "rulesGuard.coldCompact ignored: expected"
+mcfg '{"rulesGuard":{"coldCompact":4}}'
+new_session; check "config: coldCompact 4 accepted" test -z "$(grep -F rulesGuard.coldCompact <<<"$(hook UserPromptSubmit prompt=hi)")"
 check "config: bad level keeps deny" denied "$(sh_ 'git push')"
 mcfg '{"rulesGuard":{"rules":{"toString":"off","__proto__":"off"},"constructor":1,"hasOwnProperty":2}}'
 new_session; check "config: inherited key names ignored" has "$(hook UserPromptSubmit prompt='login is broken')" "systematic-debugging"
