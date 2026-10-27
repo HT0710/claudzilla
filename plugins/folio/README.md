@@ -12,6 +12,8 @@ It also turns a code span holding an existing file path (`path`, `path:line` or 
 
 *Real speed. Click `auth/token.js:3`: the File tab opens on it.*
 
+Under each code block it draws a Copy button, which puts the block on the clipboard and reads `✓ Copied` for 2 seconds. A `bash`, `sh`, `zsh`, `shell` or `console` block also gets Run: it puts the block in the prompt box after `!`, and when you press Enter, Claude runs it with its Bash tool as one script, so pipes, `if` blocks and heredocs work as written. A mod cannot switch the box to shell mode, so this takes a short turn rather than running at once. A block with `$ ` prompts gives only those lines, without the `$ `. Run never replaces text you typed; it shows a toast instead. A reply still streaming shows no buttons until it ends.
+
 ## Install
 
 claudzilla's `install.sh` installs it.
