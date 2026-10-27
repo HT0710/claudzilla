@@ -848,6 +848,6 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
 }
 
 export {
-  CLAIM_RE, CONFIG_DIR, DEFAULTS, MACHINE_PROMPT, MSG, SESSION_RE, VERIFY, WHY,
+  CLAIM_RE, CONFIG_DIR, DEFAULTS, HEREDOC_RE, MACHINE_PROMPT, MSG, SESSION_RE, VERIFY, WHY,
   commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, git, gitParse, keywordRe, loadConfig, mcpPr, nudge, prDescribes, proseOf, notWork, subjectProblem, unchecked, unquote, writes,
 };
