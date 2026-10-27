@@ -58,7 +58,7 @@ const DEFAULTS = {
   reviewNudge: true,
   autoUpdate: true,
   compactNudge: 150000,
-  coldCompact: "fill",
+  coldCompact: 2,
   trace: true,
 };
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -71,7 +71,7 @@ const PARAMS = {
   reviewNudge: [(v) => typeof v === "boolean", "expected true or false"],
   autoUpdate: [(v) => typeof v === "boolean", "expected true or false"],
   compactNudge: [(v) => Number.isInteger(v) && v >= 0, "expected integer >= 0 (0 = off)"],
-  coldCompact: [(v) => ["fill", "auto", "off"].includes(v), 'expected "fill", "auto" or "off"'],
+  coldCompact: [(v) => typeof v === "number" && v >= 0, "expected number >= 0 (0 = never auto compact)"],
   trace: [(v) => typeof v === "boolean", "expected true or false"],
 };
 const words = (v) => Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string" && x.trim() !== "");

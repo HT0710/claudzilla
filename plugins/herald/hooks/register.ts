@@ -109,11 +109,11 @@ export function contextToast(tokens: number, base: number, ctx: Ctx, nowMs: numb
 async function config($: EngineInterface, cwd: string): Promise<Config> {
   const dir = (await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined)) || `${(await $.env.get('HOME').catch(() => undefined)) ?? ''}/.claude`
   const top = await $.process.run(['git', '-C', cwd, 'rev-parse', '--show-toplevel']).then(r => (r.exitCode === 0 ? r.stdout.trim() : ''), () => '')
-  const cfg: Config = { dir, base: DEFAULT_BASE, cold: 'fill' }
+  const cfg: Config = { dir, base: DEFAULT_BASE, cold: DEFAULT_COLD }
   for (const f of [`${dir}/claudzilla.json`, ...(top ? [`${top}/.claude/claudzilla.json`, `${top}/.claude/claudzilla.local.json`] : [])]) {
     const rg: any = await $.fs.read(f).then(text => JSON.parse(text)?.rulesGuard).catch(() => undefined)
     if (Number.isInteger(rg?.compactNudge) && rg.compactNudge >= 0) cfg.base = rg.compactNudge
-    if (COLD_MODES.includes(rg?.coldCompact)) cfg.cold = rg.coldCompact
+    if (typeof rg?.coldCompact === 'number' && rg.coldCompact >= 0) cfg.cold = rg.coldCompact
   }
   return cfg
 }
@@ -122,10 +122,10 @@ async function config($: EngineInterface, cwd: string): Promise<Config> {
 const HOUR = 3_600_000
 export const FILL_MS = HOUR - 15 * 60_000
 export const AUTO_MS = HOUR - 5 * 60_000
-const COLD_MIN = 50_000
+// The auto compact comes at this many times compactNudge (0 = never); the fill at 1x.
+const DEFAULT_COLD = 2
 const FILL = '/claudzilla compact'
-const COLD_MODES = ['fill', 'auto', 'off']
-type Config = { dir: string; base: number; cold: 'fill' | 'auto' | 'off' }
+type Config = { dir: string; base: number; cold: number }
 
 // The TTL the newest main-chat cache write chose, as hud-data.mjs reads it; a pure cache read keeps it.
 export function ttlOf(tail: string): number | undefined {
@@ -161,7 +161,7 @@ async function coldFill($: EngineInterface, dir: string, auto: boolean) {
   $.ui.toast(`Cache goes cold in 15 min: ${filled ? 'press Enter to draft a compact' : FILL}${auto && filled ? ', or it compacts itself in 10 min' : ''}`, { timeoutMs: 60000 })
 }
 
-// Stage 2, opt-in: still away 5 min before cold, compact on the warm cache with the generic summary.
+// Stage 2, past coldCompact times compactNudge: still away 5 min before cold, compact on the warm cache with the generic summary.
 async function coldCompact($: EngineInterface, dir: string, live: Live) {
   if ((await ttl($, dir)) !== HOUR) return t.event('cold.compact', { skip: 'ttl' }, 'debug')
   const box = (await $.prompt.read()).text.trim()
@@ -194,7 +194,7 @@ function stopIdle($: EngineInterface, live: Live, reset: boolean) {
 export const register: Register = on => {
   let note: string | undefined
   let interactive = false
-  let cfg: Promise<Config> = Promise.resolve({ dir: '', base: 0, cold: 'off' })
+  let cfg: Promise<Config> = Promise.resolve({ dir: '', base: 0, cold: 0 })
   // Module memory, not $.store: the store is shared by every open session, and context is this session's own.
   const live: Live = { ctx: { level: 0, at: 0 }, cold: [], pinned: false }
 
@@ -255,11 +255,10 @@ export const register: Register = on => {
         } catch {
           live.idle = undefined
         }
-      }
-      if (cold !== 'off' && tokens >= COLD_MIN) {
+        const auto = cold > 0 && tokens >= cold * b
         try {
-          live.cold = [$.clock.after(FILL_MS, () => void coldFill($, dir, cold === 'auto').catch(err => t.error('cold.fill.failed', err)))]
-          if (cold === 'auto') live.cold.push($.clock.after(AUTO_MS, () => void coldCompact($, dir, live).catch(err => t.error('cold.compact.failed', err))))
+          live.cold = [$.clock.after(FILL_MS, () => void coldFill($, dir, auto).catch(err => t.error('cold.fill.failed', err)))]
+          if (auto) live.cold.push($.clock.after(AUTO_MS, () => void coldCompact($, dir, live).catch(err => t.error('cold.compact.failed', err))))
         } catch {
           live.cold = []
         }
