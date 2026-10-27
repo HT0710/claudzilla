@@ -149,6 +149,7 @@ Some rules apply only to certain files:
 
 - **Python:** these rules load once Claude reads a `.py`, `.pyi`, `.ipynb`, `pyproject.toml` or `requirements` file. An existing project keeps its own tools. New code uses `uv` for packages, `pyproject.toml` for dependencies, `ruff check --fix` and `ruff format` for lint and formatting, and `pytest` for tests.
 - **Comments:** if the project has a comment style, Claude matches it. Otherwise it writes a comment only to explain a reason the code cannot show, and never history such as "was X, now Y": git holds that.
+- **Writing:** docs, memory, commits, PRs, issues and outside messages get plain, full sentences: one idea per bullet, under 40 words, no arrows or nested parentheses. Chat replies stay terse. `/rule-review` counts slips in its `writing` row.
 
 Claude Code's [common workflows](https://code.claude.com/docs/en/common-workflows) show how to explore code, fix bugs and refactor with Claude.
 
