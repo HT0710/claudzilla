@@ -121,10 +121,11 @@ async function config($: EngineInterface, cwd: string): Promise<Config> {
 // The prompt cache's 1h TTL. A 5m one is cold long before a stage could run.
 const HOUR = 3_600_000
 export const FILL_MS = HOUR - 15 * 60_000
+export const AUTO_MS = HOUR - 5 * 60_000
 const COLD_MIN = 50_000
 const FILL = '/claudzilla compact'
-const COLD_MODES = ['fill', 'off']
-type Config = { dir: string; base: number; cold: 'fill' | 'off' }
+const COLD_MODES = ['fill', 'auto', 'off']
+type Config = { dir: string; base: number; cold: 'fill' | 'auto' | 'off' }
 
 // The TTL the newest main-chat cache write chose, as hud-data.mjs reads it; a pure cache read keeps it.
 export function ttlOf(tail: string): number | undefined {
@@ -152,12 +153,28 @@ async function ttl($: EngineInterface, dir: string): Promise<number | undefined>
 }
 
 // Stage 1, 15 min before the cache goes cold: the person can still compact on the warm cache.
-async function coldFill($: EngineInterface, dir: string) {
+async function coldFill($: EngineInterface, dir: string, auto: boolean) {
   if ((await ttl($, dir)) !== HOUR) return t.event('cold.fill', { skip: 'ttl' }, 'debug')
   const box = await $.prompt.read()
   const filled = !box.text.trim() && (await $.prompt.fill({ text: FILL }).catch(() => ({ isFilled: false }))).isFilled
   t.event('cold.fill', { filled })
-  $.ui.toast(`Cache goes cold in 15 min: ${filled ? 'press Enter to draft a compact' : FILL}`, { timeoutMs: 60000 })
+  $.ui.toast(`Cache goes cold in 15 min: ${filled ? 'press Enter to draft a compact' : FILL}${auto && filled ? ', or it compacts itself in 10 min' : ''}`, { timeoutMs: 60000 })
+}
+
+// Stage 2, opt-in: still away 5 min before cold, compact on the warm cache with the generic summary.
+async function coldCompact($: EngineInterface, dir: string, live: Live) {
+  if ((await ttl($, dir)) !== HOUR) return t.event('cold.compact', { skip: 'ttl' }, 'debug')
+  const box = (await $.prompt.read()).text.trim()
+  // Typed text means someone is there.
+  if (box && box !== FILL) return t.event('cold.compact', { skip: 'typed' })
+  // Rejects while a turn runs.
+  const done = await $.session.compact().catch(() => undefined)
+  t.event('cold.compact', { compacted: !!done && !done.skip })
+  if (!done || done.skip) return
+  // The mod's own compact passes its session.compact hook by.
+  stopIdle($, live, true)
+  // A compact takes a while: whoever came back meanwhile keeps what they typed.
+  if (box && (await $.prompt.read()).text.trim() === FILL) await $.prompt.fill({ text: '' }).catch(() => undefined)
 }
 
 type Timer = { cancel: () => void }
@@ -241,7 +258,8 @@ export const register: Register = on => {
       }
       if (cold !== 'off' && tokens >= COLD_MIN) {
         try {
-          live.cold = [$.clock.after(FILL_MS, () => void coldFill($, dir).catch(err => t.error('cold.fill.failed', err)))]
+          live.cold = [$.clock.after(FILL_MS, () => void coldFill($, dir, cold === 'auto').catch(err => t.error('cold.fill.failed', err)))]
+          if (cold === 'auto') live.cold.push($.clock.after(AUTO_MS, () => void coldCompact($, dir, live).catch(err => t.error('cold.compact.failed', err))))
         } catch {
           live.cold = []
         }
