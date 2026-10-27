@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import type { On } from 'claude-code'
 
-import { contextToast, crossed, due, EVERY_MS, parse } from '../hooks/register'
+import { contextToast, crossed, due, EVERY_MS, FILL_MS, parse, ttlOf } from '../hooks/register'
 
 const S = 1_000_000
 const ran = (exitCode: number, stdout: string) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -341,5 +341,104 @@ for (const [name, drop] of [
     expect(status).toEqual([])
     await ctxMeasure($, 160_000)
     expect(toasts.filter(([text]) => text === T160)).toHaveLength(2)
+  })
+}
+
+const reply = (cache: { ephemeral_1h_input_tokens: number; ephemeral_5m_input_tokens: number }, extra = {}) =>
+  JSON.stringify({ type: 'assistant', ...extra, message: { usage: { input_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 9, cache_creation: cache } } })
+const H1 = { ephemeral_1h_input_tokens: 9, ephemeral_5m_input_tokens: 0 }
+const M5 = { ephemeral_1h_input_tokens: 0, ephemeral_5m_input_tokens: 9 }
+const READ = { ephemeral_1h_input_tokens: 0, ephemeral_5m_input_tokens: 0 }
+
+test('ttlOf: the TTL of the newest main-chat cache write', () => {
+  expect(ttlOf([reply(M5), reply(H1), reply(READ)].join('\n'))).toBe(3_600_000)
+  expect(ttlOf([reply(H1), reply(M5)].join('\n'))).toBe(300_000)
+  expect(ttlOf([reply(M5), reply(H1, { isSidechain: true })].join('\n'))).toBe(300_000)
+  expect(ttlOf('{"type":"user"}\nnot json')).toBeUndefined()
+})
+
+// A session idle after a reply: its transcript, prompt box, and what the mod filled.
+function idle(on: On, { transcript = reply(H1), box = '', cfg = '' } = {}) {
+  const seen = clocked(on)
+  const fills: string[] = []
+  const prompt = { text: box }
+  on('session.id', () => ({ value: 's1' }) as any)
+  on('env.get', (_, e: any) => ({ value: e.name === 'CLAUDE_CONFIG_DIR' ? '/cfg' : undefined }) as any)
+  on('fs.read', (_, e: any) => (cfg && e.path === '/cfg/claudzilla.json' ? { value: cfg } : { deny: 'ENOENT' }) as any)
+  on('process.run', (_, e: any) =>
+    (e.argv[0] === 'find' && e.argv[1] === '/cfg/projects' ? ran(0, '/cfg/projects/p/s1.jsonl\n') : e.argv[0] === 'tail' && e.argv.at(-1) === '/cfg/projects/p/s1.jsonl' ? ran(0, transcript + '\n') : ran(1, '')) as any)
+  on('prompt.read', () => ({ value: { text: prompt.text, cursor: 0 } }) as any)
+  on('prompt.fill', (_, e: any) => { fills.push(e.text); return { isFilled: true } as any })
+  return { ...seen, fills, box: prompt }
+}
+const COLD = 'Cache goes cold in 15 min: press Enter to draft a compact'
+
+test('15 min before a 1h cache goes cold: toast and fill /claudzilla compact', async ($, on) => {
+  const { clock, toasts, fills } = idle(on)
+  await $.session.start(start)
+  await ctxMeasure($, 60_000)
+  await clock.advance(FILL_MS - 1)
+  expect(fills).toEqual([])
+  await clock.advance(1)
+  expect(fills).toEqual(['/claudzilla compact'])
+  expect(toasts).toEqual([[COLD, 60000]])
+})
+
+for (const [name, opts, tokens] of [
+  ['a 5m TTL', { transcript: reply(M5) }, 60_000],
+  ['context under 50k', {}, 49_999],
+  ['coldCompact off', { cfg: '{"rulesGuard":{"coldCompact":"off"}}' }, 60_000],
+] as const) {
+  test(`${name}: no cold-cache fill`, async ($, on) => {
+    const { clock, toasts, fills } = idle(on, opts)
+    await $.session.start(start)
+    await ctxMeasure($, tokens)
+    await clock.advance(FILL_MS)
+    expect(fills).toEqual([])
+    expect(toasts).toEqual([])
+  })
+}
+
+test('text in the prompt box stays: toast only', async ($, on) => {
+  const { clock, toasts, fills } = idle(on, { box: 'half typed' })
+  await $.session.start(start)
+  await ctxMeasure($, 60_000)
+  await clock.advance(FILL_MS)
+  expect(fills).toEqual([])
+  expect(toasts).toEqual([['Cache goes cold in 15 min: /claudzilla compact', 60000]])
+})
+
+test('a turn or a new reply restarts the cold-cache clock', async ($, on) => {
+  const { clock, fills } = idle(on)
+  await $.session.start(start)
+  await ctxMeasure($, 60_000)
+  await clock.advance(FILL_MS - 10)
+  await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } } as any)
+  await clock.advance(FILL_MS - 10)
+  expect(fills).toEqual([])
+  await ctxMeasure($, 61_000)
+  await clock.advance(FILL_MS)
+  expect(fills).toEqual(['/claudzilla compact'])
+})
+
+test('a non-interactive session arms no cold-cache fill', async ($, on) => {
+  const { clock, fills } = idle(on)
+  await $.session.start({ cwd: '/proj', surface: null, isInteractive: false })
+  await ctxMeasure($, 60_000)
+  await clock.advance(FILL_MS)
+  expect(fills).toEqual([])
+})
+
+for (const [name, e] of [
+  ['a precompute', { trigger: 'precompute', messages: [{ role: 'user', text: 'hi', toolUses: [] }] }],
+  ["a subagent's compact", { trigger: 'auto', agentId: 'a1', messages: [{ role: 'user', text: 'hi', toolUses: [] }] }],
+] as const) {
+  test(`${name} keeps the cold-cache timers`, async ($, on) => {
+    const { clock, fills } = idle(on)
+    await $.session.start(start)
+    await ctxMeasure($, 60_000)
+    await $.session.compact(e as any)
+    await clock.advance(FILL_MS)
+    expect(fills).toEqual(['/claudzilla compact'])
   })
 }
