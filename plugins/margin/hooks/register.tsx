@@ -295,6 +295,8 @@ const flat = (text: string) =>
 // it is remembered here per session: one key each, for the newest MID_TURN_SESSIONS sessions, as
 // the store caps at 4 MiB.
 const MID_TURN_SESSIONS = 50
+// How the engine tells the model of a note, right before its text.
+const MID_TURN_SAYS = 'user sent a new message while you were working:\n'
 const midTurnKey = async ($: EngineInterface) => `midTurn:${await $.session.id()}`
 const midTurn = async ($: EngineInterface) => {
   const kept = await $.store.get(await midTurnKey($)).catch(() => undefined)
@@ -341,7 +343,7 @@ export const gone = (
   const isModelWhole = model.length > 0 && !capped.model && !compacted
   const kept = notes.filter(note => {
     const at = prompts.findIndex(prompt => flat(prompt.display) === flat(note))
-    return at >= 0 && at < oldest && (!isModelWhole || model.some(text => text.includes(`user sent a new message while you were working:\n${note}\n\n`)))
+    return at >= 0 && at < oldest && (!isModelWhole || model.some(text => text.includes(`${MID_TURN_SAYS}${note}\n\n`)))
   })
   const inChat = found(prompts, chat.concat(kept)).map((hit, i) => hit && real[i])
   const inModel = found(prompts, model).map((hit, i) => hit && real[i])
@@ -419,11 +421,20 @@ const readHistory = async ($: EngineInterface) => {
   const drawnOnly = new Set(queued.map(flat).filter(text => !landed.has(text)))
   const commands = new Set(sent.flatMap(text => typedCommand(text) ?? []))
   // What the model is sent: the last compaction's summary in place of what it replaced.
-  // Each text block alone, as reminders ride in the same message.
+  // Each text block alone, as reminders ride in the same message; of tool results only those a
+  // mid-turn note rides in, as any other could read as a prompt.
   const modelRead = await $.session.messages({ as: 'api' }).catch(() => [])
   const model = modelRead
     .filter(message => message.role === 'user')
-    .flatMap(message => message.content.flatMap(block => (typeof block.text === 'string' ? [shell(block.text)] : [])))
+    .flatMap(message =>
+      message.content.flatMap(block =>
+        typeof block.text === 'string'
+          ? [shell(block.text)]
+          : typeof block.content === 'string' && block.content.includes(MID_TURN_SAYS)
+            ? [block.content]
+            : [],
+      ),
+    )
   const capped = { chat: chatRead.length >= READ_MAX, model: modelRead.length >= READ_MAX }
   // A compaction leaves a compact_boundary row in the chat's file; grep exits 1 on none. A failed
   // read counts as compacted.
