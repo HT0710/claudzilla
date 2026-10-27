@@ -6,18 +6,39 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync,
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  CLAIM_RE, CONFIG_DIR, DEFAULTS, MACHINE_PROMPT, SESSION_RE, VERIFY,
+  CLAIM_RE, CONFIG_DIR, DEFAULTS, HEREDOC_RE, MACHINE_PROMPT, SESSION_RE, VERIFY,
   commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, git, gitParse, keywordRe, loadConfig, mcpPr, proseOf, notWork, subjectProblem, unchecked, unquote, writes,
 } from "../../hooks/rules-guard.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 // Bump when counting changes, so the nudge refreshes instead of showing old counts.
-const SCHEMA = 3;
+const SCHEMA = 4;
 const RULES = Object.keys(DEFAULTS.rules);
 const FORMAT = ["tldr", "emoji", "brInTable", "boxAlign"];
 const EDITS = new Set(["Edit", "Write", "NotebookEdit"]);
 // Local-command echoes, interrupts and compaction resumes are not the user asking for something.
 const NOT_ASKED = /^(?:<(?:local-command-|bash-)|\[Request interrupted|This session is being continued)/;
+// Persisted text (writing.md): .md writes, commit messages, PR and issue bodies.
+const PERSISTS = /\bgit\b[^\n;&|]*?\bcommit\b|\bgh\s+(?:pr|issue)\s+(?:create|edit|comment)\b/;
+const BODY = /(?:^|\s)(?:-[a-zA-Z]*m|--message|-b|--body)(?:\s+|=)("(?:[^"\\]|\\.)*"|'[^']*')/;
+const TELLS = /\b(?:delve|seamless|robust|leverag|comprehensive)\w*|\bit['’]s worth noting\b/i;
+// Tell word, arrow, dash as a connector, nested parentheses, or a paragraph or bullet over 60 words;
+// tables and code don't count. 60, not the rule's 40: slack so only clear run-ons count.
+function writingSlip(text) {
+  const prose = proseOf(text.replace(/~~~[\s\S]*?~~~/g, ""));
+  if (TELLS.test(prose) || /\([^()]*\(/.test(prose) || /—|\s–\s|\s--\s/.test(prose)) return true;
+  // CLAUDE.md §2 plan lines keep their `→ verify:` arrow.
+  if (/→|=>|->/.test(prose.replace(/→ verify:/g, ""))) return true;
+  return prose.split(/\n\s*\n|\n(?=\s*(?:[-*+]|\d+[.)]|#+)\s)|\n(?=\s*\|)|(?<=\|[ \t]*)\n/)
+    .some((p) => !p.trimStart().startsWith("|") && p.split(/\s+/).filter(Boolean).length > 60);
+}
+// The -m/--body value; a heredoc only when that value is $(…) or the body is read from stdin.
+function bodyOf(full) {
+  const cmd = full.slice(full.search(PERSISTS));
+  const v = cmd.match(BODY)?.[1].slice(1, -1);
+  const stdin = v === undefined && /(?:^|\s)(?:-F|--file|--body-file)(?:\s+|=)?-(?:\s|$)/.test(cmd);
+  return v?.startsWith("$(") || stdin ? cmd.match(HEREDOC_RE)?.[3] : v;
+}
 
 const fail = (msg) => { process.stderr.write(`rule-review: ${msg}\n`); process.exit(1); };
 const has = (skills, name) => skills.some((k) => k === name || k.endsWith(`:${name}`));
@@ -52,7 +73,7 @@ function scan(root, days) {
   const since = Date.now() - days * 864e5;
   const cfg = loadConfig("").cfg;
   const all = { ...cfg, rules: DEFAULTS.rules };
-  const rules = Object.fromEntries(RULES.map((id) => [id, { applies: 0, slips: 0, hookFires: 0, falseFires: 0 }]));
+  const rules = Object.fromEntries([...RULES, "writing"].map((id) => [id, { applies: 0, slips: 0, hookFires: 0, falseFires: 0 }]));
   // When each rule reached this machine (install.sh); a turn before that can't slip it.
   let arrived = {};
   try { arrived = JSON.parse(readFileSync(join(CONFIG_DIR, ".claudzilla-rules.json"), "utf8")) ?? {}; } catch { /* not stamped: count nothing */ }
@@ -91,6 +112,13 @@ function scan(root, days) {
     if (!t.sess.counted) { sessions++; t.sess.counted = true; }
     turns++;
     at = t.ts;
+    // Not gated by arrival: the baseline is taken before writing.md lands.
+    for (const w of t.writes) {
+      if (w.failed || typeof w.text !== "string" || !w.text.trim()) continue;
+      rules.writing.applies++;
+      // An Edit's new text repeats the old around it; a slip it kept is not new.
+      if (writingSlip(w.text) && !(typeof w.old === "string" && writingSlip(w.old))) rules.writing.slips++;
+    }
     for (const c of t.cmds) {
       const ran = !c.denied;
       if (c.pr) { countPr(c.pr, c); continue; }
@@ -145,7 +173,7 @@ function scan(root, days) {
   const scanFile = (file) => {
     let turn = null, machine = false;
     const sess = { counted: false };
-    const cmds = new Map();
+    const cmds = new Map(), byId = new Map();
     const fired = (text, fromPrompt) => {
       for (const id of firedRules(text)) {
         add(id, "hookFires");
@@ -165,7 +193,7 @@ function scan(root, days) {
         if (turn) finish(turn);
         turn = null;
         if (!(Date.parse(o.timestamp) >= since)) continue;
-        turn = { ts: String(o.timestamp ?? ""), text: p.text, typed: p.typed, skills: p.typed ? [p.typed] : [], cmds: [], edited: false, unchecked: false, reply: "", branch: o.gitBranch, answered: false, sess };
+        turn = { ts: String(o.timestamp ?? ""), text: p.text, typed: p.typed, skills: p.typed ? [p.typed] : [], cmds: [], writes: [], edited: false, unchecked: false, reply: "", branch: o.gitBranch, answered: false, sess };
         continue;
       }
       if (!turn) continue;
@@ -177,8 +205,12 @@ function scan(root, days) {
           if (x.name === "Skill") turn.skills.push(String(x.input?.skill ?? ""));
           // Same edit and check tracking as the hook: scratch and memory are no edit, a later command checks it.
           if (EDITS.has(x.name) && !notWork(String(x.input?.file_path ?? x.input?.notebook_path ?? ""))) turn.edited = turn.unchecked = true;
+          const wrote = (text, old) => { const w = { text, old, failed: false }; byId.set(x.id, w); turn.writes.push(w); };
+          if (EDITS.has(x.name) && /\.md$/.test(x.input?.file_path ?? "") && !x.input.file_path.startsWith("/tmp/")) wrote(x.input.content ?? x.input.new_string, x.input.old_string);
           if (x.name === "Bash") { const cmd = String(x.input?.command ?? ""); turn.edited ||= writes(cmd); turn.unchecked = unchecked(turn.unchecked, cmd); }
           const pr = mcpPr(x.name, x.input);
+          if (pr) wrote(x.input?.body);
+          else if (x.name === "Bash" && PERSISTS.test(x.input?.command ?? "")) wrote(bodyOf(x.input.command));
           if (x.name === "Bash" || pr) {
             const cmd = pr ? JSON.stringify(x.input ?? {}) : String(x.input?.command ?? "");
             const c = { cmd, pr, skills: [...turn.skills], branch: o.gitBranch ?? turn.branch, cwd: o.cwd, denied: false };
@@ -190,6 +222,8 @@ function scan(root, days) {
         for (const x of blocks(o.message?.content)) {
           const text = textOf(x.content);
           if (x.type !== "tool_result" || !x.is_error) continue;
+          const w = byId.get(x.tool_use_id);
+          if (w) w.failed = true;
           const c = cmds.get(x.tool_use_id);
           // No at a permission prompt: the command never ran.
           if (/^The user doesn't want to proceed/.test(text)) { if (c) c.denied = true; continue; }
