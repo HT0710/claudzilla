@@ -42,7 +42,7 @@ Optional JSON files, applied in this order. Later files win; objects merge and a
 2. `<repo>/.claude/claudzilla.json`: shared, commit it
 3. `<repo>/.claude/claudzilla.local.json`: yours, git-ignore it
 
-An example; some values are not the defaults. Defaults: `subjectMax` 50, `commitTypes` without `ci`.
+An example; some values are not the defaults. Defaults: `subjectMax` 50, `commitTypes` without `ci`, `coldCompact` `fill`.
 
 ```json
 {"rulesGuard": {
@@ -55,7 +55,8 @@ An example; some values are not the defaults. Defaults: `subjectMax` 50, `commit
   "reviewNudge": true,
   "autoUpdate": true,
   "trace": true,
-  "compactNudge": 150000
+  "compactNudge": 150000,
+  "coldCompact": "auto"
 }}
 ```
 
@@ -82,6 +83,8 @@ An example; some values are not the defaults. Defaults: `subjectMax` 50, `commit
 `tableWidth`: each prompt tells Claude the terminal width (`COLUMNS`, which Claude Code passes to hooks), and a reply whose table renders wider gets flagged.
 
 `compactNudge` (tokens, `0` = off): past it, a reply that finishes a task (at 4×, any reply not mid-task) whose next step won't need the older context ends with one **Compact** line pointing to `/claudzilla compact` (drafts a `/compact` line into the prompt box) or `/clear`; wording strengthens at 2× and 4×. The update toast reminds at 1×, 2×, 4× and every 30 min; after 30 idle min the reminder stays under the prompt until the next message.
+
+`coldCompact` (`fill` by default, `auto`, `off`): with a 1-hour prompt cache and at least 50,000 tokens of context, 45 min after you go idle (15 min before the cache goes cold) the update toast fills `/claudzilla compact` into an empty prompt box, so the compact runs before the cache goes cold. `auto` also compacts on its own 5 min before cold, with the default summary, if the box is still empty or holds only that command.
 
 A bad file or value is skipped and named on your next prompt; unknown keys are ignored.
 
