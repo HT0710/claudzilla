@@ -32,7 +32,7 @@ SCAN="$REPO/claude/skills/rule-review/scan.mjs"
 PROJ="$TMP/projects/p"; mkdir -p "$PROJ"
 # session <name> <js array>: write transcript <name>.jsonl from short event specs
 #   ["user", text, {daysAgo, branch, meta, cwd}] ["skill", name] ["bash", cmd, {denied, rejected, branch}] ["edit"] ["tool", name, input]
-#   ["text", reply] ["ctx", event, text] ["stop", text] ["raw", line]
+#   ["toolerr", name, input] (tool_result is_error) ["text", reply] ["ctx", event, text] ["stop", text] ["raw", line]
 session() {
   node - "$PROJ/$1.jsonl" "$2" <<'EOF'
 const fs = require("fs");
@@ -49,6 +49,7 @@ for (const [kind, a, o = {}] of eval(spec)) {
   if (kind === "bash") { if (o.branch) branch = o.branch; const id = use("Bash", { command: a }); result(id, o.denied ? `PreToolUse:Bash hook error: ${o.denied}` : o.rejected ? "The user doesn't want to proceed with this tool use." : "ok", !!(o.denied || o.rejected)); }
   if (kind === "edit") result(use("Edit", { file_path: "/x/a.js" }), "ok");
   if (kind === "tool") result(use(a, o), "ok");
+  if (kind === "toolerr") result(use(a, o), "PreToolUse:Write hook error: no", true);
   if (kind === "text") push({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: a }] } });
   if (kind === "ctx") push({ type: "attachment", attachment: { type: "hook_additional_context", hookEvent: a, content: [o] } });
   if (kind === "stop") push({ type: "system", subtype: "stop_hook_summary", hookAdditionalContext: [a] });
@@ -160,6 +161,39 @@ check "branch then commit from main: not a slip" [ "$(rule mainCommit slips)" = 
 AM="$TMP/am"; mkdir -p "$AM/.claude"; git -C "$AM" init -q; echo '{"rulesGuard":{"allowMain":true}}' > "$AM/.claude/claudzilla.local.json"
 reset_proj; session a "[[\"user\",\"go\",{cwd:\"$AM\"}],[\"bash\",\"git commit -m \\\"fix: x\\\"\",{branch:\"main\"}]]"; scan
 check "commit on main with allowMain: not a slip" [ "$(rule mainCommit slips)" = 0 ]
+reset_proj; session a '[["user","go"],["tool","Write",{file_path:"/r/README.md",content:"A seamless install."}],["tool","Edit",{file_path:"/r/a.md",new_string:"Runs once."}]]'; scan
+check "writing: md writes apply" [ "$(rule writing applies)" = 2 ]
+check "writing: tell word slips" [ "$(rule writing slips)" = 1 ]
+reset_proj; session a '[["user","go"],["tool","Write",{file_path:"/tmp/s/a.md",content:"seamless"}],["tool","Write",{file_path:"/r/a.js",content:"// seamless"}]]'; scan
+check "writing: scratch and code n/a" [ "$(rule writing applies)" = 0 ]
+reset_proj; session a '[["user","go"],["tool","Write",{file_path:"/r/a.md",content:"Call `f(g(x))` (see the docs)."}],["tool","Write",{file_path:"/r/b.md",content:"Panel (the side one (right)) opens."}]]'; scan
+check "writing: nested parens slip, code span not" [ "$(rule writing slips)" = 1 ]
+LONG=$(printf 'word %.0s' {1..61}); SHORT=$(printf 'word %.0s' {1..40})
+reset_proj; session a "[[\"user\",\"go\"],[\"tool\",\"Write\",{file_path:\"/r/a.md\",content:\"$SHORT\\n\\n- $SHORT\\n- $SHORT\\n\\n| $LONG |\"}],[\"tool\",\"Write\",{file_path:\"/r/b.md\",content:\"- $LONG\"}]]"; scan
+check "writing: run-on paragraph slips, table row not" [ "$(rule writing slips)" = 1 ]
+reset_proj; session a "[[\"user\",\"go\"],[\"bash\",\"git commit -F- <<'EOF'\\nfix: x\\n\\nWhy: robust now\\nEOF\"],[\"bash\",\"gh pr create --title t --body \\\"Adds a hook.\\\"\"],[\"bash\",\"git status\"]]"; scan
+check "writing: commit and PR bodies apply" [ "$(rule writing applies)" = 2 ]
+check "writing: heredoc body slips" [ "$(rule writing slips)" = 1 ]
+stamp '{"writing":null}'
+reset_proj; session a '[["user","go"],["tool","Write",{file_path:"/r/a.md",content:"seamless"}]]'; scan
+check "writing: counted before the rule arrives" [ "$(rule writing slips)" = 1 ]
+stamp
+reset_proj; session a '[["user","go"],["toolerr","Write",{file_path:"/r/a.md",content:"seamless"}],["tool","Write",{file_path:"/r/a.md",content:"Clean."}]]'; scan
+check "writing: failed write n/a" [ "$(rule writing applies)$(rule writing slips)" = 10 ]
+reset_proj; session a '[["user","go"],["tool","mcp__github__create_pull_request",{title:"x",body:"A seamless PR."}],["toolerr","mcp__github__create_pull_request",{title:"x",body:"seamless"}]]'; scan
+check "writing: MCP PR body, failed one n/a" [ "$(rule writing applies)$(rule writing slips)" = 11 ]
+reset_proj; session a "[[\"user\",\"go\"],[\"bash\",\"gh issue create -t t -b 'A robust fix.'\"],[\"bash\",\"git commit -m \\\"fix: robust\\\"\",{denied:\"no\"}]]"; scan
+check "writing: -b single quotes counted, denied commit n/a" [ "$(rule writing applies)$(rule writing slips)" = 11 ]
+reset_proj; session a "[[\"user\",\"go\"],[\"bash\",\"python3 - <<'EOF'\\nprint(f(g(1)))\\nEOF\\ngit commit -m \\\"fix: x\\\"\"]]"; scan
+check "writing: unrelated heredoc before commit not the body" [ "$(rule writing applies)$(rule writing slips)" = 10 ]
+reset_proj; session a "[[\"user\",\"go\"],[\"tool\",\"Edit\",{file_path:\"/r/a.md\",old_string:\"- $LONG\",new_string:\"- x $LONG\"}],[\"tool\",\"Edit\",{file_path:\"/r/a.md\",old_string:\"x\",new_string:\"\"}]]"; scan
+check "writing: old slip kept by Edit n/a, empty Edit n/a" [ "$(rule writing applies)$(rule writing slips)" = 10 ]
+reset_proj; session a '[["user","go"],["tool","Write",{file_path:"/r/a.md",content:"It leveraged it."}],["tool","Write",{file_path:"/r/b.md",content:"It’s worth noting."}]]'; scan
+check "writing: tell word forms" [ "$(rule writing slips)" = 2 ]
+reset_proj; session a "[[\"user\",\"go\"],[\"tool\",\"Write\",{file_path:\"/r/a.md\",content:\"1) $SHORT\\n2) $SHORT\\n3) $SHORT\"}],[\"tool\",\"Write\",{file_path:\"/r/b.md\",content:\"Intro.\\n| $LONG |\\nAfter.\"}],[\"tool\",\"Write\",{file_path:\"/r/c.md\",content:\"~~~\\nf(g(x))\\n~~~\"}]]"; scan
+check "writing: 1) list, glued table, ~~~ fence not slips" [ "$(rule writing slips)" = 0 ]
+reset_proj; session a '[["user","go"],["tool","Write",{file_path:"/r/a.md",content:"Save → reload."}],["tool","Write",{file_path:"/r/b.md",content:"Fast — and safe."}],["tool","Write",{file_path:"/r/c.md",content:"Add test → verify: test passes.\nRun `a -> b`, fixes 1–3."}]]'; scan
+check "writing: arrow and dash slip; plan verify line, code, ranges not" [ "$(rule writing slips)" = 2 ]
 reset_proj; session a '[["user","<command-name>/clear</command-name>"],["user","<command-name>/rule-review</command-name>"],["text","ok"]]'; scan
 check "built-in command with no reply: no turn" [ "$(top turns)" = 1 ]
 session b '[["user","<command-name>/login</command-name>"]]'; scan
@@ -211,8 +245,8 @@ reset_proj; session a '[["user","ship"],["bash","git push"]]'
 node "$SCAN" --dir "$TMP/projects" --save > "$TMP/s.json"
 check "save: first run previous null" [ "$(node -p "require('$TMP/s.json').previous")" = null ]
 check "save: file written" [ "$(ls "$REPORTS" | wc -l | tr -d ' ')" = 1 ]
-echo '{"schema":3,"window":{"from":"2000-01-01","to":"2000-01-15"},"rules":{"pushVerify":{"applies":9,"slips":9,"hookFires":0,"falseFires":0}}}' > "$REPORTS/2000-01-15.json"
-echo '{"schema":3,"window":{"from":"2000-01-01","to":"2000-01-31"},"rules":{"pushVerify":{"applies":7,"slips":7,"hookFires":0,"falseFires":0}}}' > "$REPORTS/2000-01-31.json"
+echo '{"schema":4,"window":{"from":"2000-01-01","to":"2000-01-15"},"rules":{"pushVerify":{"applies":9,"slips":9,"hookFires":0,"falseFires":0}}}' > "$REPORTS/2000-01-15.json"
+echo '{"schema":4,"window":{"from":"2000-01-01","to":"2000-01-31"},"rules":{"pushVerify":{"applies":7,"slips":7,"hookFires":0,"falseFires":0}}}' > "$REPORTS/2000-01-31.json"
 node "$SCAN" --dir "$TMP/projects" --save > "$TMP/s.json"
 check "save: previous is older report, same window" [ "$(node -p "require('$TMP/s.json').previous.rules.pushVerify.slips")" = 9 ]
 echo '{"schema":1,"window":{"from":"2000-01-02","to":"2000-01-16"},"rules":{"pushVerify":{"applies":5,"slips":5,"hookFires":0,"falseFires":0}}}' > "$REPORTS/2000-01-16.json"
@@ -223,7 +257,7 @@ rm -f "$REPORTS/2000-01-15.json" "$REPORTS/2000-01-31.json"
 issue=$(node "$SCAN" --issue)
 check "issue: title line" grep -q '^rule-report ' <<<"$(head -1 <<<"$issue")"
 check "issue: table row" grep -q '^| pushVerify | 1 | 1 |' <<<"$issue"
-check "issue: json on one line" grep -q '^{"schema":3,' <<<"$issue"
+check "issue: json on one line" grep -q '^{"schema":4,' <<<"$issue"
 check "issue: json drops zero rules" bash -c "! grep '^{\"schema\"' <<<'$issue' | grep -q envStaged"
 check "issue: json collapsed" grep -q '^<details>' <<<"$issue"
 brief=$(node "$SCAN" --issue --brief)
@@ -270,7 +304,7 @@ old=$(node -p 'new Date(Date.now() - 10 * 864e5).toISOString().slice(0,10)')
 # report <date> <tldr slips> <pushVerify slips> [schema]: fixture report, 14-day window, 3 sessions
 report() {
   mkdir -p "$REPORTS"
-  printf '{"schema":%s,"claudzilla":"t","window":{"from":"2026-09-01","to":"2026-09-15"},"sessions":3,"turns":9,"unparsed":0,"rules":{"tldr":{"applies":9,"slips":%s,"hookFires":0,"falseFires":0},"pushVerify":{"applies":2,"slips":%s,"hookFires":0,"falseFires":0}}}\n' "${4:-3}" "$2" "$3" > "$REPORTS/$1.json"
+  printf '{"schema":%s,"claudzilla":"t","window":{"from":"2026-09-01","to":"2026-09-15"},"sessions":3,"turns":9,"unparsed":0,"rules":{"tldr":{"applies":9,"slips":%s,"hookFires":0,"falseFires":0},"pushVerify":{"applies":2,"slips":%s,"hookFires":0,"falseFires":0}}}\n' "${4:-4}" "$2" "$3" > "$REPORTS/$1.json"
 }
 nudge() { local p=${1:-'{}'}; printf '%s' "$p" | node "$SCAN" --nudge; }   # bash 3.2 keeps the backslash in "${1:-{\}}"
 # background scan finished = today's report exists
