@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import type { On } from 'claude-code'
 
-import { contextToast, crossed, due, EVERY_MS, FILL_MS, parse, ttlOf } from '../hooks/register'
+import { AUTO_MS, contextToast, crossed, due, EVERY_MS, FILL_MS, parse, ttlOf } from '../hooks/register'
 
 const S = 1_000_000
 const ran = (exitCode: number, stdout: string) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -296,15 +296,17 @@ test('a non-interactive session shows no context toast', async ($, on) => {
 function clocked(on: On) {
   const toasts: [string, number | undefined][] = []
   const status: (string | undefined)[] = []
+  const compacts: (string | undefined)[] = []
   const clock = mock.clock(on, { now: NOW })
   on('ui.toast', (_, e) => { toasts.push([e.text, e.timeoutMs]); return { value: undefined } })
   on('ui.status', (_, e) => { status.push(e.text); return { value: undefined } })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.measure', (_, e) => ({ changed: e.changed }))
   on('prompt.submit', (_, e: any) => ({ text: e.text }) as any)
-  on('session.compact', (_, e: any) => ({ messages: e.messages }) as any)
+  const during = { compact: () => {} }
+  on('session.compact', (_, e: any) => { compacts.push(e.instructions); during.compact(); return { messages: e.messages ?? [{ role: 'user', text: 'summary', toolUses: [] }] } as any })
   on('session.end', () => ({ sessionId: 's1' }) as any)
-  return { clock, toasts, status }
+  return { clock, toasts, status, compacts, during }
 }
 const T160 = 'Compact — optional: /claudzilla compact, or /clear for new work'
 
@@ -427,6 +429,64 @@ test('a non-interactive session arms no cold-cache fill', async ($, on) => {
   await ctxMeasure($, 60_000)
   await clock.advance(FILL_MS)
   expect(fills).toEqual([])
+})
+
+const AUTO = '{"rulesGuard":{"coldCompact":"auto"}}'
+
+test('coldCompact auto: 5 min before cold, still away, compacts and clears the filled box', async ($, on) => {
+  const { clock, toasts, fills, compacts, box } = idle(on, { cfg: AUTO })
+  await $.session.start(start)
+  await ctxMeasure($, 60_000)
+  await clock.advance(FILL_MS)
+  expect(toasts).toEqual([['Cache goes cold in 15 min: press Enter to draft a compact, or it compacts itself in 10 min', 60000]])
+  box.text = '/claudzilla compact'
+  await clock.advance(AUTO_MS - FILL_MS)
+  expect(compacts).toEqual([undefined])
+  expect(fills).toEqual(['/claudzilla compact', ''])
+})
+
+test('coldCompact auto: text typed in the box means someone is there, no compact', async ($, on) => {
+  const { clock, compacts } = idle(on, { cfg: AUTO, box: 'half typed' })
+  await $.session.start(start)
+  await ctxMeasure($, 60_000)
+  await clock.advance(AUTO_MS)
+  expect(compacts).toEqual([])
+})
+
+test('coldCompact fill (the default): no compact', async ($, on) => {
+  const { clock, compacts } = idle(on)
+  await $.session.start(start)
+  await ctxMeasure($, 60_000)
+  await clock.advance(AUTO_MS)
+  expect(compacts).toEqual([])
+})
+
+test('coldCompact auto: its own compact starts the context levels over', async ($, on) => {
+  const { clock, toasts } = idle(on, { cfg: AUTO })
+  await $.session.start(start)
+  await ctxMeasure($, 160_000)
+  await clock.advance(AUTO_MS)
+  await ctxMeasure($, 160_000)
+  expect(toasts.filter(([text]) => text === T160)).toHaveLength(2)
+})
+
+test('coldCompact auto: text typed while the compact runs stays', async ($, on) => {
+  const { clock, fills, box, during } = idle(on, { cfg: AUTO })
+  during.compact = () => (box.text = 'back already')
+  await $.session.start(start)
+  await ctxMeasure($, 60_000)
+  await clock.advance(FILL_MS)
+  box.text = '/claudzilla compact'
+  await clock.advance(AUTO_MS - FILL_MS)
+  expect(fills).toEqual(['/claudzilla compact'])
+})
+
+test('coldCompact auto: with text in the box, the toast promises no compact', async ($, on) => {
+  const { clock, toasts } = idle(on, { cfg: AUTO, box: 'half typed' })
+  await $.session.start(start)
+  await ctxMeasure($, 60_000)
+  await clock.advance(FILL_MS)
+  expect(toasts).toEqual([['Cache goes cold in 15 min: /claudzilla compact', 60000]])
 })
 
 for (const [name, e] of [
