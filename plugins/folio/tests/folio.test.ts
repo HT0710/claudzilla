@@ -15,8 +15,8 @@ for (const columns of [44, 84]) {
     expect((await ui.findAll({ type: 'Text', text: /^━+$/ })).map(t => t.text.length)).toEqual([w, w])
     expect((await ui.find({ type: 'Text', text: /^─+$/ }))?.text.length).toBe(w / 2)
     expect((await ui.find({ type: 'Text', text: /^┈+$/ }))?.text.length).toBe(w / 4)
-    // A line inside a fence is the reply's own text.
-    expect(await ui.find({ type: 'Text', text: /^more\n\n```text\n━━━━\n```$/ })).toBeDefined()
+    // A line inside a fence is the block's own, drawn in its card.
+    expect(await ui.find({ type: 'Text', text: 'more' })).toBeDefined()
   })
 }
 
@@ -277,17 +277,20 @@ test('a non-shell fence, an untagged one and a comment-only block have no run te
 
 test('a fence inside a longer fence stays in its block', () => {
   expect(split('````md\n```bash\nls\n```\n````\nafter')).toEqual([
-    { text: '````md\n```bash\nls\n```\n````' }, { code: { lang: 'md', body: '```bash\nls\n```' } }, { text: 'after' }])
+    { code: { lang: 'md', body: '```bash\nls\n```' } }, { text: 'after' }])
 })
 
 test('a tilde fence and a fence in a list item are blocks too', () => {
-  expect(split('~~~sh\nls\n~~~')).toEqual([{ text: '~~~sh\nls\n~~~' }, { code: { lang: 'sh', body: 'ls' } }])
-  expect(split('- step\n\n  ```bash\n  ls\n    -la\n  ```')).toEqual([
-    { text: '- step\n\n  ```bash\n  ls\n    -la\n  ```' }, { code: { lang: 'bash', body: 'ls\n  -la' } }])
+  expect(split('~~~sh\nls\n~~~')).toEqual([{ code: { lang: 'sh', body: 'ls' } }])
+  expect(split('- step\n\n  ```bash\n  ls\n    -la\n  ```')).toEqual([{ text: '- step' }, { code: { lang: 'bash', body: 'ls\n  -la' } }])
 })
 
 test('a fence line with text after it does not close the block', () => {
-  expect(split('```\n```bash\n```')).toEqual([{ text: '```\n```bash\n```' }, { code: { lang: '', body: '```bash' } }])
+  expect(split('```\n```bash\n```')).toEqual([{ code: { lang: '', body: '```bash' } }])
+})
+
+test('a fence that never closes stays text', () => {
+  expect(split('a\n```bash\nls')).toEqual([{ text: 'a' }, { text: '```bash\nls' }])
 })
 
 const SHELL = 'Fix:\n\n```bash\ngit pull\n./install.sh\n```\n\nthen\n\n```\nsome output\n```'
@@ -302,9 +305,10 @@ test('a shell fence gets Run and Copy, an untagged one Copy only', async ($, on)
   fenced(on)
   const ui = await mount($, 'f1', { text: SHELL, isFirstOfReply: true })
   expect((await ui.findAll({ type: 'Button' })).map((b: any) => b.props.key)).toEqual(['run:f1:1', 'copy:f1:1', 'copy:f1:3'])
-  expect(await ui.find({ type: 'Text', text: 'bash · 2 lines' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '1 line' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^then\n\n```\nsome output\n```$/ })).toBeDefined()
+  // The card's top edge names the language; an untagged block's is bare.
+  expect((await ui.findAll({ type: 'Text', text: /^╭─/ })).map((x: any) => x.text)).toEqual(['╭─ ', '╭─'])
+  expect(await ui.find({ type: 'Text', text: 'bash' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'then' })).toBeDefined()
 })
 
 test('Copy puts the block on the clipboard and says so for 2 s', async ($, on) => {
@@ -332,12 +336,37 @@ test('a second Copy press keeps its own 2 s', async ($, on) => {
   expect((await ui.find({ key: 'copy:f6:1' }))?.text).toBe('✓ Copied')
 })
 
-// Answers process.run beneath the mod; each run's argv lands in `ran`.
+// Answers process.spawn beneath the mod with the result's output; each run's argv lands in `ran`.
 const shell = (on: any, result = { exitCode: 0, stdout: 'main\nabc fix\n', stderr: '' }) => {
   const ran: string[][] = []
-  on('process.run', (_: any, e: any) => { ran.push(e.argv); return { value: { ...result, isStdoutTruncated: false, isStderrTruncated: false } } })
+  on('process.spawn', async function* (_: any, e: any) {
+    ran.push(e.argv)
+    if (result.stdout) yield { stream: 'stdout', text: result.stdout }
+    if (result.stderr) yield { stream: 'stderr', text: result.stderr }
+    return { value: { code: result.exitCode, signal: null } }
+  })
   return ran
 }
+
+// A command that writes `first`, then waits; `gate.open()` ends it, `gate.killed` says the stream was left.
+const slow = (on: any, first = 'a\n') => {
+  const gate = { open: () => {}, killed: false }
+  on('process.spawn', async function* (_: any, _e: any, next: any) {
+    try {
+      yield { stream: 'stdout', text: first }
+      // The engine aborts the signal when the mod leaves the stream, as it kills the child.
+      await new Promise<void>(r => { gate.open = r; next.signal.addEventListener('abort', () => r()) })
+      if (next.signal.aborted) return { value: { code: null, signal: 'SIGTERM' } }
+      yield { stream: 'stdout', text: 'b\n' }
+      return { value: { code: 0, signal: null } }
+    } finally {
+      gate.killed = true
+    }
+  })
+  return gate
+}
+
+const rows = async (ui: any, re: RegExp) => (await ui.findAll({ type: 'Text', text: re })).map((x: any) => x.text)
 
 test('one Run press arms it and runs nothing', async ($, on) => {
   fenced(on)
@@ -349,7 +378,7 @@ test('one Run press arms it and runs nothing', async ($, on) => {
   expect(ran).toEqual([])
 })
 
-test('the second press runs it in a shell and draws the output under the block', async ($, on) => {
+test('the second press runs it in a shell and draws the output in the card', async ($, on) => {
   fenced(on)
   const ran = shell(on)
   const session = mock.session(on)
@@ -358,14 +387,15 @@ test('the second press runs it in a shell and draws the output under the block',
   await ui.press({ key: 'run:r2:1' })
   await ui.redraw()
   expect(ran).toEqual([['bash', '-c', 'git pull\n./install.sh']])
-  expect(await ui.find({ type: 'Text', text: 'main\nabc fix' })).toBeDefined()
+  expect(await rows(ui, /^(main|abc fix)$/)).toEqual(['main', 'abc fix'])
+  expect(await ui.find({ type: 'Text', text: 'output' })).toBeDefined()
   expect((await ui.find({ key: 'run:r2:1' }))?.text).toBe('▶ Run again')
   // Claude reads it next turn, as it reads a typed `!` command's output, trimmed the same way.
   expect(JSON.stringify(session.appended().map(r => r.message))).toContain('<bash-input>git pull\\n./install.sh</bash-input>')
   expect(JSON.stringify(session.appended().map(r => r.message))).toContain('<bash-stdout>main\\nabc fix</bash-stdout>')
 })
 
-test('a failed run shows its exit code and stderr', async ($, on) => {
+test('a failed run shows its stderr and exit code', async ($, on) => {
   fenced(on)
   shell(on, { exitCode: 2, stdout: '', stderr: 'fatal: no repo\n' })
   const ui = await mount($, 'r3', { text: SHELL, isFirstOfReply: true })
@@ -373,7 +403,7 @@ test('a failed run shows its exit code and stderr', async ($, on) => {
   await ui.press({ key: 'run:r3:1' })
   await ui.redraw()
   expect(await ui.find({ type: 'Text', text: 'fatal: no repo' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'exit 2' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'output · exit 2' })).toBeDefined()
 })
 
 test('an armed Run left 3 s goes back to Run', async ($, on) => {
@@ -389,35 +419,73 @@ test('an armed Run left 3 s goes back to Run', async ($, on) => {
   expect(ran).toEqual([])
 })
 
-test('a press while the run is under way runs nothing more', async ($, on) => {
+test('Run again runs on one press', async ($, on) => {
   fenced(on)
-  let done = () => {}
-  const ran: string[][] = []
-  on('process.run', async (_: any, e: any) => {
-    ran.push(e.argv)
-    await new Promise<void>(r => { done = r })
-    return { value: { exitCode: 0, stdout: 'ok\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
-  })
+  const ran = shell(on)
+  const ui = await mount($, 'r10', { text: SHELL, isFirstOfReply: true })
+  await ui.press({ key: 'run:r10:1' })
+  await ui.press({ key: 'run:r10:1' })
+  await ui.press({ key: 'run:r10:1' })
+  expect(ran).toHaveLength(2)
+})
+
+test('output shows while the command runs, and Stop ends it', async ($, on) => {
+  fenced(on)
+  const clock = mock.clock(on, { now: 0 })
+  const gate = slow(on)
+  const session = mock.session(on)
   const ui = await mount($, 'r5', { text: SHELL, isFirstOfReply: true })
   await ui.press({ key: 'run:r5:1' })
   void ui.press({ key: 'run:r5:1' })
+  await clock.advance(100)
   await ui.redraw()
-  expect((await ui.find({ key: 'run:r5:1' }))?.text).toBe('■ Running…')
+  expect((await ui.find({ key: 'run:r5:1' }))?.text).toBe('■ Stop')
+  expect(await ui.find({ type: 'Text', text: 'a' })).toBeDefined()
   await ui.press({ key: 'run:r5:1' })
-  await ui.press({ key: 'run:r5:1' })
-  done()
-  expect(ran).toHaveLength(1)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: 'output · stopped' })).toBeDefined()
+  expect(gate.killed).toBe(true)
+  expect((await ui.find({ key: 'run:r5:1' }))?.text).toBe('▶ Run again')
+  // An empty or cut-short output alone reads like a quiet success.
+  expect(JSON.stringify(session.appended().map(r => r.message))).toContain('(stopped by the user)')
 })
 
-test('a long output shows its first 20 lines and counts the rest', async ($, on) => {
+test('a long output shows its last 20 lines and counts the earlier ones', async ($, on) => {
   fenced(on)
   shell(on, { exitCode: 0, stdout: Array.from({ length: 25 }, (_, i) => `l${i + 1}`).join('\n') + '\n', stderr: '' })
   const ui = await mount($, 'r6', { text: SHELL, isFirstOfReply: true })
   await ui.press({ key: 'run:r6:1' })
   await ui.press({ key: 'run:r6:1' })
   await ui.redraw()
-  expect((await ui.find({ type: 'Text', text: /^l1\n/ }))?.text.split('\n')).toHaveLength(20)
-  expect(await ui.find({ type: 'Text', text: '… 5 more lines' })).toBeDefined()
+  expect(await rows(ui, /^l\d+$/)).toEqual(Array.from({ length: 20 }, (_, i) => `l${i + 6}`))
+  expect(await ui.find({ type: 'Text', text: '… 5 earlier lines' })).toBeDefined()
+})
+
+test("the output's Copy takes all of it, the lines not shown too", async ($, on) => {
+  const w = fenced(on)
+  const all = Array.from({ length: 25 }, (_, i) => `l${i + 1}`).join('\n')
+  shell(on, { exitCode: 0, stdout: `${all}\n`, stderr: '' })
+  const ui = await mount($, 'r11', { text: SHELL, isFirstOfReply: true })
+  await ui.press({ key: 'run:r11:1' })
+  await ui.press({ key: 'run:r11:1' })
+  await ui.press({ key: 'copyout:r11:1' })
+  expect(w.copied).toEqual([all])
+})
+
+test('Hide takes the output off the card, and the block stays run', async ($, on) => {
+  fenced(on)
+  const ran = shell(on)
+  const ui = await mount($, 'r12', { text: SHELL, isFirstOfReply: true })
+  await ui.press({ key: 'run:r12:1' })
+  await ui.press({ key: 'run:r12:1' })
+  await ui.press({ key: 'hide:r12:1' })
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: 'main' })).toBeUndefined()
+  expect((await ui.find({ key: 'run:r12:1' }))?.text).toBe('▶ Run again')
+  await ui.press({ key: 'run:r12:1' })
+  await ui.redraw()
+  expect(ran).toHaveLength(2)
+  expect(await ui.find({ type: 'Text', text: 'main' })).toBeDefined()
 })
 
 test('colour codes and carriage returns are taken out of the shown output', async ($, on) => {
@@ -427,18 +495,18 @@ test('colour codes and carriage returns are taken out of the shown output', asyn
   await ui.press({ key: 'run:r7:1' })
   await ui.press({ key: 'run:r7:1' })
   await ui.redraw()
-  expect(await ui.find({ type: 'Text', text: 'red\nplain' })).toBeDefined()
+  expect(await rows(ui, /^(red|plain)$/)).toEqual(['red', 'plain'])
 })
 
 test('a run that fails to start shows exit 1 and why', async ($, on) => {
   fenced(on)
-  on('process.run', () => ({ deny: 'timed out' }) as any)
+  on('process.spawn', async function* () { return { deny: 'no bash' } })
   const ui = await mount($, 'r8', { text: SHELL, isFirstOfReply: true })
   await ui.press({ key: 'run:r8:1' })
   await ui.press({ key: 'run:r8:1' })
   await ui.redraw()
-  expect(await ui.find({ type: 'Text', text: /timed out/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'exit 1' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /no bash/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'output · exit 1' })).toBeDefined()
 })
 
 test('a refused row for Claude says so', async ($, on) => {
