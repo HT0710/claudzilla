@@ -488,14 +488,32 @@ test('Hide takes the output off the card, and the block stays run', async ($, on
   expect(await ui.find({ type: 'Text', text: 'main' })).toBeDefined()
 })
 
-test('colour codes and carriage returns are taken out of the shown output', async ($, on) => {
-  fenced(on)
-  shell(on, { exitCode: 0, stdout: '\x1b[31mred\x1b[0m\r\nplain\n', stderr: '' })
+test('colour codes draw as coloured text, and Claude and Copy get it plain', async ($, on) => {
+  const w = fenced(on)
+  mock.clock(on, { now: 0 })
+  const envs: unknown[] = []
+  on('process.spawn', async function* (_: any, e: any) {
+    envs.push(e.env)
+    yield { stream: 'stdout', text: '\x1b[31mred\x1b[0m\r\n\x1b[1;38;5;208mfire\nstill\x1b[0m\x1b[2K\n\x1b[38;2;0;128;255mdeep\x1b[39m plain\n' }
+    return { value: { code: 0, signal: null } }
+  })
+  const session = mock.session(on)
   const ui = await mount($, 'r7', { text: SHELL, isFirstOfReply: true })
   await ui.press({ key: 'run:r7:1' })
   await ui.press({ key: 'run:r7:1' })
   await ui.redraw()
-  expect(await rows(ui, /^(red|plain)$/)).toEqual(['red', 'plain'])
+  // Tools print colour without a terminal only when told to.
+  expect(envs).toEqual([{ FORCE_COLOR: '1', CLICOLOR_FORCE: '1' }])
+  const paint = async (text: string) => (await ui.findAll({ type: 'Text', text })).find((x: any) => x.text === text && x.children.every((c: unknown) => typeof c === 'string'))?.props
+  expect(await paint('red')).toMatchObject({ color: 'red' })
+  expect(await paint('fire')).toMatchObject({ color: '#ff8700', bold: true })
+  // A colour set on one line holds on the next until reset.
+  expect(await paint('still')).toMatchObject({ color: '#ff8700', bold: true })
+  expect(await paint('deep')).toMatchObject({ color: '#0080ff' })
+  expect(await rows(ui, /^deep plain$/)).toEqual(['deep plain'])
+  await ui.press({ key: 'copyout:r7:1' })
+  expect(w.copied).toEqual(['red\nfire\nstill\ndeep plain'])
+  expect(JSON.stringify(session.appended().map(r => r.message))).toContain('<bash-stdout>red\\nfire\\nstill\\ndeep plain</bash-stdout>')
 })
 
 test('a run that fails to start shows exit 1 and why', async ($, on) => {
