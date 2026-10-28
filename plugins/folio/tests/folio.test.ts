@@ -295,7 +295,7 @@ test('a fence that never closes stays text', () => {
 
 const SHELL = 'Fix:\n\n```bash\ngit pull\n./install.sh\n```\n\nthen\n\n```\nsome output\n```'
 const fenced = (on: any) => {
-  const w = { copied: [] as string[] }
+  const w = { copied: [] as string[], clock: mock.clock(on, { now: 0 }) }
   on('ui.render', { component: 'AssistantMessage' }, (_$: any, e: any) => ({ type: 'Text' as const, children: [e.props.text] }))
   on('ui.copy', (_: any, e: any) => { w.copied.push(e.text); return { value: { isCopied: true } } })
   return w
@@ -313,7 +313,7 @@ test('a shell fence gets Run and Copy, an untagged one Copy only', async ($, on)
 
 test('Copy puts the block on the clipboard and says so for 2 s', async ($, on) => {
   const w = fenced(on)
-  const clock = mock.clock(on, { now: 0 })
+  const clock = w.clock
   const ui = await mount($, 'f2', { text: SHELL, isFirstOfReply: true })
   await ui.press({ key: 'copy:f2:1' })
   expect(w.copied).toEqual(['git pull\n./install.sh'])
@@ -325,8 +325,7 @@ test('Copy puts the block on the clipboard and says so for 2 s', async ($, on) =
 })
 
 test('a second Copy press keeps its own 2 s', async ($, on) => {
-  fenced(on)
-  const clock = mock.clock(on, { now: 0 })
+  const clock = fenced(on).clock
   const ui = await mount($, 'f6', { text: SHELL, isFirstOfReply: true })
   await ui.press({ key: 'copy:f6:1' })
   await clock.advance(1500)
@@ -366,6 +365,13 @@ const slow = (on: any, first = 'a\n') => {
   return gate
 }
 
+// Arms Run, then runs it as a person would: the second click a beat after the first.
+const twice = async (ui: any, w: { clock: any }, key: string) => {
+  await ui.press({ key })
+  await w.clock.advance(300)
+  await ui.press({ key })
+}
+
 const rows = async (ui: any, re: RegExp) => (await ui.findAll({ type: 'Text', text: re })).map((x: any) => x.text)
 
 test('one Run press arms it and runs nothing', async ($, on) => {
@@ -379,14 +385,14 @@ test('one Run press arms it and runs nothing', async ($, on) => {
 })
 
 test('the second press runs it in a shell and draws the output in the card', async ($, on) => {
-  fenced(on)
+  const w = fenced(on)
   const ran = shell(on)
   const session = mock.session(on)
   const ui = await mount($, 'r2', { text: SHELL, isFirstOfReply: true })
-  await ui.press({ key: 'run:r2:1' })
-  await ui.press({ key: 'run:r2:1' })
+  await twice(ui, w, 'run:r2:1')
   await ui.redraw()
-  expect(ran).toEqual([['bash', '-c', 'git pull\n./install.sh']])
+  // Its own session, so a prompt cannot open the terminal Claude Code draws on.
+  expect(ran).toEqual([['bash', '-c', 'command -v setsid >/dev/null && exec setsid -w bash -c "$1"; exec bash -c "$1"', 'folio', 'git pull\n./install.sh']])
   expect(await rows(ui, /^(main|abc fix)$/)).toEqual(['main', 'abc fix'])
   expect(await ui.find({ type: 'Text', text: 'output' })).toBeDefined()
   expect((await ui.find({ key: 'run:r2:1' }))?.text).toBe('▶ Run again')
@@ -396,20 +402,18 @@ test('the second press runs it in a shell and draws the output in the card', asy
 })
 
 test('a failed run shows its stderr and exit code', async ($, on) => {
-  fenced(on)
+  const w = fenced(on)
   shell(on, { exitCode: 2, stdout: '', stderr: 'fatal: no repo\n' })
   const ui = await mount($, 'r3', { text: SHELL, isFirstOfReply: true })
-  await ui.press({ key: 'run:r3:1' })
-  await ui.press({ key: 'run:r3:1' })
+  await twice(ui, w, 'run:r3:1')
   await ui.redraw()
   expect(await ui.find({ type: 'Text', text: 'fatal: no repo' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'output · exit 2' })).toBeDefined()
 })
 
 test('an armed Run left 3 s goes back to Run', async ($, on) => {
-  fenced(on)
+  const clock = fenced(on).clock
   const ran = shell(on)
-  const clock = mock.clock(on, { now: 0 })
   const ui = await mount($, 'r4', { text: SHELL, isFirstOfReply: true })
   await ui.press({ key: 'run:r4:1' })
   await clock.advance(3000)
@@ -419,23 +423,42 @@ test('an armed Run left 3 s goes back to Run', async ($, on) => {
   expect(ran).toEqual([])
 })
 
-test('Run again runs on one press', async ($, on) => {
-  fenced(on)
+test('Run again runs on one press, but not in the second after a run ends', async ($, on) => {
+  const w = fenced(on)
   const ran = shell(on)
   const ui = await mount($, 'r10', { text: SHELL, isFirstOfReply: true })
+  await twice(ui, w, 'run:r10:1')
+  // A Stop click that lands just after the command ended must not start it again.
+  await w.clock.advance(900)
   await ui.press({ key: 'run:r10:1' })
-  await ui.press({ key: 'run:r10:1' })
+  expect(ran).toHaveLength(1)
+  await w.clock.advance(100)
   await ui.press({ key: 'run:r10:1' })
   expect(ran).toHaveLength(2)
 })
 
+test('a double-click arms Run and runs nothing', async ($, on) => {
+  const w = fenced(on)
+  const ran = shell(on)
+  const ui = await mount($, 'r13', { text: SHELL, isFirstOfReply: true })
+  await ui.press({ key: 'run:r13:1' })
+  await w.clock.advance(50)
+  await ui.press({ key: 'run:r13:1' })
+  await ui.redraw()
+  expect(ran).toEqual([])
+  expect((await ui.find({ key: 'run:r13:1' }))?.text).toBe('▶ Run? click again')
+  await w.clock.advance(250)
+  await ui.press({ key: 'run:r13:1' })
+  expect(ran).toHaveLength(1)
+})
+
 test('output shows while the command runs, and Stop ends it', async ($, on) => {
-  fenced(on)
-  const clock = mock.clock(on, { now: 0 })
+  const clock = fenced(on).clock
   const gate = slow(on)
   const session = mock.session(on)
   const ui = await mount($, 'r5', { text: SHELL, isFirstOfReply: true })
   await ui.press({ key: 'run:r5:1' })
+  await clock.advance(300)
   void ui.press({ key: 'run:r5:1' })
   await clock.advance(100)
   await ui.redraw()
@@ -458,11 +481,10 @@ test('output shows while the command runs, and Stop ends it', async ($, on) => {
 })
 
 test('a long output shows its last 20 lines and counts the earlier ones', async ($, on) => {
-  fenced(on)
+  const w = fenced(on)
   shell(on, { exitCode: 0, stdout: Array.from({ length: 25 }, (_, i) => `l${i + 1}`).join('\n') + '\n', stderr: '' })
   const ui = await mount($, 'r6', { text: SHELL, isFirstOfReply: true })
-  await ui.press({ key: 'run:r6:1' })
-  await ui.press({ key: 'run:r6:1' })
+  await twice(ui, w, 'run:r6:1')
   await ui.redraw()
   expect(await rows(ui, /^l\d+$/)).toEqual(Array.from({ length: 20 }, (_, i) => `l${i + 6}`))
   expect(await ui.find({ type: 'Text', text: '… 5 earlier lines' })).toBeDefined()
@@ -473,19 +495,18 @@ test("the output's Copy takes all of it, the lines not shown too", async ($, on)
   const all = Array.from({ length: 25 }, (_, i) => `l${i + 1}`).join('\n')
   shell(on, { exitCode: 0, stdout: `${all}\n`, stderr: '' })
   const ui = await mount($, 'r11', { text: SHELL, isFirstOfReply: true })
-  await ui.press({ key: 'run:r11:1' })
-  await ui.press({ key: 'run:r11:1' })
+  await twice(ui, w, 'run:r11:1')
   await ui.press({ key: 'copyout:r11:1' })
   expect(w.copied).toEqual([all])
 })
 
 test('Hide takes the output off the card, and the block stays run', async ($, on) => {
-  fenced(on)
+  const w = fenced(on)
   const ran = shell(on)
   const ui = await mount($, 'r12', { text: SHELL, isFirstOfReply: true })
-  await ui.press({ key: 'run:r12:1' })
-  await ui.press({ key: 'run:r12:1' })
+  await twice(ui, w, 'run:r12:1')
   await ui.press({ key: 'hide:r12:1' })
+  await w.clock.advance(1000)
   await ui.redraw()
   expect(await ui.find({ type: 'Text', text: 'main' })).toBeUndefined()
   expect((await ui.find({ key: 'run:r12:1' }))?.text).toBe('▶ Run again')
@@ -497,7 +518,6 @@ test('Hide takes the output off the card, and the block stays run', async ($, on
 
 test('colour codes draw as coloured text, and Claude and Copy get it plain', async ($, on) => {
   const w = fenced(on)
-  mock.clock(on, { now: 0 })
   const envs: unknown[] = []
   on('process.spawn', async function* (_: any, e: any) {
     envs.push(e.env)
@@ -506,8 +526,7 @@ test('colour codes draw as coloured text, and Claude and Copy get it plain', asy
   })
   const session = mock.session(on)
   const ui = await mount($, 'r7', { text: SHELL, isFirstOfReply: true })
-  await ui.press({ key: 'run:r7:1' })
-  await ui.press({ key: 'run:r7:1' })
+  await twice(ui, w, 'run:r7:1')
   await ui.redraw()
   // Tools print colour without a terminal only when told to.
   expect(envs).toEqual([{ FORCE_COLOR: '1', CLICOLOR_FORCE: '1' }])
@@ -524,24 +543,63 @@ test('colour codes draw as coloured text, and Claude and Copy get it plain', asy
 })
 
 test('a run that fails to start shows exit 1 and why', async ($, on) => {
-  fenced(on)
+  const w = fenced(on)
   on('process.spawn', async function* () { return { deny: 'no bash' } })
   const ui = await mount($, 'r8', { text: SHELL, isFirstOfReply: true })
-  await ui.press({ key: 'run:r8:1' })
-  await ui.press({ key: 'run:r8:1' })
+  await twice(ui, w, 'run:r8:1')
   await ui.redraw()
   expect(await ui.find({ type: 'Text', text: /no bash/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'output · exit 1' })).toBeDefined()
 })
 
 test('a refused row for Claude says so', async ($, on) => {
-  fenced(on)
+  const w = fenced(on)
   shell(on)
   const toasts: string[] = []
   on('ui.toast', (_: any, e: any) => { toasts.push(e.text); return { value: undefined } })
   on('session.append', () => ({ deny: 'no rows here' }) as any)
   const ui = await mount($, 'r9', { text: SHELL, isFirstOfReply: true })
-  await ui.press({ key: 'run:r9:1' })
-  await ui.press({ key: 'run:r9:1' })
+  await twice(ui, w, 'run:r9:1')
   expect(toasts).toEqual(['folio: Claude will not see this output (no rows here)'])
+})
+
+test('a reply that opens with a code block draws the bullet on its card', async ($, on) => {
+  const firsts: boolean[] = []
+  on('ui.render', { component: 'AssistantMessage' }, (_$: any, e: any) => { firsts.push(e.props.isFirstOfReply); return { type: 'Text' as const, children: [e.props.text] } })
+  const ui = await mount($, 'b1', { text: '```bash\nls\n```\n\nafter', isFirstOfReply: true })
+  expect(await ui.find({ type: 'Text', text: '● ' })).toBeDefined()
+  expect(firsts).toEqual([false])
+})
+
+test('style holds past the shown lines and across chunks; other codes and overwritten progress go', async ($, on) => {
+  const w = fenced(on)
+  on('process.spawn', async function* () {
+    // A red that is never reset, 25 lines up, split mid-line and mid-code.
+    yield { stream: 'stdout', text: '\x1b[3' }
+    yield { stream: 'stdout', text: '1mtop\n' + Array.from({ length: 23 }, (_, i) => `l${i}`).join('\n') + '\nla' }
+    yield { stream: 'stdout', text: 'st\n\x1b[0m\x1b(B\x1b]8;;https://x.y\x07link\x1b]8;;\x07 \x1b[38:5:196mcolon\x1b[0m\n10%\r20%\r30%\r\n' }
+    return { value: { code: 0, signal: null } }
+  })
+  const session = mock.session(on)
+  const ui = await mount($, 'p1', { text: SHELL, isFirstOfReply: true })
+  await twice(ui, w, 'run:p1:1')
+  await ui.redraw()
+  const paint = async (text: string) => (await ui.findAll({ type: 'Text', text })).find((x: any) => x.text === text && x.children.every((c: unknown) => typeof c === 'string'))?.props
+  expect(await paint('last')).toMatchObject({ color: 'red' })
+  expect(await rows(ui, /^(link colon|30%)$/)).toEqual(['link colon', '30%'])
+  expect(await ui.find({ type: 'Text', text: '… 7 earlier lines' })).toBeDefined()
+  const row = JSON.stringify(session.appended().map(r => r.message))
+  expect(row).toContain('last\\nlink colon\\n30%</bash-stdout>')
+  expect(row).not.toContain('\\u001b')
+})
+
+test("Claude gets the end of a long output, where the errors are", async ($, on) => {
+  const w = fenced(on)
+  shell(on, { exitCode: 1, stdout: `START${'x'.repeat(40_000)}END\n`, stderr: '' })
+  const session = mock.session(on)
+  const ui = await mount($, 'p2', { text: SHELL, isFirstOfReply: true })
+  await twice(ui, w, 'run:p2:1')
+  const row = JSON.stringify(session.appended().map(r => r.message))
+  expect(row).toContain('END</bash-stdout>')
+  expect(row).not.toContain('START')
 })

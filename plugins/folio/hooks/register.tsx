@@ -108,6 +108,8 @@ const armed = new Map<string, number>()
 // Each running block's command: leaving its stream kills it.
 const live = new Map<string, ReturnType<EngineInterface['process']['spawn']>>()
 const stopped = new Set<string>()
+// Until when a block ignores Run, by block: a double-click is not a second look, and a Stop landing just after the end is not Run again.
+const deaf = new Map<string, number>()
 // Each block's last run, by block. shortcut: in memory, so a restart drops it (Claude keeps its row); persist via $.store if missed.
 const outputs = new Map<string, { end: string; text: string; tail: Span[][]; more: number }>()
 const SHOWN = 20
@@ -123,10 +125,13 @@ async function press($: EngineInterface, cmd: string, block: string) {
     void run.return(undefined as never)
     return
   }
+  const now = await $.clock.now()
+  if (now < (deaf.get(block) ?? 0)) return
   // A block run once already had its look, so Run again goes at once.
   if (!armed.has(block) && !outputs.has(block)) {
     const at = ++presses
     armed.set(block, at)
+    deaf.set(block, now + 300)
     $.ui.invalidate('ui.render')
     void $.clock.after(3000, () => {
       if (armed.get(block) !== at) return
@@ -141,9 +146,8 @@ async function press($: EngineInterface, cmd: string, block: string) {
 
 type Paint = { color?: string; backgroundColor?: string; bold?: boolean; dimColor?: boolean; italic?: boolean; underline?: boolean; inverse?: boolean; strikethrough?: boolean }
 type Span = { text: string; paint: Paint }
-const CSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g
-const SGR = /\x1b\[([0-9;]*)m/g
-const plain = (s: string) => s.replace(CSI, '').replace(/\r/g, '')
+// CSI, OSC (links, titles) and the two-byte escapes (charset, cursor save).
+const ESC = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[ -/]*[0-~]/g
 const NAMES = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']
 const hex = (...rgb: number[]) => `#${rgb.map(v => (v & 255).toString(16).padStart(2, '0')).join('')}`
 // The 16 base colours by name, so they follow the terminal's palette; the rest as xterm's hex.
@@ -180,36 +184,61 @@ function sgr(was: Paint, params: string): Paint {
   return p
 }
 
-// shortcut: no TTY and no input, so an interactive command waits until Stop; a typed `!` handles those.
+// One line in runs of one style, from the style it starts in; text a \r wrote over is gone, as on a terminal.
+function paintLine(line: string, paint: Paint): [Span[], Paint] {
+  let spans: Span[] = []
+  const put = (text: string) => {
+    const cut = text.lastIndexOf('\r')
+    if (cut >= 0) spans = []
+    if (text.slice(cut + 1)) spans.push({ text: text.slice(cut + 1), paint })
+  }
+  const l = line.replace(/\r+$/, '')
+  let at = 0
+  for (const m of l.matchAll(ESC)) {
+    put(l.slice(at, m.index))
+    if (m[0][1] === '[' && m[0].endsWith('m')) paint = sgr(paint, m[0].slice(2, -1))
+    at = m.index + m[0].length
+  }
+  put(l.slice(at))
+  return [spans, paint]
+}
+const text = (spans: Span[]) => spans.map(s => s.text).join('')
+const plain = (s: string) => s.split('\n').map(l => text(paintLine(l, {})[0])).join('\n')
+
+// shortcut: no terminal and stdin at EOF, so a prompt (sudo, ssh) fails; a typed `!` handles those.
 async function shell($: EngineInterface, cmd: string, block: string) {
   // Tools print colour without a terminal only when told to; GNU ls, grep and git still need --color.
-  const run = $.process.spawn({ argv: ['bash', '-c', cmd], env: { FORCE_COLOR: '1', CLICOLOR_FORCE: '1' } })
+  // setsid, where there is one (not macOS), keeps a prompt off the terminal Claude Code draws on.
+  const run = $.process.spawn({
+    argv: ['bash', '-c', 'command -v setsid >/dev/null && exec setsid -w bash -c "$1"; exec bash -c "$1"', 'folio', cmd],
+    env: { FORCE_COLOR: '1', CLICOLOR_FORCE: '1' },
+  })
   live.set(block, run)
   stopped.delete(block)
   hidden.delete(block)
   const got = { stdout: '', stderr: '' }
-  let all = ''
-  // Lines split here, not per draw: a render runs on every scroll. Codes other than colour and \r would garble the chat.
-  const show = (end: string) => {
-    const text = plain(all).trimEnd()
-    const lines = text ? text.split('\n') : []
-    const from = Math.max(lines.length - SHOWN, 0)
-    // A code never holds a newline, so raw and plain lines pair up.
-    const raw = all.replace(/\r/g, '').split('\n').slice(0, lines.length)
-    let paint: Paint = {}
-    for (const l of raw.slice(0, from)) for (const m of l.matchAll(SGR)) paint = sgr(paint, m[1]!)
-    const tail = raw.slice(from).map(l => {
-      const spans: Span[] = []
-      let at = 0
-      for (const m of l.matchAll(CSI)) {
-        if (m.index > at) spans.push({ text: l.slice(at, m.index), paint })
-        if (m[0].endsWith('m')) paint = sgr(paint, m[0].slice(2, -1))
-        at = m.index + m[0].length
-      }
-      if (at < l.length) spans.push({ text: l.slice(at), paint })
-      return spans
-    })
-    outputs.set(block, { end, text, tail, more: from })
+  // Parsed as it arrives, each line once: a redraw every 100 ms over a 4 MB output would stall the screen.
+  const out = { plain: [] as string[], tail: [] as Span[][], paint: {} as Paint, rest: '', size: 0 }
+  const feed = (chunk: string) => {
+    out.size += chunk.length
+    const lines = (out.rest + chunk).split('\n')
+    out.rest = lines.pop()!
+    for (const l of lines) {
+      const [spans, paint] = paintLine(l, out.paint)
+      out.paint = paint
+      out.plain.push(text(spans))
+      out.tail.push(spans)
+      if (out.tail.length > SHOWN) out.tail.shift()
+    }
+  }
+  const show = (end: string, done = false) => {
+    const lines = out.rest ? [...out.tail, paintLine(out.rest, out.paint)[0]] : [...out.tail]
+    let count = out.plain.length + (out.rest ? 1 : 0)
+    for (; lines.length && !text(lines.at(-1)!).trim(); count--) lines.pop()
+    const tail = lines.slice(-SHOWN)
+    // The whole text only at the end: only then can it be copied.
+    const all = done ? [...out.plain, text(paintLine(out.rest, out.paint)[0])].join('\n').trimEnd() : ''
+    outputs.set(block, { end, text: all, tail, more: count - tail.length })
     $.ui.invalidate('ui.render')
   }
   show('')
@@ -219,7 +248,8 @@ async function shell($: EngineInterface, cmd: string, block: string) {
   try {
     for await (const { stream, text } of run) {
       if (got[stream].length < CAP) got[stream] += text
-      if (all.length < CAP) all += text
+      if (out.size >= CAP) continue
+      feed(text)
       if (due) continue
       due = true
       void $.clock.after(100, () => {
@@ -233,18 +263,20 @@ async function shell($: EngineInterface, cmd: string, block: string) {
     if (stopped.has(block)) end = 'stopped'
     else {
       end = 'exit 1'
-      all += `${all ? '\n' : ''}${err instanceof Error ? err.message : err}`
+      feed(`${out.rest ? '\n' : ''}${err instanceof Error ? err.message : err}\n`)
     }
   } finally {
     live.delete(block)
   }
-  show(end)
+  deaf.set(block, (await $.clock.now()) + 1000)
+  show(end, true)
   const stdout = plain(got.stdout).trimEnd()
   // Claude cannot tell a Stop from a quiet success by the output alone.
   const stderr = [plain(got.stderr).trimEnd(), end === 'stopped' ? '(stopped by the user)' : ''].filter(Boolean).join('\n')
   // The row a typed `!` command leaves, so Claude reads the output next turn.
+  // The end, not the start: that is where a build or a test says what failed.
   const row = await $.session.append({ message: { type: 'user', content: [{ type: 'text',
-    text: `<bash-input>${cmd}</bash-input>\n<bash-stdout>${stdout.slice(0, 30_000)}</bash-stdout><bash-stderr>${stderr.slice(0, 30_000)}</bash-stderr>` }] } })
+    text: `<bash-input>${cmd}</bash-input>\n<bash-stdout>${stdout.slice(-30_000)}</bash-stdout><bash-stderr>${stderr.slice(-30_000)}</bash-stderr>` }] } })
   if ('deny' in row && row.deny) $.ui.toast(`folio: Claude will not see this output (${row.deny})`)
 }
 
@@ -389,8 +421,8 @@ export const register: Register = on => {
         )
         const runLabel = live.has(block) ? '■ Stop' : armed.has(block) ? '▶ Run? click again' : ran ? '▶ Run again' : '▶ Run'
         const runColor = live.has(block) ? 'error' : armed.has(block) ? 'warning' : 'success'
-        rows.push(
-          <Box marginLeft={indent} marginTop={1} flexDirection="column" width={room}>
+        const card = (
+          <Box flexDirection="column" width={room}>
             {line(
               lang ? '╭─ ' : '╭─',
               ' ─╮',
@@ -430,8 +462,11 @@ export const register: Register = on => {
               side(<Text wrap="truncate-end">{l.length ? l.map(s => (Object.keys(s.paint).length ? <Text {...s.paint}>{s.text}</Text> : s.text)) : ' '}</Text>, `o${n}`),
             )}
             {line('╰', '╯', null, null)}
-          </Box>,
+          </Box>
         )
+        // A reply that opens with a block carries its bullet on the card, not on the next text.
+        rows.push(isFirst ? <Box marginTop={1}><Text color="text">● </Text>{card}</Box> : <Box marginLeft={indent} marginTop={1}>{card}</Box>)
+        isFirst = false
       } else {
         // Awaited on a linked chunk too: hooks beneath (panel's in-view tracking) still see it.
         let drawn = await next({ ...e, props: { ...e.props, text: p.text, isFirstOfReply: isFirst } })
