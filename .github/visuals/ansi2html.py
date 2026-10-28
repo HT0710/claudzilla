@@ -1,5 +1,5 @@
 """Convert tmux `capture-pane -e` output (SGR colors) to a standalone HTML page."""
-import html, re, sys
+import html, re, sys, unicodedata
 
 BASE16 = ["#000000", "#cd3131", "#0dbc79", "#e5e510", "#2472c8", "#bc3fbc", "#11a8cd", "#e5e5e5",
           "#666666", "#f14c4c", "#23d18b", "#f5f543", "#3b8eea", "#d670d6", "#29b8db", "#ffffff"]
@@ -55,7 +55,8 @@ def convert(text, fg0, bg0):
                 if st.get("i"): css.append("font-style:italic")
                 if st.get("u"): css.append("text-decoration:underline")
                 if st.get("d"): css.append("opacity:.6")
-                t = html.escape(part)
+                # A glyph the font lacks comes from a fallback font at its own width; pin it to the cells tmux gave it.
+                t = re.sub(r"[^\x00-\x7f]", lambda m: f'<span class="c{2 if unicodedata.east_asian_width(m[0]) in "WF" else 1}">{m[0]}</span>', html.escape(part))
                 out.append(f'<span style="{";".join(css)}">{t}</span>' if css else t)
             continue
         codes = [int(c) if c else 0 for c in re.split("[;:]", part[2:-1])] or [0]
@@ -97,8 +98,11 @@ if __name__ == "__main__":
     body = convert(mask(text, strs), fg, bg)
     page = f"""<!doctype html><meta charset="utf-8"><style>
 html,body{{margin:0;background:{bg}}}
-pre{{margin:0;padding:22px 26px;color:{fg};background:{bg};font:14px/18px 'MesloLGS NF',monospace;display:inline-block}}
+pre{{margin:0;padding:22px 26px;color:{fg};background:{bg};font:14px/18px 'MesloLGS NF','Adwaita Mono','Noto Sans Math',monospace;display:inline-block}}
 pre span{{padding:1px 0}}
+pre .c1,pre .c2{{display:inline-block;padding:0}}
+pre .c1{{width:1ch}}
+pre .c2{{width:2ch}}
 </style><pre>{body}</pre>"""
     open(dst, "w", encoding="utf-8").write(page)
 

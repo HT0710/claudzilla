@@ -9,7 +9,7 @@ SPEEDS="$REPO/.github/visuals/speeds.txt"
 # shellcheck source=lib.sh
 . "$REPO/.github/visuals/lib.sh"
 DEMO="$HOME/acme-api"
-SHOTS="statusline ballot margin primer"
+SHOTS="statusline ballot margin primer run"
 
 # ask PROMPT SECS: send PROMPT, wait until its turn ends: a "✻ Sautéed for 21s · done 5:03 am" line
 # not on screen before (a long reply scrolls the prompt itself away).
@@ -40,6 +40,17 @@ prompt_row() { tm capture-pane -t "$SHOT" -p | grep -F '❯' | tail -1; }
 
 # card_row N: the first 14 characters of the ballot card's row N.
 card_row() { tm capture-pane -t "$SHOT" -p | sed -n "s/.*│ *$1: \(.\{1,14\}\).*/\1/p" | head -1; }
+
+# copy_at LANG: "X Y" of the Copy button on the code card whose top edge names LANG.
+copy_at() {
+  tm capture-pane -t "$SHOT" -p | python3 -I -c '
+import sys
+hit = None
+for y, l in enumerate(sys.stdin, 1):
+    if "─ " + sys.argv[1] + " " in l and "Copy" in l: hit = (l.rfind("Copy") + 1, y)
+if not hit: sys.exit(1)
+print(*hit)' "$1"
+}
 
 # has DIR REGEX: some frame in DIR shows REGEX.
 has() { cat "$1"/*.ansi | sed 's/\x1b\[[0-9;:]*m//g' | grep -E -- "$2" >/dev/null; }
@@ -92,7 +103,8 @@ shot_margin() {
 
   ask "where is the expiry check? cite it as file:line, no edits" 120 && sleep 2 || return 1
   at=$(locate 'auth/token.js:' "$(dock_col)") || return 1
-  frames "$l" 20 & f=$!
+  # Down to just above the prompt box's top rule: no prompt box, no status line.
+  frames "$l" 20 0 $(($(tm capture-pane -t "$SHOT" -p | grep -n '^─\{20,\}' | head -1 | cut -d: -f1) - 2)) & f=$!
   sleep 1.5; click $at
   wait_for '▶' 8; ok=$?
   sleep 2; touch "$l/stop"; wait "$f"
@@ -111,6 +123,28 @@ shot_primer() {
   tm send-keys -t "$SHOT" M-q   # close it: the dock must be free for finish to bring the panel back
   sleep 1
   [ "$ok" = 0 ] && still "$WORK/primer.ansi" "$A/primer.png"
+}
+
+# folio's code cards: Run on the shell block (arm, run, output streams in), then Copy on the json block.
+shot_run() {
+  local d="$WORK/run" f ok top end; rm -rf "$d"
+  # Under 110 columns the margin cannot dock, so it stays out of the clip; tall enough that the output never scrolls the reply.
+  start "$DEMO" 100 60 || return 1
+  # A test script with results that arrive over time; the base demo's failing test stays for the other shots.
+  cp -r "$REPO/.github/visuals/demo-run/." "$DEMO" && git -C "$DEMO" add -A &&
+    git -C "$DEMO" -c user.name=demo -c user.email=demo@example.com commit -q --amend --no-edit || return 1
+  ask "show me how to run the tests and the package.json script behind it, as code blocks. don't run it" 120 &&
+    wait_for '▶ Run' 10 && wait_for '─ json ' 2 || return 1
+  # Prompt row down to just above the prompt box's top rule: no banner, no status line.
+  top=$(row '❯ show me'); end=$(($(tm capture-pane -t "$SHOT" -p | grep -n '^─\{20,\}' | head -1 | cut -d: -f1) - 2))
+  sleep 2
+  frames "$d" 60 "$top" "$end" & f=$!
+  sleep 1.5; click $(locate '▶ Run')
+  wait_for 'Run\? click again' 5 && sleep 1.2 && click $(locate '▶ Run?') &&
+    wait_for '■ Stop' 5 && wait_for '▶ Run again' 20 && sleep 1.5 &&
+    click $(copy_at json) && wait_for '✓ Copied' 3; ok=$?
+  sleep 2; touch "$d/stop"; wait "$f"
+  [ "$ok" = 0 ] && has "$d" '✔ accepts' && clip run "$d"
 }
 
 [ $# -gt 0 ] || set -- $SHOTS

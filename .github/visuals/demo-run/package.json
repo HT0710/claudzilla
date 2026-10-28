@@ -1,0 +1,5 @@
+{
+  "name": "acme-api",
+  "private": true,
+  "scripts": { "test": "node --test" }
+}
