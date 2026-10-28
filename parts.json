@@ -22,7 +22,7 @@
   "folio": { "plugins": ["folio@claudzilla"] },
   "margin": { "plugins": ["margin@claudzilla"] },
   "ballot": { "plugins": ["ballot@claudzilla"] },
-  "herald": { "plugins": ["herald@claudzilla"] },
+  "herald": { "plugins": ["herald@claudzilla"], "keys": ["idleCompaction"] },
   "byline": { "plugins": ["byline@claudzilla"] },
   "ledger": { "plugins": ["ledger@claudzilla"] },
   "primer": { "plugins": ["primer@claudzilla"], "links": ["hooks/claudzilla-update.sh", "skills/claudzilla-report", "skills/claudzilla-compact"], "hooks": ["claudzilla-update.sh"] }
