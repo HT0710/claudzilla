@@ -16,6 +16,10 @@ Each code block is drawn in a card: the language on the top edge, then a Copy bu
 
 The output streams into the card as the command writes it. The card shows the last 20 lines, and `exit N` beside `output` when the command fails. While it runs, Run reads `■ Stop`, which ends the command. Once a block has run, `▶ Run again` runs it on one click, because you have already seen the command. Once the command ends, the output line gets its own Copy, which takes all of the output, and Hide, which takes the output off the card.
 
+<img src="../../.github/assets/run.gif" alt="A reply with an sh card and a json card: two clicks on Run stream npm test's results into the sh card, then Copy on the json card reads ✓ Copied" width="720">
+
+*2× speed. Click Run twice: the tests stream into the card. The json block gets only Copy.*
+
 The output keeps its colours. A run sets `FORCE_COLOR=1` and `CLICOLOR_FORCE=1`, so tools that read them print colour without a terminal; GNU `ls`, `grep` and `git` still need `--color=always`. Copy and Claude's row get the output without colour codes.
 
 When the command ends, a row like a typed `!` command's leaves the output for Claude, its last 30,000 characters if it is longer. Hide does not take that row back, and a stopped run's row says it was stopped. A mod cannot put the prompt box in shell mode, so the plugin runs the command itself and never touches the box. Like a typed `!`, a run skips Claude's permission rules. It gets no terminal and empty input, so a command that asks for input, such as `sudo` or `ssh`, fails instead of waiting. On macOS, which has no `setsid`, a command that opens the terminal itself can still draw over Claude Code. Use a typed `!` for those. The shown output is gone after a restart; Claude keeps its copy. A reply still streaming shows its code blocks plainly until it ends.
