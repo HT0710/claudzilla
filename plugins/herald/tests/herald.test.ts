@@ -502,6 +502,19 @@ test('text typed while the compact runs stays', async ($, on) => {
   expect(fills).toEqual(['/claudzilla compact'])
 })
 
+test("the engine's own compact clears the filled box, typed text stays", async ($, on) => {
+  const { clock, fills, box } = idle(on)
+  await $.session.start(start)
+  await ctxMeasure($, L1)
+  await clock.advance(FILL_MS)
+  box.text = '/claudzilla compact'
+  await $.session.compact({ trigger: 'auto', messages: [{ role: 'user', text: 'hi', toolUses: [] }] } as any)
+  expect(fills).toEqual(['/claudzilla compact', ''])
+  box.text = 'typed'
+  await $.session.compact({ trigger: 'manual', messages: [{ role: 'user', text: 'hi', toolUses: [] }] } as any)
+  expect(fills).toEqual(['/claudzilla compact', ''])
+})
+
 test('with text in the box, the toast promises no compact', async ($, on) => {
   const { clock, toasts } = idle(on, { box: 'half typed' })
   await $.session.start(start)
