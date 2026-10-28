@@ -81,7 +81,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 
   *Real speed. Press 1: the option's id and text go into the prompt box; Enter sends it. Needs the `ballot` part.*
 
-- **Dividers and file links:** lines frame the TL;DR, `Next:` and each `---`, fitted to the chat width. A file path in a reply is a link: click it to see those lines in the margin. Under a code block, Copy puts it on the clipboard and Run puts a shell command in the prompt box for Claude to run ([details](plugins/folio/README.md)).
+- **Dividers and file links:** lines frame the TL;DR, `Next:` and each `---`, fitted to the chat width. A file path in a reply is a link: click it to see those lines in the margin. Under a code block, Copy puts it on the clipboard and two clicks on Run run a shell command and show its output under the block ([details](plugins/folio/README.md)).
 
   <img src=".github/assets/filelink.gif" alt="Clicking auth/token.js:3 in a reply opens the margin's File tab with line 3 marked" width="720">
 
