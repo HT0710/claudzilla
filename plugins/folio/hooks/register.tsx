@@ -71,7 +71,7 @@ const SHELL = new Set(['bash', 'sh', 'zsh', 'shell', 'console'])
 
 const PROMPT = /^\s*\$ /
 
-// What Run puts after `!`: the block as one script; a transcript's commands are its `$ ` lines.
+// What Run runs: the block as one script; a transcript's commands are its `$ ` lines.
 export function runText(lang: string, body: string): string | undefined {
   if (!SHELL.has(lang)) return undefined
   const lines = body.split('\n')
@@ -96,11 +96,51 @@ async function copy($: EngineInterface, key: string, text: string, surface: Para
   })
 }
 
-// Fills, never sends: the person reads the command and presses Enter.
-async function run($: EngineInterface, cmd: string) {
-  if ((await $.prompt.read()).text.trim()) return $.ui.toast('folio: clear the prompt box to run this')
-  // Under a dialog the box takes nothing.
-  if (!(await $.prompt.fill({ text: `! ${cmd}` })).isFilled) $.ui.toast('folio: the prompt box took nothing; close the dialog and try again')
+// Run pressed once in the last 3 s, by block, to the press that armed it: the second press runs, as nothing else stands between a click and the shell.
+const armed = new Map<string, number>()
+const running = new Set<string>()
+// Each block's last run, by block. shortcut: in memory, so a restart drops it (Claude keeps its row); persist via $.store if missed.
+const outputs = new Map<string, { exitCode: number; head: string; more: number }>()
+const SHOWN = 20
+
+async function press($: EngineInterface, cmd: string, block: string) {
+  if (running.has(block)) return
+  if (!armed.has(block)) {
+    const at = ++presses
+    armed.set(block, at)
+    $.ui.invalidate('ui.render')
+    void $.clock.after(3000, () => {
+      if (armed.get(block) !== at) return
+      armed.delete(block)
+      $.ui.invalidate('ui.render')
+    })
+    return
+  }
+  armed.delete(block)
+  running.add(block)
+  $.ui.invalidate('ui.render')
+  try {
+    await shell($, cmd, block)
+  } finally {
+    running.delete(block)
+    $.ui.invalidate('ui.render')
+  }
+}
+
+// shortcut: $.process.run's limits: output only at exit, no TTY, no ctrl+c, 10 min cap; a long or interactive command needs a typed `!`.
+async function shell($: EngineInterface, cmd: string, block: string) {
+  const r = await $.process
+    .run(['bash', '-c', cmd], { timeoutMs: 600_000 })
+    .catch(err => ({ exitCode: 1, stdout: '', stderr: `${err instanceof Error ? err.message : err}` }))
+  const stdout = r.stdout.trimEnd()
+  const stderr = r.stderr.trimEnd()
+  // Split once here, not per draw: a render runs on every scroll. Colour codes and \r would garble the chat.
+  const lines = [stdout, stderr].filter(Boolean).join('\n').replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\r/g, '').split('\n')
+  outputs.set(block, { exitCode: r.exitCode, head: lines.slice(0, SHOWN).join('\n'), more: Math.max(lines.length - SHOWN, 0) })
+  // The row a typed `!` command leaves, so Claude reads the output next turn.
+  const row = await $.session.append({ message: { type: 'user', content: [{ type: 'text',
+    text: `<bash-input>${cmd}</bash-input>\n<bash-stdout>${stdout.slice(0, 30_000)}</bash-stdout><bash-stderr>${stderr.slice(0, 30_000)}</bash-stderr>` }] } })
+  if ('deny' in row && row.deny) $.ui.toast(`folio: Claude will not see this output (${row.deny})`)
 }
 
 type Link = { href: string; path: string; line: number }
@@ -214,16 +254,34 @@ export const register: Register = on => {
         const { lang, body } = p.code
         const cmd = runText(lang, body)
         const lines = body.split('\n').length
-        const key = `copy:${e.requestId}:${i}`
+        const block = `${e.requestId}:${i}`
+        const key = `copy:${block}`
+        const ran = outputs.get(block)
         rows.push(
           <Box paddingLeft={indent} paddingRight={2} justifyContent="space-between">
             <Box columnGap={3}>
-              {cmd ? <Button key={`run:${e.requestId}:${i}`} label="▶ Run" plain dimColor onPress={() => void run($, cmd).catch(() => undefined)} /> : null}
+              {cmd ? (
+                <Button
+                  key={`run:${block}`}
+                  label={running.has(block) ? '■ Running…' : armed.has(block) ? '▶ Run? click again' : ran ? '▶ Run again' : '▶ Run'}
+                  plain
+                  dimColor={!armed.has(block)}
+                  onPress={() => void press($, cmd, block).catch(() => undefined)}
+                />
+              ) : null}
               <Button key={key} label={copied.has(key) ? '✓ Copied' : '⧉ Copy'} plain dimColor onPress={press => void copy($, key, body, press.surface).catch(() => undefined)} />
             </Box>
             <Text dimColor>{`${lang ? `${lang} · ` : ''}${lines} line${lines === 1 ? '' : 's'}`}</Text>
           </Box>,
         )
+        if (ran)
+          rows.push(
+            <Box paddingLeft={indent} flexDirection="column">
+              {ran.head ? <Text dimColor>{ran.head}</Text> : null}
+              {ran.more ? <Text dimColor>{`… ${ran.more} more lines`}</Text> : null}
+              {ran.exitCode ? <Text color="warning">{`exit ${ran.exitCode}`}</Text> : null}
+            </Box>,
+          )
       } else {
         // Awaited on a linked chunk too: hooks beneath (panel's in-view tracking) still see it.
         let drawn = await next({ ...e, props: { ...e.props, text: p.text, isFirstOfReply: isFirst } })
