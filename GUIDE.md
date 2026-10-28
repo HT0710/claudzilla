@@ -118,7 +118,7 @@ claudzilla's rules shape every reply so you can scan it instead of reading it al
 - **Decision:** options `A`, `B` in a table, then `**Recommend:**` with one pick and a **Why:** line with its source. With several decisions, they are numbered: `Decision 1`, `Decision 2`.
 - **Picks:** with two or more choices, a `**Picks:**` line lists the recommended answers, such as `1B, 2A`.
 - **File links:** a code span with the path of an existing file, such as `src/app.ts:42`, is a link. Click it to see the lines around it in the margin's File tab, but only in the fullscreen terminal; elsewhere a click does what the terminal does. Your terminal's own link click, such as ctrl+click, opens the file; Claude Code does not. Needs the folio and margin parts. Without the margin, a click shows a toast saying so.
-- **Run and Copy:** under each code block, once the reply has finished, Copy puts the block on the clipboard. A `bash`, `sh`, `zsh`, `shell` or `console` block also gets Run, which puts the block in the prompt box after `!`; press Enter and Claude runs it. A mod cannot switch the box to shell mode, so this takes a short turn. Run leaves text you already typed alone and says so. Needs the folio part.
+- **Run and Copy:** under each code block, once the reply has finished, Copy puts the block on the clipboard. A `bash`, `sh`, `zsh`, `shell` or `console` block also gets Run: click it once and it reads `Run? click again`, click again within 3 seconds and folio runs the block in a shell, with no Claude turn and the prompt box left alone. The output and any non-zero exit show under the block, and Claude reads them next turn, as with a typed `!`. A run can take up to 10 minutes and cannot ask for input; use a typed `!` for that. Needs the folio part.
 - **Next:** the last line, the single next action.
 - **Dividers:** a heavy line frames a reply that has a TL;DR. A thin line follows the TL;DR and comes before the Picks or Next line. A dotted line marks a change of group: what Claude found, what to choose, what to do.
 
@@ -640,7 +640,7 @@ Headline features of recent versions. Restart Claude after an update to use them
 
 #### v1.6.0
 
-- **Run and Copy:** buttons under each code block in a reply. Copy puts the block on the clipboard, and Run puts a shell block in the prompt box for Claude to run when you press Enter.
+- **Run and Copy:** buttons under each code block in a reply. Copy puts the block on the clipboard, and two clicks on Run run a shell block and show its output under it.
 - **Tab keys:** alt+o, alt+h, alt+l and alt+g open the margin on Overview, History, File and Git; the letter is underlined in each tab. The guide moves from alt+g to alt+q. alt+o replaces Claude Code's fast-mode key; `/fast` still works.
 - **New names:** the plugins are now margin (`/margin`, was panel), folio (response-dividers), ballot (picks), primer (guide), herald (update-toast) and byline (attribution), and install parts follow. The update moves you over: once, margin opens and asks to show its pane again, and a usage toast may repeat. A `settings.overrides.json` naming an old plugin id needs the new one.
 
