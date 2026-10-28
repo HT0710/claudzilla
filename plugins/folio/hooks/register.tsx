@@ -412,16 +412,18 @@ export const register: Register = on => {
             {shown
               ? line(
                   '├─ ',
-                  ' ─┤',
+                  live.has(block) ? '─┤' : ' ─┤',
                   <Box><Text color="subtle">{ran.end ? `output · ${ran.end}` : 'output'}</Text><Text>{' '}</Text></Box>,
-                  <Box>
-                    <Text>{' '}</Text>
-                    <Button key={`hide:${block}`} plain onPress={() => { hidden.add(block); $.ui.invalidate('ui.render') }}>
-                      <Text color="error">{'✕ Hide'}</Text>
-                    </Button>
-                    <Text color={edge}>{' │ '}</Text>
-                    {copyButton(`copyout:${block}`, ran.text)}
-                  </Box>,
+                  live.has(block) ? null : (
+                    <Box>
+                      <Text>{' '}</Text>
+                      <Button key={`hide:${block}`} plain onPress={() => { hidden.add(block); $.ui.invalidate('ui.render') }}>
+                        <Text color="error">{'✕ Hide'}</Text>
+                      </Button>
+                      <Text color={edge}>{' │ '}</Text>
+                      {copyButton(`copyout:${block}`, ran.text)}
+                    </Box>
+                  ),
                 )
               : null}
             {output.map((l, n) =>

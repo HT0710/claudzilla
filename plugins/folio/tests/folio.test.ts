@@ -441,9 +441,16 @@ test('output shows while the command runs, and Stop ends it', async ($, on) => {
   await ui.redraw()
   expect((await ui.find({ key: 'run:r5:1' }))?.text).toBe('■ Stop')
   expect(await ui.find({ type: 'Text', text: 'a' })).toBeDefined()
+  // Hide and the output's Copy wait for the end: half an output is not worth taking.
+  expect(await ui.find({ key: 'hide:r5:1' })).toBeUndefined()
+  expect(await ui.find({ key: 'copyout:r5:1' })).toBeUndefined()
+  // The edge runs on to the corner, no gap where the buttons will go.
+  expect(await ui.find({ type: 'Text', text: /^─┤$/ })).toBeDefined()
   await ui.press({ key: 'run:r5:1' })
   await ui.redraw()
   expect(await ui.find({ type: 'Text', text: 'output · stopped' })).toBeDefined()
+  expect(await ui.find({ key: 'hide:r5:1' })).toBeDefined()
+  expect(await ui.find({ key: 'copyout:r5:1' })).toBeDefined()
   expect(gate.killed).toBe(true)
   expect((await ui.find({ key: 'run:r5:1' }))?.text).toBe('▶ Run again')
   // An empty or cut-short output alone reads like a quiet success.
