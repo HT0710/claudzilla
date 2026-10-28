@@ -173,8 +173,12 @@ async function coldCompact($: EngineInterface, dir: string, live: Live) {
   if (!done || done.skip) return
   // The mod's own compact passes its session.compact hook by.
   stopIdle($, live, true)
-  // A compact takes a while: whoever came back meanwhile keeps what they typed.
-  if (box && (await $.prompt.read()).text.trim() === FILL) await $.prompt.fill({ text: '' }).catch(() => undefined)
+  await clearFill($)
+}
+
+// A compact takes a while: whoever came back meanwhile keeps what they typed.
+async function clearFill($: EngineInterface) {
+  if ((await $.prompt.read()).text.trim() === FILL) await $.prompt.fill({ text: '' }).catch(() => undefined)
 }
 
 type Timer = { cancel: () => void }
@@ -270,7 +274,10 @@ export const register: Register = on => {
   on('session.compact', async ($, e, next) => {
     const result = await next(e)
     // A precompute installs nothing, and a subagent's compact leaves the main context as it was.
-    if (e.trigger !== 'precompute' && !e.agentId && !result.skip) stopIdle($, live, true)
+    if (e.trigger !== 'precompute' && !e.agentId && !result.skip) {
+      stopIdle($, live, true)
+      await clearFill($)
+    }
     return result
   })
 

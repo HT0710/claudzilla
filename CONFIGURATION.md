@@ -84,7 +84,7 @@ An example; some values are not the defaults. Defaults: `subjectMax` 50, `commit
 
 `compactNudge` (tokens, `0` = off): past it, a reply that finishes a task (at 4×, any reply not mid-task) whose next step won't need the older context ends with one **Compact** line pointing to `/claudzilla compact` (drafts a `/compact` line into the prompt box) or `/clear`; wording strengthens at 2× and 4×. The update toast reminds at 1×, 2×, 4× and every 30 min; after 30 idle min the reminder stays under the prompt until the next message.
 
-`coldCompact` (times `compactNudge`, `0` = never): with a 1-hour prompt cache and context past `compactNudge`, 45 min after you go idle (15 min before the cache goes cold) the update toast fills `/claudzilla compact` into an empty prompt box, so the compact runs before the cache goes cold. Past `coldCompact` times `compactNudge` (2×, 300,000 tokens, by default) it also compacts on its own 5 min before cold, with the default summary, if the box is still empty or holds only that command. `compactNudge` `0` turns both off.
+`coldCompact` (times `compactNudge`, `0` = never): with a 1-hour prompt cache and context past `compactNudge`, 45 min after you go idle (15 min before the cache goes cold) the update toast fills `/claudzilla compact` into an empty prompt box, so the compact runs before the cache goes cold. Past `coldCompact` times `compactNudge` (2×, 300,000 tokens, by default) it also compacts on its own 5 min before cold, with the default summary, if the box is still empty or holds only that command. `compactNudge` `0` turns both off. Any compact empties the box if it still holds only that command.
 
 A bad file or value is skipped and named on your next prompt; unknown keys are ignored.
 
