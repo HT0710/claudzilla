@@ -28,13 +28,15 @@ const note = (id: string, decision: string, data: object) => {
 
 type Part = { text: string } | { rule: string } | { code: { lang: string; body: string } }
 
-// Splits a reply at frame lines and after each fenced block, outside ``` / ~~~ fences.
+// Splits a reply at frame lines and fenced blocks, outside ``` / ~~~ fences.
 export function split(text: string): Part[] {
   const parts: Part[] = []
   let chunk: string[] = []
   let fence = ''
   let open = { lang: '', body: [] as string[] }
   let pad = 0
+  // The open fence's own lines, given back as text if it never closes.
+  let held: string[] = []
   const flush = () => {
     const t = chunk.join('\n').replace(/^\n+|\n+$/g, '')
     if (t) parts.push({ text: t })
@@ -45,23 +47,28 @@ export function split(text: string): Part[] {
     const mark = m?.[2]
     // CommonMark's close: the opener's character, at least as long, nothing after it.
     if (mark && fence && mark[0] === fence[0] && mark.length >= fence.length && !m[3]!.trim()) {
-      chunk.push(line)
-      flush()
       parts.push({ code: { lang: open.lang, body: open.body.join('\n') } })
       fence = ''
       continue
     }
     if (mark && !fence) {
+      flush()
+      held = []
       fence = mark
       pad = m[1]!.length
       open = { lang: m[3]!.trim().split(/\s+/)[0]!.toLowerCase(), body: [] }
     } else if (fence) open.body.push(line.slice(Math.min(pad, line.search(/\S|$/))))
-    const rule = !fence && !mark ? line.match(RULE)?.[1] : undefined
+    if (fence) {
+      held.push(line)
+      continue
+    }
+    const rule = line.match(RULE)?.[1]
     if (rule) {
       flush()
       parts.push({ rule })
     } else chunk.push(line)
   }
+  if (fence) chunk.push(...held)
   flush()
 
   return parts
@@ -98,14 +105,26 @@ async function copy($: EngineInterface, key: string, text: string, surface: Para
 
 // Run pressed once in the last 3 s, by block, to the press that armed it: the second press runs, as nothing else stands between a click and the shell.
 const armed = new Map<string, number>()
-const running = new Set<string>()
+// Each running block's command: leaving its stream kills it.
+const live = new Map<string, ReturnType<EngineInterface['process']['spawn']>>()
+const stopped = new Set<string>()
 // Each block's last run, by block. shortcut: in memory, so a restart drops it (Claude keeps its row); persist via $.store if missed.
-const outputs = new Map<string, { exitCode: number; head: string; more: number }>()
+const outputs = new Map<string, { end: string; text: string; tail: string; more: number }>()
 const SHOWN = 20
+// shortcut: output past 4 MB is dropped from the card and the copy, like $.process.run's cap; page it if a run needs more.
+const CAP = 4_000_000
+// Blocks whose output Hide took off the card; the block still counts as run.
+const hidden = new Set<string>()
 
 async function press($: EngineInterface, cmd: string, block: string) {
-  if (running.has(block)) return
-  if (!armed.has(block)) {
+  const run = live.get(block)
+  if (run) {
+    stopped.add(block)
+    void run.return(undefined as never)
+    return
+  }
+  // A block run once already had its look, so Run again goes at once.
+  if (!armed.has(block) && !outputs.has(block)) {
     const at = ++presses
     armed.set(block, at)
     $.ui.invalidate('ui.render')
@@ -117,26 +136,53 @@ async function press($: EngineInterface, cmd: string, block: string) {
     return
   }
   armed.delete(block)
-  running.add(block)
-  $.ui.invalidate('ui.render')
-  try {
-    await shell($, cmd, block)
-  } finally {
-    running.delete(block)
-    $.ui.invalidate('ui.render')
-  }
+  await shell($, cmd, block)
 }
 
-// shortcut: $.process.run's limits: output only at exit, no TTY, no ctrl+c, 10 min cap; a long or interactive command needs a typed `!`.
+// shortcut: no TTY and no input, so an interactive command waits until Stop; a typed `!` handles those.
 async function shell($: EngineInterface, cmd: string, block: string) {
-  const r = await $.process
-    .run(['bash', '-c', cmd], { timeoutMs: 600_000 })
-    .catch(err => ({ exitCode: 1, stdout: '', stderr: `${err instanceof Error ? err.message : err}` }))
-  const stdout = r.stdout.trimEnd()
-  const stderr = r.stderr.trimEnd()
-  // Split once here, not per draw: a render runs on every scroll. Colour codes and \r would garble the chat.
-  const lines = [stdout, stderr].filter(Boolean).join('\n').replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\r/g, '').split('\n')
-  outputs.set(block, { exitCode: r.exitCode, head: lines.slice(0, SHOWN).join('\n'), more: Math.max(lines.length - SHOWN, 0) })
+  const run = $.process.spawn({ argv: ['bash', '-c', cmd] })
+  live.set(block, run)
+  stopped.delete(block)
+  hidden.delete(block)
+  const got = { stdout: '', stderr: '' }
+  let all = ''
+  // Lines split here, not per draw: a render runs on every scroll. Colour codes and \r would garble the chat.
+  const show = (end: string) => {
+    const lines = all.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\r/g, '').trimEnd().split('\n')
+    outputs.set(block, { end, text: lines.join('\n'), tail: lines.slice(-SHOWN).join('\n'), more: Math.max(lines.length - SHOWN, 0) })
+    $.ui.invalidate('ui.render')
+  }
+  show('')
+  // At most one redraw per 100 ms, so a chatty command cannot flood the screen.
+  let due = false
+  let end = ''
+  try {
+    for await (const { stream, text } of run) {
+      if (got[stream].length < CAP) got[stream] += text
+      if (all.length < CAP) all += text
+      if (due) continue
+      due = true
+      void $.clock.after(100, () => {
+        due = false
+        if (live.get(block) === run) show('')
+      })
+    }
+    const r = await run.result
+    end = stopped.has(block) ? 'stopped' : r.code ? `exit ${r.code}` : r.signal ? `killed (${r.signal})` : ''
+  } catch (err) {
+    if (stopped.has(block)) end = 'stopped'
+    else {
+      end = 'exit 1'
+      all += `${all ? '\n' : ''}${err instanceof Error ? err.message : err}`
+    }
+  } finally {
+    live.delete(block)
+  }
+  show(end)
+  const stdout = got.stdout.trimEnd()
+  // Claude cannot tell a Stop from a quiet success by the output alone.
+  const stderr = [got.stderr.trimEnd(), end === 'stopped' ? '(stopped by the user)' : ''].filter(Boolean).join('\n')
   // The row a typed `!` command leaves, so Claude reads the output next turn.
   const row = await $.session.append({ message: { type: 'user', content: [{ type: 'text',
     text: `<bash-input>${cmd}</bash-input>\n<bash-stdout>${stdout.slice(0, 30_000)}</bash-stdout><bash-stderr>${stderr.slice(0, 30_000)}</bash-stderr>` }] } })
@@ -237,7 +283,7 @@ export const register: Register = on => {
     }
     if (rules) note(e.requestId, 'split', { split: true, rules, chunks: parts.length - rules, columns: e.viewport?.columns ?? 80, first: !!e.props.isFirstOfReply })
     else note(e.requestId, codes ? 'fenced' : 'linked', { split: false, reason: codes ? 'code blocks' : 'file links', codes, links: found.filter(f => f?.size).length })
-    const { Box, Text, Markdown, Button } = $.ui.resolve(e)
+    const { Box, Text, Markdown, Button, Code } = $.ui.resolve(e)
     // The engine indents only the block that draws the bullet, so later chunks take its two columns here.
     const indent = e.props.isFirstOfReply ? 2 : 0
     const room = Math.max((e.viewport?.columns ?? 80) - indent - 2, 4)
@@ -253,35 +299,76 @@ export const register: Register = on => {
       } else if ('code' in p) {
         const { lang, body } = p.code
         const cmd = runText(lang, body)
-        const lines = body.split('\n').length
         const block = `${e.requestId}:${i}`
-        const key = `copy:${block}`
         const ran = outputs.get(block)
-        rows.push(
-          <Box paddingLeft={indent} paddingRight={2} justifyContent="space-between">
-            <Box columnGap={3}>
-              {cmd ? (
-                <Button
-                  key={`run:${block}`}
-                  label={running.has(block) ? '■ Running…' : armed.has(block) ? '▶ Run? click again' : ran ? '▶ Run again' : '▶ Run'}
-                  plain
-                  dimColor={!armed.has(block)}
-                  onPress={() => void press($, cmd, block).catch(() => undefined)}
-                />
-              ) : null}
-              <Button key={key} label={copied.has(key) ? '✓ Copied' : '⧉ Copy'} plain dimColor onPress={press => void copy($, key, body, press.surface).catch(() => undefined)} />
+        const shown = ran && !hidden.has(block)
+        const output = shown ? [ran.more ? `… ${ran.more} earlier lines` : '', ran.tail].filter(Boolean).join('\n') : ''
+        const edge = cmd ? 'bashBorder' : 'promptBorder'
+        // Every edge drawn here at a fixed width: a mod's Box cannot drop one border side or overlap it.
+        const line = (left: string, right: string, label: any, end: any) => (
+          <Box>
+            <Text color={edge}>{left}</Text>
+            {label}
+            <Box width={1} flexGrow={1} height={1} overflow="hidden">
+              <Text color={edge}>{'─'.repeat(400)}</Text>
             </Box>
-            <Text dimColor>{`${lang ? `${lang} · ` : ''}${lines} line${lines === 1 ? '' : 's'}`}</Text>
+            {end}
+            <Text color={edge}>{right}</Text>
+          </Box>
+        )
+        const side = (content: any, k: string) => (
+          <Box key={k} width={room}>
+            <Text color={edge}>{'│ '}</Text>
+            <Box width={room - 4}>{content}</Box>
+            <Text color={edge}>{' │'}</Text>
+          </Box>
+        )
+        const copyButton = (k: string, text: string) => (
+          <Button key={k} plain onPress={p => void copy($, k, text, p.surface).catch(() => undefined)}>
+            <Text color={copied.has(k) ? 'success' : 'text'}>{copied.has(k) ? '✓ Copied' : '⧉ Copy'}</Text>
+          </Button>
+        )
+        const runLabel = live.has(block) ? '■ Stop' : armed.has(block) ? '▶ Run? click again' : ran ? '▶ Run again' : '▶ Run'
+        const runColor = live.has(block) ? 'error' : armed.has(block) ? 'warning' : 'success'
+        rows.push(
+          <Box marginLeft={indent} marginTop={1} flexDirection="column" width={room}>
+            {line(
+              lang ? '╭─ ' : '╭─',
+              ' ─╮',
+              lang ? <Box><Text color="subtle">{lang}</Text><Text>{' '}</Text></Box> : null,
+              <Box>
+                <Text>{' '}</Text>
+                {cmd ? (
+                  <Box>
+                    <Button key={`run:${block}`} plain onPress={() => void press($, cmd, block).catch(() => undefined)}>
+                      <Text color={runColor}>{runLabel}</Text>
+                    </Button>
+                    <Text color={edge}>{' │ '}</Text>
+                  </Box>
+                ) : null}
+                {copyButton(`copy:${block}`, body)}
+              </Box>,
+            )}
+            {body.split('\n').map((l, n) => side(<Code source={l || ' '} language={lang || undefined} wrap="truncate-end" />, `c${n}`))}
+            {shown
+              ? line(
+                  '├─ ',
+                  ' ─┤',
+                  <Box><Text color="subtle">{ran.end ? `output · ${ran.end}` : 'output'}</Text><Text>{' '}</Text></Box>,
+                  <Box>
+                    <Text>{' '}</Text>
+                    <Button key={`hide:${block}`} plain onPress={() => { hidden.add(block); $.ui.invalidate('ui.render') }}>
+                      <Text color="error">{'✕ Hide'}</Text>
+                    </Button>
+                    <Text color={edge}>{' │ '}</Text>
+                    {copyButton(`copyout:${block}`, ran.text)}
+                  </Box>,
+                )
+              : null}
+            {output ? output.split('\n').map((l, n) => side(<Text wrap="truncate-end">{l || ' '}</Text>, `o${n}`)) : null}
+            {line('╰', '╯', null, null)}
           </Box>,
         )
-        if (ran)
-          rows.push(
-            <Box paddingLeft={indent} flexDirection="column">
-              {ran.head ? <Text dimColor>{ran.head}</Text> : null}
-              {ran.more ? <Text dimColor>{`… ${ran.more} more lines`}</Text> : null}
-              {ran.exitCode ? <Text color="warning">{`exit ${ran.exitCode}`}</Text> : null}
-            </Box>,
-          )
       } else {
         // Awaited on a linked chunk too: hooks beneath (panel's in-view tracking) still see it.
         let drawn = await next({ ...e, props: { ...e.props, text: p.text, isFirstOfReply: isFirst } })
