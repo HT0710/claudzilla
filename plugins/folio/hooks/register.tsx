@@ -109,7 +109,7 @@ const armed = new Map<string, number>()
 const live = new Map<string, ReturnType<EngineInterface['process']['spawn']>>()
 const stopped = new Set<string>()
 // Each block's last run, by block. shortcut: in memory, so a restart drops it (Claude keeps its row); persist via $.store if missed.
-const outputs = new Map<string, { end: string; text: string; tail: string; more: number }>()
+const outputs = new Map<string, { end: string; text: string; tail: Span[][]; more: number }>()
 const SHOWN = 20
 // shortcut: output past 4 MB is dropped from the card and the copy, like $.process.run's cap; page it if a run needs more.
 const CAP = 4_000_000
@@ -139,18 +139,77 @@ async function press($: EngineInterface, cmd: string, block: string) {
   await shell($, cmd, block)
 }
 
+type Paint = { color?: string; backgroundColor?: string; bold?: boolean; dimColor?: boolean; italic?: boolean; underline?: boolean; inverse?: boolean; strikethrough?: boolean }
+type Span = { text: string; paint: Paint }
+const CSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g
+const SGR = /\x1b\[([0-9;]*)m/g
+const plain = (s: string) => s.replace(CSI, '').replace(/\r/g, '')
+const NAMES = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']
+const hex = (...rgb: number[]) => `#${rgb.map(v => (v & 255).toString(16).padStart(2, '0')).join('')}`
+// The 16 base colours by name, so they follow the terminal's palette; the rest as xterm's hex.
+function c256(n: number) {
+  if (n < 16) return n < 8 ? NAMES[n] : `${NAMES[n - 8]}Bright`
+  if (n >= 232) return hex(...Array(3).fill(8 + 10 * (n - 232)))
+  const level = [0, 95, 135, 175, 215, 255]
+  return hex(level[Math.floor((n - 16) / 36)]!, level[Math.floor((n - 16) / 6) % 6]!, level[(n - 16) % 6]!)
+}
+const OFF: Record<number, (keyof Paint)[]> = { 22: ['bold', 'dimColor'], 23: ['italic'], 24: ['underline'], 27: ['inverse'], 29: ['strikethrough'], 39: ['color'], 49: ['backgroundColor'] }
+const ON: Record<number, keyof Paint> = { 1: 'bold', 2: 'dimColor', 3: 'italic', 4: 'underline', 7: 'inverse', 9: 'strikethrough' }
+// One SGR sequence's codes over the running style; codes it does not know are skipped.
+function sgr(was: Paint, params: string): Paint {
+  const c = (params || '0').split(';').map(Number)
+  let p: Paint = { ...was }
+  for (let i = 0; i < c.length; i++) {
+    const n = c[i]!
+    const key = n === 38 ? 'color' : n === 48 ? 'backgroundColor' : undefined
+    if (n === 0) p = {}
+    else if (ON[n]) (p as any)[ON[n]] = true
+    else if (OFF[n]) for (const k of OFF[n]) delete p[k]
+    else if (n >= 30 && n <= 37) p.color = c256(n - 30)
+    else if (n >= 90 && n <= 97) p.color = c256(n - 82)
+    else if (n >= 40 && n <= 47) p.backgroundColor = c256(n - 40)
+    else if (n >= 100 && n <= 107) p.backgroundColor = c256(n - 92)
+    else if (key && c[i + 1] === 5) {
+      p[key] = c256(c[i + 2]! & 255)
+      i += 2
+    } else if (key && c[i + 1] === 2) {
+      p[key] = hex(c[i + 2]!, c[i + 3]!, c[i + 4]!)
+      i += 4
+    }
+  }
+  return p
+}
+
 // shortcut: no TTY and no input, so an interactive command waits until Stop; a typed `!` handles those.
 async function shell($: EngineInterface, cmd: string, block: string) {
-  const run = $.process.spawn({ argv: ['bash', '-c', cmd] })
+  // Tools print colour without a terminal only when told to; GNU ls, grep and git still need --color.
+  const run = $.process.spawn({ argv: ['bash', '-c', cmd], env: { FORCE_COLOR: '1', CLICOLOR_FORCE: '1' } })
   live.set(block, run)
   stopped.delete(block)
   hidden.delete(block)
   const got = { stdout: '', stderr: '' }
   let all = ''
-  // Lines split here, not per draw: a render runs on every scroll. Colour codes and \r would garble the chat.
+  // Lines split here, not per draw: a render runs on every scroll. Codes other than colour and \r would garble the chat.
   const show = (end: string) => {
-    const lines = all.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\r/g, '').trimEnd().split('\n')
-    outputs.set(block, { end, text: lines.join('\n'), tail: lines.slice(-SHOWN).join('\n'), more: Math.max(lines.length - SHOWN, 0) })
+    const text = plain(all).trimEnd()
+    const lines = text ? text.split('\n') : []
+    const from = Math.max(lines.length - SHOWN, 0)
+    // A code never holds a newline, so raw and plain lines pair up.
+    const raw = all.replace(/\r/g, '').split('\n').slice(0, lines.length)
+    let paint: Paint = {}
+    for (const l of raw.slice(0, from)) for (const m of l.matchAll(SGR)) paint = sgr(paint, m[1]!)
+    const tail = raw.slice(from).map(l => {
+      const spans: Span[] = []
+      let at = 0
+      for (const m of l.matchAll(CSI)) {
+        if (m.index > at) spans.push({ text: l.slice(at, m.index), paint })
+        if (m[0].endsWith('m')) paint = sgr(paint, m[0].slice(2, -1))
+        at = m.index + m[0].length
+      }
+      if (at < l.length) spans.push({ text: l.slice(at), paint })
+      return spans
+    })
+    outputs.set(block, { end, text, tail, more: from })
     $.ui.invalidate('ui.render')
   }
   show('')
@@ -180,9 +239,9 @@ async function shell($: EngineInterface, cmd: string, block: string) {
     live.delete(block)
   }
   show(end)
-  const stdout = got.stdout.trimEnd()
+  const stdout = plain(got.stdout).trimEnd()
   // Claude cannot tell a Stop from a quiet success by the output alone.
-  const stderr = [got.stderr.trimEnd(), end === 'stopped' ? '(stopped by the user)' : ''].filter(Boolean).join('\n')
+  const stderr = [plain(got.stderr).trimEnd(), end === 'stopped' ? '(stopped by the user)' : ''].filter(Boolean).join('\n')
   // The row a typed `!` command leaves, so Claude reads the output next turn.
   const row = await $.session.append({ message: { type: 'user', content: [{ type: 'text',
     text: `<bash-input>${cmd}</bash-input>\n<bash-stdout>${stdout.slice(0, 30_000)}</bash-stdout><bash-stderr>${stderr.slice(0, 30_000)}</bash-stderr>` }] } })
@@ -302,7 +361,7 @@ export const register: Register = on => {
         const block = `${e.requestId}:${i}`
         const ran = outputs.get(block)
         const shown = ran && !hidden.has(block)
-        const output = shown ? [ran.more ? `… ${ran.more} earlier lines` : '', ran.tail].filter(Boolean).join('\n') : ''
+        const output: Span[][] = shown ? [...(ran.more ? [[{ text: `… ${ran.more} earlier lines`, paint: {} }]] : []), ...ran.tail] : []
         const edge = cmd ? 'bashBorder' : 'promptBorder'
         // Every edge drawn here at a fixed width: a mod's Box cannot drop one border side or overlap it.
         const line = (left: string, right: string, label: any, end: any) => (
@@ -365,7 +424,9 @@ export const register: Register = on => {
                   </Box>,
                 )
               : null}
-            {output ? output.split('\n').map((l, n) => side(<Text wrap="truncate-end">{l || ' '}</Text>, `o${n}`)) : null}
+            {output.map((l, n) =>
+              side(<Text wrap="truncate-end">{l.length ? l.map(s => (Object.keys(s.paint).length ? <Text {...s.paint}>{s.text}</Text> : s.text)) : ' '}</Text>, `o${n}`),
+            )}
             {line('╰', '╯', null, null)}
           </Box>,
         )
