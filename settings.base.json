@@ -155,6 +155,7 @@
   "verbose": false,
   "preferredNotifChannel": "auto",
   "autoCompactEnabled": true,
+  "idleCompaction": false,
   "remoteControlAtStartup": false,
   "agentPushNotifEnabled": true,
   "useAutoModeDuringPlan": true,
