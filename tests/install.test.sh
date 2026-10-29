@@ -858,4 +858,13 @@ check "ponytail: unreadable record never re-hides the band" [ ! -e "$P6/.claude/
 P7=$(new_home); mkdir -p "$P7/.claude"; echo '{"pluginConfigs":{"ponytail@ponytail":{"options":1}}}' > "$P7/.claude/settings.json"; inst "$P7" --remove rtk
 check "ponytail: odd pluginConfigs leaves the band alone" [ ! -e "$P7/.claude/.ponytail-band" ]
 
+# --- v1.5 plugin ids in settings and on uninstall ---
+O=$(new_home); seedbase "$O"; echo '{"enabledPlugins":{"picks@claudzilla":false},"pluginConfigs":{"panel@claudzilla":{"options":{"intent":false}}}}' > "$O/.claude/settings.json"; inst "$O"
+check "old ids: panel's options move to margin" [ "$(q "$O/.claude/settings.json" '.pluginConfigs["margin@claudzilla"]')" = '{"options":{"intent":false}}' ]
+check "old ids: no old key left in settings" bash -c "! grep -qE '\"(panel|picks)@claudzilla\"' '$O/.claude/settings.json'"
+S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S" --uninstall --yes
+check "old ids: uninstall removes a leftover panel" grep -q 'plugin uninstall panel@claudzilla' "$S/log"
+K=$(new_home); seedbase "$K"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+g":"command:claudzilla"}}]}' > "$K/.claude/keybindings.json"; inst "$K" --uninstall --yes
+check "old ids: uninstall says the guide key is removed, not moved" bash -c "grep -q 'alt+g removed' '$K/install.log' && ! grep -q 'alt+g -> alt+q' '$K/install.log'"
+
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
