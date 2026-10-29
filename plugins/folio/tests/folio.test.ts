@@ -483,6 +483,13 @@ test('a shell card breaks a long line into rows, so every character Run runs sho
   expect(rows.join('')).toBe(long)
 })
 
+test('a shell card still draws on a terminal too narrow for its text', async ($, on) => {
+  fenced(on)
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'AssistantMessage', requestId: 'r16',
+    props: { text: '```bash\necho hi\n```', isFirstOfReply: true }, viewport: { columns: 8, rows: 20 } })
+  expect((await ui.findAll({ type: 'Code' })).map((c: any) => c.props.source).join('')).toBe('echo hi')
+})
+
 test('output shows while the command runs, and Stop ends it', async ($, on) => {
   const clock = fenced(on).clock
   const gate = slow(on)
