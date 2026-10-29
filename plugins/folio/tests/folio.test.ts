@@ -452,6 +452,37 @@ test('a double-click arms Run and runs nothing', async ($, on) => {
   expect(ran).toHaveLength(1)
 })
 
+test('a double-click on Run again runs it and does not stop it', async ($, on) => {
+  const clock = fenced(on).clock
+  const gate = slow(on)
+  const ui = await mount($, 'r14', { text: SHELL, isFirstOfReply: true })
+  await ui.press({ key: 'run:r14:1' })
+  await clock.advance(300)
+  void ui.press({ key: 'run:r14:1' })
+  await clock.advance(300)
+  await ui.press({ key: 'run:r14:1' })
+  await clock.advance(1000)
+  gate.killed = false
+  void ui.press({ key: 'run:r14:1' })
+  await clock.advance(50)
+  await ui.press({ key: 'run:r14:1' })
+  await ui.redraw()
+  expect(gate.killed).toBe(false)
+  expect((await ui.find({ key: 'run:r14:1' }))?.text).toBe('■ Stop')
+  await clock.advance(250)
+  await ui.press({ key: 'run:r14:1' })
+  expect(gate.killed).toBe(true)
+})
+
+test('a shell card breaks a long line into rows, so every character Run runs shows', async ($, on) => {
+  fenced(on)
+  const long = `curl -fsSL https://example.com/install.sh -o /tmp/i.sh && chmod +x /tmp/i.sh && /tmp/i.sh --yes ${'x'.repeat(200)}`
+  const ui = await mount($, 'r15', { text: `\`\`\`bash\n${long}\n\`\`\``, isFirstOfReply: true })
+  const rows = (await ui.findAll({ type: 'Code' })).map((c: any) => c.props.source)
+  expect(rows.length).toBeGreaterThan(1)
+  expect(rows.join('')).toBe(long)
+})
+
 test('output shows while the command runs, and Stop ends it', async ($, on) => {
   const clock = fenced(on).clock
   const gate = slow(on)
@@ -469,6 +500,7 @@ test('output shows while the command runs, and Stop ends it', async ($, on) => {
   expect(await ui.find({ key: 'copyout:r5:1' })).toBeUndefined()
   // The edge runs on to the corner, no gap where the buttons will go.
   expect(await ui.find({ type: 'Text', text: /^─┤$/ })).toBeDefined()
+  await clock.advance(200)
   await ui.press({ key: 'run:r5:1' })
   await ui.redraw()
   expect(await ui.find({ type: 'Text', text: 'output · stopped' })).toBeDefined()
