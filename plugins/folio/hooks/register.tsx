@@ -119,14 +119,14 @@ const CAP = 4_000_000
 const hidden = new Set<string>()
 
 async function press($: EngineInterface, cmd: string, block: string) {
+  const now = await $.clock.now()
+  if (now < (deaf.get(block) ?? 0)) return
   const run = live.get(block)
   if (run) {
     stopped.add(block)
     void run.return(undefined as never)
     return
   }
-  const now = await $.clock.now()
-  if (now < (deaf.get(block) ?? 0)) return
   // A block run once already had its look, so Run again goes at once.
   if (!armed.has(block) && !outputs.has(block)) {
     const at = ++presses
@@ -141,6 +141,8 @@ async function press($: EngineInterface, cmd: string, block: string) {
     return
   }
   armed.delete(block)
+  // The click after a run starts is a double-click, not a Stop.
+  deaf.set(block, now + 300)
   await shell($, cmd, block)
 }
 
@@ -202,6 +204,14 @@ function paintLine(line: string, paint: Paint): [Span[], Paint] {
   put(l.slice(at))
   return [spans, paint]
 }
+// A Run card shows every character it runs: a cut line could hide part of the command.
+// shortcut: counts code points, so a line of wide glyphs still cuts; measure cells if one shows up.
+const cut = (body: string, width: number) =>
+  body.split('\n').flatMap(l => {
+    const cs = Array.from(l)
+    return cs.length <= width ? [l] : Array.from({ length: Math.ceil(cs.length / width) }, (_, i) => cs.slice(i * width, (i + 1) * width).join(''))
+  })
+
 const text = (spans: Span[]) => spans.map(s => s.text).join('')
 const plain = (s: string) => s.split('\n').map(l => text(paintLine(l, {})[0])).join('\n')
 
@@ -440,7 +450,7 @@ export const register: Register = on => {
                 {copyButton(`copy:${block}`, body)}
               </Box>,
             )}
-            {body.split('\n').map((l, n) => side(<Code source={l || ' '} language={lang || undefined} wrap="truncate-end" />, `c${n}`))}
+            {(cmd ? cut(body, room - 4) : body.split('\n')).map((l, n) => side(<Code source={l || ' '} language={lang || undefined} wrap="truncate-end" />, `c${n}`))}
             {shown
               ? line(
                   '├─ ',
