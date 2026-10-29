@@ -155,7 +155,8 @@ export function replyAt(tail: string): number | undefined {
     } catch {
       continue
     }
-    if (e?.type !== 'assistant' || e.isSidechain) continue
+    // A synthetic line (an API error) never reached the cache.
+    if (e?.type !== 'assistant' || e.isSidechain || !e.message?.usage) continue
     const at = Date.parse(e.timestamp)
     return Number.isNaN(at) ? undefined : at
   }
