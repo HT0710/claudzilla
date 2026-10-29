@@ -46,7 +46,7 @@ link() {  # $DEST/$1 -> $REPO/claude/$1
 merge_settings() {  # $1: base to apply
   local base="$1" dst="$DEST/settings.json" tmp="$DEST/.settings.json.claudzilla" rec="$DEST/.claudzilla-base.json"
   node -e '
-const fs=require("fs"),[base,dst,out,over,rec]=process.argv.slice(1);
+const fs=require("fs"),[base,dst,out,over,rec,ids]=process.argv.slice(1);
 const read=p=>fs.existsSync(p)?JSON.parse(fs.readFileSync(p,"utf8")):{};
 const isObj=v=>v&&typeof v=="object"&&!Array.isArray(v);
 const canon=v=>JSON.stringify(v,(k,x)=>isObj(x)?Object.fromEntries(Object.keys(x).sort().map(k=>[k,x[k]])):x);
@@ -67,8 +67,11 @@ const prune=(mine,old,repo)=>{
   return mine};
 let old=null;try{old=JSON.parse(fs.readFileSync(rec,"utf8"))}catch{}
 const b=read(base),d=read(dst);
+// v1.5 plugin ids: Claude Code moves their settings only while the old id is enabled, and the prune below drops it first
+for(const o of [d.enabledPlugins,d.pluginConfigs])if(isObj(o))for(const r of ids.split(" ")){const[a,n]=r.split(":").map(x=>x+"@claudzilla");
+  if(a in o){if(!(n in o))o[n]=o[a];delete o[a]}}
 fs.writeFileSync(out,JSON.stringify(merge(merge(old?prune(d,old,b):d,b),read(over)),null,2)+"\n")' \
-    "$base" "$dst" "$tmp" "$DEST/settings.overrides.json" "$rec"
+    "$base" "$dst" "$tmp" "$DEST/settings.overrides.json" "$rec" "$OLD_IDS"
   if [ -f "$dst" ] && cmp -s "$tmp" "$dst"; then rm -f "$tmp"
   else
     [ -f "$dst" ] && save settings.json
@@ -270,7 +273,7 @@ const keys=[["o","command:margin-overview","margin"],["h","command:margin-histor
 for(const b of j.bindings)if(["Chat","Global"].includes(b.context))for(const x in b.bindings)if(b.bindings[x]==="command:panel"){b.bindings[x]="command:margin";msg.push(`${x} -> command:margin`)}
 const A=b=>b.bindings;for(const b of chat){if(A(b)["alt+h"]==="command:margin"){A(b)["alt+h"]="command:margin-history";msg.push("alt+h -> command:margin-history")}
   // alt+q judged by key only: the action-on-another-key rule would always hold while alt+g keeps the guide
-  if(A(b)["alt+g"]==="command:claudzilla"&&(!has("primer")||!j.bindings.some(c=>["Chat","Global"].includes(c.context)&&Object.keys(c.bindings).some(x=>/^(alt|opt|option|meta)\+q$/i.test(x))))){delete A(b)["alt+g"];msg.push("alt+g -> alt+q")}}
+  if(A(b)["alt+g"]==="command:claudzilla"&&(!has("primer")||!j.bindings.some(c=>["Chat","Global"].includes(c.context)&&Object.keys(c.bindings).some(x=>/^(alt|opt|option|meta)\+q$/i.test(x))))){delete A(b)["alt+g"];msg.push(has("primer")?"alt+g -> alt+q":"alt+g removed")}}
 for(const[k,a,p]of keys)if(!has(p))for(const b of chat)if(b.bindings[`alt+${k}`]===a){delete b.bindings[`alt+${k}`];msg.push(`alt+${k} removed`)}
 j.bindings=j.bindings.filter(b=>b.context!=="Chat"||Object.keys(b.bindings).length||!msg.length);
 const own=(k,a)=>j.bindings.some(b=>(["Chat","Global"].includes(b.context)&&Object.keys(b.bindings).some(x=>new RegExp(`^(alt|opt|option|meta)\\+${k}$`,"i").test(x)))||Object.values(b.bindings).includes(a));
@@ -598,7 +601,8 @@ uninstall() {
   k="claudzilla"; for v in $(node -p 'try{(require(process.argv[1]).marketplaces||[]).join(" ")}catch{""}' "$rec" 2>/dev/null); do [ "$v" = claude-plugins-official ] || k="$k $v"; done
   if [ "$OFFLINE" != 1 ] && command -v claude >/dev/null; then
     v="$(unrecorded_plugins "$ids" "$k")"; [ -z "$v" ] || lo="$v"$'\n'
-    for v in $ids; do claude plugin uninstall "$v" >/dev/null 2>&1 </dev/null || true; done
+    # v1.5 ids too: a failed rename keeps the old one installed
+    for v in $ids $(for o in $OLD_IDS; do printf '%s@claudzilla ' "${o%%:*}"; done); do claude plugin uninstall "$v" >/dev/null 2>&1 </dev/null || true; done
     for v in $k; do claude plugin marketplace remove "$v" >/dev/null 2>&1 </dev/null || true; done
   else
     for v in $ids; do cl="$cl  claude plugin uninstall $v"$'\n'; done
