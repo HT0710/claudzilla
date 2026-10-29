@@ -866,5 +866,10 @@ S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S" --uninstall --yes
 check "old ids: uninstall removes a leftover panel" grep -q 'plugin uninstall panel@claudzilla' "$S/log"
 K=$(new_home); seedbase "$K"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+g":"command:claudzilla"}}]}' > "$K/.claude/keybindings.json"; inst "$K" --uninstall --yes
 check "old ids: uninstall says the guide key is removed, not moved" bash -c "grep -q 'alt+g removed' '$K/install.log' && ! grep -q 'alt+g -> alt+q' '$K/install.log'"
+v15() { mkdir -p "$1/.claude"; local s='{"enabledPlugins":{"panel@claudzilla":true,"picks@claudzilla":true}}'; echo "$s" > "$1/.claude/.claudzilla-base.json"; echo "$s" > "$1/.claude/settings.json"; }   # a v1.5 install's record and settings
+V5=$(new_home); v15 "$V5"; inst "$V5" --remove margin
+check "old ids: an unpicked renamed plugin is not left enabled" [ "$(q "$V5/.claude/settings.json" '.enabledPlugins["margin@claudzilla"]')" = undefined ]
+V6=$(new_home); v15 "$V6"; inst "$V6" --uninstall --yes
+check "old ids: uninstall from v1.5 leaves no claudzilla plugin enabled" bash -c "! grep -q '@claudzilla' '$V6/.claude/settings.json'"
 
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
