@@ -256,7 +256,7 @@ If you installed the margin, the `⟲ rewind` button on its History tab opens th
 
 **Use git as the safety net.** Checkpoints are for quick recovery in one session; git keeps history for good. When you work with Claude step by step, it leaves its changes uncommitted until you say `commit`, so say it when a step works.
 
-**Discard work.** A command that throws away uncommitted work, such as `git reset --hard`, `git clean -f`, `git checkout -- <file>`, `git restore <file>` or `git stash drop`, stops at a permission prompt. The prompt lists what the command would lose, such as the changed files or the stash entry. Pick Yes to run it, or No to stop Claude. You can also run a command yourself: type it at the prompt after `!`, for example `! git restore src/app.py`.
+**Discard work.** A command that throws away uncommitted work, such as `git reset --hard`, `git clean -f`, `git checkout -- <file>`, `git restore <file>` or `git stash drop`, stops at a permission prompt. The prompt lists what the command would lose, such as the changed files or the stash entry. If an earlier command in the same line could change that list, the prompt says `could not check` instead. Pick Yes to run it, or No to stop Claude. You can also run a command yourself: type it at the prompt after `!`, for example `! git restore src/app.py`.
 
 > **Not checked:** a `!` command runs directly, without going through Claude, so the guard does not check it.
 
