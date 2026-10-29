@@ -14,7 +14,8 @@ exit 0 unless $in =~ /<br|TL;DR|---|```|~~~/i || ($sf && -e $sf);
 my $d = eval { decode_json($in) } or exit 0;
 my $t = $d->{delta} // '';
 
-# Per-message state across batches: o = frame open, c = closer drawn, f/t = in ``` / ~~~ fence, p = separator due after line end.
+# Per-message state across batches: o = frame open, c = closer drawn, f/t = in ``` / ~~~ fence, p = separator due after line end,
+# e = nothing shown since that separator (Picks/Next then skip theirs, so two lines never stack).
 my %s;
 if ($sf && open my $fh, '<', $sf) { %s = map { $_ => 1 } split //, <$fh> // ''; }
 # COLUMNS is the whole terminal; folio writes the chat's width, narrower while the margin docks.
@@ -33,15 +34,16 @@ for (split /^/m, $t) {
   elsif ($s{f} || $s{t}) { }
   elsif (/^\|/) { s{<br\s*/?>}{ · }gi; }
   elsif (/^\*\*TL;DR\*\*/ && $sf && !$s{o}) { $_ = "$heavy\n\n$_"; @s{qw(o p)} = (1, 1); $opened = 1; }
-  elsif (/^\*\*(Picks|Next):\*\*/ && $s{o} && !$s{c}) { $_ = "\n$sep\n\n$_"; $s{c} = 1; $closed = 1; }
+  elsif (/^\*\*(Picks|Next):\*\*/ && $s{o} && !$s{c}) { $_ = "\n$sep\n\n$_" unless $s{e}; $s{c} = 1; $closed = 1; }
   elsif (/^\s*-{3,}\s*$/) { $_ = "\n$group\n\n"; $groups++; }
-  if ($s{p} && /\n\z/) { $_ .= "\n$sep\n\n"; $s{p} = 0; }
+  $s{e} = 0 if /\S/;
+  if ($s{p} && /\n\z/) { $_ .= "\n$sep\n\n"; @s{qw(p e)} = (0, 1); }
   $o .= $_;
 }
 $o .= ($o =~ /\n\z/ ? "\n" : "\n\n") . "$heavy\n" if $d->{final} && $s{o};
 
 if ($sf) {
-  my $keep = join '', grep { $s{$_} } qw(o c f t p);
+  my $keep = join '', grep { $s{$_} } qw(o c f t p e);
   if ($d->{final} || !$keep) { unlink $sf; }
   else { mkdir $dir; if (open my $fh, '>', $sf) { print $fh $keep; } }
 }
