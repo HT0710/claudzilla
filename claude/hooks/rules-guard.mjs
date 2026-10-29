@@ -613,6 +613,15 @@ function expand(cmd, depth = 0) {
 const NOT_CHECK = new Set(["cat", "echo", "printf", "cd"]);
 const isCheck = (t) => t[0] !== "git" && t[0] !== "gh" && !NOT_CHECK.has(t[0]);
 const READ_GIT = new Set(["status", "log", "diff", "show", "rev-parse", "ls-files", "describe", "blame", "grep", "shortlog"]);
+// A redirect into a file, not /dev/null or another fd (`2>&1` splits into `2>` and a lone `1`).
+const redirects = (t) => t.some((x, k) => x.includes(">") && !/^(\/dev\/null|\d*)$/.test(x.slice(x.indexOf(">")).replace(/^>+&?/, "") || t[k + 1] || ""));
+// Leaves the repo as it was, so the loss list still holds after it.
+function readOnly(t, cwd) {
+  if (redirects(t)) return false;
+  if (t[0] !== "git") return NOT_CHECK.has(t[0]) || /^\d+$/.test(t[0]) || t[0].startsWith(">");
+  const { sub, a } = gitParse(t, cwd);
+  return READ_GIT.has(sub) || (sub === "stash" && ["list", "show"].includes(a[0]));
+}
 function checkBash(cmd, cwd, s) {
   const hits = [], branches = new Map(), was = s.checked;
   let stale = false;
@@ -626,7 +635,7 @@ function checkBash(cmd, cwd, s) {
     }
     // Any other command counts as the check, even earlier in this same command line.
     else if (hasSkill(s, VERIFY) && !NOT_CHECK.has(t[0])) s.checked = true;
-    stale ||= !(NOT_CHECK.has(t[0]) || (t[0] === "git" && READ_GIT.has(gitParse(t, cwd).sub)));
+    stale ||= !readOnly(t, cwd);
   }
   // A denied command never ran, and a held one may not, so neither did its check.
   const denied = hits.some((h) => h.level === "deny");
