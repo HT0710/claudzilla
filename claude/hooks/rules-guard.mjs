@@ -467,12 +467,13 @@ function lostRemote(dir, a) {
 const prDescribes = (t) => t[2] === "create" || t.slice(3).some((x) => /^(?:--(?:title|body|body-file)(?:=|$)|-[tbF])/.test(x));
 
 // branches: repo root → { cur, prev } after `switch`/`checkout` earlier in the same command.
-function checkGit(t, cwd, cmd, s, hits, branches) {
+// stale: an earlier command in the line may change what this one loses, and the hook runs before all of them.
+function checkGit(t, cwd, cmd, s, hits, branches, stale) {
   const { dir, sub, a } = gitParse(t, cwd);
   if (!CHECKED.has(sub)) return;
   const { cfg } = loadConfig(dir);
   const hit = hitter(cfg, hits);
-  const held = (id, lost) => cfg.rules[id] === "ask" ? ASK[id] + lost() : WHY[id];
+  const held = (id, lost) => cfg.rules[id] === "ask" ? ASK[id] + (stale ? "\n  could not check: an earlier command in this line changes it" : lost()) : WHY[id];
   const discard = (cond) => hit("discard", cond && held("discard", () => lostWork(dir, sub, a)));
   const isBranch = (x) => gitOk(dir, "rev-parse", "--verify", "-q", `refs/heads/${x}`);
   const root = () => git(dir, "rev-parse", "--show-toplevel") || dir;
@@ -611,11 +612,13 @@ function expand(cmd, depth = 0) {
 // Text plumbing (a heredoc body, a piped message) and cd run no check.
 const NOT_CHECK = new Set(["cat", "echo", "printf", "cd"]);
 const isCheck = (t) => t[0] !== "git" && t[0] !== "gh" && !NOT_CHECK.has(t[0]);
+const READ_GIT = new Set(["status", "log", "diff", "show", "rev-parse", "ls-files", "describe", "blame", "grep", "shortlog"]);
 function checkBash(cmd, cwd, s) {
   const hits = [], branches = new Map(), was = s.checked;
+  let stale = false;
   for (const t of expand(cmd)) {
     if (t[0] === "cd" && t[1]) { cwd = resolve(cwd, t[1]); continue; }
-    if (t[0] === "git") checkGit(t, cwd, cmd, s, hits, branches);
+    if (t[0] === "git") checkGit(t, cwd, cmd, s, hits, branches, stale);
     else if (t[0] === "gh") {
       const pr = ghPr(t, cwd, cmd);
       if (pr) prGates(pr, cwd, cmd, s, hits);
@@ -623,6 +626,7 @@ function checkBash(cmd, cwd, s) {
     }
     // Any other command counts as the check, even earlier in this same command line.
     else if (hasSkill(s, VERIFY) && !NOT_CHECK.has(t[0])) s.checked = true;
+    stale ||= !(NOT_CHECK.has(t[0]) || (t[0] === "git" && READ_GIT.has(gitParse(t, cwd).sub)));
   }
   // A denied command never ran, and a held one may not, so neither did its check.
   const denied = hits.some((h) => h.level === "deny");

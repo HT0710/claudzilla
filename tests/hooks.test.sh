@@ -192,6 +192,10 @@ check "hold: reset to a ref counts commits" has "$(sh_ 'git reset --hard HEAD~1'
 $BG stash -q
 check "hold: nothing to lose says so" has "$(sh_ 'git reset --hard')" 'no uncommitted changes'
 check "hold: stash drop names the entry" has "$(sh_ 'git stash drop')" 'stash@{0}: WIP on main'
+out=$(sh_ 'git stash && git stash drop')
+check "hold: an earlier command in the line makes the list unknown" has "$out" 'could not check: an earlier command in this line changes it'
+check "hold: an earlier command in the line lists no stale entry" not has "$out" 'stash@{0}'
+check "hold: an earlier read-only git command keeps the list" has "$(sh_ 'git status && git reset --hard')" 'no uncommitted changes'
 for i in 1 2 3 4 5 6 7; do printf 1 > "c$i"; done; git add c*; $BG commit -qm many; for i in 1 2 3 4 5 6 7; do printf 2 > "c$i"; done
 check "hold: long list capped" has "$(sh_ 'git reset --hard')" '… 2 more'
 git remote add origin "$TMP/nowhere"; side=$($BG commit-tree -p HEAD -m remote-only 'HEAD^{tree}')
@@ -201,6 +205,7 @@ out=$(sh_ 'git push -f origin main')
 check "hold: force push -> ask" asked "$out"
 check "hold: force push lists remote commits it drops" has "$out" 'remote-only'
 check "hold: force push names the remote branch" has "$out" 'origin/main loses'
+check "hold: a fetch earlier in the line makes the force push list unknown" has "$(sh_ 'git fetch && git push -f origin main')" 'could not check: an earlier command in this line changes it'
 check "hold: force push to upstream lists its commits" has "$(sh_ 'git push --force')" 'remote-only'
 check "hold: unfetched remote branch says so" has "$(sh_ 'git push -f origin nope')" 'no fetched copy of origin/nope'
 check "hold: HEAD refspec is the current branch" has "$(sh_ 'git push -f origin HEAD')" 'origin/main loses'
