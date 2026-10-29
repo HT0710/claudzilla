@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import type { On } from 'claude-code'
 
-import { AUTO_MS, contextToast, crossed, due, EVERY_MS, FILL_MS, parse, ttlOf } from '../hooks/register'
+import { AUTO_MS, contextToast, crossed, due, EVERY_MS, FILL_MS, HOUR, parse, ttlOf } from '../hooks/register'
 
 const S = 1_000_000
 const ran = (exitCode: number, stdout: string) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -446,6 +446,26 @@ test('past 2x by default: 5 min before cold, still away, compacts and clears the
   box.text = '/claudzilla compact'
   await clock.advance(AUTO_MS - FILL_MS)
   expect(compacts).toEqual([undefined])
+  expect(fills).toEqual(['/claudzilla compact', ''])
+})
+
+test('a stage that fires once the cache is cold, as after sleep, fills and compacts nothing', async ($, on) => {
+  const { clock, toasts, fills, compacts } = idle(on, { transcript: reply(H1, { timestamp: new Date(NOW - 20 * 60_000).toISOString() }) })
+  await $.session.start(start)
+  await ctxMeasure($, L2)
+  await clock.advance(AUTO_MS)
+  expect(fills).toEqual([])
+  expect(compacts).toEqual([])
+  expect(cold(toasts)).toEqual([])
+})
+
+test('a fill still unsent when the cache goes cold is cleared', async ($, on) => {
+  const { clock, fills, box } = idle(on)
+  await $.session.start(start)
+  await ctxMeasure($, L1)
+  await clock.advance(FILL_MS)
+  box.text = '/claudzilla compact'
+  await clock.advance(HOUR - FILL_MS)
   expect(fills).toEqual(['/claudzilla compact', ''])
 })
 
