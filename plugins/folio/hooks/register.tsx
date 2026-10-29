@@ -205,9 +205,10 @@ function paintLine(line: string, paint: Paint): [Span[], Paint] {
   return [spans, paint]
 }
 // A Run card shows every character it runs: a cut line could hide part of the command.
-// shortcut: counts code points, so a line of wide glyphs still cuts; measure cells if one shows up.
-const cut = (body: string, width: number) =>
+// shortcut: counts code points, so a line of wide glyphs or tabs still cuts; measure cells if one shows up.
+const cut = (body: string, room: number) =>
   body.split('\n').flatMap(l => {
+    const width = Math.max(room, 1)
     const cs = Array.from(l)
     return cs.length <= width ? [l] : Array.from({ length: Math.ceil(cs.length / width) }, (_, i) => cs.slice(i * width, (i + 1) * width).join(''))
   })
