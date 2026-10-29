@@ -119,7 +119,7 @@ async function config($: EngineInterface, cwd: string): Promise<Config> {
 }
 
 // The prompt cache's 1h TTL. A 5m one is cold long before a stage could run.
-const HOUR = 3_600_000
+export const HOUR = 3_600_000
 export const FILL_MS = HOUR - 15 * 60_000
 export const AUTO_MS = HOUR - 5 * 60_000
 // The auto compact comes at this many times compactNudge (0 = never); the fill at 1x.
@@ -145,16 +145,39 @@ export function ttlOf(tail: string): number | undefined {
   return undefined
 }
 
-async function ttl($: EngineInterface, dir: string): Promise<number | undefined> {
+// When the newest main-chat reply landed: any reply, a cache read too, restarts the cache's hour.
+export function replyAt(tail: string): number | undefined {
+  for (const line of tail.split('\n').reverse()) {
+    if (!line.includes('"assistant"')) continue
+    let e: any
+    try {
+      e = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (e?.type !== 'assistant' || e.isSidechain) continue
+    const at = Date.parse(e.timestamp)
+    return Number.isNaN(at) ? undefined : at
+  }
+  return undefined
+}
+
+// Why a stage skips: not a 1h cache, or already cold (a timer that slept with the machine fires late).
+async function skip($: EngineInterface, dir: string): Promise<string | undefined> {
   const found = await $.process.run(['find', `${dir}/projects`, '-maxdepth', '2', '-name', `${await $.session.id()}.jsonl`])
   const path = found.stdout.split('\n')[0]
   // shortcut: the last 1 MB only; a newer main-chat line past that (one huge tool result) reads as no TTL, so no stage runs.
-  return path ? ttlOf((await $.process.run(['tail', '-c', '1000000', path])).stdout) : undefined
+  const tail = path ? (await $.process.run(['tail', '-c', '1000000', path])).stdout : ''
+  if (ttlOf(tail) !== HOUR) return 'ttl'
+  const at = replyAt(tail)
+  if (at !== undefined && (await $.clock.now()) - at >= HOUR) return 'cold'
+  return undefined
 }
 
 // Stage 1, 15 min before the cache goes cold: the person can still compact on the warm cache.
 async function coldFill($: EngineInterface, dir: string, auto: boolean) {
-  if ((await ttl($, dir)) !== HOUR) return t.event('cold.fill', { skip: 'ttl' }, 'debug')
+  const why = await skip($, dir)
+  if (why) return t.event('cold.fill', { skip: why }, 'debug')
   const box = await $.prompt.read()
   const filled = !box.text.trim() && (await $.prompt.fill({ text: FILL }).catch(() => ({ isFilled: false }))).isFilled
   t.event('cold.fill', { filled })
@@ -163,7 +186,8 @@ async function coldFill($: EngineInterface, dir: string, auto: boolean) {
 
 // Stage 2, past coldCompact times compactNudge: still away 5 min before cold, compact on the warm cache with the generic summary.
 async function coldCompact($: EngineInterface, dir: string, live: Live) {
-  if ((await ttl($, dir)) !== HOUR) return t.event('cold.compact', { skip: 'ttl' }, 'debug')
+  const why = await skip($, dir)
+  if (why) return t.event('cold.compact', { skip: why }, 'debug')
   const box = (await $.prompt.read()).text.trim()
   // Typed text means someone is there.
   if (box && box !== FILL) return t.event('cold.compact', { skip: 'typed' })
@@ -263,6 +287,8 @@ export const register: Register = on => {
         try {
           live.cold = [$.clock.after(FILL_MS, () => void coldFill($, dir, auto).catch(err => t.error('cold.fill.failed', err)))]
           if (auto) live.cold.push($.clock.after(AUTO_MS, () => void coldCompact($, dir, live).catch(err => t.error('cold.compact.failed', err))))
+          // A fill sent once the cache is cold reads it all back: past the hour it goes.
+          live.cold.push($.clock.after(HOUR, () => void clearFill($).catch(err => t.error('cold.clear.failed', err))))
         } catch {
           live.cold = []
         }
