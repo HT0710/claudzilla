@@ -23,7 +23,7 @@ curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh |
 
 ### Pick parts
 
-On a fresh install it asks **Full (recommended)** or **Custom**; re-runs keep your saved choice. Full installs every part; Custom lets you untick parts. Run by Claude (no terminal), it stops and prints the questions for Claude to ask you. A fresh `--add hud` installs only `hud` plus the updater (no rules, no core settings).
+On a fresh install it asks **Full (recommended)** or **Custom**; re-runs keep your saved choice. Full installs every part; Custom lets you untick parts. Run by Claude (no terminal), it stops and prints the questions for Claude to ask you. A fresh `--add hud` installs only `hud` plus `primer`, the updater and guide (no rules, no core settings).
 
 | flag | does |
 |---|---|
@@ -47,12 +47,12 @@ curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh |
 | `rtk` | token-saving command filter |
 | `caveman` | terse replies |
 | `ponytail` | smallest-change coding |
-| `folio` | response dividers |
+| `folio` | response dividers, code cards |
 | `margin` | side panel |
 | `ballot` | suggested next steps |
 | `herald` | update and usage notices |
 | `byline` | commit credit |
-| `ledger` | pause edits another session made |
+| `ledger` | pause an edit to a file another session edited |
 
 `core` is not in the menu; `--add` and `--remove` accept it. The updater and `primer` always ship; `primer` carries the guide pane, `/claudzilla report` and `/claudzilla compact`. Your choice is saved, see [How install works](CONFIGURATION.md#how-install-works).
 
@@ -70,6 +70,8 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 - **Terse replies:** TL;DR first, tables over prose, every claim backed by a `file:line` or a command, or marked unverified.
 
   <img src=".github/assets/answer.png" alt="Claude Code with claudzilla answering why a test fails: TL;DR first, then a cause table citing file:line and the real test output" width="720">
+
+- **Plain docs and commits:** docs, commits, PRs, issues and memory get full sentences, one idea per bullet; chat replies stay terse.
 
 - **Investigate, then ask:** root cause and one recommendation before any multi-file edit.
 
@@ -108,7 +110,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 - **Two sessions, one file:** before Claude edits a file another session edited in the last 30 minutes, it pauses once and the other session is told ([details](plugins/ledger/README.md)).
 
 ### A better terminal
-- **Statusline:** cwd, branch, context / 5h / weekly meters, model, effort, active skill, claudzilla version.
+- **Statusline:** cwd, branch, masked account email, context / prompt cache / 5h / weekly meters, model, effort, active skill, claudzilla version.
 
   <img src=".github/assets/statusline.gif" alt="The status line during one turn: the context meter climbs and the loaded skill appears beside the model" width="720">
 

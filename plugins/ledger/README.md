@@ -15,7 +15,7 @@ claudzilla's `install.sh` installs it, as the `ledger` part.
 
 ## Needs
 
-Tested with Claude Code 2.1.309; mod events and methods can change between releases.
+Tested with Claude Code 2.1.312; mod events and methods can change between releases.
 
 ## Develop
 
