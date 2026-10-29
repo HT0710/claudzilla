@@ -16,7 +16,7 @@ claudzilla's `install.sh` installs it.
 
 ## Needs
 
-Tested with Claude Code 2.1.308; mod events and methods can change between releases. `sh`, `git` and `readlink -f` on the PATH.
+Tested with Claude Code 2.1.312; mod events and methods can change between releases. `sh`, `git` and `readlink -f` on the PATH.
 
 ## Develop
 
