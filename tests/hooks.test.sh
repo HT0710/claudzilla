@@ -664,8 +664,11 @@ out=$(mdm e 0 '**TL;DR** par')
 check "frame: split TL;DR line, no separator yet" bash -c "! grep -qF -- '$S' <<<\"\$1\"" _ "$out"
 out=$(mdm e 1 $'t\n## H\n')
 check "frame: separator after split TL;DR line ends" sub "$out" $'t\n\n'"$S"
-out=$(mdm f 0 $'**TL;DR** x\n'; mdm f 1 $'**Picks:** 1A\n**Next:** go\n')
+out=$(mdm f 0 $'**TL;DR** x\n\nbody\n'; mdm f 1 $'**Picks:** 1A\n**Next:** go\n')
 check "frame: one separator above Picks, none above Next" [ "$(grep -o "$S" <<<"$out" | wc -l)" -eq 2 ]
+out=$(mdm i 0 $'**TL;DR** x\n\n'; mdm i 1 $'\n**Next:** go\n')
+check "frame: TL;DR then Next across batches, one separator" [ "$(grep -o "$S" <<<"$out" | wc -l)" -eq 1 ]
+check "frame: TL;DR then Next in one batch, one separator" [ "$(grep -o "$S" <<<"$(mdm j 1 $'**TL;DR** x\n\n**Next:** go\n')" | wc -l)" -eq 1 ]
 check "md: upper-case <BR> in table row replaced" sub "$(mdm g 1 $'| a<BR>b |\n')" 'a · b'
 mdm h 0 $'```\n~~~\n' >/dev/null
 check "frame: tilde line inside backtick fence does not close it" [ -z "$(mdm h 0 $'---\n')" ]
