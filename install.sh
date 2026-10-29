@@ -68,7 +68,8 @@ const prune=(mine,old,repo)=>{
 let old=null;try{old=JSON.parse(fs.readFileSync(rec,"utf8"))}catch{}
 const b=read(base),d=read(dst);
 // v1.5 plugin ids: Claude Code moves their settings only while the old id is enabled, and the prune below drops it first
-for(const o of [d.enabledPlugins,d.pluginConfigs])if(isObj(o))for(const r of ids.split(" ")){const[a,n]=r.split(":").map(x=>x+"@claudzilla");
+// in the record too, or prune would keep the renamed keys as set by hand
+for(const o of [d.enabledPlugins,d.pluginConfigs,old?.enabledPlugins,old?.pluginConfigs])if(isObj(o))for(const r of ids.split(" ")){const[a,n]=r.split(":").map(x=>x+"@claudzilla");
   if(a in o){if(!(n in o))o[n]=o[a];delete o[a]}}
 fs.writeFileSync(out,JSON.stringify(merge(merge(old?prune(d,old,b):d,b),read(over)),null,2)+"\n")' \
     "$base" "$dst" "$tmp" "$DEST/settings.overrides.json" "$rec" "$OLD_IDS"
