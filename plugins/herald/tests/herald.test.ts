@@ -449,6 +449,23 @@ test('past 2x by default: 5 min before cold, still away, compacts and clears the
   expect(fills).toEqual(['/claudzilla compact', ''])
 })
 
+test('a reply with a timestamp still warm gets the fill', async ($, on) => {
+  const { clock, fills } = idle(on, { transcript: reply(H1, { timestamp: new Date(NOW).toISOString() }) })
+  await $.session.start(start)
+  await ctxMeasure($, L1)
+  await clock.advance(FILL_MS)
+  expect(fills).toEqual(['/claudzilla compact'])
+})
+
+test('a synthetic line, such as an API error, does not count as a reply', async ($, on) => {
+  const synthetic = JSON.stringify({ type: 'assistant', timestamp: new Date(NOW).toISOString(), message: { model: '<synthetic>', content: [] } })
+  const { clock, fills } = idle(on, { transcript: [reply(H1, { timestamp: new Date(NOW - 20 * 60_000).toISOString() }), synthetic].join('\n') })
+  await $.session.start(start)
+  await ctxMeasure($, L1)
+  await clock.advance(FILL_MS)
+  expect(fills).toEqual([])
+})
+
 test('a stage that fires once the cache is cold, as after sleep, fills and compacts nothing', async ($, on) => {
   const { clock, toasts, fills, compacts } = idle(on, { transcript: reply(H1, { timestamp: new Date(NOW - 20 * 60_000).toISOString() }) })
   await $.session.start(start)
