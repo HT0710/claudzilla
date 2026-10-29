@@ -49,7 +49,7 @@ On macOS `alt` is Option; your terminal must send it as Meta — see [Option key
 
 ## Needs
 
-Tested with Claude Code 2.1.308; mod events and methods can change between releases.
+Tested with Claude Code 2.1.312; mod events and methods can change between releases.
 
 `git` (Git tab), `tail` (`⤓ latest`) and `find` (agent transcripts) on `PATH`, and `grep`: without it, the list still shows, read whole from the prompt history (up to 4 MiB), and a click finds only prompts already drawn.
 
