@@ -196,6 +196,13 @@ out=$(sh_ 'git stash && git stash drop')
 check "hold: an earlier command in the line makes the list unknown" has "$out" 'could not check: an earlier command in this line changes it'
 check "hold: an earlier command in the line lists no stale entry" not has "$out" 'stash@{0}'
 check "hold: an earlier read-only git command keeps the list" has "$(sh_ 'git status && git reset --hard')" 'no uncommitted changes'
+check "hold: an earlier echo into a file makes the list unknown" has "$(sh_ 'echo b > a.txt && git checkout -- a.txt')" 'could not check: an earlier command'
+check "hold: an earlier heredoc into a file makes the list unknown" has "$(sh_ "cat >> a.txt <<'EOF'
+x
+EOF
+git checkout -- a.txt")" 'could not check: an earlier command'
+check "hold: an earlier stash list keeps the list" has "$(sh_ 'git stash list && git stash drop')" 'stash@{0}: WIP on main'
+check "hold: an earlier 2>&1 keeps the list" has "$(sh_ 'git status 2>&1 && git reset --hard')" 'no uncommitted changes'
 for i in 1 2 3 4 5 6 7; do printf 1 > "c$i"; done; git add c*; $BG commit -qm many; for i in 1 2 3 4 5 6 7; do printf 2 > "c$i"; done
 check "hold: long list capped" has "$(sh_ 'git reset --hard')" '… 2 more'
 git remote add origin "$TMP/nowhere"; side=$($BG commit-tree -p HEAD -m remote-only 'HEAD^{tree}')
