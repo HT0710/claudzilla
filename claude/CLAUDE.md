@@ -67,6 +67,10 @@ A memory asserting what code currently does carries `verified: <repo>@<sha>` in 
 
 `rules/python.md` loads only after a `.py`, `.ipynb`, `pyproject.toml` or `requirements` file is read. New Python project before that: `uv` + `pyproject.toml` only, `ruff check --fix` + `ruff format`, `pytest`.
 
+## claudzilla guide
+
+claudzilla question (rules, guard, plugins, keys, config) → read only the matching section of `GUIDE.md` at the clone root: `"$(dirname "$(readlink -f ~/.claude/CLAUDE.md)")/../GUIDE.md"`, sections marked `<!-- topic: x -->`.
+
 ## Machine-local
 
 @~/.claude/CLAUDE.local.md
