@@ -27,6 +27,9 @@ Lazy reader scan, no read. Answer first, structure always. Every reply, coding o
   - Refer by table name: "Finding 2", "Fix 2", "Group 2", "1B".
 - Bullets otherwise. One idea per bullet, one line if possible.
 - End with **Next:** — single action. Nothing pending → omit.
+  - Asks for a reply → one sentence: `say "<word>" and I'll <act>.` Word: `go` unless another fits. Condition first: `once CI passes, say "merge" and I'll merge PR #105.`
+  - User must write their own words (what they saw, an open choice) → ask it plainly, no `say`.
+  - Offer or open item in the reply ("when you ask, I'll X", spec not updated, question waiting) → it is the Next line, never only in prose. Skill gate excepted (`superpowers.md` Shape).
 
 ## Decisions
 
