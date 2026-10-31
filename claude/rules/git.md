@@ -24,6 +24,8 @@
 ## Branch / parallel
 
 - Branch name: `<type>/<short-slug>` e.g. `fix/token-expiry`.
+  - Slug = outcome the PR title will state, covering every agreed item. Not the code spot or first fix (`fix/panel-first-prompt` for a reminder fix = wrong).
+  - Name after scope is agreed. Scope grows before push → `git branch -m` to fit; type too.
 - Parallel tasks on same repo → `git worktree add ../repo-<slug> -b <branch>`. Not stash-juggling.
 - Rebase local, merge shared. Never rebase pushed history others use.
 
