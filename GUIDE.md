@@ -18,7 +18,7 @@ What changes compared with stock Claude Code:
 - **Proof:** Claude says "fixed" only after the check ran. The guard sends an unchecked "done" back to be checked.
 - **Git:** the guard asks you before a force-push or a command that discards work, and blocks commits on `main`.
 - **Permissions:** sessions start in Manual mode, so Claude asks before it edits files or runs commands. Recent versions of stock Claude Code start in auto mode, where a classifier reviews most actions instead of asking you.
-- **Screen:** if you installed them, the status line, the margin, the ballot card, the folio dividers and the toasts.
+- **Screen:** if you installed them, the status line, the margin, the ballot card, the folio dividers and the herald toasts.
 
 A Full install includes every part; a Custom install includes the parts you kept. Sections about an optional part say "if you installed" it.
 
