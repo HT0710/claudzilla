@@ -58,6 +58,9 @@ nolim=$(node -e 'const j=JSON.parse(process.argv[1]);delete j.rate_limits;j.cont
 kv=$(data <<<"$nolim")
 check "data: no limits -> no 5h" [ -z "$(key 5h "$kv")" ]
 check "data: no limits -> no wk" [ -z "$(key wk "$kv")" ]
+check "data: logged in, no reply, no limits -> lim_wait" [ "$(key lim_wait "$kv")" = 1 ]
+check "data: limits in -> no lim_wait" [ -z "$(key lim_wait "$(data <<<"$full")")" ]
+check "data: not logged in -> no lim_wait" [ -z "$(key lim_wait "$(CLAUDE_CONFIG_DIR="$TMP/none" node "$HUD/hud-data.mjs" <<<"$nolim")")" ]
 used=$(node -e 'const j=JSON.parse(process.argv[1]);j.context_window.current_usage={input_tokens:2,output_tokens:830,cache_creation_input_tokens:2018,cache_read_input_tokens:414892};console.log(JSON.stringify(j))' "$full")
 check "data: no reply yet -> ctx_note 0" [ "$(key ctx_note "$(data <<<'{}')")" = 0 ]
 check "data: ctx_note used" [ "$(key ctx_note "$(data <<<"$used")")" = 417k ]
@@ -119,6 +122,8 @@ check "data: cache future reply clamps to fresh" [ "$(cache "$(reply -60 0 500)"
 check "data: cache seconds left not shown as 100%" [ "$(cache "$(reply 3595 0 500)")" = "99 1m" ]
 check "data: cache reply but no write -> cold" [ "$(cache "$(reply 600 0 0)")" = "100 cold" ]
 check "data: cache no reply -> hot" [ "$(key cch "$(data <<<"$full")") $(key cch_note "$(data <<<"$full")")" = "0 hot" ]
+printf '%s\n' "$(reply 60 0 500)" > "$TMP/r.jsonl"
+check "data: reply but no limits -> no lim_wait" [ -z "$(key lim_wait "$(data <<<"{\"transcript_path\":\"$TMP/r.jsonl\"}")")" ]
 
 kv=$(data <<<'{"model":{"display_name":"a\u001b]52;c;aGk=\u0007b"}}')
 check "data: control chars dropped" [ "$(key model "$kv")" = "a ]52;c;aGk= b" ]
@@ -151,6 +156,13 @@ check "render: cold cache one orange bar" grep -q $'cch \e\\[38;2;255;170;90m▬
 out=$(render "$nolim")
 check "render: no limits -> ctx only" [ "$(grep -cE '^(ctx|5h|wk) ' <<<"$out")" -eq 1 ]
 check "render: no limits -> cache below ctx, no divider" bash -c "grep -q '^cch .* 33%  *40m$' <<<'$out' && ! grep -q '┃' <<<'$out'"
+# first launch, logged in: limits not in yet, so 5h | wk hold their slots
+out=$(render '{"session_id":"w1"}')
+check "render: limits pending -> 5h placeholder" grep -qE '^ctx .*┃ 5h  (▱)+ --%     --$' <<<"$out"
+check "render: limits pending -> wk placeholder" grep -qE '^cch .*┃ wk  (▱)+ --%     --$' <<<"$out"
+wn=$(data <<<'{"session_id":"w1"}' | COLUMNS=40 perl "$HUD/hud-filter.pl" 2>"$TMP/warn" | perl -pe 's/\e\[[0-9;]*m//g')
+check "render: limits pending, narrow -> 4 meter rows" [ "$(grep -cE '^(ctx|cch|5h|wk) ' <<<"$wn")" -eq 4 ]
+check "render: limits pending -> no warnings" [ ! -s "$TMP/warn" ]
 
 check "render: not a repo -> no branch" bash -c "! head -1 <<<'$(render "$full")' | grep -q '⎇'"
 narrow=$(data <<<"$full" | COLUMNS=60 perl "$HUD/hud-filter.pl" | perl -pe 's/\e\[[0-9;]*m//g')

@@ -66,6 +66,7 @@ const parse = (line) => { try { return JSON.parse(line); } catch { return undefi
 // no reply yet: nothing of this chat to lose, show fresh
 out.cch = 0;
 out.cch_note = "hot";
+let last;
 if (d.transcript_path) {
   let fd;
   try {
@@ -96,7 +97,7 @@ if (d.transcript_path) {
     // Prompt cache: each main-chat request restarts its TTL; a pure cache read keeps the TTL the last write chose.
     // Subagents cache apart, and a synthetic reply (API error) sent nothing.
     // shortcut: the reply's timestamp is its end, so a long reply overstates the time left by its length; read the request time if the transcript gains one.
-    let last, ttl;
+    let ttl;
     for (let i = tail.length - 1; i >= 0 && ttl === undefined; i--) {
       if (!tail[i].includes('"assistant"')) continue;
       const e = parse(tail[i]);
@@ -122,6 +123,9 @@ if (d.transcript_path) {
     if (fd !== undefined) closeSync(fd);
   }
 }
+
+// logged in, no reply yet: limits arrive with the first one, so hold their slots
+if (out.profile && last === undefined && out["5h"] === undefined && out.wk === undefined) out.lim_wait = 1;
 
 process.stdout.write(
   Object.entries(out)

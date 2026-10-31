@@ -80,6 +80,8 @@ if ($META_CWD) {
 my ($model, $session, $skill, $thinking) = @f{qw(model up skill thinking)};
 
 my %mv = map { $_ => [$_, $f{$_}, $f{"${_}_note"} // ''] } grep { ($f{$_} // '') =~ /^\d+$/ } qw(ctx cch 5h wk);
+# limits not in yet: blank meters keep the layout from jumping on the first reply. Note is 5 wide, mid-range for a reset time (2h5m to 23h59m).
+if ($f{lim_wait}) { $mv{$_} //= [$_, undef, sprintf('%5s', '--')] for qw(5h wk) }
 
 # --- helpers ---------------------------------------------------------------
 # terminal cells: East Asian wide chars take two
@@ -112,6 +114,7 @@ sub ramp {
 # title, bar, figure and note alike. $head is the sweep centre, undef while resting.
 sub meter_line {
     my ($label,$pct,$note,$n,$tw,@hs) = @_;
+    my $wait = !defined $pct; $pct //= 0;
     my $f = int($pct / 100 * $n + 0.5); $f = $n if $f > $n;
     # cache is a clock, not a fill: a solid full bar in one ramp colour, dim blue when fresh to orange when cold
     my $cc = $label eq 'cch' ? [map { int($_+0.5) } @{ ramp(0.1 + 0.9 * ($pct/100) ** 0.85) }] : undef;
@@ -125,8 +128,8 @@ sub meter_line {
                      $on ? 0.65 : 0.30];
     }
     my $x = ($pct/100) ** 0.85; $x = 0.4 if $x < 0.4;                         # figure
-    my $fc = $cc // [map { int($_+0.5) } @{ ramp($x) }];
-    push @cell, [$_, $fc] for split //, sprintf(' %3d%%  ', $pct);
+    my $fc = $wait ? [64,71,80] : $cc // [map { int($_+0.5) } @{ ramp($x) }];
+    push @cell, [$_, $fc] for split //, $wait ? ' --%  ' : sprintf(' %3d%%  ', $pct);
     push @cell, [$_, [64,71,80]] for split //, sprintf("%*s", $tw, $note);    # note
     my @px;
     for my $i (0 .. $#cell) {
@@ -250,7 +253,7 @@ sub heads {
         return (-$WID + $u*$full - $r*$LAG);
     }
     if ($VAR == 8) {                                                             # pulse from the fill edge
-        my $edge  = ($r >= 0 && $r <= 2 && $m[$r]) ? 4 + int($m[$r][1]/100*$n + 0.5) : $W/2;
+        my $edge  = ($r >= 0 && $r <= 2 && $m[$r]) ? 4 + int(($m[$r][1] // 0)/100*$n + 0.5) : $W/2;
         my $reach = $p * ($W/2 + $WID);
         return ($edge - $reach, $edge + $reach);
     }
