@@ -109,7 +109,7 @@ claudzilla's rules shape every reply so you can scan it instead of reading it al
 **Recommend: A**
 - **Why:** only the comparison is wrong (`auth/mw.go:42`).
 
-**Next:** say go → I change line 42.
+**Next:** say "go" and I'll change line 42.
 ```
 
 - **TL;DR** (short for "too long; didn't read"): the first line gives the answer. A reply of three lines or fewer has no label and no headers.
@@ -201,7 +201,7 @@ With caveman, a refactor or a migration runs `caveman:safe-refactor` or `caveman
 
 When your prompt contains words such as "bug", "error" or "crash", the guard reminds Claude to use the debugging skill.
 
-For bigger steps, Claude suggests a skill and waits. The reply names it on the **Recommend:** line, or ends with `say go → I run <name>`. Type `go` to run it. For example: `brainstorming`, then `writing-plans`, for a new feature; `subagent-driven-development` to carry out a plan; `finishing-a-development-branch` when a branch is done.
+For bigger steps, Claude suggests a skill and waits. The reply names it on the **Recommend:** line, or ends with `say "go" and I'll run <name>`. Type `go` to run it. For example: `brainstorming`, then `writing-plans`, for a new feature; `subagent-driven-development` to carry out a plan; `finishing-a-development-branch` when a branch is done.
 
 When `brainstorming` has options for you, each reply asks one question as a Decision, so the ballot card lets you answer with a number.
 

@@ -30,7 +30,7 @@ Unprefixed names below = `superpowers:<name>` in the Skill tool; others carry th
 
 Shape:
 - `Recommend:` line → add `Skill: <name> — <why, 1 line>` when one fits.
-- `Next:` → `say go → I run <name>`.
+- `Next:` → `say "go" and I'll run <name>`.
 - Inside a chain, the skill's own gate (spec approval, execution choice, finishing menu) = the ask; no extra `Next:`.
 
 ## Manual — only when user asks
