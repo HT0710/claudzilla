@@ -153,6 +153,8 @@ reset_proj; session a '[["user","go"],["bash","git commit -m \"fix: x\"",{denied
 check "hook fire under older wording still counted" [ "$(rule mainCommit hookFires)" = 1 ]
 reset_proj; session a '[["user","go"],["edit"],["stop","Claimed done without verification-before-completion. Invoke superpowers:verification-before-completion now and report its evidence, or retract the claim."]]'; scan
 check "stop fire under older wording still counted" [ "$(rule doneClaim hookFires)" = 1 ]
+reset_proj; session a '[["user","go"],["ctx","UserPromptSubmit","Previous reply broke: skipped the side panel report (`mcp__margin__intent`). Apply from this reply on."]]'; scan
+check "flag with no config rule: hook fire counted" [ "$(rule intentReport hookFires)" = 1 ]
 check "firedRules: each hook text maps to one rule" [ "$(js '[...Object.values(m.WHY), ...Object.values(m.MSG), ...["debugTrigger", "debugGate", "doneClaim"].map((k) => m.nudge(k))].every((t) => m.firedRules(t).length === 1)')" = true ]
 reset_proj; session a '[["user","go"],["bash","cd ../other && git commit -m \"fix: x\"",{branch:"main"}],["bash","git -C ../other commit -m \"fix: y\"",{branch:"main"}]]'; scan
 check "commit after cd / -C: branch unknown, not counted" [ "$(rule mainCommit applies)$(rule mainCommit slips)" = 00 ]

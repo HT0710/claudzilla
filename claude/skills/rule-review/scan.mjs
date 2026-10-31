@@ -80,7 +80,8 @@ function scan(root, days) {
   let at = "";
   const add = (id, key) => {
     if ((key === "applies" || key === "slips") && !(typeof arrived[id] === "string" && at >= arrived[id])) return;
-    rules[id][key]++;
+    // A flag with no config rule (intentReport) still gets a row.
+    (rules[id] ??= { applies: 0, slips: 0, hookFires: 0, falseFires: 0 })[key]++;
   };
   let sessions = 0, turns = 0, unparsed = 0;
   // Repo allows commits on main (its claudzilla config): such a commit is no slip.

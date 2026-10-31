@@ -29,6 +29,7 @@ const FLAG = {
   brInTable: "<br> in table cell",
   boxAlign: "diagram box edge misaligned",
   tableWidth: "table wider than terminal",
+  intentReport: `skipped the side panel report (\`mcp__margin__intent\`)`,
 };
 const INTENT_TOOL = "mcp__margin__intent";
 // Task notifications and peer-session messages arrive as prompts; their words are not the user's.
@@ -122,7 +123,7 @@ const hitter = (cfg, hits) => (id, why) => { if (why && cfg.rules[id] !== "off")
 
 // Mentions inside `code` or quotes are not claims or triggers.
 const unquote = (text) => text.replace(/`[^`\n]*`|"[^"\n]*"|“[^”\n]*”/g, "");
-const fresh = () => ({ skills: [], checked: false, debug: false, debugNudged: false, edited: false, flags: [], judged: "", panel: false });
+const fresh = () => ({ skills: [], checked: false, debug: false, debugNudged: false, edited: false, flags: [], judged: "", panel: false, reportFrom: -1 });
 const statePath = (sid) => join(tmpdir(), "claudzilla-rules", `${String(sid).replace(/[^\w-]/g, "")}.json`);
 function load(sid) {
   try { return { ...fresh(), ...JSON.parse(readFileSync(statePath(sid), "utf8")) }; } catch { return fresh(); }
@@ -181,6 +182,29 @@ function gitOk(cwd, ...args) {
 }
 
 const TAIL = 1024 * 1024;
+// Up to TAIL bytes of the transcript from byte `from` on: this turn's first lines. Undefined when there is no transcript.
+function readFrom(path, from) {
+  if (!path) return;
+  let fd;
+  try {
+    fd = openSync(String(path), "r");
+    const size = fstatSync(fd).size;
+    if (size < from) return;
+    const buf = Buffer.alloc(Math.min(size - from, TAIL));
+    return buf.toString("utf8", 0, readSync(fd, buf, 0, buf.length, from));
+  } catch { return; } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+// Margin enabled with intent reports on: the tool exists from the first prompt, before any call shows it.
+// A project's settings can turn the plugin off, so they win over the user's.
+function intentOn(cwd) {
+  const read = (f) => { try { return JSON.parse(readFileSync(f, "utf8")); } catch { return {}; } };
+  const user = read(join(CONFIG_DIR, "settings.json"));
+  const enabled = Object.assign({}, user.enabledPlugins, ...["settings.json", "settings.local.json"].map((f) => read(join(cwd, ".claude", f)).enabledPlugins));
+  const key = Object.keys(enabled).find((k) => k.startsWith("margin@") && enabled[k]);
+  return !!key && user.pluginConfigs?.[key]?.options?.intent !== false;
+}
 // The transcript's last TAIL bytes as lines; [] if unreadable.
 function tailLines(path) {
   if (!path) return [];
@@ -241,9 +265,13 @@ function onPrompt(d) {
     lines.push(`Terminal ${cols} cols: keep each table within ${cols - TABLE_MARGIN} cols; wider → fewer columns, shorter cells, or bullets.`);
   // The panel mod's own prompt hooks are skipped by the sec-default guard, and its rule in the tool's text fades over a
   // long chat. A call seen once means the tool exists and intent reports are on.
-  s.panel = prev.panel || tailLines(d.transcript_path).some((l) => l.includes(`"name":"${INTENT_TOOL}"`));
-  if (s.panel && !MACHINE_PROMPT.test(p))
+  // A first reply that skips the report left no call to see, and the reminder never came: the settings say it first.
+  s.panel = prev.panel || intentOn(d.cwd ?? process.cwd()) || tailLines(d.transcript_path).some((l) => l.includes(`"name":"${INTENT_TOOL}"`));
+  if (s.panel && !MACHINE_PROMPT.test(p)) {
+    // Stop checks the transcript from here for this turn's report.
+    try { s.reportFrom = statSync(d.transcript_path).size; } catch { s.reportFrom = 0; /* not written yet */ }
     lines.push(`Side panel: call \`${INTENT_TOOL}\` with wants, plan and steps as this reply's first block, even if you call no other tool.`);
+  }
   // A background agent's result carries the last request on: the panel keeps its report and follows pings.
   else if (s.panel && p.startsWith("<task-notification>"))
     lines.push(`Side panel: before this reply's next tool call, ping \`${INTENT_TOOL}\` {"now": n}, n the 1-based step you are working on; full report only if the plan changed.`);
@@ -813,6 +841,8 @@ function onStop(d) {
     return;
   }
   if (claim) flags.unshift(FLAG.doneClaim);
+  const turn = s.reportFrom >= 0 ? readFrom(d.transcript_path, s.reportFrom) : undefined;
+  if (turn !== undefined && !turn.includes(`"name":"${INTENT_TOOL}"`)) flags.push(FLAG.intentReport);
   if (!flags.length) return;
   s.flags = [...new Set([...s.flags, ...flags])];
   save(d.session_id, s);
