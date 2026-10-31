@@ -420,6 +420,36 @@ check "prompt: task notification, panel ping reminder" has "$out" 'n the 1-based
 check "prompt: task notification, no full report reminder" [ "${out#*wants, plan and steps}" = "$out" ]
 out=$(hook UserPromptSubmit 'prompt=[Cross-session idle notice] x' "transcript_path=$IX")
 check "prompt: cross-session message, no panel reminder" [ "${out#*Side panel}" = "$out" ]
+SETTINGS="$CLAUDE_CONFIG_DIR/settings.json"
+printf '{"enabledPlugins":{"margin@claudzilla":true}}' > "$SETTINGS"; : > "$IX"
+new_session; out=$(hook UserPromptSubmit prompt=q "transcript_path=$IX")
+check "prompt: margin enabled, panel reminder on first prompt" has "$out" 'call `mcp__margin__intent`'
+printf '{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}\n' >> "$IX"; hook Stop last_assistant_message=hi "transcript_path=$IX" >/dev/null
+check "stop: no intent report this turn, flagged" has "$(state .flags)" "skipped the side panel report"
+check "prompt: missed report told next prompt" has "$(hook UserPromptSubmit prompt=q "transcript_path=$IX")" "Previous reply broke: skipped the side panel report"
+printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__margin__intent","input":{}}]}}\n' >> "$IX"; hook Stop last_assistant_message=hi "transcript_path=$IX" >/dev/null
+check "stop: intent reported this turn, no flag" [ "$(state .flags.length)" = 0 ]
+hook UserPromptSubmit prompt=q "transcript_path=$IX" >/dev/null; hook Stop last_assistant_message=hi "transcript_path=$IX" >/dev/null
+check "stop: last turn's report does not count" has "$(state .flags)" "skipped the side panel report"
+hook UserPromptSubmit 'prompt=<task-notification>x</task-notification>' "transcript_path=$IX" >/dev/null; hook Stop last_assistant_message=hi "transcript_path=$IX" >/dev/null
+check "stop: task notification needs no report" [ "$(state .flags.length)" = 0 ]
+new_session; NX="$TMP/later.jsonl"; out=$(hook UserPromptSubmit prompt=q "transcript_path=$NX")
+check "prompt: transcript not written yet, still reminded" has "$out" 'call `mcp__margin__intent`'
+printf '{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}\n' > "$NX"; hook Stop last_assistant_message=hi "transcript_path=$NX" >/dev/null
+check "stop: transcript written after the prompt, checked" has "$(state .flags)" "skipped the side panel report"
+new_session; hook UserPromptSubmit prompt=go "transcript_path=$IX" >/dev/null; hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
+hook Stop "last_assistant_message=Fixed it." "transcript_path=$IX" >/dev/null
+hook Stop "last_assistant_message=Fixed it." stop_hook_active=true "transcript_path=$IX" >/dev/null
+check "stop: done-claim continuation still checks the report" has "$(state .flags)" "skipped the side panel report"
+P="$TMP/proj"; mkdir -p "$P/.claude"; printf '{"enabledPlugins":{"margin@claudzilla":false}}' > "$P/.claude/settings.local.json"
+new_session; out=$(cd "$P" && hook UserPromptSubmit prompt=q "transcript_path=$TMP/none.jsonl")
+check "prompt: project turns margin off, no panel reminder" [ "${out#*Side panel}" = "$out" ]
+printf '{"enabledPlugins":{"margin@claudzilla":true},"pluginConfigs":{"margin@claudzilla":{"options":{"intent":false}}}}' > "$SETTINGS"
+new_session; : > "$IX"; out=$(hook UserPromptSubmit prompt=q "transcript_path=$IX")
+check "prompt: intent option off, no panel reminder" [ "${out#*Side panel}" = "$out" ]
+printf '{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}\n' >> "$IX"; hook Stop last_assistant_message=hi "transcript_path=$IX" >/dev/null
+check "stop: intent option off, no flag" [ "$(state .flags.length)" = 0 ]
+rm -f "$SETTINGS"
 wide=$'| aaaaaaaaaa | b |\n|---|---|\n| c | dddddddddd |'
 for f in '```' '~~~'; do
   new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop "$f"$'\n'"$wide"$'\n'"$f" >/dev/null
