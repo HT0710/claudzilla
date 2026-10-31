@@ -30,6 +30,8 @@ const question = (s: string) => {
 const DOES = /(?:→\s*I|\band\s+I(?:['’]ll|\s+will|(?=\s+run\b)))\s+/.source
 // A bare `go` would match "run `go test`"; another word needs DOES right after it, or it asks a question. \x60 is a backtick.
 const SAY = new RegExp(String.raw`\bsay\s+[\x60"]?(?:go\b|\w+[\x60"]?,?\s+${DOES})`, 'i')
+// "say W. I'll X" reads as "say W and I'll X": only the I'll right after the word, and not a "say so" fallback.
+const JOIN = /(\bsay\s+(?!so\b)(?:"[^"]{1,30}"|\x60[^\x60]{1,30}\x60|\w+))\.\s+(I['’]ll)\b/i
 // Ticks would show raw; a second sentence or ", or ..." is another ask.
 const cut = (s: string) => s.replace(/`/g, '').split(/(?<=[.?])(?<!\b(?:e\.g|i\.e)\.)\s|,\s+or\b/)[0]!
 
@@ -78,7 +80,7 @@ const asked = (next: string): string | null => {
   // "approve the spec (or ...), and I'll X"; approving a tool permission is not typed.
   if ((m = next.match(new RegExp(String.raw`^approve\b(?!\s+(?:Read|Bash|Write|Edit)\b)([^,(]*?)\s*(?:\([^)]*\))?,?(?:\s+or\s+[^,]+,)?\s+${DOES}(.+)`, 'i')))) return `approve${m[1] ? ` ${m[1].trim()}` : ''}, then ${m[2]!}`
   // "say push to publish", "say commit.", "say commit, then push", "say "commit" when ready"
-  if ((m = next.match(new RegExp(String.raw`^${VERB}\s+${WORD}(?:\s+(?:to|when|then)\b|\s*(?:[.,→]|$))`, 'i')))) return word(m)
+  if ((m = next.match(new RegExp(String.raw`^(?:(?:when|once|after|if)\b[^,]*,\s*)?${VERB}\s+${WORD}(?:\s+(?:to|when|then)\b|\s*(?:[.,→]|$))`, 'i')))) return word(m)
   return null
 }
 
@@ -137,7 +139,7 @@ export function parse(answer: string): Offer | null {
       if (w) current.why = w[1]!.replace(/\*\*|`/g, '')
       current.afterRecommend = r ? true : current.afterRecommend && line.trim() !== ''
     }
-    const m = line.match(/^\*\*(Picks|Next):\*\*\s*(.+)$/)
+    const m = line.replace(JOIN, '$1 and $2').match(/^\*\*(Picks|Next):\*\*\s*(.+)$/)
     if (m?.[1] === 'Picks') picks = m[2]!
     else if (m && SAY.test(m[2]!)) [next, other] = [m[2]!, null]
     else if (m) {
