@@ -203,6 +203,8 @@ When your prompt contains words such as "bug", "error" or "crash", the guard rem
 
 For bigger steps, Claude suggests a skill and waits. The reply names it on the **Recommend:** line, or ends with `say go → I run <name>`. Type `go` to run it. For example: `brainstorming`, then `writing-plans`, for a new feature; `subagent-driven-development` to carry out a plan; `finishing-a-development-branch` when a branch is done.
 
+When `brainstorming` has options for you, each reply asks one question as a Decision, so the ballot card lets you answer with a number.
+
 Some skills hand tasks to *subagents*: helpers that each work in their own context and return a summary. They keep your context small, but their requests count toward the same usage limits.
 
 claudzilla adds four skills of its own:
