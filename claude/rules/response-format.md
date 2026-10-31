@@ -70,6 +70,7 @@ Propose options → each Decision ends with ONE recommendation.
 - `>` quote — callout: verdict, warning, quoted user, doc or error text. Never text to copy (command, `/compact` line).
 - `code span` — every path, symbol, flag, command, `file:line`.
 - Fenced block with language tag — anything runnable or copyable.
+  - Shell tag (`bash` `sh` `zsh` `shell` `console`) gets folio Run button → only commands to run as-is. Placeholder, pseudo-code, output → `text`.
 
 ## Ban
 
