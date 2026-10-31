@@ -41,7 +41,7 @@ Shape:
 
 - git.md wins on push / PR. Skill commits = automation (git.md Commits): local, reorganized before push.
 - TDD: keep red-first order; test count per Ponytail (smallest check that fails).
-- Skill asks one question at a time → batch into one `AskUserQuestion` when possible.
+- Skill asks questions (`brainstorming` included) → this beats its one-open-question-per-message flow: ask only what changes the design and the request, code or repo can't answer; the rest take a sane default, listed as one `Assumed:` line the user can correct. Open question with no options yet → plain text. Otherwise one `Decision — <topic>` table per reply (ballot draws the card), with Recommend + Why; next question after the answer. Never `AskUserQuestion`. Nothing design-changing left → present the design.
 - Skill asks for a long spec/plan → keep response-format.md (TL;DR, tables, no prose).
 - `code-reviewer.md` reviews (`requesting-code-review`, SDD final review) → fill its template prompt, dispatch to `caveman:cavecrew-reviewer` on opus; template Output Format wins, wording terse. `cavecrew-reviewer` not in agent list → `general-purpose` on opus.
   - Add a `### Complexity` section before Assessment: over-engineering only, one line each with `ponytail-review` tags (`delete:` `stdlib:` `native:` `yagni:` `shrink:`), ending `net: -<N> lines possible` or `Lean already.` User types `/ponytail-review` → run that skill as-is.
