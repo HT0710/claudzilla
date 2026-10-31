@@ -91,6 +91,18 @@ test('parse: "say <word> and I\'ll X" gives X; an option letter gives "B: X"', (
   // Double quotes read like backticks.
   expect(parse('**Next:** say "push" and I\'ll run fix 3: push the branch.')?.go).toBe('run fix 3: push the branch')
   expect(parse('**Next:** if it still shows, say "B" and I\'ll hide that row too.')?.go).toBe('B: hide that row too')
+  // A sentence break reads like "and": "say W. I'll X".
+  expect(parse('**Next:** say "push". I\'ll run the PR checks, then push.')?.go).toBe('run the PR checks, then push')
+  expect(parse("**Next:** say go. I'll write the test first.")?.go).toBe('write the test first')
+  expect(parse('**Next:** say "apply the rule". I\'ll branch first.')?.go).toBe('branch first')
+  // Only the I'll right after the word: a later sentence, or a "say so" fallback, is not the act.
+  expect(parse("**Next:** say go to run the tests. I'll report back after.")?.go).toBe('go')
+  expect(parse("**Next:** say go when ready. I'll then push the branch.")?.go).toBe('go')
+  expect(parse("**Next:** if anything looks off, say so. I'll wait.")).toBeNull()
+})
+
+test('parse: a leading condition before the word to say still asks', () => {
+  expect(parse('**Next:** when `fix/intent-reminder` is merged, say "apply branch-name rule".')?.go).toBe('apply branch-name rule')
 })
 
 test('parse: other offers in a Next line give the act, or the word to say', () => {
