@@ -9,7 +9,8 @@ disable-model-invocation: true
 Draft what a `/compact` must keep from this session, then hand it to the `compact_draft` tool. It is deferred: load it with ToolSearch `select:mcp__primer__compact_draft` first.
 
 - **Keep:** only what exists nowhere but this conversation: decisions and why, preferences stated, open items, branch or uncommitted state, exact errors under debug; anything in a file → its path.
-- **Drop:** finished detail.
+- Keep at most about 1500 characters. Settled decisions that don't fit go in the notes file the conversation already names, appended; if none is named, create `decisions.md` in the scratchpad. Keep only its path.
+- **Drop:** finished detail, lists of scratch files, line references.
 - Skip CLAUDE.md, rules and memory: they reload after compact.
 - Facts from this session, not guesses.
 - Next step needs nothing from this session → `clear: true` instead (free; `/compact` re-reads the whole conversation).
