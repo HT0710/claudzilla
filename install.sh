@@ -82,6 +82,18 @@ fs.writeFileSync(out,JSON.stringify(merge(merge(old?prune(d,old,b):d,b),read(ove
   cmp -s "$base" "$rec" || cp "$base" "$rec"
 }
 
+# merge_settings keeps the user's hooks, so one may still run a file that link() just moved into the backup.
+moved_warn() {
+  node -e '
+const fs=require("fs"),path=require("path"),[dst,bak]=process.argv.slice(1),s=JSON.parse(fs.readFileSync(path.join(dst,"settings.json"),"utf8"));
+const cmds=[...Object.values(s.hooks||{}).flat().flatMap(e=>e?.hooks||[]),s.statusLine].map(h=>h?.command).filter(c=>typeof c=="string");
+// a saved part that was a symlink to the user'"'"'s own folder still holds the files its hooks run
+const walk=d=>fs.readdirSync(d,{withFileTypes:true}).flatMap(e=>{const p=path.join(d,e.name);let dir=e.isDirectory();
+  if(e.isSymbolicLink())try{dir=fs.statSync(p).isDirectory()}catch{}return dir?walk(p):[p]});
+for(const f of walk(bak)){const rel=path.relative(bak,f);if(fs.existsSync(path.join(dst,rel)))continue;
+  for(const c of cmds)if(c.includes("/"+rel))console.log(`claudzilla: warning: settings.json runs ${rel}, now only in ${f}: ${c}`)}' "$DEST" "$BACKUP" || true
+}
+
 # Run before any link is touched: merge_settings throws on a settings file it cannot parse.
 check_settings() {
   local f
@@ -688,7 +700,7 @@ main() {
   if picked core; then stamp_rules || echo "claudzilla: rule dates not saved - /rule-review skips undated rules until the next install" >&2; fi
   if picked ponytail; then ponytail_defaults || echo "claudzilla: could not save ponytail's defaults - its band stays shown" >&2; fi
   [ "$OFFLINE" = 1 ] || plugins
-  [ -d "$BACKUP" ] && echo "replaced files backed up -> $BACKUP"
+  [ -d "$BACKUP" ] && echo "replaced files backed up -> $BACKUP" && moved_warn
   [ "$OFFLINE" = 1 ] || case ":$ORIG_PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "note: add ~/.local/bin to PATH (node/rtk live there)" ;; esac
   echo "claudzilla installed -> $DEST (from $REPO)"
 }
