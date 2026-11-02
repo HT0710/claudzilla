@@ -109,6 +109,21 @@ check "override: beats repo value" [ "$(q "$S" .permissions.defaultMode)" = '"do
 check "override: beats repo theme" [ "$(q "$S" .theme)" = '"dark"' ]
 check "local: CLAUDE.local.md untouched" grep -qx 'keep me' "$H/.claude/CLAUDE.local.md"
 
+# --- hooks left pointing at files moved to the backup (#175) ---
+M=$(new_home); mkdir -p "$M/.claude/hud"; : > "$M/.claude/hud/busy.sh"; : > "$M/.claude/hud/hud-filter.pl"; : > "$M/.claude/hud/mine.mjs"
+cat > "$M/.claude/settings.json" <<'JSON'
+{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"sh ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hud/busy.sh on"},{"type":"command","command":"perl ~/.claude/hud/hud-filter.pl"}]}]}}
+JSON
+echo '{"statusLine":{"type":"command","command":"node ~/.claude/hud/mine.mjs"}}' > "$M/.claude/settings.overrides.json"
+run_install "$M"
+check "moved: hook on a moved file named with its backup" bash -c "grep -F 'hud/busy.sh on' '$M/install.log' | grep -qF '.claudzilla-backup/'"
+check "moved: statusLine on a moved file named" bash -c "grep -F 'node ~/.claude/hud/mine.mjs' '$M/install.log' | grep -F 'warning:' | grep -qF .claudzilla-backup/"
+check "moved: no warning for a file the new link still has" bash -c "! grep -qF 'perl ~/.claude/hud/hud-filter.pl' '$M/install.log'"
+M2=$(new_home); mkdir -p "$M2/myhud" "$M2/.claude"; : > "$M2/myhud/busy.sh"; ln -s "$M2/myhud" "$M2/.claude/hud"
+echo '{"hooks":{"Stop":[null,{"hooks":[{"type":"command","command":"sh ~/.claude/hud/busy.sh"}]}]}}' > "$M2/.claude/settings.json"
+run_install "$M2"
+check "moved: hook on a file behind a moved symlink named" bash -c "grep -F 'sh ~/.claude/hud/busy.sh' '$M2/install.log' | grep -qF .claudzilla-backup/"
+
 # --- re-run is a no-op ---
 nb=$(ls "$H/.claude/.claudzilla-backup" | wc -l); cp "$S" "$H/s1"; sleep 1
 run_install "$H"
