@@ -573,6 +573,7 @@ rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"
 new_session; check "config: default keywords skip unrelated suffixes" [ -z "$(hook UserPromptSubmit prompt='exceptional work, add failover, bugfix release')" ]
 new_session; check "config: default keywords keep plural and tense" has "$(hook UserPromptSubmit prompt='tests failed with errors')" "systematic-debugging"
 new_session; check "prompt: TDD ask for failing tests is not a bug" [ -z "$(hook UserPromptSubmit prompt='write the failing guard tests, then add a failing test for X')" ]
+new_session; check "prompt: TDD ask with hyphenated test name is not a bug" [ -z "$(hook UserPromptSubmit prompt='write the failing rules-guard tests')" ]
 new_session; check "prompt: failing tests report still triggers" has "$(hook UserPromptSubmit prompt='CI has 2 failing tests')" "systematic-debugging"
 mcfg '{"rulesGuard":{"rules":{"debugTrigger":"off"}}}'
 N=$(mktemp -d "$TMP/nogit.XXXX"); new_session
