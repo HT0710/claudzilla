@@ -147,6 +147,8 @@ check "meta line: machine not stale" [ "$(rule debugTrigger falseFires)" = 0 ]
 check "queued notification: no turn" [ "$(top turns)" = 2 ]
 reset_proj; session a "[[\"user\",\"go\"],[\"user\",\"Another Claude session sent a message:\\nbug\",{meta:true}],[\"ctx\",\"UserPromptSubmit\",$J_DEBUG]]"; scan
 check "meta peer message: still machine" [ "$(rule debugTrigger falseFires)" = 1 ]
+reset_proj; session a '[["user","/compact Keep: build failed"],["text","ok"]]'; scan
+check "slash command with args: trigger n/a" [ "$(rule debugTrigger applies)" = 0 ]
 reset_proj; session a "[[\"user\",\"go\"],[\"edit\"],[\"stop\",$J_DONE]]"; scan
 check "stop continue: hook fire" [ "$(rule doneClaim hookFires)" = 1 ]
 reset_proj; session a '[["user","go"],["bash","git commit -m \"fix: x\"",{denied:"Branch first: git switch -c <type>/<slug>. Solo repo that commits to main: user runs `git config claudzilla.allowMain true` (git.md:6)."}]]'; scan
