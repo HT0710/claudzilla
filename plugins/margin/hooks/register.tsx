@@ -1,7 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AgentRow, FileView, Intent, Overview, Spawn, Step, Tab } from '../types'
+import type { AgentRow, Check, CheckState, FileView, Gh, Intent, Modal, ModalKey, Op, Overview, Pr, PrState, PrView, Spawn, Step, Tab } from '../types'
+import { age, branches, cutMiddle, incomingPrs, ownPrs, parseHead, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows, worst, wrapLines } from './git-data'
+import { CAP, capped, modalFrame, scrollWindow, stackFrame } from './modal'
+import type { Frame } from './modal'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
@@ -43,7 +46,77 @@ const TYPES: Record<string, string> = { feat: '#98c379', fix: '#e06c75', refacto
 const STATUS: Record<string, string> = { M: '#e5c07b', A: '#98c379', D: '#e06c75', U: '#e06c75', R: '#61afef', C: '#61afef', '?': '#56b6c2' }
 // A local commit's scope: a light gray under the subject.
 const SCOPE = '#808286'
+// Ahead and behind: a pair of their own, used for nothing else. Cards and modals sit on CARD; a lit row on LIT.
+const AHEAD = '#d4b860'
+const BEHIND = '#b48ead'
+const CARD = '#030507'
+const LIT = '#0f1c28'
 // A pushed commit's, or a staged file's: its color at 60%, as DIM's are.
+// What sits behind an open modal: each colour at half, as an opacity over the black pane; a theme key or the
+// terminal's own text colour, which have no hex to scale, a dark grey (divider.tsx draws its rule in it too).
+const FADED = '#555555'
+// The active custom theme's colours by key (claude/themes/<name>.json), read once a session, so a theme key fades by
+// its own hue. A built-in theme, or a key it leaves to its base, has none and fades to FADED.
+// shortcut: a theme switched mid-session fades by the old one until a reload; read again on config.set if it matters.
+let themeColors: Record<string, string> = {}
+let themeRead: Promise<unknown> | undefined
+const readTheme = ($: EngineInterface) =>
+  (themeRead ??= (async () => {
+    const theme = (await $.config.list()).find(row => row.key === 'theme')?.value
+    if (typeof theme !== 'string' || !theme.startsWith('custom:')) return
+    themeColors = JSON.parse(String(await $.fs.read(`${await configDir($)}/themes/${theme.slice(7)}.json`))).overrides ?? {}
+  })().catch(() => undefined))
+const fade = (color: unknown) => {
+  const hex = typeof color === 'string' ? (/^#[0-9a-f]{6}$/i.test(color) ? color : themeColors[color]) : undefined
+  return typeof hex === 'string' && /^#[0-9a-f]{6}$/i.test(hex)
+    ? `#${hex.slice(1).replace(/../g, c => Math.round(parseInt(c, 16) * 0.5).toString(16).padStart(2, '0'))}`
+    : FADED
+}
+// A drawn tree behind a modal, copied node by node: Text and Box colours faded, and Buttons swapped for a Text,
+// so nothing there lights or presses. The node keyed `open` (the row that opened the modal) keeps its colours,
+// on the lit row, and its Button only runs `close`; a node keyed in `keep` stays as drawn.
+const fadeTree = (node: unknown, keep: Set<string>, close: () => unknown, open?: string, inverted = false): any => {
+  // Flat: a tree refuses nested arrays.
+  if (Array.isArray(node)) return node.flatMap(child => fadeTree(child, keep, close, open, inverted))
+  if (!node || typeof node !== 'object' || !('type' in node)) return node
+  const el = node as { type: string; key?: string; props?: Record<string, unknown>; children?: unknown }
+  const key = (el.props?.key ?? el.key) as string | undefined
+  if (key && keep.has(key)) return node
+  const invert = inverted || (!!key && key === open)
+  const kids = (children: unknown) => fadeTree(children, keep, close, open, invert)
+  // A row Client fades its pieces itself, or draws lit as the open row.
+  // The engine holds a module path as it resolved it: "hooks/row.tsx".
+  if (el.type === 'Client' && String(el.props?.module).endsWith('row.tsx')) {
+    const p = el.props!.props as { left: Piece[]; right: Piece[] }
+    return { ...el, props: { ...el.props, props: invert ? { ...p, open: LIT } : { ...p, faded: true, left: fadePieces(p.left), right: fadePieces(p.right) } } }
+  }
+  if (el.type === 'Button') {
+    const text = kids(el.children ?? el.props?.children ?? el.props?.label)
+    // A Text in its place, not its Texts loose: in a space-between row they would spread apart.
+    return h(invert ? 'Button' : 'Text', invert ? { key: `open:${key}`, plain: true, onPress: close } : {}, ...[text].flat())
+  }
+  const props = { ...el.props }
+  if (invert) {
+    if (el.type === 'Text') props.backgroundColor = LIT
+  } else {
+    if (el.type === 'Text') props.color = fade(props.color)
+    for (const name of ['backgroundColor', 'borderColor'] as const) if (props[name] !== undefined) props[name] = fade(props[name])
+  }
+  if (props.children !== undefined) props.children = kids(props.children)
+  return { ...el, props, ...(el.children !== undefined && { children: kids(el.children) }) }
+}
+type Piece = { text: string; color?: string; backgroundColor?: string; dimColor?: boolean; bold?: boolean }
+const fadePieces = (pieces: Piece[]) => pieces.map(x => ({ ...x, color: fade(x.color), ...(x.backgroundColor && { backgroundColor: fade(x.backgroundColor) }) }))
+// A row's Texts as a row Client's pieces, each with the styles it inherits.
+const toPieces = (node: unknown, style: Omit<Piece, 'text'> = {}): Piece[] => {
+  if (Array.isArray(node)) return node.flatMap(child => toPieces(child, style))
+  if (typeof node === 'string' || typeof node === 'number') return node === '' ? [] : [{ ...style, text: String(node) }]
+  if (!node || typeof node !== 'object' || !('type' in node)) return []
+  const el = node as { type: string; props?: Record<string, any>; children?: unknown }
+  const { color, backgroundColor, dimColor, bold } = el.type === 'Text' ? (el.props ?? {}) : {}
+  const own = Object.fromEntries(Object.entries({ color, backgroundColor, dimColor, bold }).filter(([, v]) => v !== undefined))
+  return toPieces(el.children ?? el.props?.children, { ...style, ...own })
+}
 const dim = (hex: string) => `#${hex.slice(1).replace(/../g, c => Math.round(parseInt(c, 16) * 0.6).toString(16).padStart(2, '0'))}`
 
 const tab = atom({ plugin: 'margin', key: 'tab' } as const, 'Overview' as Tab)
@@ -53,6 +126,11 @@ const notices = atom({ plugin: 'margin', key: 'notices' } as const, [] as Tab[])
 const submitted = atom({ plugin: 'margin', key: 'submitted' } as const, 0)
 // Bumped per tool call so the Git tab redraws.
 const toolCalls = atom({ plugin: 'margin', key: 'toolCalls' } as const, 0)
+// As the row Clients posted: `left`, the top row the pointer last left, until a row is entered; `at`, the row it is on.
+// The left row's card, and any card over the same rows, is not drawn: hover alone keeps a card lit under the pointer,
+// and a hidden card under a resting pointer is revealed once the card over it goes. Every other card is drawn hidden,
+// so hover reveals it with its row.
+const rowPointer = atom({ plugin: 'margin', key: 'rowPointer' } as const, { left: null, at: null } as { left: string | null; at: string | null })
 // Rows the Git tab's CHANGES zone takes, as the divider was dragged; -1 until it is.
 const split = atom({ plugin: 'margin', key: 'split' } as const, -1)
 // The first row each Git zone shows, as the wheel moved it.
@@ -74,6 +152,15 @@ const turns = atom({ plugin: 'margin', key: 'turns' } as const, 0)
 const file = atom({ plugin: 'margin', key: 'file' } as const, undefined as FileView)
 // The step whose agents all show, past the 3 each shows folded; -1 for none.
 const expanded = atom({ plugin: 'margin', key: 'expanded' } as const, -1)
+// The Git tab's open modal, or none; a top of -1 opens the branch modal on the current branch.
+const modal = atom({ plugin: 'margin', key: 'modal' } as const, null as Modal | null)
+// While `git fetch origin` runs from the branch row.
+const fetching = atom({ plugin: 'margin', key: 'fetching' } as const, false)
+// The branch modal's tree: by the branch each was made from, or by prefix; merged branches shown or not.
+const branchView = atom({ plugin: 'margin', key: 'branchView' } as const, { by: 'base' as 'base' | 'prefix', showMerged: false })
+// GitHub's PRs for this repo, read on a timer off the draw path; each PR's modal details once opened.
+const gh = atom({ plugin: 'margin', key: 'gh' } as const, { at: 0, remote: '', prs: [] } as Gh)
+const prViews = atom({ plugin: 'margin', key: 'prViews' } as const, {} as Record<number, PrView>)
 // The agent whose transcript the main view shows, as the pane last drew: a press on its row goes back.
 let viewing: string | undefined
 
@@ -376,13 +463,6 @@ export const gone = (
     i === at ? { ...row, marker: 'Compacted' } : marker === 'Rewound' ? { ...row, marker } : row,
   )
 }
-// `git status --porcelain -b`'s first line, "## main...origin/main [ahead 1, behind 2]": "main ↑1 ↓2".
-export const branchLine = (head: string) =>
-  head
-    .replace(/^## /, '')
-    .replace(/\.\.\.\S+/, '')
-    // Inside the brackets only: a branch may be named "go-ahead".
-    .replace(/ \[(.*)\]$/, (_, track: string) => ` ${track.replace('ahead ', '↑').replace(', behind ', ' ↓').replace('behind ', '↓')}`)
 // Each host's commit and branch page paths, as its router writes them (Codeberg's: Gitea's). A host not
 // listed gets no links: a guessed path would open a wrong page.
 const WEB_PATHS: Record<string, { commit: string; branch: string }> = {
@@ -459,6 +539,19 @@ const readGit = ($: EngineInterface) =>
     $.process.run(['git', 'rev-list', 'HEAD', '--not', '--remotes']).catch(() => undefined),
     $.process.run(['git', 'rev-list', '--count', 'HEAD']).catch(() => undefined),
     $.process.run(['git', 'remote', 'get-url', 'origin']).catch(() => undefined),
+    // The git dir's files, and the shared one's in a linked worktree: the newer FETCH_HEAD is the last fetch.
+    $.process
+      .run(['git', 'rev-parse', '--absolute-git-dir', '--path-format=absolute', '--git-common-dir'])
+      .then(async run => {
+        if (run.exitCode) return undefined
+        const [dir = '', common = dir] = run.stdout.trim().split('\n')
+        const [files, shared] = await Promise.all([dir, common].map(one => $.fs.list(one).catch(() => [])))
+        const fetched = [...files!, ...(common === dir ? [] : shared!)].filter(one => one.name === 'FETCH_HEAD').map(one => one.mtimeMs)
+        return { dir, files: files!, fetchedAt: fetched.length ? Math.max(...fetched) : undefined }
+      })
+      .catch(() => undefined),
+    $.process.run(['git', 'stash', 'list', '--format=%gs']).catch(() => undefined),
+    $.process.run(['git', 'for-each-ref', 'refs/heads', '--format=%(refname:short)%09%(upstream:short)%09%(upstream:track)%09%(committerdate:unix)']).catch(() => undefined),
   ])
 // Kept until a tool call or a prompt may have changed the repo, or the tab is picked again: a chat
 // scroll or a drag redraws the pane many times a second. `signal`: the draw that started the runs.
@@ -471,6 +564,27 @@ let logRead: { key: string; signal: AbortSignal; run: ReturnType<typeof readLog>
 // The Git tab as last drawn: rows above `commitsAt` scroll CHANGES, the rest COMMITS, each up to its
 // last offset. Unset while another tab shows: the engine scrolls that one.
 let gitZones: { commitsAt: number; changes: number; commits: number } | undefined
+// The open modal's layers as last drawn, in tab-body cells: the wheel scrolls the top layer when over it.
+type Layer = { frame: Frame; top: number; end: number }
+let modalZone: { m: Layer; s?: Layer } | undefined
+// What a press on each top row's Client does, as the last Git tab draw set it.
+let rowActs: Record<string, () => unknown> = {}
+// The tab rows each top row's card spans, from its top to its end, and each top row's own, as the last Git tab draw set them.
+let cardSpan: Record<string, [number, number]> = {}
+let rowLines: Record<string, number> = {}
+// A row's leave, held LEAVE_HOLD ms: a move onto the next row posts its enter just after, and a draw between the two
+// drops the cards under the left row's card for a frame. An enter in time takes it in; else it lands alone.
+const LEAVE_HOLD = 30
+let leaving: { row: string; n: number } | undefined
+let leaves = 0
+// The branch modal's own reads, kept as gitRead is: linked worktrees and the default branch.
+let branchRead: { key: string; signal: AbortSignal; run: Promise<[{ stdout: string } | undefined, { exitCode: number; stdout: string } | undefined]> } | undefined
+// The shown PR's local reads, kept per repo change and base: behind and ahead of the base, conflicting files.
+let prRead: { key: string; signal: AbortSignal; run: Promise<({ stdout: string } | undefined)[]> } | undefined
+// The rebase or merge in progress, kept as gitRead is.
+let opRead: { key: string; signal: AbortSignal; run: Promise<Op | undefined> } | undefined
+// Whether install.sh chose basic glyphs: read once a session.
+let basicGlyphs: Promise<boolean> | undefined
 // The History list's last offset as last drawn; unset as gitZones is.
 let historyEnd: number | undefined
 // The Overview's TOPICS as last drawn, with a report under them: rows `from` to `to` of the tree, up to
@@ -631,6 +745,68 @@ const idle = async () => {
     if (draw === lastDraw) return
   }
 }
+// Every PR of this repo in one gh call, off the draw path: with checks it takes seconds. A failed call (no gh,
+// logged out, no GitHub remote) keeps what was read before.
+const GH_FIELDS = 'number,title,state,isDraft,headRefName,baseRefName,isCrossRepository,author,createdAt,mergedAt,closedAt,additions,deletions,changedFiles,mergeable,statusCheckRollup,url'
+// Kept with the origin it came from: after a shell cd into another repo, the draw shows none of it.
+const readGh = async ($: EngineInterface) => {
+  const [run, origin] = await Promise.all([
+    $.process.run(['gh', 'pr', 'list', '--state', 'all', '--limit', '50', '--json', GH_FIELDS]).catch(() => undefined),
+    $.process.run(['git', 'remote', 'get-url', 'origin']).catch(() => undefined),
+  ])
+  const remote = origin?.exitCode === 0 ? origin.stdout.trim() : ''
+  if (run?.exitCode !== 0) return
+  // Written only when it changed: each write draws the pane, and a tab press's second draw drops the next click.
+  const prs = parsePrs(run.stdout)
+  const was = await read($, gh)
+  if (was.remote === remote && JSON.stringify(prs) === JSON.stringify(was.prs)) return
+  const at = await $.clock.now()
+  await update($, gh, () => ({ at, remote, prs }))
+}
+// One PR's description, commits and files, read when its modal opens; with a failed check's job, its last log lines.
+const readPrView = async ($: EngineInterface, n: number, failed?: { name: string; job: string }) => {
+  const [run, log] = await Promise.all([
+    $.process.run(['gh', 'pr', 'view', String(n), '--json', 'body,commits,files']).catch(() => undefined),
+    failed ? $.process.run(['gh', 'run', 'view', '--job', failed.job, '--log-failed']).catch(() => undefined) : undefined,
+  ])
+  const view = run?.exitCode === 0 ? parsePrView(run.stdout) : undefined
+  if (!view) return
+  // Each line: job, step, then a timestamp before the text.
+  const lines = (log?.exitCode === 0 ? log.stdout.split('\n') : [])
+    .filter(line => line.trim())
+    .slice(-3)
+    .map(line => line.split('\t').at(-1)!.replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z ?/, ''))
+  await update($, prViews, all => ({ ...all, [n]: { ...view, ...(failed && lines.length && { log: { check: failed.name, lines } }) } }))
+}
+// Reruns each failed run of a PR's checks, then reads the PR list again.
+const rerunFailed = async ($: EngineInterface, runs: string[]) => {
+  for (const id of runs) {
+    const run = await $.process.run(['gh', 'run', 'rerun', id, '--failed']).catch(() => undefined)
+    if (run?.exitCode !== 0) $.ui.toast(`gh run rerun failed: ${(run?.stderr ?? '').split('\n')[0]}`)
+  }
+  await readGh($)
+}
+// A rebase or merge in progress, from the git dir's files; none otherwise.
+const readOp = async ($: EngineInterface, dir: string, names: string[], branch: string): Promise<Op | undefined> => {
+  const rebasing = names.includes('rebase-merge')
+  // A cherry-pick or revert stops as a merge does, on one commit.
+  const verb = names.includes('CHERRY_PICK_HEAD') ? 'cherry-pick' : names.includes('REVERT_HEAD') ? 'revert' : undefined
+  if (!rebasing && !verb && !names.includes('MERGE_HEAD')) return undefined
+  const file = (name: string) => $.fs.read(`${dir}/${name}`).then(String, () => '')
+  const git = (...argv: string[]) => $.process.run(['git', ...argv]).then(run => run.stdout, () => '')
+  const [numstat, cached, unmerged] = await Promise.all([git('diff', '--numstat'), git('diff', '--cached', '--numstat'), git('diff', '--name-only', '--diff-filter=U')])
+  if (rebasing) {
+    const [headName, onto, done, todo] = await Promise.all(['head-name', 'onto', 'done', 'git-rebase-todo'].map(name => file(`rebase-merge/${name}`)))
+    const op = parseRebase({ headName, onto, done, todo, numstat, cached, unmerged })
+    // The base by name: a local branch at onto first, else a remote one, else its short id.
+    const at = (await git('branch', '-a', '--points-at', op.onto, '--format=%(refname:short)')).split('\n').filter(Boolean)
+    return { ...op, onto: at.find(name => !name.startsWith('origin/')) ?? at[0] ?? op.onto.slice(0, 7) }
+  }
+  const at = verb === 'cherry-pick' ? 'CHERRY_PICK_HEAD' : verb === 'revert' ? 'REVERT_HEAD' : 'MERGE_HEAD'
+  const [msg, sha, log] = await Promise.all([file('MERGE_MSG'), file(at), git('log', '--format=%h%x09%s%x09%ct', ...(verb ? ['-1', at] : ['HEAD..MERGE_HEAD']))])
+  const op = parseMerge({ msg, sha, log, numstat, cached, unmerged, head: branch })
+  return verb ? { ...op, verb, from: op.sha } : op
+}
 const pick = async ($: EngineInterface, next: Tab) => {
   // Picking Git reads the repo afresh: it may have changed outside this chat.
   if (next === 'Git') gitRead = logRead = undefined
@@ -639,14 +815,25 @@ const pick = async ($: EngineInterface, next: Tab) => {
   // Each write draws the pane; a second draw could land before the first, and the terminal
   // then dropped the next click.
   if ((await read($, notices)).includes(next)) await update($, notices, list => list.filter(one => one !== next))
+  if (next === 'Git') await readGh($)
 }
 const tabCommand = (name: string) => `margin-${name.toLowerCase()}`
 // A pane waiting for room is not shown: the person's open places it.
 const isPlaced = async ($: EngineInterface) => (await $.ui.panes()).some(pane => pane.id === PANE && pane.isPlaced)
 const closePane = ($: EngineInterface) => $.ui.close({ id: PANE })
+// The pane's open arguments. While a Git modal is open the pane takes Escape as a close, which ui.close turns
+// into closing the modal: the engine reports Escape and the pane's close mark alike.
+const paneArgs = async ($: EngineInterface) => ({ id: PANE, title: 'Margin', columns: 40, ...((await read($, modal)) && { closeOnEscape: true as const }) })
+// Every open and close of a Git modal goes here, so Escape follows it; an open pane gets the new arguments.
+const setModal = async ($: EngineInterface, change: (m: Modal | null) => Modal | null) => {
+  const was = !!(await read($, modal))
+  const now = !!(await update($, modal, change))
+  if (was === now || !(await $.ui.panes().catch(() => [])).some(pane => pane.id === PANE)) return
+  await $.ui.open(await paneArgs($)).catch(() => undefined)
+}
 const openPane = async ($: EngineInterface) => {
   await $.store.set('open', true).catch(() => undefined)
-  const opened = await $.ui.open({ id: PANE, title: 'Margin', columns: 40 })
+  const opened = await $.ui.open(await paneArgs($))
   // No output text: a key toggles often, and a chat row per toggle is noise.
   if (!opened.isPlaced) $.ui.toast('Margin waits: terminal too narrow.')
   // Reopened on Overview: read what the closed pane missed.
@@ -824,13 +1011,19 @@ export const register: Register = (on, options) => {
     await update($, overview, now => (now.running ? { ...now, running: false } : now))
     // immediate: a key mid-turn opens the pane now, not once the turn ends; it prints nothing.
     await $.command.register({ name: 'margin', description: 'Toggle the margin', immediate: true })
+    // GitHub's PRs while the Git tab shows; its redraw also ages the fetch time.
+    $.clock.every(60_000, () => {
+      void (async () => {
+        if ((await read($, tab)) === 'Git' && (await isPlaced($))) await readGh($)
+      })()
+    })
     for (const name of Object.keys(KEYS)) await $.command.register({ name: tabCommand(name), description: `Margin: ${name} tab`, immediate: true })
     // Keys come back in the order first set: the oldest sessions' notes go.
     const notes = (await $.store.keys().catch(() => [])).filter(key => key.startsWith('midTurn:'))
     await Promise.all(notes.slice(0, -MID_TURN_SESSIONS).map(key => $.store.delete(key).catch(() => undefined)))
     if (isIntentOn) await $.tool.register(INTENT_SPEC).catch(() => undefined)
     // Opens as the last session left it; never asked yet, open. Below 144 columns (110 once asked) it waits for room.
-    if (e.isInteractive && (await $.store.get('open').catch(() => undefined)) !== false) await $.ui.open({ id: PANE, title: 'Margin', columns: 40 }).catch(() => undefined)
+    if (e.isInteractive && (await $.store.get('open').catch(() => undefined)) !== false) await $.ui.open(await paneArgs($)).catch(() => undefined)
     // A reload or resume with the tab open: read now, not at the next prompt. After the open: before it, no pane to read for.
     $.clock.after(0, () => readOverview($))
 
@@ -839,6 +1032,12 @@ export const register: Register = (on, options) => {
 
   // An unload (reload, crash) is no one closing it.
   on('ui.close', { id: PANE }, async ($, e, next) => {
+    // Escape, or the close mark, while a Git modal is open: its top layer closes and the pane stays.
+    if (e.origin.kind === 'person' && (await read($, modal))) {
+      await setModal($, m => (m?.sub ? { ...m, sub: undefined } : null))
+      // Answered without next: the pane stays open.
+      return { deny: 'closed the Git modal' } as never
+    }
     if (e.origin.kind !== 'unload') await $.store.set('open', false).catch(() => undefined)
 
     return next(e)
@@ -985,6 +1184,14 @@ export const register: Register = (on, options) => {
   // Tabs switch here, not in their onPress: mid-turn, a click landing as a redraw swaps the tree
   // reached this hook but lost its onPress.
   on('ui.press', { requestId: PANE }, async ($, e, next) => {
+    // An open modal takes every press: its own act; any other closes the top layer and does nothing else.
+    // A tab press closes it whole and switches.
+    // The open row's own Button (`open:`) closes the whole modal through its onPress.
+    if (modalZone && !/^([ms]|open):/.test(e.element ?? '')) {
+      const isTab = TABS.some(one => one === e.element)
+      await setModal($, m => (m?.sub && !isTab ? { ...m, sub: undefined } : null))
+      if (!isTab) return { element: e.element }
+    }
     // Agent rows redraw mid-turn too: their fold and their transcript take the tabs' route.
     if (e.element === 'main' || e.element?.startsWith('view:')) {
       const id = e.element.slice(5)
@@ -1007,6 +1214,36 @@ export const register: Register = (on, options) => {
 
   // A divider, dragged or clicked: the render clamps it to keep 1 row on either side.
   on('ui.message', async ($, e, next) => {
+    // A row Client: the pointer entered or left it, or it was pressed.
+    if (e.requestId === PANE && typeof e.element === 'string' && e.element.startsWith('row:')) {
+      const row = e.element.slice(4)
+      const data = e.data as { hover?: boolean; press?: boolean } | undefined
+      // A row under the left row's card is entered as the pointer lands on that card: its card stays undrawn.
+      const under = (left: string | null) => {
+        const span = left ? cardSpan[left] : undefined
+        return !!span && rowLines[row]! >= span[0] && rowLines[row]! < span[1]
+      }
+      if (data?.hover) {
+        const held = leaving?.row
+        leaving = undefined
+        await update($, rowPointer, ({ left }) => ({ left: under(held ?? left) ? (held ?? left) : null, at: row }))
+      } else if (data?.hover === false) {
+        const n = ++leaves
+        leaving = { row, n }
+        void $.clock.after(LEAVE_HOLD, async () => {
+          if (leaving?.n !== n) return
+          leaving = undefined
+          await update($, rowPointer, ({ at }) => ({ left: row, at: at === row ? null : at }))
+        })
+      }
+      // A press opens a modal, behind which faded rows post no leave: forget the left row first.
+      if (data?.press) {
+        leaving = undefined
+        await update($, rowPointer, () => ({ left: null, at: null }))
+        await rowActs[row]?.()
+      }
+      return {}
+    }
     const rows = (e.data as { split?: unknown } | undefined)?.split
     if (e.requestId !== PANE || (e.element !== 'divider' && e.element !== 'now') || typeof rows !== 'number') return next(e)
     if (e.element === 'divider') await update($, split, () => Math.max(0, rows))
@@ -1018,6 +1255,17 @@ export const register: Register = (on, options) => {
   // The wheel over the Git tab scrolls the zone under it, not the pane; keys, with no pointer, COMMITS.
   // Over History, its list, under the header.
   on('ui.scroll', { requestId: PANE }, async ($, e, next) => {
+    // Over an open modal's top layer, its list; anywhere else, nothing. Rows count under the tabs and their rule.
+    const layered = modalZone
+    if (layered) {
+      const row = (e.pointer?.row ?? -Infinity) - 2
+      const layer = layered.s ?? layered.m
+      if (row >= layer.frame.top && row < layer.frame.top + layer.frame.height) {
+        const top = Math.max(0, Math.min(layer.top + e.by, layer.end))
+        await update($, modal, m => (!m ? m : layered.s ? (m.sub ? { ...m, sub: { ...m.sub, top } } : m) : { ...m, top }))
+      }
+      return {}
+    }
     const end = historyEnd
     if (end !== undefined) {
       // From the row drawn: a rewind may have shrunk the list under the offset stored.
@@ -1197,7 +1445,10 @@ export const register: Register = (on, options) => {
 
     let body
     // Kept while a Git draw reads: a wheel tick meanwhile still scrolls its zone.
-    if (current !== 'Git') gitZones = undefined
+    if (current !== 'Git') {
+      gitZones = undefined
+      modalZone = undefined
+    }
     if (current !== 'History') historyEnd = undefined
     if (current !== 'Overview') topicsZone = undefined
     if (current === 'Decisions') {
@@ -1366,7 +1617,14 @@ export const register: Register = (on, options) => {
         gitRead = { key, signal: next.signal, runs: readGit($) }
         runs = await gitRead.runs
       }
-      const [status, diff, unpushed, count, remote] = runs
+      const [status, diff, unpushed, count, remote, gitDir, stash, refs] = runs
+      const now = await $.clock.now()
+      await readTheme($)
+      const basic = await (basicGlyphs ??= configDir($)
+        .then(dir => $.fs.exists(`${dir}/.claudzilla-basic-glyphs`))
+        .catch(() => false))
+      const open = await read($, modal)
+      const isFetching = await read($, fetching)
       const web = remote?.exitCode === 0 ? gitWeb(remote.stdout) : undefined
       const local = unpushed?.exitCode === 0 ? new Set(unpushed.stdout.split('\n').filter(Boolean)) : undefined
       const total = count?.exitCode === 0 ? count.stdout.trim() : ''
@@ -1374,10 +1632,43 @@ export const register: Register = (on, options) => {
       const [ins, del] = [/(\d+) insertion/, /(\d+) deletion/].map(re => re.exec(diff?.stdout ?? '')?.[1])
       const churn = [ins && `+${ins}`, del && `-${del}`].filter(Boolean).join(' ')
       const [head, ...files] = status?.exitCode === 0 ? status.stdout.split('\n').filter(Boolean) : []
+      // As gitRead: a run a dropped draw took down is read again by the live one.
+      const dropped = (cached?: { key: string; signal: AbortSignal }, at = key) => cached?.key !== at || (cached.signal.aborted && !next.signal.aborted)
+      if (dropped(opRead))
+        opRead = { key, signal: next.signal, run: head && gitDir ? readOp($, gitDir.dir, gitDir.files.map(one => one.name), parseHead(head).name) : Promise.resolve(undefined) }
+      const op = await opRead.run
+      // During a rebase git has no current branch: its name comes from head-name.
+      const branchName = op?.head || parseHead(head ?? '').name
+      const blocked = !!op && op.conflicts.length > 0 && !op.resolved
+      const ghNow = await read($, gh)
+      const prs = remote?.exitCode === 0 && ghNow.remote === remote.stdout.trim() ? ghNow.prs : []
+      // This branch's PR: one open, else the newest that ended. Two or more open share a summary row.
+      const own = head ? ownPrs(prs, branchName) : []
+      const incoming = head ? incomingPrs(prs, branchName) : []
+      const isOpen = (one?: Pr) => one?.state === 'open' || one?.state === 'draft'
+      // Two or more open PRs out of this branch, or, on a branch with none open, the PRs coming into it: one summary row.
+      const summary = own.length > 1 ? { out: true, list: own } : !isOpen(own[0]) && incoming.length ? { out: false, list: incoming } : undefined
+      const pr = !summary && own.length === 1 ? own[0] : undefined
+      const prKey = pr && `${key}:${pr.base}:${pr.conflicting}`
+      if (prKey && dropped(prRead, prKey))
+        prRead = {
+          key: prKey,
+          signal: next.signal,
+          run: Promise.all([
+            $.process.run(['git', 'rev-list', '--count', `HEAD..origin/${pr.base}`]).catch(() => undefined),
+            $.process.run(['git', 'rev-list', '--count', `origin/${pr.base}..HEAD`]).catch(() => undefined),
+            // Exits 1 on a conflict, the files still listed: the tree id, then a name a line.
+            pr.conflicting ? $.process.run(['git', 'merge-tree', '--write-tree', '--name-only', 'HEAD', `origin/${pr.base}`]).catch(() => undefined) : Promise.resolve(undefined),
+          ]),
+        }
+      const [behindRun, aheadRun, treeRun] = pr ? await prRead!.run : []
+      const behind = Number(behindRun?.stdout.trim()) || 0
+      const prCommits = Number(aheadRun?.stdout.trim()) || 0
+      // Rows behind an open modal: dim, with no hover, card or link. A modal with nothing to show is not open.
+      const dimmed = !!open && (open.key === 'branch' || (open.key === 'pr' && !!pr) || (open.key === 'rebase' && !!op) || (open.key === 'prs' && !!summary))
+      const conflictFiles = treeRun ? treeRun.stdout.split('\n\n')[0]!.split('\n').slice(1).filter(Boolean) : []
       // As the HUD statusline's dirty count: "!4 ?1", tracked changes then untracked files.
       const untracked = files.filter(line => line.startsWith('??')).length
-      // The branch's page only once pushed to origin, the remote the links are built from, and not deleted there.
-      const upstream = head && !head.endsWith('[gone]') && /\.\.\.origin\/(\S+)/.exec(head)?.[1]
       const dirty = [files.length > untracked && `!${files.length - untracked}`, untracked && `?${untracked}`].filter(Boolean).join(' ')
       // The body less 3 columns: a path gets room + 1 after its status letter and a space; a commit's
       // subject room + 2 less its hash.
@@ -1388,17 +1679,18 @@ export const register: Register = (on, options) => {
       const fits = (...counts: string[]) => 8 + counts.join('').length <= room + 3
       const localCount = local ? `${local.size} local` : ''
       const totalCount = total ? `${local ? '  ' : ''}${total} total` : ''
+      // The branch row, the rebase row and the PR row; the rows above CHANGES grow with them.
+      const topRows = 1 + (op ? 1 : 0) + (pr || summary ? 1 : 0)
       // Rows left once the tabs, their rule, the branch, the rule under it, both headers and the
       // divider are drawn. CHANGES takes what it needs up to half, or what the divider was dragged
       // to; COMMITS the rest. Dragged, each side keeps 1 row, COMMITS first in a short pane.
-      const free = e.props.scroll.bodyRows - BAR_ROWS - 7
+      const free = e.props.scroll.bodyRows - BAR_ROWS - 6 - topRows
       const dragged = await read($, split)
       const changesMax = Math.max(0, free - 1)
       const changesMin = Math.min(1, changesMax)
       const changesRows = dragged >= 0 ? Math.max(changesMin, Math.min(dragged, changesMax)) : Math.min(files.length, Math.ceil(free / 2), changesMax)
       // With no changes, no CHANGES header or divider: COMMITS takes their rows too.
       const commitsRows = Math.max(1, files.length ? free - changesRows : free + 2)
-      const changed = `${files.length} changed`
       // Clamped here too: a list shrinks, or the divider grows its zone, after the wheel moved it.
       const top = await read($, scrolled)
       const changesFrom = Math.min(top.changes, zoneEnd(files.length, changesRows))
@@ -1423,7 +1715,7 @@ export const register: Register = (on, options) => {
         gitZones = !head
           ? undefined
           : {
-              commitsAt: files.length && changesRows ? 5 + changesRows : 0,
+              commitsAt: files.length && changesRows ? 4 + topRows + changesRows : 0,
               changes: zoneEnd(files.length, changesRows),
               commits: zoneEnd(Number(total) || page * PAGE + commits.length, commitsRows),
             }
@@ -1431,6 +1723,723 @@ export const register: Register = (on, options) => {
         zones: !head ? (status ? 'not a repo' : 'no git answer') : !files.length ? 'commits only' : changesRows ? 'changes+commits' : 'changes hidden: no rows',
         changes: files.length, changesRows, commits: commits.length, commitsRows, total: Number(total) || 0,
       }
+      // Mid-rebase git status names no branch: the branch's own ref gives its upstream and track, as status would.
+      const ref = op ? (refs?.stdout ?? '').split('\n').map(line => line.split('\t')).find(([name]) => name === branchName) : undefined
+      const headLine = ref?.[1] ? `## ${branchName}...${ref[1]}${ref[2] ? ` ${ref[2]}` : ''}` : (head ?? '')
+      const hd = { ...parseHead(headLine), name: branchName }
+      // The upstream by its remote alone, unless its branch name differs from this one.
+      const tracked = /\.\.\.(\S+)/.exec(headLine)?.[1]
+      const upstreamName = tracked && (tracked.slice(tracked.indexOf('/') + 1) === hd.name ? tracked.split('/')[0]! : tracked)
+      const MARKS = { behind: ['↓', BEHIND], diverged: ['↕', BEHIND], gone: ['✗', HUD.faint] } as const
+      const mark = syncMark(hd)
+      const stashes = stashCount(stash?.stdout ?? '', hd.name)
+      const remoteUrl = remote?.exitCode === 0 ? remote.stdout.trim() : ''
+      const fetchedAt = gitDir?.fetchedAt
+      const stale = fetchedAt === undefined || now - fetchedAt >= 60 * 60e3
+      const fetchLabel = `${basic ? '↻' : '\uf46a'} ${fetchedAt === undefined ? 'never' : age(fetchedAt, now)}`
+      // The fetch row's width as drawn: while a fetch runs it reads "◌ fetching".
+      const fetchWidth = isFetching ? 10 : [...fetchLabel].length
+      const branchLabel = `⎇ ${fit(hd.name, e.props.bodyColumns - 2 * PAD - fetchWidth - 5)}`
+      const fetchedText = fetchedAt === undefined ? 'never' : `${clock(fetchedAt)} ${new Date(fetchedAt).toDateString() === new Date(now).toDateString() ? 'today' : dayName(new Date(fetchedAt))}`
+      const fetchNow = async () => {
+        await update($, fetching, () => true)
+        const run = await $.process.run(['git', 'fetch', 'origin']).catch(() => undefined)
+        await update($, fetching, () => false)
+        if (run?.exitCode !== 0) $.ui.toast(`git fetch failed: ${(run?.stderr ?? '').split('\n')[0]}`)
+        // As a tool call that may change the repo: the tab reads git again.
+        await update($, toolCalls, n => n + 1)
+        await readGh($)
+      }
+      // Merged branches start hidden each time the branch modal opens.
+      const openModal = async (key: ModalKey) => {
+        if (key === 'branch') await update($, branchView, v => ({ ...v, showMerged: false }))
+        await setModal($, () => ({ key, top: key === 'branch' ? -1 : 0 }))
+        const failed = pr?.checks.find(c => c.state === 'bad' && c.job)
+        if (key === 'pr' && pr) await readPrView($, pr.n, failed && { name: failed.name, job: failed.job! })
+      }
+      // Behind a modal only the row that opened it presses, and closes it.
+      rowActs = dimmed
+        ? { [open!.key]: () => setModal($, () => null) }
+        : { branch: () => openModal('branch'), fetch: () => !isFetching && fetchNow(), rebase: () => openModal('rebase'), pr: () => openModal('pr'), prs: () => openModal('prs') }
+      // A top row: a row Client where the surface draws one, else a Button whose card shows on hover. `width`: a row
+      // sharing its line, held to its text.
+      // An action row (fetch runs, opens nothing) inverts under the pointer, as a button does; a row that opens a
+      // modal lights.
+      const act = (key: string) => key === 'fetch' && !dimmed
+      const piecesOf = (key: string, node: any[]) =>
+        act(key) ? toPieces(node).map(x => ({ ...x, hover: { scope: `card:${key}`, inverse: true } })) : dimOn(key, toPieces(node))
+      const topRow = (key: string, left: any[], right: any[], cardEl: null, width?: number) =>
+        Client ? (
+          <Box flexDirection="column" height={1} hover={dimmed ? undefined : { scope: `card:${key}`, ...(!act(key) && { backgroundColor: LIT }) }} {...(width !== undefined && { width, flexShrink: 0 })}>
+            <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left: piecesOf(key, left), right: piecesOf(key, right), ...(!dimmed && { line: `line:${lineOf(key)}` }) }} />
+            {cardEl}
+          </Box>
+        ) : (
+          <Box key={`hov:${key}`} hover={hoverOf(`card:${key}`)} justifyContent="space-between" height={1} overflow="hidden" {...(width !== undefined && { flexShrink: 0 })}>
+            <Button key={`git:${key}`} plain onPress={() => rowActs[key]?.()}>
+              {left}
+            </Button>
+            <Box flexShrink={0}>{right}</Box>
+            {cardEl}
+          </Box>
+        )
+      // A row's hover card, drawn last so it paints over the rows under it, and shown while its row's scope is
+      // hovered. `row`: the row it hangs under, counted from the tab's top.
+      const cards: JSX.Element[] = []
+      const pointer = await read($, rowPointer)
+      // While a card shows, the line between its row and the card dims, still live to the pointer: the next top row
+      // line, or the rule under the last. Branch and fetch share a line.
+      const lines = [['branch', 'fetch'], ...(op ? [['rebase']] : []), ...(pr ? [['pr']] : summary ? [['prs']] : [])]
+      // The engine dims it, the plugin's redraw too slow (measured ~60 ms behind the lit row): each line's row Clients
+      // join group `line:<n>`, and the next line's pieces fade while it is hovered. Nested in the row's Text, a piece
+      // follows that group without heating it, so the pointer on it leaves it bright.
+      const lineOf = (key: string) => lines.findIndex(line => line.includes(key))
+      const dimOn = (key: string, pieces: Piece[]) =>
+        dimmed || lineOf(key) < 1 ? pieces : pieces.map(x => ({ ...x, hover: { scope: `line:${lineOf(key) - 1}`, color: fade(x.color), ...(x.backgroundColor && { backgroundColor: fade(x.backgroundColor) }) } }))
+      // Shown on hover, one row below its row: a step down lands on the next row, not on the card. A card under the
+      // pointer keeps its group lit, so with row Clients the card of the row last left is not drawn: a jump past the
+      // next row onto the card is the row's leave.
+      rowLines = Object.fromEntries(lines.flatMap((line, i) => line.map(key => [key, i])))
+      const spans = cardSpan
+      cardSpan = {}
+      const gone = pointer.left && spans[pointer.left]
+      // `anchor`: where its item sits on the row: left, right, or the whole row, centred under it.
+      const card = (scope: string, row: number, anchor: 'left' | 'right' | 'center', ...rows: JSX.Element[]) => {
+        const key = scope.slice(5)
+        // As wide as its widest row, border and padding included, up to the 75% cap.
+        const width = Math.min(cardWidth, cardContent(rows) + 4)
+        const place = anchor === 'left' ? { left: 0 } : anchor === 'right' ? { right: 0 } : { left: Math.floor((e.props.bodyColumns - width) / 2) - PAD }
+        // Its border and rows, from row + 2.
+        const span = (cardSpan[key] = [row + 2, row + 4 + rows.length])
+        const over = !!gone && span[0] < gone[1] && gone[0] < span[1]
+        if (!dimmed && (!Client || key === pointer.at || (key !== pointer.left && !over)))
+          cards.push(
+            <Box position="absolute" top={row + 2} {...place} width={width} display="none" hover={{ scope, display: 'flex' }} flexDirection="column" borderStyle="round" borderColor="promptBorder" backgroundColor={CARD} paddingX={1}>
+              {kvAligned(rows)}
+            </Box>,
+          )
+        return null
+      }
+      const hoverOf = (scope: string) => (dimmed ? undefined : { scope })
+      // A card row: a faint label 10 columns wide, one column in, its info, and a count or mark at the far right.
+      // One row: the info is kept and the far-right text is cut.
+      const kv = (label: string, info: JSX.Element | string, right?: JSX.Element): JSX.Element => {
+        const row = kvRow(label, info, right)
+        kvArgs.set(row, [label, info, right])
+        return row
+      }
+      // A card's kv rows share one info width, its longest: every far-right text starts past the same column.
+      const kvArgs = new WeakMap<object, [string, JSX.Element | string, JSX.Element | undefined]>()
+      const infoLength = (info: JSX.Element | string) => (typeof info === 'string' ? info : toPieces(info).map(x => x.text).join('')).length
+      const textLength = (node: unknown) => toPieces(node).map(x => x.text).join('').length
+      // The widest row: a kv row at the card's shared info width, any other by its text, 2 more when split by
+      // space-between.
+      const cardContent = (rows: JSX.Element[]) => {
+        const info = Math.max(0, ...rows.map(r => kvArgs.get(r)).filter(Boolean).map(args => infoLength(args![1])))
+        return Math.max(0, ...rows.map(r => {
+          const args = kvArgs.get(r)
+          if (args) return 11 + info + (args[2] ? 2 + textLength(args[2]) : 0)
+          return textLength(r) + ((r as any)?.props?.justifyContent === 'space-between' ? 2 : 0)
+        }))
+      }
+      const kvAligned = (rows: JSX.Element[]) => {
+        const width = Math.max(0, ...rows.map(r => kvArgs.get(r)).filter(Boolean).map(args => infoLength(args![1])))
+        return rows.map(r => {
+          const args = kvArgs.get(r)
+          return args ? kvRow(...args, width) : r
+        })
+      }
+      const kvRow = (label: string, info: JSX.Element | string, right?: JSX.Element, infoWidth?: number) => (
+        <Box justifyContent="space-between" gap={2} height={1} overflow="hidden">
+          <Box flexShrink={0} {...(infoWidth !== undefined && { width: 11 + infoWidth })}>
+            <Text>
+              <Text color={HUD.faint}>{` ${label.padEnd(10)}`}</Text>
+              {typeof info === 'string' ? <Text>{info}</Text> : info}
+            </Text>
+          </Box>
+          <Text wrap="truncate-end">{right ?? ' '}</Text>
+        </Box>
+      )
+      // Against the upstream: ✓ in sync, ↑ unpushed, ↓ unpulled, both when diverged; local never pushed, gone deleted.
+      const syncOf = (b: { upstream: string; ahead: number; behind: number }) =>
+        b.upstream !== 'ok' ? <Text color={HUD.faint}>{b.upstream}</Text>
+        : !b.ahead && !b.behind ? <Text color={HUD.action}>✓</Text>
+        : (
+          <Text>
+            {b.ahead ? <Text color={AHEAD}>{`↑${b.ahead}`}</Text> : ''}
+            {b.ahead && b.behind ? ' ' : ''}
+            {b.behind ? <Text color={BEHIND}>{`↓${b.behind}`}</Text> : ''}
+          </Text>
+        )
+      const sync = syncOf(hd)
+      // Overview's marks: done, failed, running; skipped faint.
+      const GLYPHS: Record<CheckState, [string, string]> = { ok: ['✓', HUD.action], bad: ['✗', TYPES.fix!], run: ['◌', 'claude'], skip: ['–', HUD.faint] }
+      const glyph = (state: CheckState) => <Text color={GLYPHS[state][1]}>{GLYPHS[state][0]}</Text>
+      // A branch prefix in its commit type's colour (feat/ green, fix/ red); any other prefix faint.
+      const prefixColor = (prefix: string) => TYPES[prefix.replace(/\/$/, '')] ?? HUD.faint
+      // The tab body the modals sit in, under the tabs and their rule.
+      const tabRows = e.props.scroll.bodyRows - 2 - BAR_ROWS
+      const layers: { m?: Layer; s?: Layer } = {}
+      // One modal layer: actions and ✕, a divider, pinned rows, the list's window with its cues.
+      // A layer with no pinned rows merges its top cue into the divider. `centre`: the row to open on, when top < 0.
+      const drawLayer = (layer: 'm' | 's', f: Frame, at: { top: number; left: number }, acts: JSX.Element[], pin: JSX.Element[], rows: JSX.Element[], top: number, centre = 0) => {
+        const inner = f.width - 4
+        const room = f.height - 4 - pin.length
+        const merged = !pin.length
+        const start = top >= 0 ? top : Math.max(0, centre - Math.floor(scrollWindow(rows.length, 0, room, merged).shown / 2))
+        const w = scrollWindow(rows.length, start, room, merged)
+        layers[layer] = { frame: f, top: w.top, end: scrollWindow(rows.length, Infinity, room, merged).top }
+        const setTop = (to: number) =>
+          update($, modal, m => (!m ? m : layer === 's' ? (m.sub ? { ...m, sub: { ...m.sub, top: to } } : m) : { ...m, top: to }))
+        const mid = ` ${w.above} more `
+        const fill = Math.max(0, inner - 2 - mid.length)
+        // ── ↑ N more ──: back to the top; the arrow bold in the border colour, the count faint.
+        const up = (
+          <Box>
+            <Text color="promptBorder">{`${'─'.repeat(Math.floor(fill / 2))} `}</Text>
+            <Button key={`${layer}:up`} plain onPress={() => setTop(0)}>
+              <Text bold color="promptBorder">↑</Text>
+            </Button>
+            <Text color={HUD.faint}>{mid}</Text>
+            <Text color="promptBorder">{'─'.repeat(Math.ceil(fill / 2))}</Text>
+          </Box>
+        )
+        // ↓ N more turns the page: the first row not shown becomes the top row.
+        const down = (
+          <Box justifyContent="center">
+            <Button key={`${layer}:down`} plain onPress={() => setTop(w.top + w.shown)}>
+              <Text bold color="promptBorder">↓</Text>
+            </Button>
+            <Text color={HUD.faint}>{` ${w.below} more`}</Text>
+          </Box>
+        )
+        const close = () => setModal($, m => (layer === 's' && m ? { ...m, sub: undefined } : null))
+        // Every row one row tall, as the window counts them: a row too wide is cut, never wrapped.
+        const one = (row: JSX.Element) => (
+          <Box flexDirection="column" height={1} overflow="hidden" flexShrink={0}>
+            {row}
+          </Box>
+        )
+        return (
+          <Box key={layer === 'm' ? 'modal' : 'stack'} position="absolute" top={at.top} left={at.left} width={f.width} height={f.height} flexDirection="column" borderStyle="round" borderColor="promptBorder" backgroundColor={CARD} paddingX={1}>
+            <Box justifyContent="space-between">
+              <Box gap={2}>{acts}</Box>
+              <Button key={`${layer}:x`} plain onPress={close}>
+                <Text>✕</Text>
+              </Button>
+            </Box>
+            {merged && w.above ? up : <Text color="promptBorder">{'─'.repeat(inner)}</Text>}
+            {pin.map(one)}
+            {!merged && w.above ? up : null}
+            {rows.slice(w.top, w.top + w.shown).map(one)}
+            {w.below ? down : null}
+          </Box>
+        )
+      }
+      // A commit subject as COMMITS colours it: the type in its colour, the scope grey, the rest plain.
+      const subjectTexts = (text: string, room = Infinity, bold = false) => {
+        const shown = fit(text.replace(/[\x00-\x1f\x7f]/g, ' '), room)
+        const [, type, scope, tail, rest] = /^(\w+)(?:\(([^)]*)\))?(!?: )(.*)$/.exec(shown) ?? []
+        if (!type) return [<Text bold={bold}>{shown}</Text>]
+        return [
+          <Text bold={bold} color={TYPES[type] ?? HUD.faint}>{type}</Text>,
+          ...(scope === undefined ? [] : [<Text bold={bold} color={HUD.faint}>(</Text>, <Text bold={bold} color={SCOPE}>{scope}</Text>]),
+          <Text bold={bold} color={HUD.faint}>{scope === undefined ? tail : `)${tail}`}</Text>,
+          <Text bold={bold}>{rest}</Text>,
+        ]
+      }
+      const PILL: Record<PrState, [string, string]> = { open: ['#1d3a2a', 'success'], draft: ['#2a2e33', SCOPE], merged: ['#2e2640', HUD.label], closed: ['#3a2030', 'error'] }
+      // A state pill: the rounded ends in its background colour around the word.
+      const pill = (state: PrState) => [
+        <Text color={PILL[state][0]}>{''}</Text>,
+        <Text backgroundColor={PILL[state][0]} color={PILL[state][1]}>{state}</Text>,
+        <Text color={PILL[state][0]}>{''}</Text>,
+      ]
+      const CI: Record<CheckState, [string, string]> = { bad: ['✗ CI failed', TYPES.fix!], run: ['◌ CI running', 'claude'], ok: ['✓ CI passed', HUD.action], skip: ['✓ CI passed', HUD.action] }
+      const churnOf = (add: number, del: number) => (
+        <Text>
+          <Text color="success">{`+${add}`}</Text> <Text color="error">{`−${del}`}</Text>
+        </Text>
+      )
+      // A file row: its 2-column mark, its path cut in the middle, so the file name stays and the churn keeps the
+      // row gap at this width.
+      const fileRow = (mark: JSX.Element, path: string, add: number, del: number, width: number) =>
+        line([mark, <Text>{` ${cutMiddle(path, width - 5 - `+${add} −${del}`.length)}`}</Text>], churnOf(add, del))
+      // A count in normal text: each standalone number in the claude colour; faint text stays faint. IDs (#n,
+      // shas), times (11h), churn (+7) and numbers inside names are not counts: a number touching a letter, #, + or
+      // − stays.
+      const counted = (text: string) =>
+        text.split(/(?<![\w#+−.\/-])(\d+)(?![\w.\/-])/).map((part, i) => (part ? <Text color={i % 2 ? 'claude' : undefined}>{part}</Text> : null))
+      const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+      // A hover card's widest: 75% of the body.
+      const cardWidth = Math.floor(e.props.bodyColumns * 0.75)
+      const opRows = op ? 1 : 0
+      const prRow = (() => {
+        if (!pr) return null
+        const ended = pr.state === 'merged' || pr.state === 'closed'
+        const w = worst(pr.checks)
+        const passed = pr.checks.filter(c => c.state === 'ok').length
+        // The check that needs attention: the first failed one, else the first running.
+        const current = pr.checks.find(c => c.state === 'bad') ?? pr.checks.find(c => c.state === 'run')
+        const changes = kv('changes', <Text>{counted(`${prCommits ? `${plural(prCommits, 'commit')} · ` : ''}${plural(pr.files, 'file')}`)}</Text>, churnOf(pr.additions, pr.deletions))
+        const title = <Box>{subjectTexts(pr.title, cardWidth - 4, true)}</Box>
+        // A merged or closed PR: when and where it ended replaces base and checks, which no longer matter.
+        const rows = ended
+          ? [title, kv(pr.state, <Text><Text color={HUD.faint}>into</Text>{` ${pr.base}`}</Text>, <Text color={HUD.faint}>{`${age(pr.at, now)} ago`}</Text>), changes]
+          : [
+              title,
+              kv(
+                'base',
+                pr.conflicting ? <Text><Text color={TYPES.fix}>✗</Text> conflicts</Text>
+                : behind ? <Text><Text color="warning">↓</Text>{counted(` ${behind} behind`)}</Text>
+                : <Text><Text color={HUD.action}>✓</Text> up to date</Text>,
+                pr.conflicting && conflictFiles.length ? <Text color={HUD.faint}>{plural(conflictFiles.length, 'file')}</Text> : undefined,
+              ),
+              kv('checks', <Text>{glyph(w)}{counted(` ${passed} of ${pr.checks.length} passed`)}</Text>, current && <Text color={GLYPHS[current.state][1]}>{current.name}</Text>),
+              changes,
+            ]
+        return topRow(
+          'pr',
+          [
+            <Text dimColor={ended}>  </Text>,
+            basic ? '' : <Text color="claude" dimColor={ended}>{' '}</Text>,
+            <Text color="claude" dimColor={ended}>{`#${pr.n}`}</Text>,
+            <Text color={HUD.faint} dimColor={ended}> into </Text>,
+            <Text dimColor={ended}>{pr.base}</Text>,
+            ended ? '' : pr.conflicting ? <Text color={TYPES.fix} dimColor={ended}> ✗</Text> : behind ? <Text color="warning" dimColor={ended}> !</Text> : '',
+          ],
+          [!ended && pr.checks.length ? <Text color={CI[w][1]}>{`${CI[w][0]} `}</Text> : null, ...pill(pr.state)],
+          card('card:pr', opRows + 1, 'center', ...rows),
+        )
+      })()
+      // The rebase or merge row: what runs, onto what, and what it waits on.
+      const opRow = op && (() => {
+        const rebase = op.kind === 'rebase'
+        const stop = rebase ? op.steps[op.at] : undefined
+        const right =
+          rebase && op.edit ? [<Text color="warning">edit</Text>, <Text color={HUD.faint}>{` ${stop?.sha ?? ''}`}</Text>]
+          : blocked ? [<Text color={TYPES.fix}>{`✗ ${plural(op.conflicts.length, 'conflict')}`}</Text>]
+          : [<Text color={HUD.action}>✓ ready</Text>]
+        const names = op.conflicts.map(c => c.path.slice(c.path.lastIndexOf('/') + 1)).join(', ')
+        // The card adds where it stopped and the files to fix; the modal's actions say what to do.
+        const rows = [
+          rebase
+            ? kv('step', <Text>{counted(`${op.at + 1} of ${op.steps.length}`)}</Text>, <Text color={HUD.faint}>{stop?.sha ?? ''}</Text>)
+            : kv('incoming', <Text>{counted(plural(op.incoming.length, 'commit'))}</Text>, <Text color={HUD.faint}>{op.sha}</Text>),
+          ...((rebase && op.edit) || !op.conflicts.length
+            ? []
+            : [
+                kv(
+                  op.resolved ? 'resolved' : 'conflict',
+                  fit(names, cardWidth - 24),
+                  op.conflicts.length > 1 ? <Text color={HUD.faint}>{plural(op.conflicts.length, 'file')}</Text> : churnOf(op.conflicts[0]!.additions, op.conflicts[0]!.deletions),
+                ),
+              ]),
+        ]
+        return (
+          topRow(
+            'rebase',
+            [
+              <Text>  </Text>,
+              <Text color="warning">{rebase ? '↺ ' : ' '}</Text>,
+              <Text>{rebase ? 'rebasing ' : op.verb === 'cherry-pick' ? 'cherry-picking ' : op.verb === 'revert' ? 'reverting ' : 'merging '}</Text>,
+              rebase ? <Text color={HUD.faint}>onto </Text> : '',
+              <Text>{rebase ? op.onto : op.from}</Text>,
+            ],
+            [right].flat(),
+            card('card:rebase', 1, 'center', ...rows),
+          )
+        )
+      })()
+      // A summary row: two or more PRs on one row, the count and the worst CI; each PR in its card and modal.
+      const summaryRow = summary && (() => {
+        const bad = summary.list.filter(p => worst(p.checks) === 'bad').length
+        const run = summary.list.filter(p => worst(p.checks) === 'run').length
+        const right = bad ? <Text color={TYPES.fix}>{`✗ ${bad} failing`}</Text>
+          : run ? <Text color="claude">{`◌ ${run} running`}</Text>
+          : <Text color={HUD.action}>✓ all passed</Text>
+        const item = (p: Pr) => (
+          <Box justifyContent="space-between">
+            <Box>
+              <Text color="claude">{` #${p.n} `}</Text>
+              {summary.out ? [<Text color={HUD.faint}>into </Text>, <Text>{p.base}</Text>] : subjectTexts(p.title, cardWidth - 20)}
+            </Box>
+            <Box>
+              {glyph(worst(p.checks))}
+              <Text> </Text>
+              {pill(p.state)}
+            </Box>
+          </Box>
+        )
+        // A card shows at most 8 rows; past that the last counts the rest, and the modal lists them all.
+        const rows = summary.list.length > 8 ? [...summary.list.slice(0, 7).map(item), <Text color={HUD.faint}>{` … ${summary.list.length - 7} more`}</Text>] : summary.list.map(item)
+        return (
+          topRow(
+            'prs',
+            [
+              <Text>  </Text>,
+              <Text color="claude">{summary.out ? '↗ ' : '↘ '}</Text>,
+              <Text>{counted(`${summary.list.length} PRs `)}</Text>,
+              <Text color={HUD.faint}>{summary.out ? 'out' : 'into '}</Text>,
+              summary.out ? '' : <Text>{branchName}</Text>,
+            ],
+            [right].flat(),
+            card('card:prs', opRows + 1, 'center', ...rows),
+          )
+        )
+      })()
+      const modalRows = (want: number) => modalFrame(e.props.bodyColumns, tabRows, want)
+      if (open?.key === 'branch' && dropped(branchRead))
+        branchRead = {
+          key,
+          signal: next.signal,
+          run: Promise.all([
+            $.process.run(['git', 'worktree', 'list', '--porcelain']).catch(() => undefined),
+            $.process.run(['git', 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).catch(() => undefined),
+          ]),
+        }
+      const [worktreeRun, defaultRun] = open?.key === 'branch' ? await branchRead!.run : []
+      const view = await read($, branchView)
+      const views = await read($, prViews)
+      // The branch modal: the tree of local branches, the current one lit; it opens on it. Rows only inform.
+      const branchModal = () => {
+        const defaultName = (defaultRun?.exitCode === 0 && defaultRun.stdout.trim().replace(/^origin\//, '')) || 'main'
+        const list = branches(refs?.exitCode === 0 ? refs.stdout : '', prs, worktreeRun?.stdout ?? '', defaultName)
+        const tree = treeRows(list, view.by, view.showMerged)
+        const merged = list.filter(b => b.pr?.state === 'merged').length
+        const f = modalRows(4 + tree.length + (merged ? 2 : 0))
+        const inner = f.width - 4
+        // Columns: sync, the PR with its mark, age. Each as wide as its widest cell, 2 columns apart and 2 past the
+        // name; a column no row fills is dropped.
+        const shown = tree.flatMap(r => (r.branch ? [r.branch] : []))
+        const cols = [
+          Math.max(0, ...shown.map(b => toPieces(syncOf(b)).map(x => x.text).join('').length)),
+          Math.max(0, ...shown.map(b => (b.pr ? `#${b.pr.n}`.length + 2 : 0))),
+          Math.max(0, ...shown.map(b => age(b.at, now).length)),
+        ]
+        const room = inner - 2 - cols.filter(Boolean).reduce((n, w) => n + w + 2, -2)
+        const rows = tree.map(r => {
+          const b = r.branch
+          const isCurrent = b?.name === hd.name
+          const at = r.label.indexOf('/')
+          const label = isCurrent
+            ? [<Text bold color={HUD.action}>⎇ </Text>, <Text bold color={HUD.action}>{fit(r.label, room - 2 - r.guide.length)}</Text>]
+            : r.heading || at < 0
+              ? [<Text color={r.heading ? prefixColor(r.heading) : undefined}>{fit(r.label, room - r.guide.length)}</Text>]
+              : [<Text color={prefixColor(r.label.slice(0, at + 1))}>{r.label.slice(0, at + 1)}</Text>, <Text>{fit(r.label.slice(at + 1), room - r.guide.length - at - 1)}</Text>]
+          return (
+            <Box justifyContent="space-between" backgroundColor={isCurrent ? LIT : undefined}>
+              <Box>
+                {r.guide ? <Text color={HUD.faint}>{r.guide}</Text> : null}
+                {label}
+                {b?.worktree ? <Text color={HUD.faint}> ⧉</Text> : null}
+              </Box>
+              {b ? (
+                <Box gap={2} flexShrink={0}>
+                  {[
+                    syncOf(b),
+                    b.pr ? (
+                      <Text>
+                        <Text color={HUD.faint}>{`#${b.pr.n} `}</Text>
+                        {b.pr.state === 'merged' ? <Text color={HUD.label}>{'\uf419'}</Text> : glyph(worst(b.pr.checks))}
+                      </Text>
+                    ) : null,
+                    <Text color={HUD.faint}>{age(b.at, now)}</Text>,
+                  ].flatMap((cell, i) => (cols[i] ? [<Box width={cols[i]} justifyContent="flex-end">{cell}</Box>] : []))}
+                </Box>
+              ) : null}
+            </Box>
+          )
+        })
+        if (merged)
+          rows.push(
+            <Text color="promptBorder">{'─'.repeat(inner)}</Text>,
+            <Box justifyContent="space-between">
+              <Text color={HUD.faint}>{`${merged} merged${view.showMerged ? '' : ' hidden'}`}</Text>
+              <Button key="m:merged" plain onPress={() => update($, branchView, v => ({ ...v, showMerged: !v.showMerged }))}>
+                <Text color="claude">{view.showMerged ? 'hide' : 'show'}</Text>
+              </Button>
+            </Box>,
+          )
+        // The chosen view is plain text; only the other is a button, and switching opens on the current branch again.
+        const acts = (['base', 'prefix'] as const).map(by => {
+          const label = `${by === 'base' ? '\uf419' : '\uea83'} ${by}`
+          return view.by === by ? (
+            <Text color="claude">{label}</Text>
+          ) : (
+            <Button key={`m:by:${by}`} plain dimColor onPress={() => Promise.all([update($, branchView, v => ({ ...v, by })), update($, modal, m => m && { ...m, top: -1 })])}>
+              {label}
+            </Button>
+          )
+        })
+        return drawLayer('m', f, { top: f.top, left: f.left - PAD }, acts, [], rows, open!.top, tree.findIndex(r => r.branch?.name === hd.name))
+      }
+      const inner = modalRows(0).width - 4
+      // A row too wide for its layer (a stacked modal is narrower than the rows it reuses) is cut at the left side's
+      // end, as one string, 2 columns before the right side: every row breaks at the same column.
+      const line = (left: JSX.Element | JSX.Element[], right?: JSX.Element) => (
+        <Box justifyContent="space-between" gap={2}>
+          <Text wrap="truncate-end">{left}</Text>
+          {right ? <Box flexShrink={0}>{right}</Box> : null}
+        </Box>
+      )
+      const heading = (label: string, right?: JSX.Element) => line(<Text bold color={HUD.label}>{label}</Text>, right)
+      const rule = <Text color="promptBorder">{'─'.repeat(inner)}</Text>
+      const showAll = (label: string) => (
+        <Box>
+          <Text>  </Text>
+          <Button key={`m:all:${label}`} plain onPress={() => update($, modal, m => m && { ...m, sub: { key: label, top: 0 } })}>
+            <Text color="claude">show all</Text>
+          </Button>
+        </Box>
+      )
+      // A check: its mark and name, its run time at the right.
+      const checkLine = (c: Check) => line([<Text> </Text>, glyph(c.state), <Text>{` ${c.name}`}</Text>], <Text color={c.state === 'run' ? 'claude' : HUD.faint}>{c.time}</Text>)
+      // `full`: the rows a stacked modal shows at its own width, where they wrap to it.
+      type Section = { label: string; right?: JSX.Element; rows: JSX.Element[]; shown?: JSX.Element[]; from?: number; full?: (inner: number) => JSX.Element[] }
+      // A modal of sections under a head: each list capped, "show all" opening it whole in a stacked modal.
+      const sectionModal = (head: JSX.Element[], sections: Section[], acts: JSX.Element[], subActs: (label: string) => JSX.Element[]) => {
+        const rows = [
+          ...head,
+          ...sections.flatMap(one => {
+            const cap = capped(one.rows, one.from)
+            return [rule, heading(one.label, one.right), ...(one.shown ?? cap.rows), ...(cap.more ? [showAll(one.label)] : [])]
+          }),
+        ]
+        const f = modalRows(4 + rows.length)
+        const sub = open?.sub && sections.find(one => one.label === open.sub!.key)
+        // The stacked modal is drawn after the modal, not in it, so the modal's border never paints over it.
+        const stacked = sub && (() => {
+          const width = stackFrame(e.props.bodyColumns, tabRows, f, 0).width - 4
+          const all = sub.full?.(width) ?? sub.rows
+          const sf = stackFrame(e.props.bodyColumns, tabRows, f, 5 + all.length)
+          return drawLayer('s', sf, { top: sf.top, left: sf.left - PAD }, subActs(sub.label), [heading(sub.label, sub.right)], all, open!.sub!.top)
+        })()
+        return [drawLayer('m', f, { top: f.top, left: f.left - PAD }, acts, [], rows, open!.top), stacked || null]
+      }
+      const VERB: Record<PrState, string> = { open: 'opened', draft: 'drafted', merged: 'merged', closed: 'closed' }
+      // The PR modal: title and who and when, then its sections, each capped with "show all" opening it stacked.
+      const prModal = () => {
+        if (!pr) return null
+        const view = views[pr.n]
+        // A merged or closed PR's checks have all finished.
+        const ended = pr.state === 'merged' || pr.state === 'closed'
+        const checks = sortChecks(ended ? pr.checks.map(c => (c.state === 'run' ? { ...c, state: 'ok' as const, time: '' } : c)) : pr.checks)
+        const passed = checks.filter(c => c.state === 'ok').length
+        const desc = wrapLines(view?.body ?? '', inner - 2, inner - 1)
+        const descRow = (text: string, i: number) => <Text>{`${i ? ' ' : '  '}${text}`}</Text>
+        // A failed check's last log lines, red-edged under its row at the name's column: the row names the check.
+        const logged = view?.log && checks.find(c => c.name === view.log!.check)
+        const withLog = (list: Check[]) =>
+          list.flatMap(c => [checkLine(c), ...(c === logged ? view!.log!.lines.map(text => line([<Text>   </Text>, <Text color={TYPES.fix}>▎</Text>, <Text color={HUD.faint}>{text}</Text>])) : [])])
+        const files = (width: number) =>
+          (view?.files ?? []).map(f => fileRow(<Text color={STATUS[f.status] ?? HUD.faint}>{` ${f.status}`}</Text>, f.path, f.additions, f.deletions, width))
+        const sections: Section[] = [
+          ...(desc.length
+            ? [{
+                label: 'DESCRIPTION',
+                rows: desc.map(descRow),
+                full: (width: number) => wrapLines(view?.body ?? '', width - 2, width - 1).map(descRow),
+                // Clamped, not cut: the last row shown ends in "…".
+                shown: capped(desc).more ? desc.slice(0, CAP).map((text, i) => descRow(i === CAP - 1 ? `${text.slice(0, inner - 2)}…` : text, i)) : undefined,
+              }]
+            : []),
+          {
+            label: 'CHECKS',
+            right: <Text color={HUD.faint}>{`${passed} of ${checks.length} passed`}</Text>,
+            // Counted and capped by check; the log rides under its check, in the modal and stacked.
+            rows: checks.map(checkLine),
+            shown: withLog(capped(checks).rows),
+            full: () => withLog(checks),
+          },
+          ...(view
+            ? [
+                {
+                  label: 'COMMITS',
+                  right: <Text color={HUD.faint}>{`${view.commits.length} total`}</Text>,
+                  rows: view.commits.map(c => line([<Text> </Text>, ...subjectTexts(c.subject)], <Text color={HUD.faint}>{`${age(c.at, now)} ago`}</Text>)),
+                },
+                {
+                  label: 'FILES',
+                  right: (
+                    <Text>
+                      <Text color={HUD.faint}>{`${view.files.length} total  `}</Text>
+                      {churnOf(view.files.reduce((n, f) => n + f.additions, 0), view.files.reduce((n, f) => n + f.deletions, 0))}
+                    </Text>
+                  ),
+                  rows: files(inner),
+                  full: files,
+                },
+              ]
+            : []),
+        ]
+        const failedRuns = [...new Set(checks.filter(c => c.state === 'bad' && c.run).map(c => c.run!))]
+        const rerun = (layer: 'm' | 's') => (
+          <Button key={`${layer}:rerun`} plain onPress={() => rerunFailed($, failedRuns)}>
+            <Text color="claude">{'\uebc0 rerun'}</Text>
+          </Button>
+        )
+        // Each action its icon and one word in the accent, as the mockup's buttons; github is a link, so the terminal
+        // opens the page.
+        const acts = [
+          <Link href={pr.url}>
+            <Text color="claude">{'\uf408 github'}</Text>
+          </Link>,
+          <Button key="m:copy" plain onPress={press => $.ui.copy({ text: pr.url, surface: press.surface })}>
+            <Text color="claude">{'\uf44c copy'}</Text>
+          </Button>,
+          ...(failedRuns.length ? [rerun('m')] : []),
+        ]
+        return sectionModal(
+          [
+            line(subjectTexts(pr.title, Infinity, true)),
+            line([<Text color="claude">{` #${pr.n}`}</Text>, <Text color={HUD.faint}>{` · by ${pr.author} · ${VERB[pr.state]} ${age(pr.at, now)} ago`}</Text>]),
+            ...(pr.conflicting && conflictFiles.length
+              ? [line([<Text color={TYPES.fix}> ✗</Text>, <Text>{` conflicts in ${conflictFiles.map(path => path.slice(path.lastIndexOf('/') + 1)).join(', ')}`}</Text>])]
+              : []),
+          ],
+          sections,
+          acts,
+          label => (label === 'CHECKS' && failedRuns.length ? [rerun('s')] : []),
+        )
+      }
+      // The rebase or merge modal: the commit it stopped on, the steps with Overview's marks, the files to fix.
+      const rebaseModal = () => {
+        if (!op) return null
+        const rebase = op.kind === 'rebase'
+        const ready = !blocked
+        const runGit = async (argv: string[]) => {
+          // No editor: continue and commit keep the message git wrote.
+          const run = await $.process.run(['git', '-c', 'core.editor=true', ...argv]).catch(() => undefined)
+          if (run?.exitCode !== 0) $.ui.toast(`git ${argv[0]} failed: ${(run?.stderr ?? '').split('\n')[0]}`)
+          // Closed: a rebase that ended must not open it again at the next one; a new stop is a click away.
+          await setModal($, () => null)
+          await update($, toolCalls, n => n + 1)
+        }
+        // abort throws work away (red); continue and commit go forward (green) once nothing blocks them.
+        const act = (word: string, icon: string, argv: string[]) => (
+          <Button key={`m:${word}`} plain onPress={() => runGit(argv)}>
+            {/* The mockup's buttons: abort throws work away (error); continue and commit go forward (success) once
+                nothing blocks them; else the accent. */}
+            <Text color={word === 'abort' ? 'error' : ready && (word === 'continue' || word === 'commit') ? 'success' : 'claude'}>{`${icon} ${word}`}</Text>
+          </Button>
+        )
+        const acts = rebase
+          ? [act('continue', '', ['rebase', '--continue']), act('skip', '', ['rebase', '--skip']), act('abort', '', ['rebase', '--abort'])]
+          : [act('commit', '', ['commit', '--no-edit']), act('abort', '', [op.verb ?? 'merge', '--abort'])]
+        const mark = (m: 'done' | 'stop' | 'todo') =>
+          m === 'done' ? <Text color={HUD.action}>✓</Text>
+          : m === 'todo' ? <Text color={HUD.faint}>○</Text>
+          : blocked ? <Text color={TYPES.fix}>✗</Text>
+          : <Text color={HUD.dirty}>■</Text>
+        const conflicts = (width: number) =>
+          op.conflicts.map(c => fileRow(<Text color={op.resolved ? HUD.action : TYPES.fix}>{` ${op.resolved ? 'M' : 'U'}`}</Text>, c.path, c.additions, c.deletions, width))
+        const commits: Section = rebase
+          ? {
+              label: 'COMMITS',
+              right: <Text color={HUD.faint}>{`${op.steps.length} total`}</Text>,
+              rows: op.steps.map(st =>
+                line(
+                  [<Text> </Text>, mark(st.mark), <Text> </Text>, ...(st.mark === 'todo' ? [<Text color={HUD.faint}>{st.subject}</Text>] : subjectTexts(st.subject))],
+                  <Text color={HUD.faint}>{st.sha}</Text>,
+                ),
+              ),
+              from: op.at - 1,
+            }
+          : {
+              label: 'COMMITS',
+              right: <Text color={HUD.faint}>{`${op.incoming.length} total`}</Text>,
+              rows: op.incoming.map(c => line([<Text> </Text>, ...subjectTexts(c.subject)], <Text color={HUD.faint}>{`${age(c.at, now)} ago`}</Text>)),
+            }
+        const files: Section[] = op.conflicts.length
+          ? [{
+              label: op.resolved ? 'RESOLVED' : 'CONFLICTS',
+              right: <Text color={HUD.faint}>{`${op.conflicts.length} total`}</Text>,
+              rows: conflicts(inner),
+              full: conflicts,
+            }]
+          : []
+        const stop = rebase ? op.steps[op.at] : undefined
+        const head = rebase
+          ? [
+              line(subjectTexts(stop?.subject ?? '', Infinity, true)),
+              line([<Text color="claude">{` ${stop?.sha ?? ''}`}</Text>, <Text color={HUD.faint}>{` · step ${op.at + 1} of ${op.steps.length}${op.edit ? ', stopped to edit' : ''}`}</Text>]),
+            ]
+          : [
+              line(<Text bold>{op.verb ? (op.incoming[0]?.subject ?? op.from) : `Merge branch '${op.from}' into ${op.head}`}</Text>),
+              line([<Text color="claude">{` ${op.sha}`}</Text>, <Text color={HUD.faint}>{` · ${plural(op.incoming.length, 'incoming commit')}`}</Text>]),
+            ]
+        return sectionModal(head, [commits, ...files], acts, () => [])
+      }
+      // The summary modal: each PR as two rows between dividers; a PR opens its own details stacked over it.
+      const summaryModal = () => {
+        if (!summary) return null
+        const label = `${summary.list.length} PRs`
+        const block = (p: Pr) => [
+          <Box justifyContent="space-between">
+            <Button key={`m:pr:${p.n}`} plain onPress={() => update($, modal, m => m && { ...m, sub: { key: `pr:${p.n}`, top: 0 } })}>
+              <Text color="claude">{` #${p.n} `}</Text>
+              {subjectTexts(p.title, inner - 22)}
+            </Button>
+            <Box>
+              {glyph(worst(p.checks))}
+              <Text> </Text>
+              {pill(p.state)}
+            </Box>
+          </Box>,
+          line(<Text color={HUD.faint}>{`  ${p.author} · from ${p.head}`}</Text>, <Text color={HUD.faint}>{`${age(p.at, now)} ago`}</Text>),
+        ]
+        const join = (blocks: JSX.Element[][]) => blocks.flatMap((b, i) => (i ? [rule, ...b] : b))
+        const blocks = summary.list.map(block)
+        const cap = capped(blocks)
+        const rows = [...join(cap.rows), ...(cap.more ? [showAll(label)] : [])]
+        const f = modalRows(4 + rows.length)
+        const sub = open?.sub
+        const subPr = sub?.key.startsWith('pr:') ? summary.list.find(p => `pr:${p.n}` === sub.key) : undefined
+        const at = (sf: Frame) => ({ top: sf.top, left: sf.left - PAD })
+        // A PR stacked: its title pinned, who and when, its checks.
+        const stacked = !sub ? undefined
+          : subPr ? (() => {
+              const checks = sortChecks(subPr.checks)
+              const runs = [...new Set(checks.filter(c => c.state === 'bad' && c.run).map(c => c.run!))]
+              const subRows = [
+                line([<Text color="claude">{` #${subPr.n}`}</Text>, <Text color={HUD.faint}>{` · by ${subPr.author} · ${VERB[subPr.state]} ${age(subPr.at, now)} ago`}</Text>]),
+                rule,
+                heading('CHECKS', <Text color={HUD.faint}>{`${checks.filter(c => c.state === 'ok').length} of ${checks.length} passed`}</Text>),
+                ...checks.map(checkLine),
+              ]
+              const sf = stackFrame(e.props.bodyColumns, tabRows, f, 5 + subRows.length)
+              const acts = [
+                <Link href={subPr.url}>
+                  <Text>{' github'}</Text>
+                </Link>,
+                ...(runs.length
+                  ? [
+                      <Button key="s:rerun" plain onPress={() => rerunFailed($, runs)}>
+                        <Text>{' rerun'}</Text>
+                      </Button>,
+                    ]
+                  : []),
+              ]
+              return drawLayer('s', sf, at(sf), acts, [line(subjectTexts(subPr.title, Infinity, true))], subRows, sub.top)
+            })()
+          : sub.key === label ? (() => {
+              const all = join(blocks)
+              const sf = stackFrame(e.props.bodyColumns, tabRows, f, 5 + all.length)
+              return drawLayer('s', sf, at(sf), [], [heading(label.toUpperCase())], all, sub.top)
+            })()
+          : undefined
+        const pulls = summary.list[0]!.url.replace(/\/pull\/\d+$/, '/pulls')
+        const acts = [
+          <Link href={pulls}>
+            <Text>{' github'}</Text>
+          </Link>,
+        ]
+        return [drawLayer('m', f, { top: f.top, left: f.left - PAD }, acts, [], rows, open!.top), stacked ?? null]
+      }
+      const modalBox = !dimmed ? null : open?.key === 'prs' ? summaryModal() : open?.key === 'branch' ? branchModal() : open?.key === 'pr' ? prModal() : open?.key === 'rebase' ? rebaseModal() : null
+      // Only a live draw sets them, as gitZones.
+      if (!next.signal.aborted) modalZone = layers.m ? { m: layers.m, s: layers.s } : undefined
       body = !head ? (
         // The rows under the tabs and their rule. No answer at all: git is not on PATH, or the surface
         // runs no command.
@@ -1452,17 +2461,38 @@ export const register: Register = (on, options) => {
       ) : (
         <Box flexDirection="column">
           <Box justifyContent="space-between">
-            {/* The HUD statusline's branch glyph and green; cut to stay on one row beside the count. */}
-            {linked(
+            {/* The HUD statusline's branch glyph and green; one mark after it only when the branch needs you. */}
+            {topRow(
               'branch',
-              upstream && web?.branch(upstream),
-              HUD.action,
-              `⎇ ${fit(branchLine(head), e.props.bodyColumns - 2 * PAD - changed.length - 3)}`,
+              [<Text color={HUD.action}>{branchLabel}</Text>, mark && <Text color={MARKS[mark][1]}>{` ${MARKS[mark][0]}`}</Text>],
+              [],
+              card('card:branch', 0, 'left', kv('upstream', upstreamName || '', sync), ...(stashes ? [kv('stash', <Text>{counted(`${stashes} on this branch`)}</Text>)] : [])),
+              [...branchLabel].length + (mark ? 2 : 0),
             )}
-            <Text color={HUD.faint}>{changed}</Text>
+            {topRow(
+              'fetch',
+              [isFetching ? <Text color="claude">◌ fetching</Text> : <Text color={stale ? 'warning' : HUD.faint}>{fetchLabel}</Text>],
+              [],
+              card(
+                'card:fetch',
+                0,
+                'right',
+                kv('fetched', <Text color={stale ? 'warning' : undefined}>{fetchedText}</Text>),
+                // The URL cut in the middle to the card: border, padding, label, "origin  ", and the far-right gap.
+                ...(remoteUrl ? [kv('remote', <Text>origin  <Text color={HUD.faint}>{cutMiddle(remoteUrl, cardWidth - 26)}</Text></Text>)] : []),
+              ),
+              fetchWidth,
+            )}
           </Box>
+          {opRow}
+          {prRow}
+          {summaryRow}
           {/* The primer pane's rule color, as every margin rule but History's day lines. */}
-          <Text color="promptBorder">{bodyRule}</Text>
+          <Text>
+            <Text color="promptBorder" hover={dimmed ? undefined : { scope: `line:${lines.length - 1}`, color: fade('promptBorder') }}>
+              {bodyRule}
+            </Text>
+          </Text>
           {files.length > 0 && (
             <Box justifyContent="space-between">
               <Text bold color={HUD.label}>CHANGES</Text>
@@ -1495,7 +2525,7 @@ export const register: Register = (on, options) => {
           {/* Only the terminal and desktop draw a Client: elsewhere the rule stays put. */}
           {files.length > 0 &&
             (Client ? (
-              <Client key="divider" module="./divider.tsx" props={{ split: changesRows, min: changesMin, max: changesMax }} height={1} />
+              <Client key="divider" module="./divider.tsx" props={{ split: changesRows, min: changesMin, max: changesMax, faded: dimmed }} height={1} />
             ) : (
               <Text color="promptBorder">{bodyRule}</Text>
             ))}
@@ -1521,7 +2551,7 @@ export const register: Register = (on, options) => {
             const known = type ? TYPES[type] : undefined
             const typeColor = !known ? HUD.faint : isLocal ? known : dim(known)
             // Not known pushed when the local list failed: no link that may open a missing page.
-            const href = local && !isLocal && web?.commit(full)
+            const href = !dimmed && local && !isLocal && web?.commit(full)
             // The subject lights with its id; nested in a Text, it cannot light the row itself.
             // The short id: a scope takes at most 64 characters, a SHA-256 id is 64 alone.
             const group = `commit:${hash}`
@@ -1547,8 +2577,12 @@ export const register: Register = (on, options) => {
               </Box>
             )
           })}
+          {cards}
+          {modalBox}
         </Box>
       )
+      // Behind an open modal everything fades but the row that opened it; under a stacked modal the modal fades too.
+      if (head && dimmed) body = fadeTree(body, new Set([layers.s ? 'stack' : 'modal']), () => setModal($, () => null), `${Client ? 'row' : 'hov'}:${open!.key}`)
     } else {
       const shown = await read($, intent)
       const about = await read($, overview)

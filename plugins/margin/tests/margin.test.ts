@@ -3,7 +3,7 @@ import type { TestBody } from 'claude-code/testing'
 import type { AgentStatus, Register } from 'claude-code'
 import type { Spawn, Step } from '../types'
 
-import { branchLine, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseTopics, pinHolds, readStamps, stampPattern } from '../hooks/register'
+import { dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseTopics, pinHolds, readStamps, stampPattern } from '../hooks/register'
 
 // A process.run result with `stdout`.
 const ran = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -61,10 +61,11 @@ test('Git tab shows the branch, changed files and last commits', async ($, on) =
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
-  expect(await ui.find({ type: 'Text', text: '⎇ main ↑1 ↓2' })).toBeDefined()
+  // The name alone; diverged from its upstream, one mark: the counts are in the branch card.
+  expect(await ui.find({ type: 'Text', text: '⎇ main', in: 'row:branch' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' ↕', in: 'row:branch' })).toBeDefined()
   // A rule under the branch, as wide as the body.
   expect(await ui.find({ type: 'Text', text: new RegExp(`^─{${props.bodyColumns - 4}}$`) })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '3 changed' })).toBeDefined()
   // As the HUD statusline: tracked changes, untracked files, then lines added and removed.
   expect(await ui.find({ type: 'Text', text: '!2 ?1' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '  +144 -6' })).toBeDefined()
@@ -107,7 +108,7 @@ test('a remote on a known host gives its commit and branch pages; any other host
   expect(gitWeb('')).toBeUndefined()
 })
 
-test('Git tab links the pushed branch and pushed commits to their web pages, lit on hover', async ($, on) => {
+test('Git tab links pushed commits to their web pages, lit on hover', async ($, on) => {
   noHistory(on)
   const repo = {
     status: '## feat/x...origin/feat/x [ahead 1]\n',
@@ -121,10 +122,11 @@ test('Git tab links the pushed branch and pushed commits to their web pages, lit
   await ui.press({ key: 'Git' })
 
   const links = await ui.findAll({ type: 'Link' })
-  expect(links.map(link => link.props.href)).toEqual(['https://github.com/o/r/tree/feat/x', 'https://github.com/o/r/commit/def5678ffff'])
+  // The branch name opens the branch modal, so it is no link.
+  expect(links.map(link => link.props.href)).toEqual(['https://github.com/o/r/commit/def5678ffff'])
   // Not pushed: no page yet. Pushed: the id alone opens it.
   expect(links.some(link => /local one/.test(link.text ?? ''))).toBe(false)
-  expect(links[1]?.text).toMatch(/def5678$/)
+  expect(links[0]?.text).toMatch(/def5678$/)
   // A Text's hover rides beside its props. The id heats its commit's group, lit as History lights a row; the
   // subject's Texts follow it, nested in a Text so they cannot heat it.
   type Drawn = { type?: string; hover?: { scope?: string; inverse?: boolean }; children?: unknown[] }
@@ -135,7 +137,6 @@ test('Git tab links the pushed branch and pushed commits to their web pages, lit
     return [...own, ...(el.children ?? []).flatMap(child => walk(child, inText || el.type === 'Text'))]
   }
   const lit = walk(await ui.drawn())
-  expect(lit.filter(text => text.scope === 'branch')).toEqual([{ scope: 'branch', nested: false }])
   const commit = lit.filter(text => text.scope === 'commit:def5678')
   expect(commit[0]).toEqual({ scope: 'commit:def5678', nested: false })
   expect(commit.length).toBeGreaterThan(1)
@@ -205,7 +206,7 @@ test('Git tab redraws after a tool call changes the repo', async ($, on) => {
   Object.assign(repo, { status: '## main...origin/main [ahead 1]\n', log: 'fed4321ffff fed4321 second\nabc1234ffff abc1234 first\n' })
   await $.tool.call({ tool: 'Bash', command: 'git commit -am second' })
 
-  expect(await ui.find({ type: 'Text', text: '⎇ main ↑1' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '⎇ main', in: 'row:branch' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'fed4321' })).toBeDefined()
 })
 
@@ -356,7 +357,7 @@ test('the wheel scrolls CHANGES and COMMITS each on its own, up to their ends; �
     if (typeof node !== 'object' || !el) return []
     return [...((el.type === 'Button' || el.type === 'Text') && el.hover ? [{ type: el.type, ...el.hover }] : []), ...(el.children ?? []).flatMap(hovers)]
   }
-  expect(hovers(await ui.drawn())).toEqual(['Button', 'Text'].map(type => ({ type, scope: 'top:changes', color: 'claude' })))
+  expect(hovers(await ui.drawn()).filter(h => (h as { scope?: string }).scope === 'top:changes')).toEqual(['Button', 'Text'].map(type => ({ type, scope: 'top:changes', color: 'claude' })))
   expect(await ui.find({ key: 'top:commits' })).toBeUndefined()
 
   await wheel(100, 16)
@@ -431,7 +432,6 @@ test('a clean repo drops CHANGES and its divider: COMMITS takes their rows', asy
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
-  expect(await ui.find({ type: 'Text', text: '0 changed' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'CHANGES' })).toBeUndefined()
   expect(await ui.find({ key: 'divider' })).toBeUndefined()
   // 20 body rows less the tabs, their rule, the branch, its rule and the COMMITS header: 15.
@@ -703,7 +703,7 @@ test("a tab press switches even when the button's onPress is lost", async ($, on
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
-  expect(await ui.find({ type: 'Text', text: '⎇ main' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '⎇ main', in: 'row:branch' })).toBeDefined()
 })
 
 test('a slow pane draw finishes before a newer fast one', async () => {
@@ -758,16 +758,7 @@ test('Git tab outside a repo says so', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'Not a git repository' })).toBeDefined()
 })
 
-test('branch line: no upstream, behind only, upstream gone', () => {
-  expect(branchLine('## feat/x')).toBe('feat/x')
-  expect(branchLine('## main...origin/main [behind 3]')).toBe('main ↓3')
-  expect(branchLine('## main...origin/main [gone]')).toBe('main gone')
-  // Only the tracking part is rewritten, not a branch named like it.
-  expect(branchLine('## feat/go-ahead...origin/feat/go-ahead [ahead 1]')).toBe('feat/go-ahead ↑1')
-  expect(branchLine('## fix/fall-behind...origin/fix/fall-behind [behind 2]')).toBe('fix/fall-behind ↓2')
-})
-
-test('a long branch row is cut to fit beside its count, not wrapped', async ($, on) => {
+test('a long branch row is cut to fit beside the fetch button, not wrapped', async ($, on) => {
   noHistory(on)
   const head = '## feature/a-really-long-branch-name-that-goes-on...origin/x [ahead 12, behind 3]'
   on('process.run', (_, e) => ran(git({ status: `${head}\n M a.ts\n`, log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
@@ -775,10 +766,11 @@ test('a long branch row is cut to fit beside its count, not wrapped', async ($, 
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
-  const branch = (await ui.find({ type: 'Text', text: /^⎇ / }))?.text ?? ''
+  const branch = (await ui.findAll({ type: 'Text', text: /^⎇ /, in: 'row:branch' })).at(-1)?.text ?? ''
   expect(branch.endsWith('…')).toBe(true)
-  // The body less its margins: the branch, a space at least, "1 changed".
-  expect(branch.length + 1 + '1 changed'.length).toBeLessThanOrEqual(props.bodyColumns - 4)
+  // The body less its margins: the branch, its mark, a space at least, the fetch button.
+  const fetch = (await ui.findAll({ type: 'Text', text: /^\uf46a /, in: 'row:fetch' })).at(-1)?.text ?? ''
+  expect(branch.length + 2 + 1 + fetch.length).toBeLessThanOrEqual(props.bodyColumns - 4)
 })
 
 test('a conflict shows U, whatever git pairs it with', async ($, on) => {

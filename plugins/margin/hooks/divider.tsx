@@ -3,11 +3,12 @@ import type { ClientModule } from 'claude-code'
 // The rule between CHANGES and COMMITS, or the Overview's TOPICS and its report: dragged, it posts how
 // many rows the zone above should take. `split` is the rows that zone takes as drawn, `min` and `max` the
 // rows a drag can give it; the rule sits right under them, so the pointer's row counts from there.
-// `isOver`: the pointer is on the rule, which lights its grip.
+// `isOver`: the pointer is on the rule, which lights its grip. `faded`: a modal is open over it, so it draws in the
+// grey register.tsx fades the tab to, and its grip does not light.
 // Dragged, the rule stays put and shows how far (`by`), posting once let go: moved under the pointer, it
 // got rows counted from where the terminal had not yet moved it, and jumped.
 // Clicked, a press and release that never left its row, it jumps to the top, or from the top to the bottom.
-const Divider: ClientModule<{ split: number; min: number; max: number }, { grabbed?: number; by?: number; moved?: boolean; isOver?: boolean }> = ({ split, min, max }, surface) => {
+const Divider: ClientModule<{ split: number; min: number; max: number; faded?: boolean }, { grabbed?: number; by?: number; moved?: boolean; isOver?: boolean }> = ({ split, min, max, faded }, surface) => {
   const { Box, Text } = surface.elements
   // Rows a drag of `d` moves the rule, as far as the zone can go: a zone under `min` never shrinks, and
   // grows to it on any move down.
@@ -32,17 +33,18 @@ const Divider: ClientModule<{ split: number; min: number; max: number }, { grabb
   })
   const by = surface.state?.grabbed === undefined ? 0 : reach(surface.state.by ?? 0)
   const word = by ? `${by > 0 ? '↓' : '↑'}${Math.abs(by)}` : '⇕'
-  const isLit = surface.state?.isOver
+  const isLit = surface.state?.isOver && !faded
+  const rule = faded ? '#555555' : 'promptBorder'
   const side = Math.max(0, surface.columns - word.length - 2)
   // The primer pane's divider colors (plugins/primer/hooks/divider.tsx), as every margin rule but History's day
   // lines.
   return (
     <Box>
-      <Text color="promptBorder">{'─'.repeat(Math.floor(side / 2))} </Text>
-      <Text color={isLit ? 'claude' : 'promptBorder'} inverse={(isLit && !by) || undefined} bold>
+      <Text color={rule}>{'─'.repeat(Math.floor(side / 2))} </Text>
+      <Text color={isLit ? 'claude' : rule} inverse={(isLit && !by) || undefined} bold>
         {word}
       </Text>
-      <Text color="promptBorder"> {'─'.repeat(Math.ceil(side / 2))}</Text>
+      <Text color={rule}> {'─'.repeat(Math.ceil(side / 2))}</Text>
     </Box>
   )
 }
