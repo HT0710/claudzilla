@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   CLAIM_RE, CONFIG_DIR, DEFAULTS, HEREDOC_RE, MACHINE_PROMPT, SESSION_RE, VERIFY,
-  commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, git, gitParse, keywordRe, loadConfig, mcpPr, proseOf, notWork, subjectProblem, unchecked, unquote, writes,
+  commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, git, gitParse, keywordRe, loadConfig, mcpPr, proseOf, notWork, subjectProblem, triggerText, unchecked, writes,
 } from "../../hooks/rules-guard.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -165,7 +165,7 @@ function scan(root, days) {
       }
     }
     if (!t.typed) {
-      const bare = unquote(t.text);
+      const bare = triggerText(t.text);
       for (const [id, words, skill] of [["debugTrigger", cfg.keywords.debug, "systematic-debugging"], ["reviewTrigger", cfg.keywords.review, "receiving-code-review"]]) {
         if (!keywordRe(words).test(bare)) continue;
         add(id, "applies");

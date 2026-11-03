@@ -123,6 +123,9 @@ const hitter = (cfg, hits) => (id, why) => { if (why && cfg.rules[id] !== "off")
 
 // Mentions inside `code` or quotes are not claims or triggers.
 const unquote = (text) => text.replace(/`[^`\n]*`|"[^"\n]*"|“[^”\n]*”/g, "");
+// "write the failing tests" is a TDD step, not a bug report.
+const TDD_ASK = /\b(?:write|add|writing|adding)[ \t]+(?:(?:the|a|some|new)[ \t]+)?failing[ \t]+(?:\w+[ \t]+)?tests?\b/gi;
+const triggerText = (text) => unquote(text).replace(TDD_ASK, "");
 const fresh = () => ({ skills: [], checked: false, debug: false, debugNudged: false, edited: false, flags: [], judged: "", panel: false, reportFrom: -1 });
 const statePath = (sid) => join(tmpdir(), "claudzilla-rules", `${String(sid).replace(/[^\w-]/g, "")}.json`);
 function load(sid) {
@@ -278,7 +281,7 @@ function onPrompt(d) {
   const typed = p.match(/^\/([\w:-]+)/);
   if (typed) s.skills.push(typed[1]);
   else if (!MACHINE_PROMPT.test(p)) {
-    const bare = unquote(p);
+    const bare = triggerText(p);
     if (cfg.rules.debugTrigger === "remind" && keywordRe(cfg.keywords.debug).test(bare)) { s.debug = true; lines.push(nudge("debugTrigger")); }
     if (cfg.rules.reviewTrigger === "remind" && keywordRe(cfg.keywords.review).test(bare)) lines.push(MSG.reviewTrigger);
   }
@@ -892,5 +895,5 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
 
 export {
   CLAIM_RE, CONFIG_DIR, DEFAULTS, HEREDOC_RE, MACHINE_PROMPT, MSG, SESSION_RE, VERIFY, WHY,
-  commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, git, gitParse, keywordRe, loadConfig, mcpPr, nudge, prDescribes, proseOf, notWork, subjectProblem, unchecked, unquote, writes,
+  commitSubject, expand, firedRules, forceFlag, formatFlags, ghPr, git, gitParse, keywordRe, loadConfig, mcpPr, nudge, prDescribes, proseOf, notWork, subjectProblem, triggerText, unchecked, unquote, writes,
 };

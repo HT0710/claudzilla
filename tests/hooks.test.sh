@@ -572,6 +572,8 @@ check "config: remind alone still reminds" reminded "$(sh_ 'git push -f')"
 rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"
 new_session; check "config: default keywords skip unrelated suffixes" [ -z "$(hook UserPromptSubmit prompt='exceptional work, add failover, bugfix release')" ]
 new_session; check "config: default keywords keep plural and tense" has "$(hook UserPromptSubmit prompt='tests failed with errors')" "systematic-debugging"
+new_session; check "prompt: TDD ask for failing tests is not a bug" [ -z "$(hook UserPromptSubmit prompt='write the failing guard tests, then add a failing test for X')" ]
+new_session; check "prompt: failing tests report still triggers" has "$(hook UserPromptSubmit prompt='CI has 2 failing tests')" "systematic-debugging"
 mcfg '{"rulesGuard":{"rules":{"debugTrigger":"off"}}}'
 N=$(mktemp -d "$TMP/nogit.XXXX"); new_session
 check "config: machine layer outside repo" [ -z "$(cd "$N" && hook UserPromptSubmit prompt='login is broken')" ]
