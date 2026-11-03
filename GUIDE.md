@@ -355,7 +355,15 @@ From the moment you submit until Claude reports, the header shows `planning…` 
 
 **File** shows the lines around a file mentioned in Claude's reply, with the line marked `▶`. Click the file link in the reply to open it here; the margin opens if it was closed. See *Read a reply* (`/claudzilla replies`).
 
-**Git** shows the session folder's branch, with `↑` for commits ahead of its remote and `↓` for commits behind, the changed files under CHANGES, and recent commits under COMMITS. It redraws after each tool call and each prompt. Scrolled, a `↑` line goes back to the top of CHANGES or COMMITS. When the `origin` remote is on GitHub, GitLab, Codeberg or SourceHut, a pushed commit's id, or the branch once pushed to origin, links to its web page: its row lights up while the pointer is on it. Alt+click opens it; Ctrl+click opens it twice until a Claude Code bug is fixed ([anthropics/claude-code#76110](https://github.com/anthropics/claude-code/issues/76110)).
+**Git** starts with the session folder's branch. A mark after its name shows only when the branch needs you: `↓` to pull, `↕` when it has diverged, `✗` when origin deleted it. Hover the name for its upstream and stashes, and click it for a tree of every local branch. The age at the right is the last fetch: click it to run `git fetch origin`.
+
+A rebase or merge in progress gets its own row with what it waits on, such as `✗ 1 conflict`. Click it to see each step and the files to fix, and to continue, skip or abort.
+
+When `gh` is set up for a GitHub repo, the next row shows the branch's pull request: its number, its base, its CI state and an `open`, `draft`, `merged` or `closed` pill. Hover it for the base, checks and changes; click it for the description, checks, commits and files, with `github`, `copy` and `rerun` actions. Two open PRs from one branch, or PRs coming into a base branch, share one summary row.
+
+In a details panel, a long list shows three rows and `show all`, which opens the whole list over it. Press Esc, click its `✕`, or click the row that opened it to close it.
+
+Next come the changed files under CHANGES and recent commits under COMMITS. The tab redraws after each tool call and each prompt. Scrolled, a `↑` line goes back to the top of CHANGES or COMMITS. When the `origin` remote is on GitHub, GitLab, Codeberg or SourceHut, a pushed commit's id links to its web page: its row lights up while the pointer is on it. Alt+click opens it; Ctrl+click opens it twice until a Claude Code bug is fixed ([anthropics/claude-code#76110](https://github.com/anthropics/claude-code/issues/76110)).
 
 The mouse wheel scrolls each list. The `⇕` rule between CHANGES and COMMITS, and the one under TOPICS, sets how the rows are shared: drag it, and each side keeps at least one row; click it to move it to the top, and click it there to move it to the bottom. The [margin README](https://github.com/HT0710/claudzilla/blob/main/plugins/margin/README.md) has the full detail.
 
