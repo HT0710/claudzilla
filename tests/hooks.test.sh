@@ -389,6 +389,8 @@ new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "#$long" >/dev/null
 check "stop: missing TL;DR flagged under ### only" has "$(state .flags)" "TL;DR"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'**TL;DR** — x\n'"$long" >/dev/null
 check "stop: TL;DR present ok" [ "$(state .flags.length)" = 0 ]
+new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'**TL;DR:** x\n'"$long" >/dev/null
+check "stop: TL;DR with colon inside bold ok" [ "$(state .flags.length)" = 0 ]
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "Shipped 🚀" >/dev/null
 check "stop: emoji flagged" has "$(state .flags)" "emoji"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop '| a | b<br>c |' >/dev/null
@@ -681,6 +683,7 @@ sub() { [[ $1 == *"$2"* ]]; }
 H=$(printf '━%.0s' {1..20}) S=$(printf '─%.0s' {1..10}) G=$(printf '┈%.0s' {1..5})
 out=$(mdm a 0 $'**TL;DR** x\n\n## H\n')
 check "frame: heavy line above TL;DR" sub "$out" "$H"$'\n\n**TL;DR** x'
+check "frame: heavy line above TL;DR with colon" sub "$(mdm k 1 $'**TL;DR:** x\n\n## H\n')" "$H"$'\n\n**TL;DR:** x'
 check "frame: separator below TL;DR" sub "$out" $'x\n\n'"$S"
 out=$(mdm a 1 $'**Next:** go\n')
 check "frame: separator above Next" sub "$out" "$S"$'\n\n**Next:** go'

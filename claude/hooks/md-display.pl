@@ -33,7 +33,7 @@ for (split /^/m, $t) {
   if (/^\s*(```|~~~)/) { my $k = $1 eq '```' ? 'f' : 't'; $s{$k} = !$s{$k} if $s{$k} || !($s{f} || $s{t}); }
   elsif ($s{f} || $s{t}) { }
   elsif (/^\|/) { s{<br\s*/?>}{ · }gi; }
-  elsif (/^\*\*TL;DR\*\*/ && $sf && !$s{o}) { $_ = "$heavy\n\n$_"; @s{qw(o p)} = (1, 1); $opened = 1; }
+  elsif (/^\*\*TL;DR:?\*\*/ && $sf && !$s{o}) { $_ = "$heavy\n\n$_"; @s{qw(o p)} = (1, 1); $opened = 1; }
   elsif (/^\*\*(Picks|Next):\*\*/ && $s{o} && !$s{c}) { $_ = "\n$sep\n\n$_" unless $s{e}; $s{c} = 1; $closed = 1; }
   elsif (/^\s*-{3,}\s*$/) { $_ = "\n$group\n\n"; $groups++; }
   $s{e} = 0 if /\S/;
