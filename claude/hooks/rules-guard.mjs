@@ -124,7 +124,7 @@ const hitter = (cfg, hits) => (id, why) => { if (why && cfg.rules[id] !== "off")
 // Mentions inside `code` or quotes are not claims or triggers.
 const unquote = (text) => text.replace(/`[^`\n]*`|"[^"\n]*"|“[^”\n]*”/g, "");
 // "write the failing tests" is a TDD step, not a bug report.
-const TDD_ASK = /\b(?:write|add|writing|adding)[ \t]+(?:(?:the|a|some|new)[ \t]+)?failing[ \t]+(?:\w+[ \t]+)?tests?\b/gi;
+const TDD_ASK = /\b(?:write|add|writing|adding)[ \t]+(?:(?:the|a|some|new)[ \t]+)?failing[ \t]+(?:[\w-]+[ \t]+)?tests?\b/gi;
 const triggerText = (text) => unquote(text).replace(TDD_ASK, "");
 const fresh = () => ({ skills: [], checked: false, debug: false, debugNudged: false, edited: false, flags: [], judged: "", panel: false, reportFrom: -1 });
 const statePath = (sid) => join(tmpdir(), "claudzilla-rules", `${String(sid).replace(/[^\w-]/g, "")}.json`);
