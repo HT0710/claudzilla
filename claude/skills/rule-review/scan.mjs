@@ -64,7 +64,7 @@ function promptOf(o) {
   if (typed) return { kind: "real", text: "", typed: typed[1] };
   // Same as the hook: a raw "/cmd args" prompt is a command, not words to scan.
   const slash = text.match(/^\/([\w:-]+)/);
-  if (slash) return { kind: "real", text: "", typed: slash[1] };
+  if (slash && !meta) return { kind: "real", text: "", typed: slash[1] };
   if (MACHINE_PROMPT.test(text)) return { kind: "machine" };
   if (meta || NOT_ASKED.test(text)) return { kind: "skip" };
   return { kind: "real", text };
