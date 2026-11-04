@@ -1,5 +1,5 @@
 // The Git tab's top section, read from git and gh output: no engine calls, so tests feed it text.
-import type { Branch, Check, CheckState, Conflict, Op, Pr, PrState, PrView, RebaseStep } from '../types'
+import type { Branch, Change, Check, CheckState, CommitView, Conflict, Counts, LogRow, Op, Pr, PrState, PrView, RebaseStep } from '../types'
 
 // `git status --porcelain -b`'s first line: "## main...origin/main [ahead 1, behind 2]".
 export const parseHead = (head: string) => {
@@ -231,4 +231,90 @@ export const cutMiddle = (path: string, room: number) => {
   if (path.length <= room) return path
   const tail = path.slice(path.lastIndexOf('/'))
   return `${path.slice(0, Math.max(1, room - tail.length - 1))}…${tail}`.slice(-room)
+}
+
+const WORD: Record<string, Change['word']> = { M: 'modified', T: 'modified', A: 'added', C: 'added', D: 'deleted', R: 'renamed', U: 'conflict', '?': 'untracked' }
+// One `status --porcelain -z` record, a rename's old path beside it. A conflict is U whatever git pairs it with (UU,
+// AA, DD, UD...); else the worktree's letter while it has unstaged changes, bright, else the index letter, staged,
+// dim. A rename shows its new name.
+export const changeOf = (line: string, from?: string): Change => {
+  const xy = line.slice(0, 2)
+  const path = line.slice(3)
+  const conflict = xy.includes('U') || xy === 'AA' || xy === 'DD'
+  const untracked = xy === '??'
+  const staged = !conflict && !untracked && line[1] === ' '
+  const letter = conflict ? 'U' : untracked ? '?' : staged ? line[0]! : line[1]!
+  const stage = conflict || untracked ? undefined : staged ? 'staged' : line[0] === ' ' ? 'not staged' : 'staged + not staged'
+  return { path, ...(from !== undefined && { from }), letter, dim: staged, word: WORD[letter] ?? 'modified', stage }
+}
+
+// `git diff --numstat -z -M`: "a\td\tpath\0", or for a rename "a\td\t\0old\0new\0"; a binary file counts "-".
+// `status --porcelain -b -z`: the branch head, then each change; -z leaves paths unquoted, and a rename's old path
+// is the next record.
+export const parseStatusZ = (z: string): { head?: string; changes: Change[] } => {
+  const records = z.split('\0')
+  const head = records[0]?.startsWith('## ') ? records.shift() : undefined
+  const changes: Change[] = []
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i]!
+    if (record.length < 4) continue
+    changes.push(/[RC]/.test(record[0]!) ? changeOf(record, records[++i]) : changeOf(record))
+  }
+  return { head, changes }
+}
+
+export const parseNumstat = (z: string) => {
+  const out = new Map<string, Counts>()
+  const parts = z.split('\0')
+  for (let i = 0; i < parts.length; i++) {
+    const [add, del, path] = parts[i]!.split('\t')
+    if (del === undefined) continue
+    const name = path || (i += 2, parts[i])
+    if (name) out.set(name, add === '-' ? 'bin' : { add: Number(add), del: Number(del) })
+  }
+  return out
+}
+
+export const LOG_FORMAT = '%H%x1f%h%x1f%an%x1f%ct%x1f%D%x1f%s'
+export const parseLog = (stdout: string): LogRow[] =>
+  stdout.split('\n').filter(Boolean).map(line => {
+    const [full = '', short = '', author = '', ct = '', decor = '', ...subject] = line.split('\x1f')
+    const names = decor ? decor.split(', ').map(name => name.replace(/^HEAD -> /, '')).filter(name => name !== 'HEAD') : []
+    return {
+      full, short, author, at: Number(ct) * 1000,
+      refs: names.flatMap(name => {
+        if (name.startsWith('refs/heads/')) return [{ remote: '', branch: name.slice(11) }]
+        const [, remote = '', branch = ''] = /^refs\/remotes\/([^/]+)\/(.+)$/.exec(name) ?? []
+        return remote ? [{ remote, branch }] : []
+      }),
+      tags: names.filter(name => name.startsWith('tag: refs/tags/')).map(name => name.slice(15)),
+      subject: subject.join('\x1f'),
+    }
+  })
+
+// `git log --shortstat --format=%x1e%H`: per commit, its file count and line counts.
+export const parseShortstat = (stdout: string) => {
+  const out = new Map<string, { files: number; add: number; del: number }>()
+  for (const chunk of stdout.split('\x1e').filter(Boolean)) {
+    const [sha = '', ...rest] = chunk.split('\n')
+    const text = rest.join(' ')
+    const num = (re: RegExp) => Number(re.exec(text)?.[1] ?? 0)
+    out.set(sha.trim(), { files: num(/(\d+) files? changed/), add: num(/(\d+) insertions?/), del: num(/(\d+) deletions?/) })
+  }
+  return out
+}
+
+// `git show -s --format=%B`, `--name-status -z -M` and `--numstat -z -M` of one commit: the body after the subject,
+// and each file with its status letter and line counts.
+export const parseCommitView = (message: string, nameStatusZ: string, numstatZ: string): CommitView => {
+  const counts = parseNumstat(numstatZ)
+  const files: CommitView['files'] = []
+  const parts = nameStatusZ.split('\0')
+  for (let i = 0; i < parts.length - 1; i++) {
+    const status = parts[i]![0]!
+    const path = /[RC]/.test(status) ? (i += 2, parts[i]!) : parts[++i]!
+    const c = counts.get(path)
+    files.push({ path, status, additions: c && c !== 'bin' ? c.add : 0, deletions: c && c !== 'bin' ? c.del : 0 })
+  }
+  return { body: message.split('\n').slice(1).join('\n').trim(), files }
 }
