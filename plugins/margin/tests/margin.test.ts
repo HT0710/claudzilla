@@ -2,11 +2,25 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 import type { AgentStatus, Register } from 'claude-code'
 import type { Spawn, Step } from '../types'
+import { fileKey } from '../hooks/git-data'
 
 import { dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseTopics, pinHolds, readStamps, stampPattern } from '../hooks/register'
 
 // A process.run result with `stdout`.
 const ran = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
+// Text a row Client draws: its pieces are props, so the tree's Texts never hold them. Each side joined alone.
+const rowText = async (ui: { drawn: () => Promise<unknown> }, text: RegExp) => {
+  const sides: string[] = []
+  const walk = (n: any) => {
+    if (!n || typeof n !== 'object') return
+    if (Array.isArray(n)) return n.forEach(walk)
+    const p = n.props?.props
+    if (Array.isArray(p?.left)) sides.push(p.left.map((x: any) => x.text).join(''), p.right.map((x: any) => x.text).join(''))
+    walk([n.children, n.props?.children])
+  }
+  walk(await ui.drawn())
+  return sides.find(t => text.test(t))
+}
 // Stands for grep pulling this chat's lines from the prompt history.
 const isHistoryGrep = (argv: readonly string[]) => argv.at(-1)?.endsWith('history.jsonl') ?? false
 
@@ -36,8 +50,19 @@ for (const surface of ['terminal', 'desktop'] as const) {
 }
 
 // Stands for git in the session's folder: each subcommand the test holds answers its text.
-const git = (repo: Record<string, string>) => (argv: readonly string[]) =>
-  argv[0] !== 'git' ? undefined : (Object.entries(repo).find(([command]) => argv.includes(command))?.[1] ?? '')
+// A log answer written as "full short subject" lines, turned into the log's real format: \x1f fields, author HT0710.
+const asLog = (text: string) =>
+  text.split('\n').map(line => (!line || line.includes('\x1f') ? line : [...line.split(' ').slice(0, 2), 'HT0710', '1790000000', '', line.split(' ').slice(2).join(' ')].join('\x1f'))).join('\n')
+// A status answer written as porcelain lines, in -z form: NUL-ended records, a rename as "XY new\0old".
+const asStatusZ = (text: string) =>
+  text.includes('\0') ? text : text.split('\n').filter(Boolean).map(line => (line.includes(' -> ') ? `${line.slice(0, 3)}${line.slice(3).split(' -> ').reverse().join('\0')}` : line)).join('\0') + '\0'
+const git = (repo: Record<string, string>) => (argv: readonly string[]) => {
+  if (argv[0] !== 'git') return undefined
+  const [command, answer = ''] = Object.entries(repo).find(([command]) => argv.includes(command)) ?? []
+  // Only the COMMITS read takes the \x1f format; a rebase's own log reads its tab format as written.
+  if (command === 'status' && argv.includes('-z')) return asStatusZ(answer)
+  return command === 'log' && argv.some(arg => arg.includes('%x1f')) ? asLog(answer) : answer
+}
 // An empty History.
 const noHistory = (on: Parameters<TestBody>[1], now = () => 0) => {
   on('clock.now', () => ({ value: now() }))
@@ -51,7 +76,7 @@ test('Git tab shows the branch, changed files and last commits', async ($, on) =
   const repo = {
     status: '## main...origin/main [ahead 1, behind 2]\n M hooks/register.tsx\nA  new.ts\n?? notes.md\n',
     log: 'abc1234ffff abc1234 feat: add thing\nghi9012ffff ghi9012 chore(ci): tidy\njkl3456ffff jkl3456 wip: try\ndef5678ffff def5678 fix(core): old bug\n',
-    diff: ' 1 file changed, 144 insertions(+), 6 deletions(-)\n',
+    diff: '80\t4\thooks/register.tsx\0' + '6\t2\tnew.ts\0',
     // Answers only the list that leaves out commits a remote has.
     '--remotes': 'abc1234ffff\nghi9012ffff\njkl3456ffff\n',
     '--count': '142\n',
@@ -66,28 +91,29 @@ test('Git tab shows the branch, changed files and last commits', async ($, on) =
   expect(await ui.find({ type: 'Text', text: ' ↕', in: 'row:branch' })).toBeDefined()
   // A rule under the branch, as wide as the body.
   expect(await ui.find({ type: 'Text', text: new RegExp(`^─{${props.bodyColumns - 4}}$`) })).toBeDefined()
-  // As the HUD statusline: tracked changes, untracked files, then lines added and removed.
-  expect(await ui.find({ type: 'Text', text: '!2 ?1' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '  +144 -6' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /hooks\/register\.tsx/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /notes\.md/ })).toBeDefined()
+  // The file count faint, then the lines added and removed, summed.
+  expect((await ui.find({ type: 'Text', text: '3 files' }))?.props.color).toBe('#4f5c68')
+  expect(await ui.find({ type: 'Text', text: '+86' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '−6' })).toBeDefined()
+  expect(await rowText(ui, /hooks\/register\.tsx/)).toBeDefined()
+  expect(await rowText(ui, /notes\.md/)).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'abc1234' })).toBeDefined()
-  // CHANGES' colors: local in the dirty count's yellow, total in the churn's green.
-  expect((await ui.find({ type: 'Text', text: /^3 local$/ }))?.props.color).toBe('#8c7850')
-  expect((await ui.find({ type: 'Text', text: /^ {2}142 total$/ }))?.props.color).toBe('#6e8c6e')
+  // Unpushed is ahead, gold as everywhere; the total faint.
+  expect((await ui.find({ type: 'Text', text: '↑3' }))?.props.color).toBe('#d4b860')
+  expect((await ui.find({ type: 'Text', text: /^ {2}142 total$/ }))?.props.color).toBe('#4f5c68')
   // Local bright, pushed dim.
-  expect((await ui.find({ type: 'Text', text: /^add thing$/ }))?.props.color).toBeUndefined()
-  expect((await ui.find({ type: 'Text', text: /^old bug$/ }))?.props.color).toBe('#4f5c68')
+  expect((await ui.find({ type: 'Text', text: /^add thing$/, in: 'row:c:abc1234ffff' }))?.props.color).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: /^old bug$/, in: 'row:c:def5678ffff' }))?.props.color).toBe('#4f5c68')
   // Each type its own color, pushed at 60%; a type outside the git rules stays gray.
-  expect((await ui.find({ type: 'Text', text: /^ feat$/ }))?.props.color).toBe('#98c379')
-  expect((await ui.find({ type: 'Text', text: /^ chore$/ }))?.props.color).toBe('#a396d2')
-  expect((await ui.find({ type: 'Text', text: /^ wip$/ }))?.props.color).toBe('#4f5c68')
-  expect((await ui.find({ type: 'Text', text: /^ fix$/ }))?.props.color).toBe('#864146')
+  expect((await ui.find({ type: 'Text', text: /^feat$/, in: 'row:c:abc1234ffff' }))?.props.color).toBe('#98c379')
+  expect((await ui.find({ type: 'Text', text: /^chore$/, in: 'row:c:ghi9012ffff' }))?.props.color).toBe('#a396d2')
+  expect((await ui.find({ type: 'Text', text: /^wip$/, in: 'row:c:jkl3456ffff' }))?.props.color).toBe('#4f5c68')
+  expect((await ui.find({ type: 'Text', text: /^fix$/, in: 'row:c:def5678ffff' }))?.props.color).toBe('#864146')
   // A local scope a light gray under its subject; its parentheses stay faint.
-  expect((await ui.find({ type: 'Text', text: /^ci$/ }))?.props.color).toBe('#808286')
-  expect((await ui.find({ type: 'Text', text: /^\($/ }))?.props.color).toBe('#4f5c68')
-  expect((await ui.find({ type: 'Text', text: /^\): $/ }))?.props.color).toBe('#4f5c68')
-  expect((await ui.find({ type: 'Text', text: /^core$/ }))?.props.color).toBe('#4f5c68')
+  expect((await ui.find({ type: 'Text', text: /^ci$/, in: 'row:c:ghi9012ffff' }))?.props.color).toBe('#808286')
+  expect((await ui.find({ type: 'Text', text: /^\($/, in: 'row:c:ghi9012ffff' }))?.props.color).toBe('#4f5c68')
+  expect((await ui.find({ type: 'Text', text: /^\): $/, in: 'row:c:ghi9012ffff' }))?.props.color).toBe('#4f5c68')
+  expect((await ui.find({ type: 'Text', text: /^core$/, in: 'row:c:def5678ffff' }))?.props.color).toBe('#4f5c68')
 })
 
 test('a remote on a known host gives its commit and branch pages; any other host none', () => {
@@ -108,67 +134,6 @@ test('a remote on a known host gives its commit and branch pages; any other host
   expect(gitWeb('')).toBeUndefined()
 })
 
-test('Git tab links pushed commits to their web pages, lit on hover', async ($, on) => {
-  noHistory(on)
-  const repo = {
-    status: '## feat/x...origin/feat/x [ahead 1]\n',
-    log: 'abc1234ffff abc1234 feat: local one\ndef5678ffff def5678 fix: pushed one\n',
-    '--remotes': 'abc1234ffff\n',
-    'get-url': 'git@github.com:o/r.git\n',
-  }
-  on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
-
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
-  await ui.press({ key: 'Git' })
-
-  const links = await ui.findAll({ type: 'Link' })
-  // The branch name opens the branch modal, so it is no link.
-  expect(links.map(link => link.props.href)).toEqual(['https://github.com/o/r/commit/def5678ffff'])
-  // Not pushed: no page yet. Pushed: the id alone opens it.
-  expect(links.some(link => /local one/.test(link.text ?? ''))).toBe(false)
-  expect(links[0]?.text).toMatch(/def5678$/)
-  // A Text's hover rides beside its props. The id heats its commit's group, lit as History lights a row; the
-  // subject's Texts follow it, nested in a Text so they cannot heat it.
-  type Drawn = { type?: string; hover?: { scope?: string; inverse?: boolean }; children?: unknown[] }
-  const walk = (node: unknown, inText = false): { scope?: string; nested: boolean }[] => {
-    const el = node as Drawn
-    if (typeof node !== 'object' || !el) return []
-    const own = el.type === 'Text' && el.hover?.inverse ? [{ scope: el.hover.scope, nested: inText }] : []
-    return [...own, ...(el.children ?? []).flatMap(child => walk(child, inText || el.type === 'Text'))]
-  }
-  const lit = walk(await ui.drawn())
-  const commit = lit.filter(text => text.scope === 'commit:def5678')
-  expect(commit[0]).toEqual({ scope: 'commit:def5678', nested: false })
-  expect(commit.length).toBeGreaterThan(1)
-  expect(commit.slice(1).every(text => text.nested)).toBe(true)
-  expect(lit.some(text => text.scope === 'commit:abc1234')).toBe(false)
-  // Lit across the body, as History's rows: the subject padded to its edge.
-  expect((await ui.find({ type: 'Text', text: /^pushed one +$/ }))?.text.length).toBe(props.bodyColumns - 4 - 'def5678 fix: '.length)
-})
-
-// Each case: what git answers, then the links left. No guessed page: one that may not exist draws plain.
-const unlinked: [string, Record<string, string>, string[]][] = [
-  ['an unknown host', { status: '## main...origin/main\n', 'get-url': 'git@git.acme.com:o/r.git\n' }, []],
-  ['a branch with no upstream', { status: '## main\n' }, ['https://github.com/o/r/commit/def5678ffff']],
-  ['a branch gone from origin', { status: '## main...origin/main [gone]\n' }, ['https://github.com/o/r/commit/def5678ffff']],
-  ['a branch tracking another remote', { status: '## main...upstream/main\n' }, ['https://github.com/o/r/commit/def5678ffff']],
-  ['a failed local list', { status: '## main\n', '--remotes': 'fail' }, []],
-]
-for (const [what, answers, hrefs] of unlinked)
-  test(`Git tab links only what surely has a page: ${what}`, async ($, on) => {
-    noHistory(on)
-    const repo = { log: 'def5678ffff def5678 fix: pushed\n', 'get-url': 'git@github.com:o/r.git\n', ...answers }
-    on('process.run', (_, e) => {
-      const out = git(repo)(e.argv) ?? ''
-      return out === 'fail' ? { value: { ...ran('').value, exitCode: 128 } } : ran(out)
-    })
-
-    const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
-    await ui.press({ key: 'Git' })
-
-    expect((await ui.findAll({ type: 'Link' })).map(link => link.props.href)).toEqual(hrefs)
-  })
-
 test('a commit subject with no Conventional Commits type shows whole', async ($, on) => {
   noHistory(on)
   on('process.run', (_, e) => ran(git({ status: '## main\n', log: 'abc1234ffff abc1234 Merge branch x\n', '--remotes': 'abc1234ffff\n' })(e.argv) ?? ''))
@@ -187,12 +152,13 @@ test('a changed file shows one status letter: bright while unstaged, dim once st
   await ui.press({ key: 'Git' })
 
   // Unstaged changes, a file staged and edited again included: the worktree's letter, bright.
-  expect((await ui.findAll({ type: 'Text', text: /^M$/ })).map(found => found.props.color)).toEqual(['#e5c07b', '#e5c07b'])
-  expect((await ui.find({ type: 'Text', text: /a\.ts$/ }))?.props.color).toBeUndefined()
+  const inRow = async (path: string, text: RegExp) => (await ui.findAll({ type: 'Text', text, in: `row:${fileKey(path)}` })).at(-1)?.props.color
+  expect([await inRow('a.ts', /^M$/), await inRow('c.ts', /^M$/)]).toEqual(['#e5c07b', '#e5c07b'])
+  expect(await inRow('a.ts', /a\.ts$/)).toBeUndefined()
   // Wholly staged: the index's letter at 60%, its path faint.
-  expect((await ui.find({ type: 'Text', text: /^A$/ }))?.props.color).toBe('#5b7549')
-  expect((await ui.find({ type: 'Text', text: /b\.ts$/ }))?.props.color).toBe('#4f5c68')
-  expect((await ui.find({ type: 'Text', text: /^\?$/ }))?.props.color).toBe('#56b6c2')
+  expect(await inRow('b.ts', /^A$/)).toBe('#5b7549')
+  expect(await inRow('b.ts', /b\.ts$/)).toBe('#4f5c68')
+  expect(await inRow('d.ts', /^\?$/)).toBe('#56b6c2')
 })
 
 test('Git tab redraws after a tool call changes the repo', async ($, on) => {
@@ -215,7 +181,7 @@ test('the narrowest pane keeps the Git headers on one row, dropping their counts
   const repo = {
     status: '## main\n M a.ts\nA  b.ts\n?? c.md\n',
     log: 'abc1234ffff abc1234 feat: add thing\n',
-    diff: ' 1 file changed, 144 insertions(+), 6 deletions(-)\n',
+    diff: '80\t4\ta.ts\0' + '64\t2\tb.ts\0',
     '--remotes': 'abc1234ffff\nghi9012ffff\njkl3456ffff\n',
     '--count': '142\n',
   }
@@ -223,10 +189,10 @@ test('the narrowest pane keeps the Git headers on one row, dropping their counts
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 23 }, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
-  // 19 columns: "CHANGES !2 ?1" fits, the churn after it does not; "COMMITS 3 local" fits, the total does not.
-  expect(await ui.find({ type: 'Text', text: '!2 ?1' })).toBeDefined()
+  // 19 columns: "CHANGES 3 files" fits, the line counts after it do not; "COMMITS ↑3" fits, the total does not.
+  expect(await ui.find({ type: 'Text', text: '3 files' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /\+144/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: '3 local' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '↑3' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /total/ })).toBeUndefined()
 })
 
@@ -239,15 +205,15 @@ test('dragging the divider gives CHANGES more rows', async ($, on) => {
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   // 20 body rows less 7 fixed: CHANGES takes up to half of 13, 7 rows.
-  expect(await ui.find({ type: 'Text', text: /file6\.ts/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /file7\.ts/ })).toBeUndefined()
+  expect(await rowText(ui, /file6\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file7\.ts/)).toBeUndefined()
 
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'up', x: 0, y: 2, button: 'left', in: 'divider' })
 
-  expect(await ui.find({ type: 'Text', text: /file8\.ts/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /file9\.ts/ })).toBeUndefined()
+  expect(await rowText(ui, /file8\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file9\.ts/)).toBeUndefined()
 })
 
 test('a one-row CHANGES zone scrolls with no back-to-top line', async ($, on) => {
@@ -260,7 +226,7 @@ test('a one-row CHANGES zone scrolls with no back-to-top line', async ($, on) =>
   // 9 body rows less 7 fixed: COMMITS keeps 1, CHANGES the 1 left, on row 5.
   await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 100, bodyRows: 9 + BAR_ROWS, contentRows: 9 + BAR_ROWS, origin: { kind: 'person' }, pointer: { column: 0, row: 5 } })
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: /file9\.ts/ })).toBeDefined()
+  expect(await rowText(ui, /file9\.ts/)).toBeDefined()
   expect(await ui.find({ key: 'top:changes' })).toBeUndefined()
 })
 
@@ -275,10 +241,10 @@ test('the divider shows how far it is dragged, and resizes once let go', async (
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'divider' })
   expect(await ui.find({ type: 'Text', text: '↓2', in: 'divider' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /file7\.ts/ })).toBeUndefined()
+  expect(await rowText(ui, /file7\.ts/)).toBeUndefined()
 
   await ui.pointer({ type: 'up', x: 0, y: 2, button: 'left', in: 'divider' })
-  expect(await ui.find({ type: 'Text', text: /file8\.ts/ })).toBeDefined()
+  expect(await rowText(ui, /file8\.ts/)).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '↓2', in: 'divider' })).toBeUndefined()
 })
 
@@ -295,7 +261,7 @@ test('a release the divider missed ends the drag at the next move', async ($, on
   // No up came: the next move holds no button.
   await ui.pointer({ type: 'move', x: 0, y: 2, in: 'divider' })
 
-  expect(await ui.find({ type: 'Text', text: /file8\.ts/ })).toBeDefined()
+  expect(await rowText(ui, /file8\.ts/)).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '↓2', in: 'divider' })).toBeUndefined()
 })
 
@@ -347,10 +313,10 @@ test('the wheel scrolls CHANGES and COMMITS each on its own, up to their ends; �
 
   expect(await ui.find({ key: 'top:changes' })).toBeUndefined()
   await wheel(5, 8)
-  expect(await ui.find({ type: 'Text', text: /file3\.ts/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /file4\.ts/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /file9\.ts/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /commit 0$/ })).toBeDefined()
+  expect(await rowText(ui, /file3\.ts/)).toBeUndefined()
+  expect(await rowText(ui, /file4\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file9\.ts/)).toBeDefined()
+  expect(await rowText(ui, /commit 0$/)).toBeDefined()
   // Dim as the divider's grip at rest, lit as it is anywhere on its row under the pointer.
   const arrow = async () => (await ui.find({ type: 'Text', text: '↑', in: 'top:changes' }))?.props
   expect((await arrow())?.color).toBe('promptBorder')
@@ -361,18 +327,18 @@ test('the wheel scrolls CHANGES and COMMITS each on its own, up to their ends; �
   expect(await ui.find({ key: 'top:commits' })).toBeUndefined()
 
   await wheel(100, 16)
-  expect(await ui.find({ type: 'Text', text: /commit 24$/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /commit 25$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /commit 29$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /file4\.ts/ })).toBeDefined()
+  expect(await rowText(ui, /commit 24$/)).toBeUndefined()
+  expect(await rowText(ui, /commit 25$/)).toBeDefined()
+  expect(await rowText(ui, /commit 29$/)).toBeDefined()
+  expect(await rowText(ui, /file4\.ts/)).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '↑', in: 'top:commits' })).toBeDefined()
 
   await click(ui, 'top:commits')
-  expect(await ui.find({ type: 'Text', text: /commit 0$/ })).toBeDefined()
+  expect(await rowText(ui, /commit 0$/)).toBeDefined()
   expect(await ui.find({ key: 'top:commits' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /file4\.ts/ })).toBeDefined()
+  expect(await rowText(ui, /file4\.ts/)).toBeDefined()
   await click(ui, 'top:changes')
-  expect(await ui.find({ type: 'Text', text: /file0\.ts/ })).toBeDefined()
+  expect(await rowText(ui, /file0\.ts/)).toBeDefined()
   expect(await ui.find({ key: 'top:changes' })).toBeUndefined()
 })
 
@@ -388,14 +354,14 @@ test('the wheel over the divider moves it: up gives CHANGES rows, down takes the
     $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
 
   await wheel(-2, 12)
-  expect(await ui.find({ type: 'Text', text: /file8\.ts/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /file9\.ts/ })).toBeUndefined()
+  expect(await rowText(ui, /file8\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file9\.ts/)).toBeUndefined()
   expect(await ui.find({ key: 'top:changes' })).toBeUndefined()
   expect(await ui.find({ key: 'top:commits' })).toBeUndefined()
 
   await wheel(100, 14)
-  expect(await ui.find({ type: 'Text', text: /file0\.ts/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /file1\.ts/ })).toBeUndefined()
+  expect(await rowText(ui, /file0\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file1\.ts/)).toBeUndefined()
 })
 
 test('notches close together keep moving the divider once it leaves the pointer; after a pause the list scrolls', async ($, on) => {
@@ -412,14 +378,14 @@ test('notches close together keep moving the divider once it leaves the pointer;
   await wheel(-1)
   now = 300
   await wheel(-1)
-  expect(await ui.find({ type: 'Text', text: /file8\.ts/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /file9\.ts/ })).toBeUndefined()
+  expect(await rowText(ui, /file8\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file9\.ts/)).toBeUndefined()
   expect(await ui.find({ key: 'top:changes' })).toBeUndefined()
 
   now = 2000
   await wheel(1)
   expect(await ui.find({ key: 'top:changes' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /file9\.ts/ })).toBeUndefined()
+  expect(await rowText(ui, /file9\.ts/)).toBeUndefined()
 })
 
 test('COMMITS reads a page at a time as the wheel goes past it, down to the first commit', async ($, on) => {
@@ -428,9 +394,11 @@ test('COMMITS reads a page at a time as the wheel goes past it, down to the firs
   const skips: number[] = []
   on('process.run', (_, e) => {
     if (!e.argv.includes('log')) return ran(git({ status: '## main\n', '--count': '250\n' })(e.argv) ?? '')
+    // The commit cards' shortstat read: no counts.
+    if (e.argv.includes('--shortstat')) return ran('')
     const skip = Number(e.argv.find(arg => arg.startsWith('--skip='))?.slice(7))
     skips.push(skip)
-    return ran(all.slice(skip, skip + Number(e.argv.find(arg => /^-\d+$/.test(arg))!.slice(1))).join(''))
+    return ran(asLog(all.slice(skip, skip + Number(e.argv.find(arg => /^-\d+$/.test(arg))!.slice(1))).join('')))
   })
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
@@ -439,13 +407,13 @@ test('COMMITS reads a page at a time as the wheel goes past it, down to the firs
     $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
 
   await wheel(150)
-  expect(await ui.find({ type: 'Text', text: /commit 149$/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /commit 163$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /commit 164$/ })).toBeUndefined()
+  expect(await rowText(ui, /commit 149$/)).toBeUndefined()
+  expect(await rowText(ui, /commit 163$/)).toBeDefined()
+  expect(await rowText(ui, /commit 164$/)).toBeUndefined()
   await wheel(1)
   await wheel(1000)
-  expect(await ui.find({ type: 'Text', text: /commit 234$/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /commit 249$/ })).toBeDefined()
+  expect(await rowText(ui, /commit 234$/)).toBeUndefined()
+  expect(await rowText(ui, /commit 249$/)).toBeDefined()
   expect(skips).toEqual([0, 100, 200])
 })
 
@@ -454,8 +422,10 @@ test('with no commit count, COMMITS still scrolls page by page to the first comm
   const all = Array.from({ length: 250 }, (_, i) => `c${i}ffff c${i} commit ${i}\n`)
   on('process.run', (_, e) => {
     if (!e.argv.includes('log')) return ran(git({ status: '## main\n' })(e.argv) ?? '')
+    // The commit cards' shortstat read: no counts.
+    if (e.argv.includes('--shortstat')) return ran('')
     const skip = Number(e.argv.find(arg => arg.startsWith('--skip='))?.slice(7))
-    return ran(all.slice(skip, skip + Number(e.argv.find(arg => /^-\d+$/.test(arg))!.slice(1))).join(''))
+    return ran(asLog(all.slice(skip, skip + Number(e.argv.find(arg => /^-\d+$/.test(arg))!.slice(1))).join('')))
   })
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
@@ -467,7 +437,7 @@ test('with no commit count, COMMITS still scrolls page by page to the first comm
     await wheel(by)
     await ui.redraw()
   }
-  expect(await ui.find({ type: 'Text', text: /commit 249$/ })).toBeDefined()
+  expect(await rowText(ui, /commit 249$/)).toBeDefined()
 })
 
 test('a clean repo drops CHANGES and its divider: COMMITS takes their rows', async ($, on) => {
@@ -481,7 +451,7 @@ test('a clean repo drops CHANGES and its divider: COMMITS takes their rows', asy
   expect(await ui.find({ type: 'Text', text: 'CHANGES' })).toBeUndefined()
   expect(await ui.find({ key: 'divider' })).toBeUndefined()
   // 20 body rows less the tabs, their rule, the branch, its rule and the COMMITS header: 15.
-  expect(await ui.find({ type: 'Text', text: /commit 14$/ })).toBeDefined()
+  expect(await rowText(ui, /commit 14$/)).toBeDefined()
 })
 
 test('the divider drags up to 1 row of CHANGES, and no further', async ($, on) => {
@@ -497,8 +467,8 @@ test('the divider drags up to 1 row of CHANGES, and no further', async ($, on) =
   expect(await ui.find({ type: 'Text', text: '↑6', in: 'divider' })).toBeDefined()
   await ui.pointer({ type: 'up', x: 0, y: -9, button: 'left', in: 'divider' })
 
-  expect(await ui.find({ type: 'Text', text: /file0\.ts/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /file1\.ts/ })).toBeUndefined()
+  expect(await rowText(ui, /file0\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file1\.ts/)).toBeUndefined()
 })
 
 test('the divider drags down to 1 row of COMMITS, and no further', async ($, on) => {
@@ -515,10 +485,10 @@ test('the divider drags down to 1 row of COMMITS, and no further', async ($, on)
   expect(await ui.find({ type: 'Text', text: '↓5', in: 'divider' })).toBeDefined()
   await ui.pointer({ type: 'up', x: 0, y: 9, button: 'left', in: 'divider' })
 
-  expect(await ui.find({ type: 'Text', text: /file11\.ts/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /file12\.ts/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /commit0/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /commit1/ })).toBeUndefined()
+  expect(await rowText(ui, /file11\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file12\.ts/)).toBeUndefined()
+  expect(await rowText(ui, /commit0/)).toBeDefined()
+  expect(await rowText(ui, /commit1/)).toBeUndefined()
 })
 
 test('a one-row CHANGES zone stays put dragged up, and grows dragged down', async ($, on) => {
@@ -533,14 +503,14 @@ test('a one-row CHANGES zone stays put dragged up, and grows dragged down', asyn
   await ui.pointer({ type: 'move', x: 0, y: -2, button: 'left', in: 'divider' })
   expect(await ui.find({ type: 'Text', text: '⇕', in: 'divider' })).toBeDefined()
   await ui.pointer({ type: 'up', x: 0, y: -2, button: 'left', in: 'divider' })
-  expect(await ui.find({ type: 'Text', text: /commit11/ })).toBeDefined()
+  expect(await rowText(ui, /commit11/)).toBeDefined()
 
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'move', x: 0, y: 1, button: 'left', in: 'divider' })
   expect(await ui.find({ type: 'Text', text: '↓1', in: 'divider' })).toBeDefined()
   await ui.pointer({ type: 'up', x: 0, y: 1, button: 'left', in: 'divider' })
-  expect(await ui.find({ type: 'Text', text: /commit10/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /commit11/ })).toBeUndefined()
+  expect(await rowText(ui, /commit10/)).toBeDefined()
+  expect(await rowText(ui, /commit11/)).toBeUndefined()
 })
 
 test('a click on the divider moves it to the top, and from the top to the bottom', async ($, on) => {
@@ -553,13 +523,13 @@ test('a click on the divider moves it to the top, and from the top to the bottom
   // 13 free rows, 7 of CHANGES: clicked, 1; clicked again, 12.
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: 'divider' })
-  expect(await ui.find({ type: 'Text', text: /file0\.ts/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /file1\.ts/ })).toBeUndefined()
+  expect(await rowText(ui, /file0\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file1\.ts/)).toBeUndefined()
 
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: 'divider' })
-  expect(await ui.find({ type: 'Text', text: /file11\.ts/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /file12\.ts/ })).toBeUndefined()
+  expect(await rowText(ui, /file11\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file12\.ts/)).toBeUndefined()
 })
 
 test('a drag back to where it began moves the divider nowhere', async ($, on) => {
@@ -573,8 +543,8 @@ test('a drag back to where it began moves the divider nowhere', async ($, on) =>
   await ui.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'move', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: 'divider' })
-  expect(await ui.find({ type: 'Text', text: /file6\.ts/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /file7\.ts/ })).toBeUndefined()
+  expect(await rowText(ui, /file6\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file7\.ts/)).toBeUndefined()
 })
 
 test('Git tab reruns git after a tool call, not on every redraw', async ($, on) => {
@@ -595,7 +565,7 @@ test('Git tab reruns git after a tool call, not on every redraw', async ($, on) 
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'up', x: 0, y: 2, button: 'left', in: 'divider' })
-  expect(await ui.find({ type: 'Text', text: /file8\.ts/ })).toBeDefined()
+  expect(await rowText(ui, /file8\.ts/)).toBeDefined()
   expect(runs).toBe(before)
 
   await $.tool.call({ tool: 'Bash', command: 'touch x' })
@@ -629,7 +599,7 @@ test('a commit subject draws its control characters as spaces', async ($, on) =>
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
-  expect(await ui.find({ type: 'Text', text: 'tab here end' })).toBeDefined()
+  expect(await rowText(ui, /tab here end$/)).toBeDefined()
 })
 
 test('Overview tab with nothing read yet shows a note', async ($, on) => {
@@ -826,7 +796,8 @@ test('a conflict shows U, whatever git pairs it with', async ($, on) => {
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
-  expect((await ui.findAll({ type: 'Text', text: /^U$/ })).map(found => found.props.color)).toEqual(['#e06c75', '#e06c75', '#e06c75', '#e06c75'])
+  const letters = await Promise.all(['both.ts', 'c.ts', 'd.ts', 'e.ts'].map(async path => (await ui.find({ type: 'Text', text: /^U$/, in: `row:${fileKey(path)}` }))?.props.color))
+  expect(letters).toEqual(['#e06c75', '#e06c75', '#e06c75', '#e06c75'])
 })
 
 test('a renamed file shows its new name; paths come unescaped', async ($, on) => {
@@ -840,8 +811,8 @@ test('a renamed file shows its new name; paths come unescaped', async ($, on) =>
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
-  expect(await ui.find({ type: 'Text', text: /new-name\.ts$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /old-name/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /new-name\.ts$/, in: `row:${fileKey('new-name.ts')}` })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /old-name/, in: `row:${fileKey('new-name.ts')}` })).toBeUndefined()
   expect(runs.find(argv => argv.includes('status'))).toContain('core.quotePath=false')
 })
 

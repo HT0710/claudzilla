@@ -6,7 +6,8 @@ import type { ClientModule } from 'claude-code'
 // Behind a modal: `faded`, its colours already faded, it neither lights nor posts; `open`, the row that opened the
 // modal, it stays lit in that colour and posts its presses alone.
 // `line`: the hover group the row heats, so the next line's pieces, which carry its `hover`, fade at once.
-type Piece = { text: string; color?: string; backgroundColor?: string; dimColor?: boolean; bold?: boolean; hover?: object }
+// `under`: a second fade group, on a nested Text that takes the piece's colour, as a Text takes one hover.
+type Piece = { text: string; color?: string; backgroundColor?: string; dimColor?: boolean; bold?: boolean; hover?: object; under?: object }
 const Row: ClientModule<
   { left: Piece[]; right: Piece[]; faded?: boolean; open?: string; line?: string },
   { down?: boolean }
@@ -23,9 +24,9 @@ const Row: ClientModule<
     }
   })
   const texts = (pieces: Piece[]) =>
-    pieces.map(({ text, ...style }) => (
+    pieces.map(({ text, under, ...style }) => (
       <Text {...style} backgroundColor={style.backgroundColor ?? open}>
-        {text}
+        {under ? <Text hover={under}>{text}</Text> : text}
       </Text>
     ))
   return (

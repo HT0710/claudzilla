@@ -279,7 +279,8 @@ export const LOG_FORMAT = '%H%x1f%h%x1f%an%x1f%ct%x1f%D%x1f%s'
 export const parseLog = (stdout: string): LogRow[] =>
   stdout.split('\n').filter(Boolean).map(line => {
     const [full = '', short = '', author = '', ct = '', decor = '', ...subject] = line.split('\x1f')
-    const names = decor ? decor.split(', ').map(name => name.replace(/^HEAD -> /, '')).filter(name => name !== 'HEAD') : []
+    // Full names (--decorate=full) tell a local branch from a remote one: refs/heads/<b>, refs/remotes/<r>/<b>.
+    const names = decor ? decor.split(', ').map(name => name.replace(/^HEAD -> /, '')).filter(name => name !== 'HEAD' && !name.endsWith('/HEAD')) : []
     return {
       full, short, author, at: Number(ct) * 1000,
       refs: names.flatMap(name => {
@@ -317,4 +318,11 @@ export const parseCommitView = (message: string, nameStatusZ: string, numstatZ: 
     files.push({ path, status, additions: c && c !== 'bin' ? c.add : 0, deletions: c && c !== 'bin' ? c.del : 0 })
   }
   return { body: message.split('\n').slice(1).join('\n').trim(), files }
+}
+
+// A CHANGES row's key: the engine takes hover scopes of at most 64 characters, so a long path goes by its FNV-1a hash.
+export const fileKey = (path: string) => {
+  let h = 0x811c9dc5
+  for (let i = 0; i < path.length; i++) h = Math.imul(h ^ path.charCodeAt(i), 0x01000193)
+  return `f:${(h >>> 0).toString(16).padStart(8, '0')}`
 }
