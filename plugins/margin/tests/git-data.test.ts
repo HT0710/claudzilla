@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Check, CheckState, Pr, PrState } from '../types'
 
-import { age, branches, cutMiddle, ownPrs, parseHead, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows } from '../hooks/git-data'
+import { age, branches, changeOf, cutMiddle, parseStatusZ, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows } from '../hooks/git-data'
 
 // A gh pr list row with every field the parser reads.
 const fixture = (over: Record<string, unknown> = {}) => ({
@@ -167,4 +167,37 @@ test('a path that does not fit loses its middle, keeping the file name', () => {
   expect(cutMiddle('plugins/margin/hooks/register.tsx', 40)).toBe('plugins/margin/hooks/register.tsx')
   expect(cutMiddle('plugins/margin/hooks/register.tsx', 22)).toBe('plugins/…/register.tsx')
   expect(cutMiddle('plugins/margin/hooks/register.tsx', 22).length).toBe(22)
+})
+
+test('changeOf: conflict, staged, unstaged, both, untracked, rename', () => {
+  expect(changeOf('UU conflict.ts')).toMatchObject({ letter: 'U', word: 'conflict', stage: undefined, dim: false })
+  expect(changeOf('M  GUIDE.md')).toMatchObject({ letter: 'M', stage: 'staged', dim: true })
+  expect(changeOf(' M a.ts')).toMatchObject({ letter: 'M', stage: 'not staged', dim: false })
+  expect(changeOf('MM a.ts')).toMatchObject({ letter: 'M', stage: 'staged + not staged', dim: false })
+  expect(changeOf('?? new file.ts')).toMatchObject({ letter: '?', word: 'untracked', path: 'new file.ts', stage: undefined })
+  expect(changeOf('R  docs/git-tab.md', 'docs/git.md')).toMatchObject({ letter: 'R', word: 'renamed', path: 'docs/git-tab.md', from: 'docs/git.md' })
+})
+
+test('parseNumstat: rename and space', () => {
+  const m = parseNumstat('3\t1\tGUIDE.md\0' + '2\t2\t\0docs/git.md\0docs/git tab.md\0' + '-\t-\tlogo.png\0')
+  expect(m.get('docs/git tab.md')).toEqual({ add: 2, del: 2 })
+  expect(m.get('logo.png')).toBe('bin')
+  expect(m.get('GUIDE.md')).toEqual({ add: 3, del: 1 })
+})
+
+test('parseLog: full ref names split into local and remote branches and tags, HEAD dropped', () => {
+  const decor = 'HEAD -> refs/heads/feat/x, refs/remotes/origin/feat/x, tag: refs/tags/v1.6.0, refs/stash'
+  const [row] = parseLog(['f'.repeat(40), 'fffffff', 'HT0710', '1790000000', decor, 'feat(margin): PR section'].join('\x1f') + '\n')
+  expect(row).toEqual({ full: 'f'.repeat(40), short: 'fffffff', author: 'HT0710', at: 1790000000000, refs: [{ remote: '', branch: 'feat/x' }, { remote: 'origin', branch: 'feat/x' }], tags: ['v1.6.0'], subject: 'feat(margin): PR section' })
+})
+
+test('parseShortstat: merge counted against first parent', () => {
+  const out = '\x1eaaa\n\n 2 files changed, 80 insertions(+), 4 deletions(-)\n\x1ebbb\n\n 1 file changed, 3 deletions(-)\n'
+  expect(parseShortstat(out).get('aaa')).toEqual({ files: 2, add: 80, del: 4 })
+  expect(parseShortstat(out).get('bbb')).toEqual({ files: 1, add: 0, del: 3 })
+})
+
+test('parseCommitView: body, files with status and counts', () => {
+  const v = parseCommitView('feat: x\n\nWhy it moved.\n', 'M\0a.ts\0R100\0b.md\0c.md\0', '5\t1\ta.ts\0' + '0\t0\t\0b.md\0c.md\0')
+  expect(v).toEqual({ body: 'Why it moved.', files: [{ path: 'a.ts', status: 'M', additions: 5, deletions: 1 }, { path: 'c.md', status: 'R', additions: 0, deletions: 0 }] })
 })

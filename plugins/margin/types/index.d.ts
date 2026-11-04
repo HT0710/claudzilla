@@ -21,6 +21,16 @@ export type Pr = {
   n: number; title: string; state: PrState; head: string; base: string; author: string; at: number
   additions: number; deletions: number; files: number; conflicting: boolean; checks: Check[]; url: string
 }
+export type Counts = { add: number; del: number } | 'bin'
+// One CHANGES row: the letter the row shows, dim when only staged, and the card's words.
+export type Change = {
+  path: string; from?: string; letter: string; dim: boolean
+  word: 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflict'
+  stage?: 'staged' | 'not staged' | 'staged + not staged'
+}
+// One COMMITS row: `at` in ms; `refs` the branches pointing at it, `remote` '' for a local one; `tags` tag names.
+export type LogRow = { full: string; short: string; author: string; at: number; refs: { remote: string; branch: string }[]; tags: string[]; subject: string }
+export type CommitView = { body: string; files: { path: string; status: string; additions: number; deletions: number }[] }
 export type PrView = {
   body: string
   commits: { subject: string; at: number }[]
