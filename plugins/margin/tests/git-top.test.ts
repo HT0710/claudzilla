@@ -252,6 +252,20 @@ test('the rules behind an open modal fade too, the ⇕ divider included', async 
   expect(JSON.stringify((await ui.find({ key: 'divider' }))?.props)).toContain('"faded":true')
 })
 
+test('a back-to-top line behind an open modal fades and takes no click', async ($, on) => {
+  quiet(on)
+  const files = Array.from({ length: 30 }, (_, i) => ` M f${i}.ts\n`).join('')
+  on('process.run', (_, e) => ran(git(repoOn('b20', { status: `## b20...origin/b20\n${files}` }))(e.argv) ?? ''))
+  const ui = await mount($)
+  await wheel($, 5, 6)
+  expect(await ui.find({ type: 'Text', text: /f0\.ts/ })).toBeUndefined()
+  await tap(ui, 'branch')
+  expect(JSON.stringify((await ui.find({ key: 'top:changes' }))?.props)).toContain('"faded":true')
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'top:changes' })
+  await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: 'top:changes' })
+  expect(await ui.find({ type: 'Text', text: /f0\.ts/ })).toBeUndefined()
+})
+
 test('under a PR modal the branch row fades; the PR row keeps its colours on the lit row', async ($, on) => {
   quiet(on)
   withPr(on, repoOn('a'), [prJson()])

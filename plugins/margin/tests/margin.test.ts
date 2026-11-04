@@ -327,6 +327,12 @@ test('the divider lights its grip while the pointer is over it', async ($, on) =
   expect((await grip())?.inverse).toBe(true)
 })
 
+// A click on a back-to-top row at its left edge, away from the ↑ in its middle: the whole row is the target.
+const click = async (ui: { pointer: (e: any) => Promise<unknown> }, key: string) => {
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: key })
+  await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: key })
+}
+
 test('the wheel scrolls CHANGES and COMMITS each on its own, up to their ends; ↑ brings each back up', async ($, on) => {
   noHistory(on)
   const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
@@ -345,19 +351,13 @@ test('the wheel scrolls CHANGES and COMMITS each on its own, up to their ends; �
   expect(await ui.find({ type: 'Text', text: /file4\.ts/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /file9\.ts/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /commit 0$/ })).toBeDefined()
-  expect((await ui.find({ key: 'top:changes' }))?.text).toBe('↑')
-  // Dim as the divider's grip at rest, lit as it is under the pointer.
-  const arrow = await ui.find({ type: 'Text', text: '↑' })
-  expect(arrow?.props.color).toBe('promptBorder')
-  // Hovered, its Button heats the scope and its Text takes the color: either alone leaves ↑ dim. A hover rides
-  // beside the props, in the drawn tree.
-  type Drawn = { type?: string; hover?: object; children?: unknown[] }
-  const hovers = (node: unknown): object[] => {
-    const el = node as Drawn
-    if (typeof node !== 'object' || !el) return []
-    return [...((el.type === 'Button' || el.type === 'Text') && el.hover ? [{ type: el.type, ...el.hover }] : []), ...(el.children ?? []).flatMap(hovers)]
-  }
-  expect(hovers(await ui.drawn()).filter(h => (h as { scope?: string }).scope === 'top:changes')).toEqual(['Button', 'Text'].map(type => ({ type, scope: 'top:changes', color: 'claude' })))
+  // Dim as the divider's grip at rest, lit as it is anywhere on its row under the pointer.
+  const arrow = async () => (await ui.find({ type: 'Text', text: '↑', in: 'top:changes' }))?.props
+  expect((await arrow())?.color).toBe('promptBorder')
+  await ui.pointer({ type: 'enter', x: 0, y: 0, in: 'top:changes' })
+  expect(await arrow()).toMatchObject({ color: 'claude', inverse: true })
+  await ui.pointer({ type: 'leave', x: 0, y: 0, in: 'top:changes' })
+  expect((await arrow())?.inverse).toBeUndefined()
   expect(await ui.find({ key: 'top:commits' })).toBeUndefined()
 
   await wheel(100, 16)
@@ -365,13 +365,13 @@ test('the wheel scrolls CHANGES and COMMITS each on its own, up to their ends; �
   expect(await ui.find({ type: 'Text', text: /commit 25$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /commit 29$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /file4\.ts/ })).toBeDefined()
-  expect((await ui.find({ key: 'top:commits' }))?.text).toBe('↑')
+  expect(await ui.find({ type: 'Text', text: '↑', in: 'top:commits' })).toBeDefined()
 
-  await ui.press({ key: 'top:commits' })
+  await click(ui, 'top:commits')
   expect(await ui.find({ type: 'Text', text: /commit 0$/ })).toBeDefined()
   expect(await ui.find({ key: 'top:commits' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /file4\.ts/ })).toBeDefined()
-  await ui.press({ key: 'top:changes' })
+  await click(ui, 'top:changes')
   expect(await ui.find({ type: 'Text', text: /file0\.ts/ })).toBeDefined()
   expect(await ui.find({ key: 'top:changes' })).toBeUndefined()
 })
@@ -1893,14 +1893,13 @@ test('the wheel scrolls the History list under a fixed header, up to its end; �
   expect((await ui.find({ key: 'jump:4' }))?.text).toContain('p25')
   expect(await ui.find({ key: 'jump:20' })).toBeUndefined()
   expect(await ui.find({ key: 'rewind' })).toBeDefined()
-  // Only the symbol is the button: hover lights it alone.
-  expect((await ui.find({ key: 'top' }))?.text).toBe('↑')
+  expect(await ui.find({ type: 'Text', text: '↑', in: 'top' })).toBeDefined()
 
   await wheel(100)
   expect(await ui.find({ key: 'jump:13' })).toBeUndefined()
   expect((await ui.find({ key: 'jump:29' }))?.text).toContain('p0')
 
-  await ui.press({ key: 'top' })
+  await click(ui, 'top')
   expect(await ui.find({ type: 'Text', text: 'Today' })).toBeDefined()
   expect(await ui.find({ key: 'top' })).toBeUndefined()
 
@@ -2893,7 +2892,7 @@ test('the wheel over TOPICS scrolls them under a divider that stays put; ↑ bri
   expect(await topicShown(ui, 8)).toBe(true)
   expect(await topicShown(ui, 3)).toBe(true)
   expect(await topicShown(ui, 2)).toBe(false)
-  expect((await ui.find({ key: 'top:topics' }))?.text).toBe('↑')
+  expect(await ui.find({ type: 'Text', text: '↑', in: 'top:topics' })).toBeDefined()
 
   // To the oldest and no further.
   await wheel(100, 6)
@@ -2902,7 +2901,7 @@ test('the wheel over TOPICS scrolls them under a divider that stays put; ↑ bri
   expect(await topicShown(ui, 6)).toBe(false)
   expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
 
-  await ui.press({ key: 'top:topics' })
+  await click(ui, 'top:topics')
   expect(await topicShown(ui, 11)).toBe(true)
   expect(await ui.find({ key: 'top:topics' })).toBeUndefined()
 })
