@@ -1293,13 +1293,13 @@ export const register: Register = (on, options) => {
     }
     const topics = topicsZone
     const row = (e.pointer?.row ?? -Infinity) + (topics?.offset ?? 0)
-    // Over a divider, or still wheeling it, down gives the zone above it rows. A clock that fails holds nothing.
+    // Over a divider, or still wheeling it, up gives the zone above it rows. A clock that fails holds nothing.
     const now = await $.clock.now().catch(() => -Infinity)
     const held = (zone: 'git' | 'topics') => wheeling?.zone === zone && e.pointer?.row === wheeling.row && now - wheeling.at < WHEEL_HOLD
     const hold = (zone: 'git' | 'topics') => (wheeling = { zone, row: e.pointer!.row, at: now })
     if (topics && (row === topics.to || held('topics'))) {
       hold('topics')
-      await update($, topicsSplit, rows => nudge(rows, topics.divider, e.by))
+      await update($, topicsSplit, rows => nudge(rows, topics.divider, -e.by))
       return {}
     }
     if (topics && row >= topics.from && row < topics.to) {
@@ -1310,7 +1310,7 @@ export const register: Register = (on, options) => {
     if (!zones) return next(e)
     if (zones.commitsAt && (e.pointer?.row === zones.commitsAt || held('git'))) {
       hold('git')
-      await update($, split, rows => nudge(rows, zones.divider, e.by))
+      await update($, split, rows => nudge(rows, zones.divider, -e.by))
       return {}
     }
     const zone = (e.pointer?.row ?? Infinity) < zones.commitsAt ? 'changes' : 'commits'
