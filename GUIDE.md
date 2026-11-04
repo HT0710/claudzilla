@@ -359,7 +359,7 @@ From the moment you submit until Claude reports, the header shows `planning…` 
 
 A rebase or merge in progress gets its own row with what it waits on, such as `✗ 1 conflict`. Click it to see each step and the files to fix, and to continue, skip or abort.
 
-When `gh` is set up for a GitHub repo, the next row shows the branch's pull request: its number, its base, its CI state and an `open`, `draft`, `merged` or `closed` pill. Hover it for the base, checks and changes; click it for the description, checks, commits and files, with `github`, `copy` and `rerun` actions. Two open PRs from one branch, or PRs coming into a base branch, share one summary row.
+When `gh` is set up for a GitHub repo, the next row shows the branch's pull request: its number, its base, its CI state and an `open`, `draft`, `merged` or `closed` pill. Hover it for the base, checks and changes; click it for the description (drawn as Markdown: headings, lists, code and links), checks, commits and files, with `github`, `copy` and `rerun` actions. Two open PRs from one branch, or PRs coming into a base branch, share one summary row.
 
 In a details panel, a long list shows three rows and `show all`, which opens the whole list over it. Press Esc, click its `✕`, or click the row that opened it to close it.
 
