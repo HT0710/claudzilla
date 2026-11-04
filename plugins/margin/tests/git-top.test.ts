@@ -739,15 +739,15 @@ test('a base conflict adds the conflicts row', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: ' conflicts in register.tsx, GUIDE.md' })).toBeDefined()
 })
 
-test('description: first row 2 in, the rest 1 in, 3 rows, … on the last, then show all', async ($, on) => {
+test('description: Markdown drawn as rows, numbers in the claude colour, 3 rows, then show all', async ($, on) => {
   quiet(on)
-  withPr(on, repoOn('a'), [prJson()], viewJson({ body: LONG }))
+  withPr(on, repoOn('a'), [prJson()], viewJson({ body: `## Intro\n\nTook 6 s, see \`a.ts\`.\n\n${LONG}` }))
   const ui = await openPr($)
-  const rows = (await ui.findAll({ type: 'Text', text: /^ +\S/ })).map(t => t.text).filter(t => LONG.includes(t.trim().replace(/…$/, '')) && t.trim().length > 10)
-  expect(rows.length).toBe(3)
-  expect(rows[0]).toMatch(/^ {2}Adds/)
-  expect(rows[1]).toMatch(/^ \S/)
-  expect(rows[2]).toMatch(/…$/)
+  expect((await ui.find({ type: 'Text', text: /^Intro$/ }))?.props.bold).toBe(true)
+  expect((await ui.find({ type: 'Text', text: /^6$/ }))?.props.color).toBe('claude')
+  expect((await ui.find({ type: 'Text', text: /^a\.ts$/ }))?.props.color).toBe('permission')
+  // Heading, blank row, the first paragraph: the second paragraph waits for show all.
+  expect(await ui.find({ type: 'Text', text: /dimmed/ })).toBeUndefined()
   expect(await ui.find({ type: 'Button', key: 'm:all:DESCRIPTION' })).toBeDefined()
 })
 

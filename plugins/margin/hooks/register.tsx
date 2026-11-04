@@ -2,8 +2,9 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { AgentRow, Check, CheckState, FileView, Gh, Intent, Modal, ModalKey, Op, Overview, Pr, PrState, PrView, Spawn, Step, Tab } from '../types'
-import { age, branches, cutMiddle, incomingPrs, ownPrs, parseHead, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows, worst, wrapLines } from './git-data'
-import { CAP, capped, modalFrame, scrollWindow, stackFrame } from './modal'
+import { age, branches, cutMiddle, incomingPrs, ownPrs, parseHead, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows, worst } from './git-data'
+import { mdRows } from './markdown'
+import { capped, modalFrame, scrollWindow, stackFrame } from './modal'
 import type { Frame } from './modal'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
@@ -95,6 +96,8 @@ const fadeTree = (node: unknown, keep: Set<string>, close: () => unknown, open?:
     // A Text in its place, not its Texts loose: in a space-between row they would spread apart.
     return h(invert ? 'Button' : 'Text', invert ? { key: `open:${key}`, plain: true, onPress: close } : {}, ...[text].flat())
   }
+  // The engine colours a Code's tokens, so faded it is plain text.
+  if (el.type === 'Code' && !invert) return h('Text', { color: FADED, wrap: 'truncate-end' }, String(el.props?.source ?? ''))
   const props = { ...el.props }
   if (invert) {
     if (el.type === 'Text') props.backgroundColor = LIT
@@ -2265,8 +2268,34 @@ export const register: Register = (on, options) => {
         const ended = pr.state === 'merged' || pr.state === 'closed'
         const checks = sortChecks(ended ? pr.checks.map(c => (c.state === 'run' ? { ...c, state: 'ok' as const, time: '' } : c)) : pr.checks)
         const passed = checks.filter(c => c.state === 'ok').length
-        const desc = wrapLines(view?.body ?? '', inner - 2, inner - 1)
-        const descRow = (text: string, i: number) => <Text>{`${i ? ' ' : '  '}${text}`}</Text>
+        // The body 1 column in, numbers in counted()'s colour, code spans in the colour the engine gives them, fence
+        // lines through the engine's highlighter.
+        const descRows = (width: number) =>
+          mdRows(view?.body ?? '', width - 1).map(r =>
+            'code' in r ? (
+              <Box paddingLeft={1}>
+                <Code source={r.code || ' '} language={r.language} wrap="truncate-end" />
+              </Box>
+            ) : (
+              <Text>
+                {' '.repeat(1 + r.indent)}
+                {r.spans.map(sp =>
+                  sp.href ? (
+                    <Link href={sp.href}>
+                      <Text>{sp.text}</Text>
+                    </Link>
+                  ) : sp.code ? (
+                    <Text color="permission">{sp.text}</Text>
+                  ) : (
+                    <Text bold={sp.bold} italic={sp.italic}>
+                      {counted(sp.text)}
+                    </Text>
+                  ),
+                )}
+              </Text>
+            ),
+          )
+        const desc = descRows(inner)
         // A failed check's last log lines, red-edged under its row at the name's column: the row names the check.
         const logged = view?.log && checks.find(c => c.name === view.log!.check)
         const withLog = (list: Check[]) =>
@@ -2277,10 +2306,8 @@ export const register: Register = (on, options) => {
           ...(desc.length
             ? [{
                 label: 'DESCRIPTION',
-                rows: desc.map(descRow),
-                full: (width: number) => wrapLines(view?.body ?? '', width - 2, width - 1).map(descRow),
-                // Clamped, not cut: the last row shown ends in "…".
-                shown: capped(desc).more ? desc.slice(0, CAP).map((text, i) => descRow(i === CAP - 1 ? `${text.slice(0, inner - 2)}…` : text, i)) : undefined,
+                rows: desc,
+                full: descRows,
               }]
             : []),
           {
