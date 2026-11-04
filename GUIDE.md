@@ -397,7 +397,7 @@ The ballot card appears after a reply with one `Decision` table of two or more o
 
 The ballot card hides while Claude works and goes once you send any prompt. When a reply has nothing to choose, such as a `**Picks:**` line, a Next line that says `say go`, or a **Compact** line with no Next, no ballot card appears: only the dim answer, such as `1B, 2A` or `go`, waits in the prompt box.
 
-An answer you send speaks in your voice, so the history reads as you wrote it: Claude's `show you the diff` comes back as `show me the diff`, and `your branch` as `my branch`. Code and double-quoted text stay as written.
+An answer you send speaks in your voice, so the history reads as you wrote it: Claude's `show you the diff` comes back as `show me the diff`, and `your branch` as `my branch`. The ballot card's rows read the same way. Code and double-quoted text stay as written.
 
 The [ballot README](https://github.com/HT0710/claudzilla/blob/main/plugins/ballot/README.md) has the full detail.
 
