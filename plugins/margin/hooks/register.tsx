@@ -53,8 +53,10 @@ const BEHIND = '#b48ead'
 const CARD = '#030507'
 const LIT = '#0f1c28'
 // A pushed commit's, or a staged file's: its color at 60%, as DIM's are.
-// What sits behind an open modal: each colour at half, as an opacity over the black pane; a theme key or the
-// terminal's own text colour, which have no hex to scale, a dark grey (divider.tsx draws its rule in it too).
+// What sits behind an open modal, and the line next to a shown card: text, rules and borders in one dim colour,
+// darker than HUD.faint, so a faint row never goes darker than a plain one (divider.tsx draws its rule in it too).
+const DIMMED = '#3a424a'
+// A faded background: each colour at half, as an opacity over the black pane; one with no hex to scale, a dark grey.
 const FADED = '#555555'
 // The active custom theme's colours by key (claude/themes/<name>.json), read once a session, so a theme key fades by
 // its own hue. A built-in theme, or a key it leaves to its base, has none and fades to FADED.
@@ -67,7 +69,10 @@ const readTheme = ($: EngineInterface) =>
     if (typeof theme !== 'string' || !theme.startsWith('custom:')) return
     themeColors = JSON.parse(String(await $.fs.read(`${await configDir($)}/themes/${theme.slice(7)}.json`))).overrides ?? {}
   })().catch(() => undefined))
-const fade = (color: unknown) => {
+const fade = (_color?: unknown) => DIMMED
+// A pill's caps are Texts coloured as its background, so they halve with it.
+const PILL_CAPS = new Set(['\ue0b6', '\ue0b4'])
+const fadeBg = (color: unknown) => {
   const hex = typeof color === 'string' ? (/^#[0-9a-f]{6}$/i.test(color) ? color : themeColors[color]) : undefined
   return typeof hex === 'string' && /^#[0-9a-f]{6}$/i.test(hex)
     ? `#${hex.slice(1).replace(/../g, c => Math.round(parseInt(c, 16) * 0.5).toString(16).padStart(2, '0'))}`
@@ -97,19 +102,21 @@ const fadeTree = (node: unknown, keep: Set<string>, close: () => unknown, open?:
     return h(invert ? 'Button' : 'Text', invert ? { key: `open:${key}`, plain: true, onPress: close } : {}, ...[text].flat())
   }
   // The engine colours a Code's tokens, so faded it is plain text.
-  if (el.type === 'Code' && !invert) return h('Text', { color: FADED, wrap: 'truncate-end' }, String(el.props?.source ?? ''))
+  if (el.type === 'Code' && !invert) return h('Text', { color: DIMMED, wrap: 'truncate-end' }, String(el.props?.source ?? ''))
   const props = { ...el.props }
   if (invert) {
     if (el.type === 'Text') props.backgroundColor = LIT
   } else {
-    if (el.type === 'Text') props.color = fade(props.color)
-    for (const name of ['backgroundColor', 'borderColor'] as const) if (props[name] !== undefined) props[name] = fade(props[name])
+    if (el.type === 'Text') props.color = PILL_CAPS.has(String(props.children ?? el.children)) ? fadeBg(props.color) : fade(props.color)
+    if (props.backgroundColor !== undefined) props.backgroundColor = fadeBg(props.backgroundColor)
+    if (props.borderColor !== undefined) props.borderColor = fade(props.borderColor)
   }
   if (props.children !== undefined) props.children = kids(props.children)
   return { ...el, props, ...(el.children !== undefined && { children: kids(el.children) }) }
 }
 type Piece = { text: string; color?: string; backgroundColor?: string; dimColor?: boolean; bold?: boolean }
-const fadePieces = (pieces: Piece[]) => pieces.map(x => ({ ...x, color: fade(x.color), ...(x.backgroundColor && { backgroundColor: fade(x.backgroundColor) }) }))
+const fadePieces = (pieces: Piece[]) =>
+  pieces.map(x => ({ ...x, color: PILL_CAPS.has(x.text) ? fadeBg(x.color) : fade(x.color), ...(x.backgroundColor && { backgroundColor: fadeBg(x.backgroundColor) }) }))
 // A row's Texts as a row Client's pieces, each with the styles it inherits.
 const toPieces = (node: unknown, style: Omit<Piece, 'text'> = {}): Piece[] => {
   if (Array.isArray(node)) return node.flatMap(child => toPieces(child, style))
@@ -1837,7 +1844,7 @@ export const register: Register = (on, options) => {
       // follows that group without heating it, so the pointer on it leaves it bright.
       const lineOf = (key: string) => lines.findIndex(line => line.includes(key))
       const dimOn = (key: string, pieces: Piece[]) =>
-        dimmed || lineOf(key) < 1 ? pieces : pieces.map(x => ({ ...x, hover: { scope: `line:${lineOf(key) - 1}`, color: fade(x.color), ...(x.backgroundColor && { backgroundColor: fade(x.backgroundColor) }) } }))
+        dimmed || lineOf(key) < 1 ? pieces : pieces.map(x => ({ ...x, hover: { scope: `line:${lineOf(key) - 1}`, color: PILL_CAPS.has(x.text) ? fadeBg(x.color) : fade(x.color), ...(x.backgroundColor && { backgroundColor: fadeBg(x.backgroundColor) }) } }))
       // Shown on hover, one row below its row: a step down lands on the next row, not on the card. A card under the
       // pointer keeps its group lit, so with row Clients the card of the row last left is not drawn: a jump past the
       // next row onto the card is the row's leave.

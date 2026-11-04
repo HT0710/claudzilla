@@ -40,7 +40,7 @@ const Divider: ClientModule<{ split: number; min: number; max: number; faded?: b
   const by = surface.state?.grabbed === undefined ? 0 : reach(surface.state.by ?? 0)
   const word = top ? '↑' : by ? `${by > 0 ? '↓' : '↑'}${Math.abs(by)}` : '⇕'
   const isLit = surface.state?.isOver && !faded
-  const rule = faded ? '#555555' : 'promptBorder'
+  const rule = faded ? '#3a424a' : 'promptBorder'
   const side = Math.max(0, surface.columns - word.length - 2)
   // The primer pane's divider colors (plugins/primer/hooks/divider.tsx), as every margin rule but History's day
   // lines.
