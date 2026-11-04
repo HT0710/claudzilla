@@ -214,7 +214,7 @@ test('a tab press closes the modal and does nothing else in the Git tab', async 
   expect(runs).not.toContain('git fetch origin')
 })
 
-test('rows behind an open modal fade to 50% and lose hover; the row that opened it stays, lit', async ($, on) => {
+test('rows behind an open modal fade to the one dim colour and lose hover; the row that opened it stays, lit', async ($, on) => {
   quiet(on)
   on('process.run', (_, e) => ran(git(repoOn('b20', { log: 'def5678ffff def5678 fix: pushed one\n' }))(e.argv) ?? ''))
   const ui = await mount($)
@@ -226,9 +226,9 @@ test('rows behind an open modal fade to 50% and lose hover; the row that opened 
   expect((await ui.find({ key: 'row:branch' }))?.props.props).toMatchObject({ open: '#0f1c28' })
   // The pane's own rules, the body less one margin, stay as drawn: they frame the pane, not the tab.
   expect((await ui.find({ type: 'Text', text: /^─{65}$/ }))?.props.color).toBe('promptBorder')
-  // Behind: HUD.faint #4f5c68 at 50%; plain text a dark grey.
-  expect((await ui.find({ type: 'Text', text: 'def5678' }))?.props.color).toBe('#282e34')
-  expect((await ui.find({ type: 'Text', text: /^pushed one/ }))?.props.color).toBe('#282e34')
+  // Behind: faint and plain text alike in the one dim colour, so a faint row never goes darker than a plain one.
+  expect((await ui.find({ type: 'Text', text: 'def5678' }))?.props.color).toBe('#3a424a')
+  expect((await ui.find({ type: 'Text', text: /^pushed one/ }))?.props.color).toBe('#3a424a')
   expect((await ui.findAll({ type: 'Text' })).filter(t => t.props.hover)).toEqual([])
   expect(await ui.findAll({ type: 'Link' })).toEqual([])
 })
@@ -248,7 +248,7 @@ test('the rules behind an open modal fade too, the ⇕ divider included', async 
   const ui = await mount($)
   await tap(ui, 'branch')
   // The rule under the top rows spans the body, 67 less its 2-column margins.
-  expect((await ui.find({ type: 'Text', text: /^─{63}$/ }))?.props.color).toBe('#555555')
+  expect((await ui.find({ type: 'Text', text: /^─{63}$/ }))?.props.color).toBe('#3a424a')
   expect(JSON.stringify((await ui.find({ key: 'divider' }))?.props)).toContain('"faded":true')
 })
 
@@ -270,7 +270,7 @@ test('under a PR modal the branch row fades; the PR row keeps its colours on the
   quiet(on)
   withPr(on, repoOn('a'), [prJson()])
   const ui = await openPr($)
-  expect((await piece(ui, 'branch', '⎇ a'))?.props.color).toBe('#2f4b3c')
+  expect((await piece(ui, 'branch', '⎇ a'))?.props.color).toBe('#3a424a')
   expect((await piece(ui, 'pr', '#168'))?.props).toMatchObject({ color: 'claude', backgroundColor: '#0f1c28' })
 })
 
@@ -279,9 +279,9 @@ test('under a stacked modal the modal fades too', async ($, on) => {
   withPr(on, repoOn('a'), [prJson({ statusCheckRollup: Array.from({ length: 6 }, (_, i) => checkRun(`k${i}`, 'SUCCESS')) })])
   const ui = await openPr($)
   await ui.press({ key: 'm:all:CHECKS' })
-  // HUD.label #a396d2 at 50% in the modal; in full in the stacked modal's pinned title.
+  // HUD.label #a396d2 dimmed in the modal; in full in the stacked modal's pinned title.
   const colours = (await ui.findAll({ type: 'Text', text: 'CHECKS' })).map(t => t.props.color)
-  expect(colours).toContain('#524b69')
+  expect(colours).toContain('#3a424a')
   expect(colours).toContain('#a396d2')
 })
 
@@ -620,15 +620,15 @@ test('the line below a hovered row fades in the engine: each row heats its line,
   const lead = async (key: string) => (await row(key)).left.find(p => p.text.trim())?.hover
   expect(await Promise.all(['branch', 'fetch', 'rebase', 'pr'].map(async key => (await row(key)).line))).toEqual(['line:0', 'line:0', 'line:1', 'line:2'])
   expect(await lead('branch')).toBeUndefined()
-  expect(await lead('rebase')).toEqual({ scope: 'line:0', color: '#555555' })
-  expect(await lead('pr')).toEqual({ scope: 'line:1', color: '#555555' })
+  expect(await lead('rebase')).toEqual({ scope: 'line:0', color: '#3a424a' })
+  expect(await lead('pr')).toEqual({ scope: 'line:1', color: '#3a424a' })
   // Under the last line the rule fades.
   const hovers = (node: unknown): object[] => {
     const el = node as { type?: string; hover?: { scope?: string }; children?: unknown[] }
     if (typeof node !== 'object' || !el) return []
     return [...(el.type === 'Text' && el.hover?.scope?.startsWith('line:') ? [el.hover] : []), ...(el.children ?? []).flatMap(hovers)]
   }
-  expect(hovers(await ui.drawn())).toEqual([{ scope: 'line:2', color: '#555555' }])
+  expect(hovers(await ui.drawn())).toEqual([{ scope: 'line:2', color: '#3a424a' }])
 })
 
 test('a press opens the modal from a hovered row; once it closes no row stays dimmed', async ($, on) => {
@@ -644,14 +644,24 @@ test('a press opens the modal from a hovered row; once it closes no row stays di
   expect(await colour('rebase')).toBe(rest)
 })
 
-test("a dimmed row keeps its hue: a theme key fades by the active custom theme's own colour", async ($, on) => {
+test('a dimmed row takes the one dim colour, a theme key too', async ($, on) => {
   quiet(on, 5 * MIN, false, { ...rebaseDir(2), '/home/me/themes/mine.json': JSON.stringify({ name: 'mine', base: 'dark', overrides: { warning: '#d9a441' } }) })
   on('config.list', () => ({ value: [{ key: 'theme', label: 'Theme', kind: 'choice', value: 'custom:mine' }] }) as any)
   on('process.run', (_, e) => ran(git(conflictRepo())(e.argv) ?? ''))
   const ui = await mount($)
-  // warning #d9a441 at 50%; a key the theme leaves to its base stays the grey.
   const pieces = ((await ui.find({ key: 'row:rebase' }))?.props.props as { left: { text: string; hover?: { color?: string } }[] }).left
-  expect(pieces.find(p => p.text.startsWith('↺'))?.hover?.color).toBe('#6d5221')
+  expect(pieces.find(p => p.text.startsWith('↺'))?.hover?.color).toBe('#3a424a')
+})
+
+test('behind a modal a pill halves its background and caps; its word takes the dim colour', async ($, on) => {
+  quiet(on)
+  withGh(on, repoOn('a'), [prJson()])
+  const ui = await mount($)
+  await tap(ui, 'branch')
+  // The open pill #1d3a2a at half.
+  const pieces = ((await ui.find({ key: 'row:pr' }))?.props.props as { right: { text: string; color?: string; backgroundColor?: string }[] }).right
+  expect(pieces.find(p => p.text === 'open')).toMatchObject({ color: '#3a424a', backgroundColor: '#0f1d15' })
+  expect(pieces.find(p => p.text === '\ue0b6')?.color).toBe('#0f1d15')
 })
 
 test('PR card, merged: merged into base with its age, then changes', async ($, on) => {
