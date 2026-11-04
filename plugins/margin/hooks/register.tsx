@@ -562,8 +562,17 @@ const readLog = ($: EngineInterface, page: number) =>
   $.process.run(['git', 'log', `--skip=${page * PAGE}`, `-${2 * PAGE}`, '--format=%H %h %s']).catch(() => undefined)
 let logRead: { key: string; signal: AbortSignal; run: ReturnType<typeof readLog> } | undefined
 // The Git tab as last drawn: rows above `commitsAt` scroll CHANGES, the rest COMMITS, each up to its
-// last offset. Unset while another tab shows: the engine scrolls that one.
-let gitZones: { commitsAt: number; changes: number; commits: number } | undefined
+// last offset. Unset while another tab shows: the engine scrolls that one. `divider`: CHANGES' rows as drawn and
+// the rows a drag can give it; the divider is row `commitsAt`.
+let gitZones: { commitsAt: number; changes: number; commits: number; divider: Split } | undefined
+type Split = { rows: number; min: number; max: number }
+// The divider the last notch moved, with its pointer row and time: it moves off the pointer, so notches on that
+// row less than WHEEL_HOLD ms apart keep moving it.
+let wheeling: { zone: 'git' | 'topics'; row: number; at: number } | undefined
+const WHEEL_HOLD = 1000
+// A stored split moved by `by` rows, from the rows drawn while it is unset, kept to the drawn bounds.
+const nudge = (stored: number, { rows, min, max }: Split, by: number) =>
+  Math.max(min, Math.min((stored >= 0 ? Math.max(min, Math.min(stored, max)) : rows) + by, max))
 // The open modal's layers as last drawn, in tab-body cells: the wheel scrolls the top layer when over it.
 type Layer = { frame: Frame; top: number; end: number }
 let modalZone: { m: Layer; s?: Layer } | undefined
@@ -589,7 +598,8 @@ let basicGlyphs: Promise<boolean> | undefined
 let historyEnd: number | undefined
 // The Overview's TOPICS as last drawn, with a report under them: rows `from` to `to` of the tree, up to
 // offset `end`; `offset`, the engine's window then, as a pointer's row counts from it.
-let topicsZone: { from: number; to: number; end: number; offset: number } | undefined
+// Its divider is row `to`.
+let topicsZone: { from: number; to: number; end: number; offset: number; divider: Split } | undefined
 // The last offset of a zone `rows` tall over `n` rows: one more as, once scrolled, the back-to-top line
 // takes a row, unless it would be the zone's only one.
 const zoneEnd = (n: number, rows: number) => (n > rows ? n - rows + (rows > 1 ? 1 : 0) : 0)
@@ -1274,12 +1284,26 @@ export const register: Register = (on, options) => {
     }
     const topics = topicsZone
     const row = (e.pointer?.row ?? -Infinity) + (topics?.offset ?? 0)
+    // Over a divider, or still wheeling it, down gives the zone above it rows. A clock that fails holds nothing.
+    const now = await $.clock.now().catch(() => -Infinity)
+    const held = (zone: 'git' | 'topics') => wheeling?.zone === zone && e.pointer?.row === wheeling.row && now - wheeling.at < WHEEL_HOLD
+    const hold = (zone: 'git' | 'topics') => (wheeling = { zone, row: e.pointer!.row, at: now })
+    if (topics && (row === topics.to || held('topics'))) {
+      hold('topics')
+      await update($, topicsSplit, rows => nudge(rows, topics.divider, e.by))
+      return {}
+    }
     if (topics && row >= topics.from && row < topics.to) {
       await update($, topicsTop, top => Math.max(0, Math.min(Math.min(top, topics.end) + e.by, topics.end)))
       return {}
     }
     const zones = gitZones
     if (!zones) return next(e)
+    if (zones.commitsAt && (e.pointer?.row === zones.commitsAt || held('git'))) {
+      hold('git')
+      await update($, split, rows => nudge(rows, zones.divider, e.by))
+      return {}
+    }
     const zone = (e.pointer?.row ?? Infinity) < zones.commitsAt ? 'changes' : 'commits'
     await update($, scrolled, top => ({ ...top, [zone]: Math.max(0, Math.min(top[zone] + e.by, zones[zone])) }))
 
@@ -1718,6 +1742,7 @@ export const register: Register = (on, options) => {
               commitsAt: files.length && changesRows ? 4 + topRows + changesRows : 0,
               changes: zoneEnd(files.length, changesRows),
               commits: zoneEnd(Number(total) || page * PAGE + commits.length, commitsRows),
+              divider: { rows: changesRows, min: changesMin, max: changesMax },
             }
       zones = {
         zones: !head ? (status ? 'not a repo' : 'no git answer') : !files.length ? 'commits only' : changesRows ? 'changes+commits' : 'changes hidden: no rows',
@@ -2659,7 +2684,9 @@ export const register: Register = (on, options) => {
       const zoned = !!shown.wants && hasAbout
       const topicsFrom = zoned ? Math.min(await read($, topicsTop), topicsEnd) : 0
       const hasTopicsTop = topicsFrom > 0 && topicsRows > 1
-      if (!next.signal.aborted) topicsZone = zoned ? { from: 5, to: 5 + topicsRows, end: topicsEnd, offset: e.props.scroll.offset } : undefined
+      if (!next.signal.aborted) topicsZone = zoned
+          ? { from: 5, to: 5 + topicsRows, end: topicsEnd, offset: e.props.scroll.offset, divider: { rows: topicsRows, min: topicsMin, max: topicsMax } }
+          : undefined
       // In a zone, the topics that start in it, the last one cut by its edge.
       let shownTopics = topics.slice(topicsFrom)
       if (zoned) {

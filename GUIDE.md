@@ -365,7 +365,7 @@ In a details panel, a long list shows three rows and `show all`, which opens the
 
 Next come the changed files under CHANGES and recent commits under COMMITS. The tab redraws after each tool call and each prompt. Scrolled, a `↑` line goes back to the top of CHANGES or COMMITS. When the `origin` remote is on GitHub, GitLab, Codeberg or SourceHut, a pushed commit's id links to its web page: its row lights up while the pointer is on it. Alt+click opens it; Ctrl+click opens it twice until a Claude Code bug is fixed ([anthropics/claude-code#76110](https://github.com/anthropics/claude-code/issues/76110)).
 
-The mouse wheel scrolls each list. The `⇕` rule between CHANGES and COMMITS, and the one under TOPICS, sets how the rows are shared: drag it, and each side keeps at least one row; click it to move it to the top, and click it there to move it to the bottom. The [margin README](https://github.com/HT0710/claudzilla/blob/main/plugins/margin/README.md) has the full detail.
+The mouse wheel scrolls each list. The `⇕` rule between CHANGES and COMMITS, and the one under TOPICS, sets how the rows are shared: drag it or turn the wheel over it, and each side keeps at least one row; click it to move it to the top, and click it there to move it to the bottom. The [margin README](https://github.com/HT0710/claudzilla/blob/main/plugins/margin/README.md) has the full detail.
 
 ### The ballot card
 <!-- topic: ballot -->

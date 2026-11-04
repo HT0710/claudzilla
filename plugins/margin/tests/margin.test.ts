@@ -376,6 +376,52 @@ test('the wheel scrolls CHANGES and COMMITS each on its own, up to their ends; â
   expect(await ui.find({ key: 'top:changes' })).toBeUndefined()
 })
 
+test('the wheel over the divider moves it: down gives CHANGES rows, up takes them, each side keeps 1', async ($, on) => {
+  noHistory(on)
+  const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
+  const log = Array.from({ length: 30 }, (_, i) => `c${i}ffff c${i} commit ${i}`).join('\n')
+  on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: `${log}\n` })(e.argv) ?? ''))
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'Git' })
+  // 7 rows of CHANGES end on row 11: the divider is row 12, then 14 once moved.
+  const wheel = (by: number, row: number) =>
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
+
+  await wheel(2, 12)
+  expect(await ui.find({ type: 'Text', text: /file8\.ts/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /file9\.ts/ })).toBeUndefined()
+  expect(await ui.find({ key: 'top:changes' })).toBeUndefined()
+  expect(await ui.find({ key: 'top:commits' })).toBeUndefined()
+
+  await wheel(-100, 14)
+  expect(await ui.find({ type: 'Text', text: /file0\.ts/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /file1\.ts/ })).toBeUndefined()
+})
+
+test('notches close together keep moving the divider once it leaves the pointer; after a pause the list scrolls', async ($, on) => {
+  let now = 0
+  noHistory(on, () => now)
+  const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
+  on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: 'c0ffff c0 commit 0\n' })(e.argv) ?? ''))
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'Git' })
+  // The divider starts on row 12; the pointer stays there as it moves down.
+  const wheel = (by: number) =>
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 12 } })
+
+  await wheel(1)
+  now = 300
+  await wheel(1)
+  expect(await ui.find({ type: 'Text', text: /file8\.ts/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /file9\.ts/ })).toBeUndefined()
+  expect(await ui.find({ key: 'top:changes' })).toBeUndefined()
+
+  now = 2000
+  await wheel(1)
+  expect(await ui.find({ key: 'top:changes' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /file9\.ts/ })).toBeUndefined()
+})
+
 test('COMMITS reads a page at a time as the wheel goes past it, down to the first commit', async ($, on) => {
   noHistory(on)
   const all = Array.from({ length: 250 }, (_, i) => `c${i}ffff c${i} commit ${i}\n`)
@@ -2859,6 +2905,26 @@ test('the wheel over TOPICS scrolls them under a divider that stays put; â†‘ bri
   await ui.press({ key: 'top:topics' })
   expect(await topicShown(ui, 11)).toBe(true)
   expect(await ui.find({ key: 'top:topics' })).toBeUndefined()
+})
+
+test('the wheel over the TOPICS divider moves it, keeping 1 row on either side', async ($, on) => {
+  const ui = await twelveTopics($, on)
+  // 7 rows of TOPICS from row 5: the divider is row 12, then 14 once moved.
+  const wheel = (by: number, row: number) =>
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
+
+  await wheel(2, 12)
+  expect(await topicShown(ui, 3)).toBe(true)
+  expect(await topicShown(ui, 2)).toBe(false)
+  expect(await ui.find({ key: 'top:topics' })).toBeUndefined()
+  // Off the pointer now, a notch right after still moves it.
+  await wheel(1, 12)
+  expect(await topicShown(ui, 2)).toBe(true)
+  expect(await ui.find({ key: 'top:topics' })).toBeUndefined()
+
+  await wheel(-100, 15)
+  expect(await topicShown(ui, 11)).toBe(true)
+  expect(await topicShown(ui, 10)).toBe(false)
 })
 
 test('a report missing ASK or PLAN keeps the last ones', async ($, on) => {
