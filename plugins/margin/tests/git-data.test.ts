@@ -201,3 +201,14 @@ test('parseCommitView: body, files with status and counts', () => {
   const v = parseCommitView('feat: x\n\nWhy it moved.\n', 'M\0a.ts\0R100\0b.md\0c.md\0', '5\t1\ta.ts\0' + '0\t0\t\0b.md\0c.md\0')
   expect(v).toEqual({ body: 'Why it moved.', files: [{ path: 'a.ts', status: 'M', additions: 5, deletions: 1 }, { path: 'c.md', status: 'R', additions: 0, deletions: 0 }] })
 })
+
+test('parseLog: a remote HEAD is no ref', () => {
+  const [row] = parseLog(['c'.repeat(40), 'ccccccc', 'HT0710', '1790000000', 'refs/remotes/origin/HEAD, refs/remotes/origin/main, refs/heads/main', 'feat: x'].join('\x1f') + '\n')
+  expect(row?.refs).toEqual([{ remote: 'origin', branch: 'main' }, { remote: '', branch: 'main' }])
+})
+
+test('parseStatusZ: head, then changes; a rename takes the old path from the next record; spaces stay unquoted', () => {
+  const { head, changes } = parseStatusZ('## b...origin/b\0 M a b.ts\0R  new name.md\0old name.md\0?? x.ts\0')
+  expect(head).toBe('## b...origin/b')
+  expect(changes.map(c => [c.letter, c.path, c.from])).toEqual([['M', 'a b.ts', undefined], ['R', 'new name.md', 'old name.md'], ['?', 'x.ts', undefined]])
+})
