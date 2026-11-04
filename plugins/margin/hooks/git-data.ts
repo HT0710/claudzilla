@@ -226,32 +226,6 @@ export const parsePrView = (json: string): PrView | undefined => {
   }
 }
 
-// Text as rows: words packed greedily, a word past the width broken, blank lines dropped; the first row `first` wide.
-// shortcut: counts characters, not cells; CJK and emoji take two. Upgrade: string-width.
-export const wrapLines = (text: string, first: number, rest: number) => {
-  const lines: string[] = []
-  let line = ''
-  const room = () => (lines.length ? rest : first)
-  for (const para of text.split('\n').filter(one => one.trim())) {
-    for (let word of para.trim().split(/\s+/)) {
-      if (line && line.length + 1 + word.length <= room()) {
-        line += ` ${word}`
-        continue
-      }
-      if (line) lines.push(line)
-      line = ''
-      while (word.length > room()) {
-        lines.push(word.slice(0, room()))
-        word = word.slice(room())
-      }
-      line = word
-    }
-    if (line) lines.push(line)
-    line = ''
-  }
-  return lines
-}
-
 // A path that does not fit loses its middle, so the file name stays: plugins/…/register.tsx.
 export const cutMiddle = (path: string, room: number) => {
   if (path.length <= room) return path
