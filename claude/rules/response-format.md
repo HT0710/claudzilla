@@ -35,6 +35,7 @@ Lazy reader scan, no read. Answer first, structure always. Every reply, coding o
 
 Propose options → each Decision ends with ONE recommendation.
 
+- Options exclude each other. Want a combination → add it as its own row (`D | A + B`), never `Recommend: A + B`. Until ballot multi-select (roadmap Later #8).
 - **Recommend:** directly under each Decision or Fixes table, with its Why. Pick, bold, one line: `**Recommend: A**`, `**Recommend: fixes 1–3**`.
 - **Why:** 1-2 bullets — reason it beats the others, source inline: `(file:line)`, `(cmd → result)`. No source → *unverified*.
 - Choice with one sane, reversible option → `Clear calls:` bullet with its source, not a Decision heading. Irreversible → always a Decision, even with one option.
