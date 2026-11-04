@@ -361,9 +361,13 @@ A rebase or merge in progress gets its own row with what it waits on, such as `�
 
 When `gh` is set up for a GitHub repo, the next row shows the branch's pull request: its number, its base, its CI state and an `open`, `draft`, `merged` or `closed` pill. Hover it for the base, checks and changes; click it for the description (drawn as Markdown: headings, lists, code and links), checks, commits and files, with `github`, `copy` and `rerun` actions. Two open PRs from one branch, or PRs coming into a base branch, share one summary row.
 
-In a details panel, a long list shows three rows and `show all`, which opens the whole list over it. Press Esc, click its `✕`, or click the row that opened it to close it.
+In a details panel, a long list shows three rows and `show all`, which opens the whole list over it. Click a file in a panel's list to open it in the File tab. Press Esc, click its `✕`, or click the row that opened it to close it.
 
-Next come the changed files under CHANGES and recent commits under COMMITS. The tab redraws after each tool call and each prompt. Scrolled, a `↑` line goes back to the top of CHANGES or COMMITS. When the `origin` remote is on GitHub, GitLab, Codeberg or SourceHut, a pushed commit's id links to its web page: its row lights up while the pointer is on it. Alt+click opens it; Ctrl+click opens it twice until a Claude Code bug is fixed ([anthropics/claude-code#76110](https://github.com/anthropics/claude-code/issues/76110)).
+Next come the changed files under CHANGES and recent commits under COMMITS. The tab redraws after each tool call and each prompt. Scrolled, a `↑` line goes back to the top of CHANGES or COMMITS.
+
+Each changed file shows its status letter and line counts. Hover it to see whether it is staged, and click it to open the file in the File tab.
+
+Each commit shows its subject and age; unpushed commits are bright and counted as `↑N` in the header. Hover one for its id, author, branches, tags and size. Click it for its message and files, with `copy` for its id and, once pushed, `github` for its page on GitHub, GitLab, Codeberg or SourceHut.
 
 The mouse wheel scrolls each list. The `⇕` rule between CHANGES and COMMITS, and the one under TOPICS, sets how the rows are shared: drag it or turn the wheel over it, and each side keeps at least one row; click it to move it to the top, and click it there to move it to the bottom. The [margin README](https://github.com/HT0710/claudzilla/blob/main/plugins/margin/README.md) has the full detail.
 
