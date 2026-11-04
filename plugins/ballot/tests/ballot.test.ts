@@ -374,13 +374,13 @@ test('a press puts its id and option in the prompt box, unsent, so the box clear
   expect(sent).toEqual([])
 })
 
-test('a row press drafts its option in the person\'s voice; the row shows it as written', async ($, on) => {
+test('a row shows and drafts its option in the person\'s voice', async ($, on) => {
   const filled: string[] = []
   engine(on)
   on('prompt.fill', (_: any, e: any) => { filled.push(e.text); return { isFilled: true } })
   await $.turn.complete(done(LETTERS.replace('| B | retry |', '| B | you retry by hand |')))
   const ui = await $.ui.mount({ plugin: 'ballot', surface: 'terminal', ...BAND })
-  expect(await labels(ui)).toEqual(['no retry', 'you retry by hand', 'go ahead, except…'])
+  expect(await labels(ui)).toEqual(['no retry', 'I retry by hand', 'go ahead, except…'])
   await ui.press({ key: 'pick:B' })
   expect(filled).toEqual(['B: I retry by hand'])
 })

@@ -280,7 +280,7 @@ export const register: Register = on => {
     if (!shown || hidden) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
     const theirs = await next(e)
-    const sends = shown.rows.slice(0, MAX_ROWS).map(row => ({ key: `pick:${row.id}`, text: row.text, picked: row.picked, send: answer(row) }))
+    const sends = shown.rows.slice(0, MAX_ROWS).map(row => ({ key: `pick:${row.id}`, text: voice(row.text), picked: row.picked, send: answer(row) }))
     const pick = shown.rows.find(row => row.picked)
     return (
       <Box flexDirection="column">
