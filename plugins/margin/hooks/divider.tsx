@@ -10,7 +10,7 @@ import type { ClientModule } from 'claude-code'
 // Clicked, a press and release that never left its row, it jumps to the top, or from the top to the bottom.
 // `top`: a scrolled zone's back-to-top line instead, its grip ↑: no drag, a click posts `top`, unless faded, as the
 // faded tab presses nothing.
-const Divider: ClientModule<{ split: number; min: number; max: number; faded?: boolean; top?: boolean }, { grabbed?: number; by?: number; moved?: boolean; isOver?: boolean }> = ({ split, min, max, faded, top }, surface) => {
+const Divider: ClientModule<{ split: number; min: number; max: number; faded?: boolean; top?: boolean; line?: string }, { grabbed?: number; by?: number; moved?: boolean; isOver?: boolean }> = ({ split, min, max, faded, top, line }, surface) => {
   const { Box, Text } = surface.elements
   // Rows a drag of `d` moves the rule, as far as the zone can go: a zone under `min` never shrinks, and
   // grows to it on any move down.
@@ -42,15 +42,22 @@ const Divider: ClientModule<{ split: number; min: number; max: number; faded?: b
   const isLit = surface.state?.isOver && !faded
   const rule = faded ? '#3a424a' : 'promptBorder'
   const side = Math.max(0, surface.columns - word.length - 2)
+  // `line`: the last CHANGES row's group; the rule fades while that row's card hangs over it.
+  const dim = line ? { scope: line, color: '#3a424a' } : undefined
   // The primer pane's divider colors (plugins/primer/hooks/divider.tsx), as every margin rule but History's day
   // lines.
   return (
     <Box>
-      <Text color={rule}>{'─'.repeat(Math.floor(side / 2))} </Text>
+      {/* Nested: a Text in a Text follows the dim group without heating it, so pointing here dims nothing. */}
+      <Text>
+        <Text color={rule} hover={dim}>{'─'.repeat(Math.floor(side / 2))} </Text>
+      </Text>
       <Text color={isLit ? 'claude' : rule} inverse={(isLit && !by) || undefined} bold>
         {word}
       </Text>
-      <Text color={rule}> {'─'.repeat(Math.ceil(side / 2))}</Text>
+      <Text>
+        <Text color={rule} hover={dim}> {'─'.repeat(Math.ceil(side / 2))}</Text>
+      </Text>
     </Box>
   )
 }

@@ -1,12 +1,38 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 import Row from '../hooks/row'
+import Divider from '../hooks/divider'
+import { fileKey } from '../hooks/git-data'
 
 // A process.run result with `stdout`.
 const ran = (stdout: string, exitCode = 0) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
+// Text a row Client draws: its pieces are props, so the tree's Texts never hold them. Each side joined alone.
+const rowText = async (ui: { drawn: () => Promise<unknown> }, text: RegExp) => {
+  const sides: string[] = []
+  const walk = (n: any) => {
+    if (!n || typeof n !== 'object') return
+    if (Array.isArray(n)) return n.forEach(walk)
+    const p = n.props?.props
+    if (Array.isArray(p?.left)) sides.push(p.left.map((x: any) => x.text).join(''), p.right.map((x: any) => x.text).join(''))
+    walk([n.children, n.props?.children])
+  }
+  walk(await ui.drawn())
+  return sides.find(t => text.test(t))
+}
 // Answers a git run with the first entry whose key is one of its arguments.
-const git = (repo: Record<string, string>) => (argv: readonly string[]) =>
-  argv[0] !== 'git' ? undefined : (Object.entries(repo).find(([command]) => argv.includes(command))?.[1] ?? '')
+// A log answer written as "full short subject" lines, turned into the log's real format: \x1f fields, author HT0710.
+const asLog = (text: string) =>
+  text.split('\n').map(line => (!line || line.includes('\x1f') ? line : [...line.split(' ').slice(0, 2), 'HT0710', '1790000000', '', line.split(' ').slice(2).join(' ')].join('\x1f'))).join('\n')
+// A status answer written as porcelain lines, in -z form: NUL-ended records, a rename as "XY new\0old".
+const asStatusZ = (text: string) =>
+  text.includes('\0') ? text : text.split('\n').filter(Boolean).map(line => (line.includes(' -> ') ? `${line.slice(0, 3)}${line.slice(3).split(' -> ').reverse().join('\0')}` : line)).join('\0') + '\0'
+const git = (repo: Record<string, string>) => (argv: readonly string[]) => {
+  if (argv[0] !== 'git') return undefined
+  const [command, answer = ''] = Object.entries(repo).find(([command]) => argv.includes(command)) ?? []
+  // Only the COMMITS read takes the \x1f format; a rebase's own log reads its tab format as written.
+  if (command === 'status' && argv.includes('-z')) return asStatusZ(answer)
+  return command === 'log' && argv.some(arg => arg.includes('%x1f')) ? asLog(answer) : answer
+}
 const BAR_ROWS = 2
 // 20 tab rows under the top bar and its rule, as margin.test.ts sizes the bodies.
 const props = {
@@ -22,11 +48,16 @@ const NOW = 1_800_000_000_000
 // An empty History, the clock at NOW, FETCH_HEAD `fetched` ago.
 // `dir`: the git dir's files; fs.read answers from it by path under /repo/.git.
 // `clock`: a mock clock the test drives, which answers clock.now itself.
-const quiet = (on: Parameters<TestBody>[1], fetched = 5 * MIN, basic = false, dir: Record<string, string> = {}, clock = false) => {
+// `dir`: file text by path; null, a file that is gone, so its read fails.
+const quiet = (on: Parameters<TestBody>[1], fetched = 5 * MIN, basic = false, dir: Record<string, string | null> = {}, clock = false) => {
   if (!clock) on('clock.now', () => ({ value: NOW }))
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
-  on('fs.read', (_, e) => ({ value: dir[String((e as any).path).replace('/repo/.git/', '')] ?? '' }))
+  on('fs.read', (_, e) => {
+    const text = dir[String((e as any).path).replace('/repo/.git/', '')]
+    if (text === null) throw new Error('ENOENT')
+    return { value: text ?? '' }
+  })
   on('tool.call', () => ({ result: { stdout: '', stderr: '' } }) as any)
   on('fs.exists', (_, e) => ({ value: basic && String((e as any).path ?? '').endsWith('.claudzilla-basic-glyphs') }))
   const top = [...new Set(Object.keys(dir).map(path => path.split('/')[0]!))].map(name => ({ name, kind: name.includes('_') ? 'file' : 'dir', size: 1, mtimeMs: 0, isLink: false }))
@@ -136,7 +167,9 @@ test('fetch card: fetched time and remote', async ($, on) => {
   on('process.run', (_, e) => ran(git(repoOn('a'))(e.argv) ?? ''))
   const ui = await mount($)
   await hover(ui, 'fetch')
-  expect(await ui.find({ type: 'Text', text: /^ fetched/ })).toBeDefined()
+  // Labels as wide as the card's longest, "fetched", and 2 more.
+  expect(await ui.find({ type: 'Text', text: /^fetched  $/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^remote   $/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'git@github.com:o/r.git' })).toBeDefined()
 })
 
@@ -148,8 +181,9 @@ test('fetch card holds to the card width: a long remote URL is cut in the middle
   await hover(ui, 'fetch')
   const shown = (await ui.findAll({ type: 'Text', text: /origin\.git$/ })).at(-1)?.text ?? ''
   expect(shown).toMatch(/^\/home\/me\/.*…\/origin\.git$/)
-  // The card is 75% of the 67-column body: 50 columns, 24 of them taken around the URL.
-  expect(shown.length).toBeLessThanOrEqual(50 - 26)
+  // The card is 75% of the 67-column body: 50 columns, 21 of them taken around the URL:
+  // Border and padding 4, the 9-column label, "origin  ".
+  expect(shown.length).toBe(50 - 21)
 })
 
 test('branch card: upstream sync and stash count', async ($, on) => {
@@ -159,6 +193,20 @@ test('branch card: upstream sync and stash count', async ($, on) => {
   await hover(ui, 'branch')
   expect((await ui.findAll({ type: 'Text', text: '↑1' })).some(t => t.props.color === '#d4b860')).toBe(true)
   expect(await ui.find({ type: 'Text', text: '1 on this branch' })).toBeDefined()
+})
+
+test('branch card, never pushed: local is the upstream value, faint, with nothing at the far right', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(repoOn('a', { status: '## a\n' }))(e.argv) ?? ''))
+  const ui = await mount($)
+  await hover(ui, 'branch')
+  const { card, find } = await cardTexts(ui, 'branch')
+  const own = (n: any) => [n.children ?? n.props?.children].flat().filter((c: unknown) => typeof c === 'string').join('')
+  const row = find(card, n => n.type === 'Box' && n.props?.justifyContent === 'space-between')[0]
+  const [left, right] = [row.children ?? row.props.children].flat()
+  const local = find(left, n => n.type === 'Text' && own(n) === 'local')[0]
+  expect(local?.props?.color).toBe('#4f5c68')
+  expect(find(right, n => n.type === 'Text').map(own).join('').trim()).toBe('')
 })
 
 test('basic-glyphs mode swaps the fetch icon for ↻', async ($, on) => {
@@ -227,8 +275,9 @@ test('rows behind an open modal fade to the one dim colour and lose hover; the r
   // The pane's own rules, the body less one margin, stay as drawn: they frame the pane, not the tab.
   expect((await ui.find({ type: 'Text', text: /^─{65}$/ }))?.props.color).toBe('promptBorder')
   // Behind: faint and plain text alike in the one dim colour, so a faint row never goes darker than a plain one.
-  expect((await ui.find({ type: 'Text', text: 'def5678' }))?.props.color).toBe('#3a424a')
-  expect((await ui.find({ type: 'Text', text: /^pushed one/ }))?.props.color).toBe('#3a424a')
+  const left = ((await ui.find({ key: 'row:c:def5678ffff' }))?.props.props as { left: { text: string; color?: string }[] }).left
+  expect(left.find(p => p.text === 'fix')?.color).toBe('#3a424a')
+  expect(left.find(p => /pushed one/.test(p.text))?.color).toBe('#3a424a')
   expect((await ui.findAll({ type: 'Text' })).filter(t => t.props.hover)).toEqual([])
   expect(await ui.findAll({ type: 'Link' })).toEqual([])
 })
@@ -519,10 +568,10 @@ test("a card's far-right texts all start past its longest info", async ($, on) =
     : Array.isArray(node) ? node.flatMap(n => find(n, test))
     : [...(test(node) ? [node] : []), ...find([node.props?.children, node.children], test)]
   const card = find(await ui.drawn(), n => n.hover?.scope === 'card:pr' && n.props?.position === 'absolute')[0]
-  // Label 1 + 10 columns, then the longest info, "2 commits · 2 files".
+  // Label 1 in + "changes" and 2 more, then the longest info, "2 commits · 2 files".
   const widths = find(card, n => n.type === 'Box' && n.props?.flexShrink === 0 && n.props?.width !== undefined).map(n => n.props.width)
   expect(widths.length).toBeGreaterThan(1)
-  expect(new Set(widths)).toEqual(new Set([11 + '2 commits · 2 files'.length]))
+  expect(new Set(widths)).toEqual(new Set([10 + '2 commits · 2 files'.length]))
 })
 
 test("every card draws hidden till hover; the left row's card, and any over the same rows, waits for a row's enter", async ($, on) => {
@@ -560,6 +609,24 @@ test('a leave the next row\'s enter follows in time drops no card, as a draw bet
   await hover(ui, 'rebase')
   await clock.advance(30)
   expect(await rebaseCard()).toBe(true)
+})
+
+test("the divider's dimmed rule sits in a Text, so pointing at the divider never heats the dim group", async () => {
+  const tag = (name: string) => Object.assign((props: object) => ({ type: name, props }), { tag: name })
+  const surface = { elements: { Box: tag('Box'), Text: tag('Text') }, onPointer: () => {}, columns: 40 }
+  const tree = Divider({ split: 3, min: 1, max: 5, line: 'line:4' }, surface as any)
+  // Each Text with the dim hover, and whether a Text holds it.
+  const dims: boolean[] = []
+  const walk = (node: any, inText: boolean) => {
+    if (!node || typeof node !== 'object') return
+    if (Array.isArray(node)) return node.forEach(n => walk(n, inText))
+    const name = typeof node.type === 'function' ? node.type.tag : node.type
+    if (node.props?.hover?.scope === 'line:4') dims.push(inText)
+    walk(node.props?.children, inText || name === 'Text')
+  }
+  walk(tree, false)
+  expect(dims.length).toBe(2)
+  expect(dims.every(Boolean)).toBe(true)
 })
 
 test("a row Client's right pieces sit in a Text, as its left ones do, so the line above's dim never heats from them", async () => {
@@ -689,8 +756,8 @@ test('COMMITS still scrolls under a taller top section', async ($, on) => {
   const ui = await mount($)
   // Tabs, rule, branch, PR, rule, CHANGES header, 3 files, divider, COMMITS header: the first commit is pane row 11.
   await wheel($, 1, 11)
-  expect(await ui.find({ type: 'Text', text: /commit 0$/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /f0\.ts/ })).toBeDefined()
+  expect(await rowText(ui, /commit 0$/)).toBeUndefined()
+  expect(await rowText(ui, /f0\.ts/)).toBeDefined()
 })
 
 test('merged branches hidden until shown; the last row counts them', async ($, on) => {
@@ -737,7 +804,10 @@ test('PR modal: title, meta row with the verb by state, divider', async ($, on) 
     await ui.press({ key: 'History' })
     await ui.press({ key: 'Git' })
     await tap(ui, 'pr')
-    expect(await ui.find({ type: 'Text', text: ` · by HT0710 · ${verb} 2h ago` })).toBeDefined()
+    // "#n by author", the verb and age faint at the far right.
+    expect((await ui.find({ type: 'Text', text: /^ by $/ }))?.props.color).toBe('#4f5c68')
+    expect((await ui.find({ type: 'Text', text: /^HT0710$/ }))?.props.color).toBeUndefined()
+    expect((await ui.find({ type: 'Text', text: new RegExp(`^${verb} 2h ago$`) }))?.props.color).toBe('#4f5c68')
     await ui.press({ key: 'm:x' })
   }
 })
@@ -779,7 +849,17 @@ test('commits heading N total; files heading N total +a −d; paths cut in the m
   expect(await ui.find({ type: 'Text', text: 'COMMITS' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '2 total' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '1 total  ' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /…\/register\.tsx$/ })).toBeDefined()
+  expect(await rowText(ui, /…\/register\.tsx$/)).toBeDefined()
+})
+
+test('PR modal: a FILES row opens the file in the File tab', async ($, on) => {
+  quiet(on, 5 * MIN, false, { '/repo/b.ts': 'pr file text' })
+  withPr(on, repoOn('a'), [prJson()], viewJson({ files: [{ path: 'b.ts', additions: 1, deletions: 0, changeType: 'MODIFIED' }] }))
+  const ui = await openPr($)
+  // FILES sits below the window: scroll the modal to its end.
+  await wheel($, 20, 10)
+  await tap(ui, `mf:${fileKey('b.ts')}`)
+  expect(await ui.find({ type: 'Text', text: '/repo/b.ts' })).toBeDefined()
 })
 
 test('4 checks show whole; 5 show 3 and show all', async ($, on) => {
@@ -1012,10 +1092,19 @@ test('rebase modal: title, meta, COMMITS from one before the stop with marks, CO
   on('process.run', (_, e) => ran(git(conflictRepo())(e.argv) ?? ''))
   const ui = await mount($)
   await tap(ui, 'rebase')
-  expect(await ui.find({ type: 'Text', text: ' · step 2 of 3' })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /^step 2 of 3$/ }))?.props.color).toBe('#4f5c68')
   expect((await ui.findAll({ type: 'Text', text: '✓' })).at(-1)?.props.color).toBe('#5d9678')
   expect(await ui.find({ type: 'Text', text: 'CONFLICTS' })).toBeDefined()
-  expect((await ui.findAll({ type: 'Text', text: ' U' })).at(-1)?.props.color).toBe('#e06c75')
+  expect(((await ui.find({ key: `row:mf:${fileKey('f.txt')}` }))?.props.props as { left: { text: string; color?: string }[] }).left[0]).toEqual({ text: ' U', color: '#e06c75' })
+})
+
+test('rebase modal: a CONFLICTS row opens the file to fix', async ($, on) => {
+  quiet(on, 5 * MIN, false, { ...rebaseDir(2), '/repo/f.txt': 'conflict text' })
+  on('process.run', (_, e) => ran(git(conflictRepo())(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, 'rebase')
+  await tap(ui, `mf:${fileKey('f.txt')}`)
+  expect(await ui.find({ type: 'Text', text: '/repo/f.txt' })).toBeDefined()
 })
 
 test('merge modal: title, incoming count, incoming commits', async ($, on) => {
@@ -1025,7 +1114,7 @@ test('merge modal: title, incoming count, incoming commits', async ($, on) => {
   expect(await piece(ui, 'rebase', 'merging ')).toBeDefined()
   await tap(ui, 'rebase')
   expect(await ui.find({ type: 'Text', text: "Merge branch 'release/1.7' into feat/x" })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: ' · 1 incoming commit' })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /^1 incoming commit$/ }))?.props.color).toBe('#4f5c68')
   expect(await ui.find({ type: 'Button', key: 'm:commit' })).toBeDefined()
 })
 
@@ -1098,7 +1187,8 @@ test('summary modal: two rows per PR, dividers between, capped, github action', 
   const ui = await mount($)
   await tap(ui, 'prs')
   expect((await ui.findAll({ type: 'Button', text: /#18\d/ })).length).toBe(3)
-  expect(await ui.find({ type: 'Text', text: '  HT0710 · from feat/t' })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /^ {2}HT0710$/ }))?.props.color).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: /^ from $/ }))?.props.color).toBe('#4f5c68')
   expect((await ui.find({ type: 'Link' }))?.props.href).toBe('https://github.com/o/r/pulls')
   await ui.press({ key: 'm:all:5 PRs' })
   expect((await ui.findAll({ type: 'Button', text: /#18\d/ })).length).toBeGreaterThan(3)
@@ -1111,7 +1201,8 @@ test('a PR in the summary modal opens its stacked modal: title, meta, CHECKS, re
   await tap(ui, 'prs')
   await ui.press({ key: 'm:pr:180' })
   expect(await ui.find({ type: 'Box', key: 'stack' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: ' · by HT0710 · opened 2h ago' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^ by $/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^opened 2h ago$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '0 of 1 passed' })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 's:rerun' })).toBeDefined()
 })
@@ -1221,4 +1312,527 @@ test('while a modal is open the pane takes Escape; once it closes, Escape is as 
   await ui.press({ key: 'm:x' })
   expect(opens.at(-1)).toBeUndefined()
   expect(opens.length).toBe(2)
+})
+
+test('CHANGES header: N files faint, summed line counts', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(repoOn('b', { status: '## b...origin/b\n M a.ts\n?? d/e.ts\n', diff: '2\t1\ta.ts\0' }))(e.argv) ?? ''))
+  const ui = await mount($)
+  expect((await ui.find({ type: 'Text', text: '2 files' }))?.props.color).toBe('#4f5c68')
+  expect(await ui.find({ type: 'Text', text: '+2' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '−1' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^!/ })).toBeUndefined()
+})
+
+// CHANGES rows: a repo on b with these status lines and this numstat -z answer.
+const changesRepo = (lines: string, diff = '', more: Record<string, string> = {}) => repoOn('b', { status: `## b...origin/b\n${lines}`, diff, ...more })
+
+test('file row: letter, middle-cut path, counts at right', async ($, on) => {
+  quiet(on)
+  const path = `plugins/margin/${'deep/'.repeat(10)}register.tsx`
+  on('process.run', (_, e) => ran(git(changesRepo(` M ${path}\n`, `80\t4\t${path}\0`))(e.argv) ?? ''))
+  const ui = await mount($)
+  expect(await ui.find({ type: 'Text', text: /…\/register\.tsx$/, in: `row:${fileKey(path)}` })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '+80', in: `row:${fileKey(path)}` })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '−4', in: `row:${fileKey(path)}` })).toBeDefined()
+})
+
+test('staged row: dim letter and faint path', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(changesRepo('M  GUIDE.md\n', '3\t1\tGUIDE.md\0'))(e.argv) ?? ''))
+  const ui = await mount($)
+  expect((await piece(ui, fileKey('GUIDE.md'), /GUIDE\.md$/))?.props.color).toBe('#4f5c68')
+})
+
+test('binary file shows bin faint', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(changesRepo(' M logo.png\n', '-\t-\tlogo.png\0'))(e.argv) ?? ''))
+  const ui = await mount($)
+  expect((await piece(ui, fileKey('logo.png'), 'bin'))?.props.color).toBe('#4f5c68')
+})
+
+test('untracked file counts its lines; over 1 MiB shows none', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) =>
+    e.argv[0] === 'find' ? ran('  8 120 /repo/new.ts\n') : ran(git(changesRepo('?? new.ts\n?? big.ts\n', '', { '--absolute-git-dir': '/repo/.git\n/repo/.git\n/repo\n' }))(e.argv) ?? ''),
+  )
+  const ui = await mount($)
+  expect(await piece(ui, fileKey('new.ts'), '+8')).toBeDefined()
+  expect(await piece(ui, fileKey('big.ts'), /^\+/)).toBeUndefined()
+})
+
+test('file click opens the path from the top level', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(changesRepo(' M a.ts\n', '', { '--absolute-git-dir': '/repo/.git\n/repo/.git\n/repo\n' }))(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, fileKey('a.ts'))
+  // The File tab's header: the path from the top level, not from the session's folder.
+  expect(await ui.find({ type: 'Text', text: '/repo/a.ts' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'CHANGES' })).toBeUndefined()
+})
+
+test('deleted row neither presses nor lights; its card still shows', async ($, on) => {
+  quiet(on, 5 * MIN, false, { '/repo/old.ts': 'gone text' })
+  on('process.run', (_, e) => ran(git(changesRepo('D  old.ts\n', '0\t9\told.ts\0', { '--absolute-git-dir': '/repo/.git\n/repo/.git\n/repo\n' }))(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, fileKey('old.ts'))
+  expect(await ui.find({ type: 'Text', text: /gone text/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'CHANGES' })).toBeDefined()
+  const box = (await ui.drawn()) as unknown
+  expect(JSON.stringify(box)).not.toMatch(new RegExp(`"scope":"card:${fileKey('old.ts')}","backgroundColor"`))
+  await hover(ui, fileKey('old.ts'))
+  expect(await ui.find({ type: 'Text', text: /deleted · staged/ })).toBeDefined()
+})
+
+test('file card: full path, status word and stage', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(changesRepo('MM a.ts\n', '2\t1\ta.ts\0'))(e.argv) ?? ''))
+  const ui = await mount($)
+  await hover(ui, fileKey('a.ts'))
+  expect(await ui.find({ type: 'Text', text: /status/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'modified · staged + not staged' })).toBeDefined()
+})
+
+// The drawn texts of a row's card, each Text's own string.
+const cardTexts = async (ui: Ui, key: string) => {
+  const find = (node: any, test: (n: any) => boolean): any[] =>
+    !node || typeof node !== 'object' ? []
+    : Array.isArray(node) ? node.flatMap(n => find(n, test))
+    : [...(test(node) ? [node] : []), ...find([node.props?.children, node.children], test)]
+  const card = find(await ui.drawn(), n => n.hover?.scope === `card:${key}` && n.props?.position === 'absolute')[0]
+  const own = (n: any) => [n.children ?? n.props?.children].flat().filter((c: unknown) => typeof c === 'string').join('')
+  return { card, find, texts: find(card, n => n.type === 'Text').map(own).filter(Boolean) }
+}
+
+test('a file card has no title row repeating the path; its labels start at the card edge', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(changesRepo('MM a.ts\n', '2\t1\ta.ts\0'))(e.argv) ?? ''))
+  const ui = await mount($)
+  await hover(ui, fileKey('a.ts'))
+  const { texts } = await cardTexts(ui, fileKey('a.ts'))
+  expect(texts).not.toContain('a.ts')
+  expect(texts).toContain('status  ')
+  // The row shows the line counts; the card does not repeat them.
+  expect(texts.filter(t => /^[+−]\d/.test(t))).toEqual([])
+})
+
+test('rename row shows the new name and its counts; card has from', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(changesRepo('R  docs/git.md -> docs/git-tab.md\n', '2\t2\t\0docs/git.md\0docs/git-tab.md\0'))(e.argv) ?? ''))
+  const ui = await mount($)
+  expect(await piece(ui, fileKey('docs/git-tab.md'), /docs\/git-tab\.md$/)).toBeDefined()
+  expect(await piece(ui, fileKey('docs/git-tab.md'), '+2')).toBeDefined()
+  await hover(ui, fileKey('docs/git-tab.md'))
+  expect(await ui.find({ type: 'Text', text: /from/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'docs/git.md' })).toBeDefined()
+})
+
+test('card follows the row after a scroll', async ($, on) => {
+  quiet(on)
+  const files = Array.from({ length: 30 }, (_, i) => ` M f${String(i).padStart(2, '0')}.ts`).join('\n')
+  on('process.run', (_, e) => ran(git(changesRepo(`${files}\n`))(e.argv) ?? ''))
+  const ui = await mount($)
+  await wheel($, 5, 5)
+  await hover(ui, fileKey('f05.ts'))
+  expect(await ui.find({ type: 'Text', text: 'modified · not staged' })).toBeDefined()
+  expect(await rowText(ui, /f05\.ts$/)).toBeDefined()
+})
+
+// COMMITS rows: \x1f log lines, the unpushed list and, for the card, a shortstat answer.
+const logLine = (full: string, subject: string, decor = '', ct = 1799999880) => [full, full.slice(0, 7), 'HT0710', String(ct), decor, subject].join('\x1f')
+const commitsRepo = (lines: string[], unpushed: string[], stat = '') => (argv: readonly string[]) =>
+  argv.includes('--shortstat') ? stat : git(repoOn('b', { log: `${lines.join('\n')}\n`, '--remotes': unpushed.map(sha => `${sha}\n`).join(''), '--count': '154\n' }))(argv)
+const A = 'a'.repeat(40)
+const B = 'b'.repeat(40)
+
+test('COMMITS header: ↑N in gold, N total faint', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(commitsRepo([logLine(A, 'feat: one'), logLine(B, 'fix: two')], [A, B])(e.argv) ?? ''))
+  const ui = await mount($)
+  expect((await ui.find({ type: 'Text', text: '↑2' }))?.props.color).toBe('#d4b860')
+  expect((await ui.find({ type: 'Text', text: /^ {2}154 total$/ }))?.props.color).toBe('#4f5c68')
+  expect(await ui.find({ type: 'Text', text: /local/ })).toBeUndefined()
+})
+
+test('commit row: subject coloured by type, age faint at right, no sha', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(commitsRepo([logLine(A, 'feat: one')], [A])(e.argv) ?? ''))
+  const ui = await mount($)
+  expect((await piece(ui, `c:${A}`, 'feat'))?.props.color).toBe('#98c379')
+  expect((await piece(ui, `c:${A}`, '2m'))?.props.color).toBe('#4f5c68')
+  expect(await piece(ui, `c:${A}`, /aaaaaaa/)).toBeUndefined()
+})
+
+test('pushed row faint, unpushed bright', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(commitsRepo([logLine(A, 'feat: local one'), logLine(B, 'fix: pushed one')], [A])(e.argv) ?? ''))
+  const ui = await mount($)
+  expect((await piece(ui, `c:${A}`, /local one/))?.props.color).toBeUndefined()
+  expect((await piece(ui, `c:${B}`, /pushed one/))?.props.color).toBe('#4f5c68')
+  expect(await ui.findAll({ type: 'Link' })).toEqual([])
+})
+
+test('commit card: commit, refs, changes', async ($, on) => {
+  quiet(on)
+  const stat = `\x1e${A}\n\n 2 files changed, 80 insertions(+), 4 deletions(-)\n`
+  on('process.run', (_, e) => ran(commitsRepo([logLine(A, 'feat: one', 'HEAD -> refs/heads/feat/x, refs/remotes/origin/feat/x, tag: refs/tags/v1.6.0')], [], stat)(e.argv) ?? ''))
+  const ui = await mount($)
+  await hover(ui, `c:${A}`)
+  expect((await ui.find({ type: 'Text', text: /^aaaaaaa$/ }))?.props.color).toBe('claude')
+  expect((await ui.find({ type: 'Text', text: /^ by $/ }))?.props.color).toBe('#4f5c68')
+  expect((await ui.find({ type: 'Text', text: /^HT0710$/ }))?.props.color).toBeUndefined()
+  // No title row repeating the subject; labels at the card edge.
+  const { texts } = await cardTexts(ui, `c:${A}`)
+  expect(texts.some(t => t.includes('one'))).toBe(false)
+  expect(texts).toContain('commit   ')
+  // Refs as the branch modal draws names: a type prefix in its colour, the rest plain, a remote's name faint.
+  expect((await ui.findAll({ type: 'Text', text: /^feat\/$/ })).map(t => t.props.color)).toEqual(['#98c379', '#98c379'])
+  expect((await ui.findAll({ type: 'Text', text: /^x$/ })).map(t => t.props.color)).toEqual([undefined, undefined])
+  expect((await ui.find({ type: 'Text', text: /^origin\/$/ }))?.props.color).toBe('#4f5c68')
+  expect((await ui.find({ type: 'Text', text: /^v1\.6\.0$/ }))?.props.color).toBe('warning')
+  expect((await ui.find({ type: 'Text', text: /^2$/ }))?.props.color).toBe('claude')
+  expect(await ui.find({ type: 'Text', text: '+80' })).toBeDefined()
+})
+
+test('commit card: long refs share the info column, cut with … at its end, so the counts stay whole', async ($, on) => {
+  quiet(on)
+  const stat = `\x1e${A}\n\n 5 files changed, 105 insertions(+), 23 deletions(-)\n`
+  const branch = 'feat/a-rather-long-branch-name-here'
+  on('process.run', (_, e) => ran(commitsRepo([logLine(A, 'feat: one', `HEAD -> refs/heads/${branch}`)], [A], stat)(e.argv) ?? ''))
+  const ui = await mount($)
+  await hover(ui, `c:${A}`)
+  const { card, find } = await cardTexts(ui, `c:${A}`)
+  const lefts = find(card, n => n.type === 'Box' && n.props?.flexShrink === 0)
+  // The card takes the 75% cap of the 67-column body, 50 columns: 46 inside, less the 9-column label, the 2-column
+  // gap and "+105 −23" leaves 26 for the info column, every row the same, refs included.
+  expect(card.props.width).toBe(50)
+  expect(lefts.map(n => n.props.width)).toEqual([36, 36, 36])
+  expect(lefts.every(n => n.children?.[0]?.props?.wrap === 'truncate-end' || n.props?.children?.props?.wrap === 'truncate-end')).toBe(true)
+  expect(await ui.find({ type: 'Text', text: '+105' })).toBeDefined()
+})
+
+test('commit card: the current branch in refs takes the action colour, bold, as in the branch modal', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(commitsRepo([logLine(A, 'feat: one', 'HEAD -> refs/heads/b')], [A])(e.argv) ?? ''))
+  const ui = await mount($)
+  await hover(ui, `c:${A}`)
+  const { card, find } = await cardTexts(ui, `c:${A}`)
+  const current = find(card, n => n.type === 'Text' && [n.children ?? n.props?.children].flat().join('') === 'b')[0]
+  expect(current?.props.color).toBe('#5d9678')
+  expect(current?.props.bold).toBe(true)
+})
+
+test('commit card: no refs row when none', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(commitsRepo([logLine(A, 'feat: one')], [A])(e.argv) ?? ''))
+  const ui = await mount($)
+  await hover(ui, `c:${A}`)
+  expect(await ui.find({ type: 'Text', text: /commit/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /refs/ })).toBeUndefined()
+})
+
+// The commit modal's reads: the message, then its files by name-status and by numstat, all -z.
+const showRepo = (unpushed: string[], message = 'feat: one\n', nameStatus = 'M\0a.ts\0', numstat = '5\t1\ta.ts\0', decor = '') => (argv: readonly string[]) =>
+  argv.includes('show') ? (argv.includes('--name-status') ? nameStatus : argv.includes('--numstat') ? numstat : message) : commitsRepo([logLine(A, 'feat: one', decor)], unpushed)(argv)
+
+test('pressing a commit opens its modal: title, sha by author with the age at the far right, refs', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(showRepo([A], undefined, undefined, undefined, 'refs/remotes/origin/feat/x, tag: refs/tags/v1.6.0')(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, `c:${A}`)
+  expect(await ui.find({ key: 'modal' })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /^ aaaaaaa$/ }))?.props.color).toBe('claude')
+  expect((await ui.find({ type: 'Text', text: /^ by $/ }))?.props.color).toBe('#4f5c68')
+  expect((await ui.find({ type: 'Text', text: /^HT0710$/ }))?.props.color).toBeUndefined()
+  // The age in its own far-right box, as FILES puts its counts.
+  const age = await ui.find({ type: 'Text', text: /^2m ago$/ })
+  expect(age?.props.color).toBe('#4f5c68')
+  expect(await ui.find({ type: 'Text', text: /·/ })).toBeUndefined()
+  expect((await ui.findAll({ type: 'Text', text: /^v1\.6\.0$/ })).some(t => t.props.color === 'warning')).toBe(true)
+  expect((await ui.findAll({ type: 'Text', text: /^origin\/$/ })).some(t => t.props.color === '#4f5c68')).toBe(true)
+  expect((await ui.findAll({ type: 'Text', text: /^feat\/$/ })).some(t => t.props.color === '#98c379')).toBe(true)
+})
+
+test('commit modal: DESCRIPTION from the body; none without a body', async ($, on) => {
+  quiet(on)
+  let message = 'feat: one\n\nWhy it moved.\n'
+  on('process.run', (_, e) => ran(showRepo([A], message)(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, `c:${A}`)
+  expect(await ui.find({ type: 'Text', text: 'DESCRIPTION' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Why it moved/ })).toBeDefined()
+  await tap(ui, `c:${A}`)
+  message = 'feat: one\n'
+  await tap(ui, `c:${A}`)
+  expect(await ui.find({ type: 'Text', text: 'DESCRIPTION' })).toBeUndefined()
+})
+
+test('commit modal: FILES with N total and counts, middle-cut paths', async ($, on) => {
+  quiet(on)
+  const long = `plugins/margin/${'deep/'.repeat(12)}register.tsx`
+  on('process.run', (_, e) => ran(showRepo([A], undefined, `M\0${long}\0A\0b.ts\0`, `5\t1\t${long}\0` + '8\t0\tb.ts\0')(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, `c:${A}`)
+  expect(await ui.find({ type: 'Text', text: 'FILES' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '2 total  ' })).toBeDefined()
+  expect(await rowText(ui, /…\/register\.tsx$/)).toBeDefined()
+  expect(await rowText(ui, /^\+8$/)).toBeDefined()
+})
+
+test('commit modal: a file row lights under the pointer and opens the file in the File tab', async ($, on) => {
+  quiet(on, 5 * MIN, false, { '/repo/a.ts': 'file text' })
+  on('process.run', (_, e) => ran(showRepo([A])(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, `c:${A}`)
+  // Each lit row its own keyed Box, so only the row under the pointer lights, not every row in the modal.
+  const lit: any[] = []
+  const walk = (n: any) => {
+    if (!n || typeof n !== 'object') return
+    if (Array.isArray(n)) return n.forEach(walk)
+    if (n.hover?.backgroundColor === '#0f1c28' && !n.hover.scope) lit.push(n)
+    walk([n.children, n.props?.children])
+  }
+  walk(await ui.drawn())
+  expect(lit.map(n => n.props?.key)).toEqual(['m:row:a.ts'])
+  // A column, as a CHANGES row's Box: the Client stretches across, so its counts end at the far right.
+  expect(lit[0].props.flexDirection).toBe('column')
+  // A row Client, as a CHANGES row: it lights, where a Button would invert.
+  expect(String((await ui.find({ key: `row:mf:${fileKey('a.ts')}` }))?.props.module)).toMatch(/row\.tsx$/)
+  expect(await ui.find({ type: 'Button', key: 'm:file:a.ts' })).toBeUndefined()
+  await tap(ui, `mf:${fileKey('a.ts')}`)
+  // The File tab's header: the path from the top level.
+  expect(await ui.find({ type: 'Text', text: '/repo/a.ts' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'COMMITS' })).toBeUndefined()
+})
+
+test('commit modal: a deleted file row neither lights nor opens', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(showRepo([A], undefined, 'D\0old.ts\0', '0\t9\told.ts\0')(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, `c:${A}`)
+  expect(await ui.find({ key: `row:mf:${fileKey('old.ts')}` })).toBeUndefined()
+})
+
+test('a file row whose file left the working tree toasts instead of opening an empty File tab', async ($, on) => {
+  quiet(on, 5 * MIN, false, { '/repo/gone.ts': null })
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push(String((e as any).text))
+    return { value: undefined }
+  })
+  on('process.run', (_, e) => ran(showRepo([A], undefined, 'M\0gone.ts\0', '1\t0\tgone.ts\0')(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, `c:${A}`)
+  await tap(ui, `mf:${fileKey('gone.ts')}`)
+  expect(toasts).toEqual(['Not in the working tree: gone.ts'])
+  expect(await ui.find({ key: 'modal' })).toBeDefined()
+})
+
+test('a modal file row with one side 0 gives the path the columns the absent side would take', async ($, on) => {
+  quiet(on)
+  const path = (name: string) => `plugins/margin/${'deep/'.repeat(12)}${name}.tsx`
+  on('process.run', (_, e) => ran(showRepo([A], undefined, `A\0${path('one')}\0M\0${path('two')}\0`, `8\t0\t${path('one')}\0` + `8\t1\t${path('two')}\0`)(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, `c:${A}`)
+  const cut = async (name: string) => (await rowText(ui, new RegExp(`…/${name}\\.tsx$`))) ?? ''
+  // "+8" against "+8 −1": 3 columns more for the path.
+  expect((await cut('one')).length - (await cut('two')).length).toBe(3)
+})
+
+test('show all FILES: the stacked rows light and open; the modal under them stays dark', async ($, on) => {
+  quiet(on)
+  // 5 files: the modal shows 3 and show all, as it caps any list.
+  const names = ['f0.ts', 'f1.ts', 'f2.ts', 'f3.ts', 'f4.ts']
+  on('process.run', (_, e) => ran(showRepo([A], undefined, names.map(n => `M\0${n}\0`).join(''), names.map(n => `1\t0\t${n}\0`).join(''))(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, `c:${A}`)
+  // show all sits below the window: scroll the modal to its end.
+  await wheel($, 20, 10)
+  await ui.press({ key: 'm:all:FILES' })
+  expect(await ui.find({ key: `row:sf:${fileKey('f4.ts')}` })).toBeDefined()
+  expect(JSON.stringify(await ui.drawn()).split('"hover":{"backgroundColor":"#0f1c28"}').length - 1).toBe(5)
+})
+
+test('copy copies the full sha', async ($, on) => {
+  quiet(on)
+  let copied = ''
+  on('ui.copy', (_, e) => {
+    copied = (e as any).text
+    return { value: {} } as any
+  })
+  on('process.run', (_, e) => ran(showRepo([A])(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, `c:${A}`)
+  await ui.press({ key: 'm:copy' })
+  expect(copied).toBe(A)
+})
+
+test('pushed commit has github linking to its page', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(showRepo([])(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, `c:${A}`)
+  expect((await ui.findAll({ type: 'Link' })).map(link => link.props.href)).toEqual([`https://github.com/o/r/commit/${A}`])
+})
+
+test('no remote: no github action', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(showRepo([A])(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, `c:${A}`)
+  expect(await ui.findAll({ type: 'Link' })).toEqual([])
+  expect(await ui.find({ type: 'Text', text: ' copy' })).toBeDefined()
+})
+
+// The commit modal links only a page that surely exists: a known host, and a commit some remote has.
+const pages: [string, Record<string, string>, boolean][] = [
+  ['an unknown host', { 'get-url': 'git@git.acme.com:o/r.git\n' }, false],
+  ['a branch with no upstream', { status: '## b\n' }, true],
+  ['a branch gone from origin', { status: '## b...origin/b [gone]\n' }, true],
+  ['a failed unpushed list', { '--remotes': 'fail' }, false],
+]
+for (const [what, answers, linked] of pages)
+  test(`commit modal links only what surely has a page: ${what}`, async ($, on) => {
+    quiet(on)
+    on('process.run', (_, e) => {
+      const out = e.argv.includes('show') ? showRepo([])(e.argv) : git(repoOn('b', { log: `${logLine(A, 'feat: one')}\n`, ...answers }))(e.argv)
+      return out === 'fail' ? { value: { ...ran('').value, exitCode: 128 } } : ran(out ?? '')
+    })
+    const ui = await mount($)
+    await tap(ui, `c:${A}`)
+    expect((await ui.findAll({ type: 'Link' })).length).toBe(linked ? 1 : 0)
+  })
+
+test('a press on the open commit row closes the modal', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(showRepo([A])(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, `c:${A}`)
+  expect((await ui.find({ key: `row:c:${A}` }))?.props.props).toMatchObject({ open: '#0f1c28' })
+  await tap(ui, `c:${A}`)
+  expect(await ui.find({ key: 'modal' })).toBeUndefined()
+})
+
+// A row Client's props: its pieces and the line group it heats.
+type RowProps = { line?: string; left: { text: string; hover?: { scope?: string; color?: string }; under?: { scope?: string; color?: string } }[] }
+const rowProps = async (ui: Ui, key: string) => (await ui.find({ key: `row:${key}` }))?.props.props as RowProps | undefined
+
+test('hovering the last CHANGES row dims the ⇕ divider', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(changesRepo(' M a.ts\n M b.ts\n M c.ts\n'))(e.argv) ?? ''))
+  const ui = await mount($)
+  const last = (await rowProps(ui, fileKey('c.ts')))?.line
+  expect(last).toMatch(/^line:\d+$/)
+  expect(((await ui.find({ key: 'divider' }))?.props.props as { line?: string }).line).toBe(last)
+})
+
+test('with empty CHANGES rows under the last file, the ⇕ divider stays out of its dim', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(changesRepo(' M a.ts\n M b.ts\n M c.ts\n'))(e.argv) ?? ''))
+  const ui = await mount($)
+  // Dragged 2 rows down: 2 empty rows sit between c.ts and the divider.
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
+  await ui.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'divider' })
+  await ui.pointer({ type: 'up', x: 0, y: 2, button: 'left', in: 'divider' })
+  expect(((await ui.find({ key: 'divider' }))?.props.props as { split: number; line?: string }).split).toBe(5)
+  expect(((await ui.find({ key: 'divider' }))?.props.props as { line?: string }).line).toBeUndefined()
+})
+
+test('the next file row carries the faded hover of the row above', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(changesRepo(' M a.ts\n M b.ts\n'))(e.argv) ?? ''))
+  const ui = await mount($)
+  const above = (await rowProps(ui, fileKey('a.ts')))?.line
+  const below = await rowProps(ui, fileKey('b.ts'))
+  expect(below?.left.every(p => p.hover?.scope === above && p.hover?.color === '#3a424a')).toBe(true)
+})
+
+test('a card that would pass the pane bottom opens upward, and the line above dims', async ($, on) => {
+  quiet(on)
+  const shas = Array.from({ length: 40 }, (_, i) => String(i).padStart(2, '0').repeat(20))
+  on('process.run', (_, e) => ran(commitsRepo(shas.map((sha, i) => logLine(sha, `fix: commit ${i}`)), [])(e.argv) ?? ''))
+  const ui = await mount($)
+  const tree = await ui.drawn()
+  const drawn = JSON.stringify(tree)
+  // A card's top: the absolute Box revealed by its row's card group.
+  const topOf = (sha: string) => {
+    const walk = (node: any): number | undefined => {
+      if (!node || typeof node !== 'object') return undefined
+      const style = { ...node, ...node.props }
+      if (style.hover?.scope === `card:c:${sha}` && style.position === 'absolute') return style.top
+      for (const child of [...(node.children ?? []), ...[node.props?.children].flat()]) {
+        const found = walk(child)
+        if (found !== undefined) return found
+      }
+      return undefined
+    }
+    return walk(tree) ?? NaN
+  }
+  const rows = shas.filter(sha => drawn.includes(`"row:c:${sha}"`))
+  const [first, prev, last] = [rows[0]!, rows.at(-2)!, rows.at(-1)!]
+  // The first row's card hangs down, one row below it; the last row's, 1 row tall plus its border, ends one row
+  // above its row.
+  const lastAt = topOf(first) - 2 + rows.length - 1
+  expect(topOf(last)).toBe(lastAt - 1 - 3)
+  // The row above the last one fades in the last row's group.
+  const lastLine = (await rowProps(ui, `c:${last}`))?.line
+  expect((await rowProps(ui, `c:${prev}`))?.left.every(p => p.under?.scope === lastLine)).toBe(true)
+})
+
+test('commit card: no −0 when nothing was removed', async ($, on) => {
+  quiet(on)
+  const stat = `\x1e${A}\n\n 1 file changed, 3 insertions(+)\n`
+  on('process.run', (_, e) => ran(commitsRepo([logLine(A, 'feat: one')], [], stat)(e.argv) ?? ''))
+  const ui = await mount($)
+  await hover(ui, `c:${A}`)
+  expect(await ui.find({ type: 'Text', text: '+3' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '−0' })).toBeUndefined()
+})
+
+test('a path with a space or a tab: unquoted, counted, opened, drawn as spaces', async ($, on) => {
+  quiet(on)
+  const runs: (readonly string[])[] = []
+  on('process.run', (_, e) => {
+    runs.push(e.argv)
+    return ran(git(changesRepo(' M a b.ts\n M c\td.ts\n', '2\t1\ta b.ts\0', { '--absolute-git-dir': '/repo/.git\n/repo/.git\n/repo\n' }))(e.argv) ?? '')
+  })
+  const ui = await mount($)
+  expect(runs.find(argv => argv.includes('status'))).toContain('-z')
+  expect(await piece(ui, fileKey('a b.ts'), /^ a b\.ts$/)).toBeDefined()
+  expect(await piece(ui, fileKey('a b.ts'), '+2')).toBeDefined()
+  expect(await piece(ui, fileKey('c\td.ts'), /^ c d\.ts$/)).toBeDefined()
+  await tap(ui, fileKey('a b.ts'))
+  expect(await ui.find({ type: 'Text', text: '/repo/a b.ts' })).toBeDefined()
+})
+
+test('untracked counts read only files up to 1 MiB, found by size first', async ($, on) => {
+  quiet(on)
+  const runs: (readonly string[])[] = []
+  on('process.run', (_, e) => {
+    runs.push(e.argv)
+    return ran(git(changesRepo('?? new.ts\n'))(e.argv) ?? '')
+  })
+  await mount($)
+  const count = runs.find(argv => argv.includes('-l'))
+  expect(count?.slice(0, 1)).toEqual(['find'])
+  // find rounds sizes up to whole KiB: under 1025k is 1 MiB or less.
+  expect(count).toContain('-1025k')
+  expect(count).toContain('-type')
+})
+
+test('a SHA-256 commit row keeps its hover scopes within 64 characters', async ($, on) => {
+  quiet(on)
+  const long = 'e'.repeat(64)
+  on('process.run', (_, e) => ran(commitsRepo([logLine(long, 'feat: one')], [])(e.argv) ?? ''))
+  const ui = await mount($)
+  expect(await ui.find({ type: 'Text', text: 'COMMITS' })).toBeDefined()
+  expect(JSON.stringify(await ui.drawn())).not.toMatch(/"scope":"[^"]{65,}"/)
+})
+
+test('a committed file name with a control character draws as a space in the commit modal', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(showRepo([A], undefined, 'A\0a\tb.ts\0', '1\t0\ta\tb.ts\0')(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, `c:${A}`)
+  expect(await rowText(ui, / a b\.ts$/)).toBeDefined()
 })
