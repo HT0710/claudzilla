@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Check, CheckState, Pr, PrState } from '../types'
 
-import { age, branches, cutMiddle, ownPrs, parseHead, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows, wrapLines } from '../hooks/git-data'
+import { age, branches, cutMiddle, ownPrs, parseHead, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows } from '../hooks/git-data'
 
 // A gh pr list row with every field the parser reads.
 const fixture = (over: Record<string, unknown> = {}) => ({
@@ -161,13 +161,6 @@ test('a PR view: body, commit subjects with times, files with status letters', (
     files: [{ path: 'GUIDE.md', status: 'M', additions: 1, deletions: 2 }, { path: 'n.ts', status: 'A', additions: 3, deletions: 0 }],
   })
   expect(parsePrView('nope')).toBeUndefined()
-})
-
-test('wrapped lines: the first narrower, words kept whole, a long word broken, blank lines dropped', () => {
-  expect(wrapLines('aa bb cc dd', 5, 6)).toEqual(['aa bb', 'cc dd'])
-  expect(wrapLines('aaa bb cc', 4, 6)).toEqual(['aaa', 'bb cc'])
-  expect(wrapLines('abcdefgh', 3, 3)).toEqual(['abc', 'def', 'gh'])
-  expect(wrapLines('a\n\nb', 5, 5)).toEqual(['a', 'b'])
 })
 
 test('a path that does not fit loses its middle, keeping the file name', () => {
