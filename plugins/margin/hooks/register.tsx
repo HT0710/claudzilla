@@ -578,6 +578,8 @@ type Layer = { frame: Frame; top: number; end: number }
 let modalZone: { m: Layer; s?: Layer } | undefined
 // What a press on each top row's Client does, as the last Git tab draw set it.
 let rowActs: Record<string, () => unknown> = {}
+// What a click on each back-to-top line does, as the last draw set it.
+const topActs: Record<string, () => unknown> = {}
 // The tab rows each top row's card spans, from its top to its end, and each top row's own, as the last Git tab draw set them.
 let cardSpan: Record<string, [number, number]> = {}
 let rowLines: Record<string, number> = {}
@@ -1222,7 +1224,7 @@ export const register: Register = (on, options) => {
     return { element: e.element }
   })
 
-  // A divider, dragged or clicked: the render clamps it to keep 1 row on either side.
+  // A divider, dragged or clicked, or a back-to-top line clicked: the render clamps a divider to keep 1 row on either side.
   on('ui.message', async ($, e, next) => {
     // A row Client: the pointer entered or left it, or it was pressed.
     if (e.requestId === PANE && typeof e.element === 'string' && e.element.startsWith('row:')) {
@@ -1252,6 +1254,10 @@ export const register: Register = (on, options) => {
         await update($, rowPointer, () => ({ left: null, at: null }))
         await rowActs[row]?.()
       }
+      return {}
+    }
+    if (e.requestId === PANE && (e.data as { top?: unknown } | undefined)?.top) {
+      await topActs[e.element]?.()
       return {}
     }
     const rows = (e.data as { split?: unknown } | undefined)?.split
@@ -1399,11 +1405,19 @@ export const register: Register = (on, options) => {
       ) : (
         <Text color={color}>{text}</Text>
       )
-    // A rule with ↑ in it: back to a scrolled zone's top, ↑ in the grip's colors, at rest and under the pointer:
-    // the Button heats the scope, the Text's hover takes the color.
-    // Only the symbol is the button: a Button lights as wide as it draws. Unshrunk, as the topics under it:
-    // a zone's last row wrapping past its edge would squeeze it out.
-    const topLine = (key: string, onPress: () => unknown) => {
+    // A rule with ↑ in it: back to a scrolled zone's top. Drawn by the divider's Client, so the whole row is the
+    // target and only ↑ lights. Unshrunk, as the topics under it: a zone's last row wrapping past its edge would
+    // squeeze it out. A column, as a row Box sizes the Client to its content: ↑ alone, no rule.
+    const topLine = (key: string, onPress: () => unknown, faded?: boolean) => {
+      topActs[key] = onPress
+      if (Client)
+        return (
+          <Box flexShrink={0} flexDirection="column">
+            <Client key={key} module="./divider.tsx" props={{ top: true, split: 0, min: 0, max: 0, faded: !!faded }} height={1} />
+          </Box>
+        )
+      // Elsewhere only the symbol is the button, the Button heating the scope and the Text's hover taking the color:
+      // a Button lights as wide as it draws.
       const fill = Math.max(0, e.props.bodyColumns - 2 * PAD - 3)
       return (
         <Box flexShrink={0}>
@@ -2531,7 +2545,7 @@ export const register: Register = (on, options) => {
             <Box flexDirection="column" height={changesRows}>
               {/* One letter: the worktree's while it has unstaged changes, bright; else the index's, staged, dim.
                   A conflict is U whatever git pairs it with (UU, AA, DD, UD...); a rename shows its new name. */}
-              {changesShown < changesRows && topLine('top:changes', () => update($, scrolled, top => ({ ...top, changes: 0 })))}
+              {changesShown < changesRows && topLine('top:changes', () => update($, scrolled, top => ({ ...top, changes: 0 })), dimmed)}
               {files.slice(changesFrom, changesFrom + changesShown).map(line => {
                 const xy = line.slice(0, 2)
                 const isConflict = xy.includes('U') || xy === 'AA' || xy === 'DD'
@@ -2564,7 +2578,7 @@ export const register: Register = (on, options) => {
               </Box>
             </Box>
           )}
-          {commitsShown < commitsRows && topLine('top:commits', () => update($, scrolled, top => ({ ...top, commits: 0 })))}
+          {commitsShown < commitsRows && topLine('top:commits', () => update($, scrolled, top => ({ ...top, commits: 0 })), dimmed)}
           {/* Local commits bright, pushed ones dim; the type colored by what it does (TYPES). */}
           {commits.slice(commitsFrom - page * PAGE, commitsFrom - page * PAGE + commitsShown).map(line => {
             const [full = '', hash = '', ...subject] = line.split(' ')
