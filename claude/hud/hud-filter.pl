@@ -114,14 +114,14 @@ sub ramp {
 # builds a whole meter row as cells, then runs the highlight across all of it -
 # title, bar, figure and note alike. $head is the sweep centre, undef while resting.
 sub meter_line {
-    my ($label,$pct,$note,$n,$tw,@hs) = @_;
+    my ($label,$pct,$note,$n,$tw,$lw,$pw,@hs) = @_;
     my $wait = !defined $pct; $pct //= 0;
     my $f = int($pct / 100 * $n + 0.5); $f = $n if $f > $n;
     # cache is a clock, not a fill: a solid full bar in one ramp colour, dim blue when fresh to orange when cold
     my $cc = $label eq 'cch' ? [map { int($_+0.5) } @{ ramp(0.1 + 0.9 * ($pct/100) ** 0.85) }] : undef;
     $f = $n if $cc;
     my @cell;
-    push @cell, [$_, [163,150,210]] for split //, sprintf('%-3s ', $label);   # title
+    push @cell, [$_, [163,150,210]] for split //, sprintf('%-*s ', $lw, $label); # title
     for my $i (0 .. $n-1) {                                                   # bar
         my $on = $i < $f;
         push @cell, [$cc ? $G_CACHE : $on ? $G_ON : $G_OFF,
@@ -130,7 +130,7 @@ sub meter_line {
     }
     my $x = ($pct/100) ** 0.85; $x = 0.4 if $x < 0.4;                         # figure
     my $fc = $wait ? [64,71,80] : $cc // [map { int($_+0.5) } @{ ramp($x) }];
-    push @cell, [$_, $fc] for split //, $wait ? ' --%  ' : sprintf(' %3d%%  ', $pct);
+    push @cell, [$_, $fc] for split //, sprintf(' %*s%%  ', $pw, $wait ? '--' : $pct);
     push @cell, [$_, [64,71,80]] for split //, sprintf("%*s", $tw, $note);    # note
     my @px;
     for my $i (0 .. $#cell) {
@@ -296,13 +296,18 @@ push @out, rule(-1, sprintf(' %02d:%02d ', @lt[2,1])) unless $f{compact};
 
 my $DIV = " \e[38;2;38;50;64m\x{2503}\e[0m ";
 if ($ONE) {
+    @one = grep { defined } @mv{qw(cch ctx 5h wk)};     # the three usage fills sit together, the cache clock apart
     my $room = $W - 3 * $#one;
     my $x = 0;
     my @hs = heads(1);      # middle row: the spin's row scale is 1, so it reaches both ends
     my @cols;
     for my $i (0 .. $#one) {
         my $col = int($room * ($i + 1) / @one) - int($room * $i / @one);
-        push @cols, meter_line(@{$one[$i]}, $col - 11 - $tw, $tw, map { $_ - $x } @hs);
+        my ($label, $pct, $note) = @{$one[$i]};
+        $note =~ s/^ +//;
+        # 2 spaces around the bar; it takes what short text leaves, so no uneven gaps
+        my ($lw, $pw, $nw) = (1 + length $label, 1 + length($pct // '--'), length $note);
+        push @cols, meter_line($label, $pct, $note, $col - 5 - $lw - $pw - $nw, $nw, $lw, $pw, map { $_ - $x } @hs);
         $x += $col + 3;
     }
     push @out, join($DIV, @cols);
@@ -312,14 +317,14 @@ if ($ONE) {
     for my $i (0, 1) {
         my ($l, $r) = ($mv{(qw(ctx cch))[$i]}, $mv{(qw(5h wk))[$i]});
         my @hs = heads($row++);
-        push @out, ($l ? meter_line(@$l, $n, $twl, @hs) : ' ' x $CL)
+        push @out, ($l ? meter_line(@$l, $n, $twl, 3, 3, @hs) : ' ' x $CL)
                  . $DIV
-                 . ($r ? meter_line(@$r, $nr, $twr, map { $_ - $CL - 3 } @hs) : ' ' x $CRW);
+                 . ($r ? meter_line(@$r, $nr, $twr, 3, 3, map { $_ - $CL - 3 } @hs) : ' ' x $CRW);
     }
 } else {
     for my $r (@m) {
         my ($label,$pct,$note) = @$r;
-        push @out, meter_line($label, $pct, $note, $n, $tw, heads($row++));
+        push @out, meter_line($label, $pct, $note, $n, $tw, 3, 3, heads($row++));
     }
 }
 

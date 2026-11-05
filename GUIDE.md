@@ -318,7 +318,7 @@ The meters sit in two columns, `ctx` over `cch` on the left and `5h` over `wk` o
 
 On a narrow terminal, the top row drops the version first, then drops the email's domain, then the rest of the email, then the changes and the branch, and finally cuts the folder from the left. The bottom row drops thinking, then the skill, the session id, the session name, and the model last.
 
-To use fewer rows, set `{"hud":{"compact":true}}` in `~/.claude/claudzilla.json`. The two thin lines go, so the time and date go too, and all four meters sit on one row, for 3 rows in total. Under about 109 columns the meters keep their two columns or stack as usual. The change shows within a second.
+To use fewer rows, set `{"hud":{"compact":true}}` in `~/.claude/claudzilla.json`. The two thin lines go, so the time and date go too, and all four meters sit on one row with `cch` first, for 3 rows in total. Under about 109 columns the meters keep their two columns or stack as usual. The change shows within a second.
 
 The installer offers the MesloLGS NF font, which draws the symbols. If you said no, the status line uses basic symbols every font has: `■ □` instead of `▰ ▱` in the meters, `›` instead of `⎇` for the branch, and `▸` instead of `⚑` for the skill. To switch later, run `CLAUDZILLA_FONT=yes ~/claudzilla/install.sh`, then set MesloLGS NF as your terminal font. If you see boxes instead of symbols, see *Fix common problems* (`/claudzilla stuck`).
 

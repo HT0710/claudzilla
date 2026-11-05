@@ -158,8 +158,8 @@ check "render: no limits -> ctx only" [ "$(grep -cE '^(ctx|5h|wk) ' <<<"$out")" 
 check "render: no limits -> cache below ctx, no divider" bash -c "grep -q '^cch .* 33%  *40m$' <<<'$out' && ! grep -q '┃' <<<'$out'"
 # first launch, logged in: limits not in yet, so 5h | wk hold their slots
 out=$(render '{"session_id":"w1"}')
-check "render: limits pending -> 5h placeholder" grep -qE '^ctx .*┃ 5h  (▱)+ --%     --$' <<<"$out"
-check "render: limits pending -> wk placeholder" grep -qE '^cch .*┃ wk  (▱)+ --%     --$' <<<"$out"
+check "render: limits pending -> 5h placeholder" grep -qE '^ctx .*┃ 5h  (▱)+  --%     --$' <<<"$out"
+check "render: limits pending -> wk placeholder" grep -qE '^cch .*┃ wk  (▱)+  --%     --$' <<<"$out"
 wn=$(data <<<'{"session_id":"w1"}' | COLUMNS=40 perl "$HUD/hud-filter.pl" 2>"$TMP/warn" | perl -pe 's/\e\[[0-9;]*m//g')
 check "render: limits pending, narrow -> 4 meter rows" [ "$(grep -cE '^(ctx|cch|5h|wk) ' <<<"$wn")" -eq 4 ]
 check "render: limits pending -> no warnings" [ ! -s "$TMP/warn" ]
@@ -178,13 +178,14 @@ check "data: compact true" [ "$(key compact "$(data <<<"$full")")" = 1 ]
 out=$(strip 170 "$full")
 check "compact: 3 rows" [ "$(wc -l <<<"$out")" -eq 3 ]
 check "compact: no rules" bash -c "! grep -q '━' <<<'$out'"
-check "compact: one meter row" grep -q '^ctx .* 42%  *┃ cch .*┃ 5h  .* 30%  *2h0m ┃ wk  .* 12%  2d7h$' <<<"$out"
+check "compact: one meter row" grep -q '^cch  [^ ].*[^ ]  33%  40m ┃ ctx  [^ ].*[^ ]  42%  *┃ 5h  [^ ].*[^ ]  30%  2h0m ┃ wk  [^ ].*[^ ]  12%  2d7h$' <<<"$out"
 check "compact: meter row fills 166 cols" [ "$(sed -n 2p <<<"$out" | widest)" -eq 166 ]
 check "compact: no time or date" bash -c "! grep -qE '[0-9]{2}:[0-9]{2}| (Sun|Mon|Tue|Wed|Thu|Fri|Sat) ' <<<'$out'"
 check "compact: 109 cols -> one meter row" [ "$(strip 109 '{"session_id":"w1"}' | wc -l)" -eq 3 ]
 check "compact: 108 cols -> two columns, 4 rows" [ "$(strip 108 '{"session_id":"w1"}' | wc -l)" -eq 4 ]
 check "compact: 108 cols, short notes -> height holds" [ "$(strip 108 "$full" | wc -l)" -eq 4 ]
-check "compact: no limits -> cache beside ctx" grep -q '^ctx .*┃ cch .* 33%  *40m$' <<<"$(strip 120 "$nolim")"
+check "compact: no limits -> cache beside ctx" grep -q '^cch .* 33%  40m ┃ ctx ' <<<"$(strip 120 "$nolim")"
+check "compact: limits waiting -> note beside percent" grep -q '┃ 5h  [^ ].*[^ ]  --%  -- ┃ wk  [^ ].*[^ ]  --%  --$' <<<"$(strip 120 '{"session_id":"w1"}')"
 check "compact: 40 cols -> meters stack, no rules" [ "$(strip 40 '{"session_id":"w1"}' | wc -l)" -eq 6 ]
 rm "$C/claudzilla.json"
 
