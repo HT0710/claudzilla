@@ -167,6 +167,7 @@ check "render: limits pending -> no warnings" [ ! -s "$TMP/warn" ]
 # strip <cols> <payload>: rendered rows, colours removed
 strip() { data <<<"$2" | COLUMNS=$1 perl "$HUD/hud-filter.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
 widest() { perl -CS -ne 'chomp; $m = length if length > $m; END { print $m }'; }
+check "render: default -> no clock on bottom row" bash -c "! tail -1 <<<\"\$1\" | grep -q ':'" _ "$(strip 170 "$full")"
 check "render: default -> 6 rows, 2 rules" [ "$(strip 170 "$full" | grep -c '━')/$(strip 170 "$full" | wc -l | tr -d ' ')" = 2/6 ]
 check "data: compact off by default" [ -z "$(key compact "$(data <<<"$full")")" ]
 printf '{bad' > "$C/claudzilla.json"
@@ -180,12 +181,18 @@ check "compact: 3 rows" [ "$(wc -l <<<"$out")" -eq 3 ]
 check "compact: no rules" bash -c "! grep -q '━' <<<'$out'"
 check "compact: one meter row" grep -q '^cch  [^ ].*[^ ]  33%  40m ┃ ctx  [^ ].*[^ ]  42%  *┃ 5h  [^ ].*[^ ]  30%  2h0m ┃ wk  [^ ].*[^ ]  12%  2d7h$' <<<"$out"
 check "compact: meter row fills 166 cols" [ "$(sed -n 2p <<<"$out" | widest)" -eq 166 ]
-check "compact: no time or date" bash -c "! grep -qE '[0-9]{2}:[0-9]{2}| (Sun|Mon|Tue|Wed|Thu|Fri|Sat) ' <<<'$out'"
+check "compact: time then date on the bottom row" grep -qE '[0-9]{2}:[0-9]{2} (Sun|Mon|Tue|Wed|Thu|Fri|Sat) [0-9]{2} [A-Z][a-z]{2}  .*up ' <<<"$(sed -n 3p <<<"$out")"
+check "compact: narrow bottom row drops the clock first" bash -c "! grep -qE '[0-9]{2}:[0-9]{2} ' <<<'$(strip 40 "$full" | tail -1)'"
 check "compact: 109 cols -> one meter row" [ "$(strip 109 '{"session_id":"w1"}' | wc -l)" -eq 3 ]
 check "compact: 108 cols -> two columns, 4 rows" [ "$(strip 108 '{"session_id":"w1"}' | wc -l)" -eq 4 ]
 check "compact: 108 cols, short notes -> height holds" [ "$(strip 108 "$full" | wc -l)" -eq 4 ]
 check "compact: no limits -> cache beside ctx" grep -q '^cch .* 33%  40m ┃ ctx ' <<<"$(strip 120 "$nolim")"
 check "compact: limits waiting -> note beside percent" grep -q '┃ 5h  [^ ].*[^ ]  --%  -- ┃ wk  [^ ].*[^ ]  --%  --$' <<<"$(strip 120 '{"session_id":"w1"}')"
+# divider columns, whatever the note and percent lengths
+dividers() { sed -n 2p | perl -Mutf8 -CS -ne 'while (/\x{2503}/g) { print pos(), " " }'; }
+base=$(strip 170 "$full" | dividers)
+check "compact: 100% keeps dividers" [ "$(strip 170 "${full//\"used_percentage\":30/\"used_percentage\":100}" | dividers)" = "$base" ]
+check "compact: waiting limits keep dividers" [ "$(strip 170 '{"session_id":"w1"}' | dividers)" = "$base" ]
 check "compact: 40 cols -> meters stack, no rules" [ "$(strip 40 '{"session_id":"w1"}' | wc -l)" -eq 6 ]
 rm "$C/claudzilla.json"
 
