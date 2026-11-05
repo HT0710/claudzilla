@@ -974,6 +974,20 @@ test('merged branches hidden until shown; the last row counts them', async ($, o
   expect(await ui.find({ type: 'Text', text: /^a$/ })).toBeDefined()
 })
 
+test('shown merged branches stay shown when the branch modal opens again', async ($, on) => {
+  quiet(on)
+  withGh(on, treeRepo('main'), [prJson({ headRefName: 'feat/a', baseRefName: 'main', state: 'MERGED', mergedAt: iso(NOW - HOUR) })])
+  const ui = await mount($)
+  await tap(ui, 'branch')
+  await ui.press({ key: 'm:merged' })
+  await ui.press({ key: 'm:x' })
+  expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
+  await tap(ui, 'branch')
+  expect(await ui.find({ type: 'Box', key: 'modal' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '1 merged' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '1 merged hidden' })).toBeUndefined()
+})
+
 const LONG = 'Adds a PR row under the branch: its number, base and CI state, with the checks on hover. The row reads its data from one gh call on a timer, off the draw path, because with checks the call takes about six seconds. Merged and closed PRs stay as a dimmed row.'
 const viewJson = (over: Record<string, unknown> = {}) => ({
   body: 'Short body.',
