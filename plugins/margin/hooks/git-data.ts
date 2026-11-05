@@ -140,16 +140,29 @@ export const parseMerge = (f: { msg: string; sha: string; log: string; numstat: 
   ...conflicts(f.unmerged, f.numstat, f.cached),
 })
 
+export type Worktree = { path: string; branch?: string; head: string; gone: boolean }
+
+// `git worktree list --porcelain`: the main worktree first, then git's order. No branch: detached.
+// `gone`: git marks it prunable, its folder deleted.
+export const worktrees = (list: string): Worktree[] =>
+  list
+    .split('\n\n')
+    .filter(block => block.startsWith('worktree '))
+    .map(block => ({
+      path: block.slice('worktree '.length).split('\n')[0]!,
+      branch: /^branch refs\/heads\/(.+)$/m.exec(block)?.[1],
+      head: /^HEAD (\S+)$/m.exec(block)?.[1] ?? '',
+      gone: /^prunable\b/m.test(block),
+    }))
+
 // `refs`: `git for-each-ref refs/heads --format=%(refname:short)%09%(upstream:short)%09%(upstream:track)%09%(committerdate:unix)`.
 // A branch sits under its newest PR's base, else the default branch: git keeps no record of where it was made.
-// `worktrees`: `git worktree list --porcelain`; its first entry is the main one, not a linked worktree.
-export const branches = (refs: string, prs: Pr[], worktrees: string, defaultBranch: string): Branch[] => {
+// `list`: `git worktree list --porcelain`; its first entry is the main one, not a linked worktree.
+export const branches = (refs: string, prs: Pr[], list: string, defaultBranch: string): Branch[] => {
   const linked = new Set(
-    worktrees
-      .split('\n\n')
+    worktrees(list)
       .slice(1)
-      .map(block => /^branch refs\/heads\/(.+)$/m.exec(block)?.[1])
-      .filter(Boolean),
+      .map(w => w.branch),
   )
   return refs
     .split('\n')

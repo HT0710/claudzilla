@@ -441,6 +441,167 @@ test('a worktree branch gets ⧉', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: ' ⧉' })).toBeDefined()
 })
 
+// /home/me/repo on feat/a, the main one; /home/me/repo-b on fix/b, /tmp/w detached, /home/me/repo-c gone.
+const TREES = [
+  'worktree /home/me/repo\nHEAD abc\nbranch refs/heads/feat/a',
+  'worktree /home/me/repo-b\nHEAD def\nbranch refs/heads/fix/b',
+  'worktree /tmp/w\nHEAD 0123456789abcdef\ndetached',
+  'worktree /home/me/repo-c\nHEAD fed\nbranch refs/heads/wip\nprunable gitdir file points to non-existent location',
+].join('\n\n') + '\n'
+// `here`: the worktree this session runs in, on its branch.
+// `asked`: the status runs in other worktrees. `more`: this repo's answers over repoOn's.
+const withTrees = (on: Parameters<TestBody>[1], list: string, dirty: Record<string, string> = {}, here = '/home/me/repo', branch = 'feat/a', asked: string[] = [], more: Record<string, string> = {}) =>
+  on('process.run', (_, e) => {
+    const at = e.argv.indexOf('-C')
+    if (at >= 0) {
+      asked.push(e.argv.join(' '))
+      return ran(dirty[e.argv[at + 1]!] ?? '')
+    }
+    return ran(git(repoOn(branch, {
+      '--absolute-git-dir': `${here}/.git\n/home/me/repo/.git\n${here}\n`,
+      'for-each-ref': 'feat/a\torigin/feat/a\t\t1790000000\nfix/b\torigin/fix/b\t[ahead 2]\t1790000000\nwip\t\t\t1790000000\n',
+      worktree: list,
+      'symbolic-ref': 'origin/main\n',
+      ...more,
+    }))(e.argv) ?? '')
+  })
+const worktreeView = async (ui: Ui) => {
+  await tap(ui, 'branch')
+  await ui.press({ key: 'm:by:worktrees' })
+}
+
+test('status runs in each other worktree only while the worktrees view shows, not this one or a gone one', async ($, on) => {
+  quiet(on)
+  const asked: string[] = []
+  withTrees(on, TREES, {}, undefined, undefined, asked)
+  const ui = await mount($)
+  await tap(ui, 'branch')
+  expect(asked).toEqual([])
+  await ui.press({ key: 'm:by:worktrees' })
+  expect(asked).toEqual(['git --no-optional-locks -C /home/me/repo-b status --porcelain', 'git --no-optional-locks -C /tmp/w status --porcelain'])
+})
+
+test('worktrees view: the lit row counts its own changes', async ($, on) => {
+  quiet(on)
+  withTrees(on, TREES, {}, undefined, undefined, [], { status: '## feat/a...origin/feat/a\n M x\n?? y\n' })
+  const ui = await mount($)
+  await worktreeView(ui)
+  expect(await ui.find({ type: 'Text', text: '2 changed' })).toBeDefined()
+})
+
+test('worktrees view: sync and changes keep their own columns', async ($, on) => {
+  quiet(on)
+  withTrees(on, TREES, { '/home/me/repo-b': ' M x\n' })
+  const ui = await mount($)
+  await worktreeView(ui)
+  // Each row's second cell as wide as `1 changed`, also the row with none.
+  expect((await ui.findAll({ type: 'Box' })).filter(box => box.props.width === 9).length).toBe(4)
+})
+
+test('a worktree under home, not beside the main one, reads from ~', async ($, on) => {
+  quiet(on)
+  withTrees(on, TREES.replace('/home/me/repo-b', '/home/me/w/x').replace('worktree /home/me/repo\n', 'worktree /home/me/d/repo\n'), {}, '/home/me/d/repo')
+  const ui = await mount($)
+  await worktreeView(ui)
+  expect(await ui.find({ type: 'Text', text: ' ~/w/x' })).toBeDefined()
+})
+
+test('a bare main worktree draws its name as bare', async ($, on) => {
+  quiet(on)
+  withTrees(on, TREES.replace('worktree /home/me/repo\nHEAD abc\nbranch refs/heads/feat/a', 'worktree /home/me/repo\nbare'), {}, '/home/me/repo-b', 'fix/b')
+  const ui = await mount($)
+  await worktreeView(ui)
+  expect(await ui.find({ type: 'Text', text: 'bare' })).toBeDefined()
+})
+
+test('a main worktree at the root folder gives no ../ paths', async ($, on) => {
+  quiet(on)
+  withTrees(on, TREES.replace('worktree /home/me/repo\n', 'worktree /repo\n'), {}, '/repo')
+  const ui = await mount($)
+  await worktreeView(ui)
+  expect(await ui.find({ type: 'Text', text: ' /tmp/w' })).toBeDefined()
+})
+
+test('a failed worktree list draws no mark and no worktrees view', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => (e.argv.includes('worktree') ? ran('', 1) : ran(git(repoOn('a'))(e.argv) ?? '')))
+  const ui = await mount($)
+  expect(await piece(ui, 'branch', ' ⧉')).toBeUndefined()
+  await tap(ui, 'branch')
+  expect(await ui.find({ type: 'Button', key: 'm:by:worktrees' })).toBeUndefined()
+})
+
+test('the worktrees view falls back to base once the linked worktree is gone', async ($, on) => {
+  quiet(on)
+  let list = TREES
+  on('process.run', (_, e) => ran(git(repoOn('feat/a', { '--absolute-git-dir': '/home/me/repo/.git\n/home/me/repo/.git\n/home/me/repo\n', worktree: list, 'for-each-ref': 'feat/a\torigin/feat/a\t\t1790000000\n' }))(e.argv) ?? ''))
+  const ui = await mount($)
+  await worktreeView(ui)
+  list = TREES.split('\n\n')[0]!
+  await $.tool.call({ tool: 'Bash', command: 'true' })
+  expect(await ui.find({ type: 'Button', key: 'm:by:worktrees' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'm:by:base' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'm:by:prefix' })).toBeDefined()
+})
+
+test('in a linked worktree the branch name takes a faint ⧉', async ($, on) => {
+  quiet(on)
+  withTrees(on, TREES, {}, '/home/me/repo-b', 'fix/b')
+  const ui = await mount($)
+  expect((await piece(ui, 'branch', ' ⧉'))?.props.color).toBe('#4f5c68')
+})
+
+test('the main worktree draws no ⧉ on the branch row, and no worktree row', async ($, on) => {
+  quiet(on)
+  withTrees(on, TREES)
+  const ui = await mount($)
+  expect(await piece(ui, 'branch', ' ⧉')).toBeUndefined()
+  expect(await ui.find({ key: 'row:worktrees' })).toBeUndefined()
+})
+
+test('no linked worktree: the branch modal has no worktrees view', async ($, on) => {
+  quiet(on)
+  withTrees(on, TREES.split('\n\n')[0]!)
+  const ui = await mount($)
+  await tap(ui, 'branch')
+  expect(await ui.find({ type: 'Button', key: 'm:by:worktrees' })).toBeUndefined()
+})
+
+test('worktrees view: this one lit, paths beside the main one relative, sync and changes, detached id, gone', async ($, on) => {
+  quiet(on)
+  withTrees(on, TREES, { '/home/me/repo-b': ' M x\n M y\n?? z\n' })
+  const ui = await mount($)
+  await worktreeView(ui)
+  expect(await ui.find({ type: 'Text', text: /⧉ worktrees/ })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: 'feat/a' }))?.props).toMatchObject({ color: '#5d9678', bold: true })
+  expect(await ui.find({ type: 'Text', text: ' ../repo' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' ../repo-b' })).toBeDefined()
+  expect((await ui.findAll({ type: 'Text', text: '↑2' })).at(-1)?.props.color).toBe('#d4b860')
+  expect(await ui.find({ type: 'Text', text: '3 changed' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '0123456' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' /tmp/w' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'gone' })).toBeDefined()
+})
+
+test('a worktree path too long for the modal loses its start, keeping its last folder', async ($, on) => {
+  quiet(on)
+  withTrees(on, TREES.replace('/home/me/repo-b', '/home/me/a-very-long-folder-name-for-this-worktree-that-runs-past-the-modal-edge'))
+  const ui = await mount($)
+  await worktreeView(ui)
+  expect(await ui.find({ type: 'Text', text: /^ …[\w-]*-past-the-modal-edge$/ })).toBeDefined()
+})
+
+test('in a narrow pane a long branch name is cut and its path dropped, the far right kept', async ($, on) => {
+  quiet(on)
+  withTrees(on, TREES.replace('fix/b', 'fix/a-branch-name-much-too-long-for-a-narrow-modal'), { '/home/me/repo-b': ' M x\n' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 40 }, requestId: 'margin' })
+  await ui.press({ key: 'Git' })
+  await worktreeView(ui)
+  expect(await ui.find({ type: 'Text', text: /^a-branch-.*…$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: / \.\.\/repo-b$/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: '1 changed' })).toBeDefined()
+})
+
 test('the base and prefix switch re-centres on the current branch', async ($, on) => {
   quiet(on)
   on('process.run', (_, e) => ran(git(repoOn('b20'))(e.argv) ?? ''))

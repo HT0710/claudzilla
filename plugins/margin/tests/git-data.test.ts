@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Check, CheckState, Pr, PrState } from '../types'
 
-import { age, branches, changeOf, cutMiddle, parseStatusZ, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows } from '../hooks/git-data'
+import { age, branches, changeOf, cutMiddle, parseStatusZ, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows, worktrees } from '../hooks/git-data'
 
 // A gh pr list row with every field the parser reads.
 const fixture = (over: Record<string, unknown> = {}) => ({
@@ -134,6 +134,17 @@ test("a branch's base is its newest PR's base, else the default branch; the defa
 
 test('a linked worktree marks its branch; the main one does not', () => {
   expect(branches(REFS, PRS, WORKTREES, 'main').filter(b => b.worktree).map(b => b.name)).toEqual(['fix/b'])
+})
+
+test('worktrees: main first, then branch, detached id or gone folder', () => {
+  const list = `${WORKTREES}\nworktree /r-c\nHEAD 0123456789abcdef\ndetached\n\nworktree /r-d\nHEAD fed\nbranch refs/heads/feat/d\nprunable gitdir file points to non-existent location\n`
+  expect(worktrees(list)).toEqual([
+    { path: '/r', branch: 'main', head: 'abc', gone: false },
+    { path: '/r-b', branch: 'fix/b', head: 'def', gone: false },
+    { path: '/r-c', branch: undefined, head: '0123456789abcdef', gone: false },
+    { path: '/r-d', branch: 'feat/d', head: 'fed', gone: true },
+  ])
+  expect(worktrees('')).toEqual([])
 })
 
 test('base view nests with ├─ └─ │ guides; merged hidden until shown', () => {
