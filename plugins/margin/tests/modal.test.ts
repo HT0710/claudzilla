@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { capped, insets, modalFrame, scrollWindow, stackFrame } from '../hooks/modal'
+import { capped, contentFrame, insets, modalFrame, scrollWindow, stackFrame } from '../hooks/modal'
 
 test('insets are 5% across and 3% down, whole cells, at least 1', () => {
   expect(insets(67, 40)).toEqual({ x: 3, y: 1 })
@@ -37,4 +37,10 @@ test('a scroll window gives each cue a row; a merged top cue takes none', () => 
   expect(scrollWindow(30, 5, 10, false)).toEqual({ top: 5, shown: 8, above: 5, below: 17 })
   expect(scrollWindow(30, 5, 10, true)).toEqual({ top: 5, shown: 9, above: 5, below: 16 })
   expect(scrollWindow(30, 99, 10, false)).toEqual({ top: 21, shown: 9, above: 21, below: 0 })
+})
+
+test('a modal narrows to its content, centred, and never past its limit', () => {
+  const f = { top: 2, left: 4, width: 72, height: 10 }
+  expect(contentFrame(f, 30)).toEqual({ top: 2, left: 23, width: 34, height: 10 })
+  expect(contentFrame(f, 100)).toEqual(f)
 })

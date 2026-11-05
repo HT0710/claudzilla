@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { AgentRow, Check, CheckState, CommitView, Counts, FileView, LogRow, Gh, Intent, Modal, ModalKey, Op, Overview, Pr, PrState, PrView, Spawn, Stage, Step, Tab, Word } from '../types'
 import { LOG_FORMAT, age, branches, cutMiddle, fileKey, incomingPrs, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseStatusZ, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows, worktrees, worst } from './git-data'
 import { mdRows } from './markdown'
-import { capped, modalFrame, scrollWindow, stackFrame } from './modal'
+import { capped, contentFrame, modalFrame, scrollWindow, stackFrame } from './modal'
 import type { Frame } from './modal'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
@@ -636,7 +636,7 @@ let leaving: { row: string; n: number } | undefined
 let leaves = 0
 // The branch modal's own read, kept as gitRead is: the default branch.
 let branchRead: { key: string; signal: AbortSignal; run: Promise<{ exitCode: number; stdout: string } | undefined> } | undefined
-// Each other worktree's count of uncommitted files, by path, kept as gitRead is; read only while the worktrees view
+// Each other linked worktree's count of uncommitted files, by path, kept as gitRead is; read only while the worktrees view
 // shows, as a status per worktree would hold back every draw.
 let treeRead: { key: string; signal: AbortSignal; run: Promise<Map<string, number>> } | undefined
 // The shown PR's local reads, kept per repo change and base: behind and ahead of the base, conflicting files.
@@ -1340,8 +1340,9 @@ export const register: Register = (on, options) => {
     const layered = modalZone
     if (layered) {
       const row = (e.pointer?.row ?? -Infinity) - 2
+      const column = e.pointer?.column ?? -Infinity
       const layer = layered.s ?? layered.m
-      if (row >= layer.frame.top && row < layer.frame.top + layer.frame.height) {
+      if (row >= layer.frame.top && row < layer.frame.top + layer.frame.height && column >= layer.frame.left && column < layer.frame.left + layer.frame.width) {
         const top = Math.max(0, Math.min(layer.top + e.by, layer.end))
         await update($, modal, m => (!m ? m : layered.s ? (m.sub ? { ...m, sub: { ...m.sub, top } } : m) : { ...m, top }))
       }
@@ -2328,7 +2329,7 @@ export const register: Register = (on, options) => {
           run: (async () => {
             const counts = new Map<string, number>()
             await Promise.all(
-              trees.filter(t => !t.gone && t.path !== root).map(t =>
+              trees.slice(1).filter(t => !t.gone && t.path !== root).map(t =>
                 $.process
                   .run(['git', '--no-optional-locks', '-C', t.path, 'status', '--porcelain'])
                   .then(r => {
@@ -2351,29 +2352,46 @@ export const register: Register = (on, options) => {
         const by = showTrees ? 'worktrees' : view.by === 'worktrees' ? 'base' : view.by
         const tree = by === 'worktrees' ? [] : treeRows(list, by, view.showMerged)
         const merged = by === 'worktrees' ? 0 : list.filter(b => b.pr?.state === 'merged').length
-        const f = modalRows(4 + (by === 'worktrees' ? trees.length : tree.length) + (merged ? 2 : 0))
-        const inner = f.width - 4
+        const linkedTrees = trees.slice(1)
         // Columns: sync, the PR with its mark, age. Each as wide as its widest cell, 2 columns apart and 2 past the
-        // name; a column no row fills is dropped.
+        // widest name, so they read with it; a column no row fills is dropped.
         const shown = tree.flatMap(r => (r.branch ? [r.branch] : []))
         const cols = [
           Math.max(0, ...shown.map(b => toPieces(syncOf(b)).map(x => x.text).join('').length)),
           Math.max(0, ...shown.map(b => (b.pr ? `#${b.pr.n}`.length + 2 : 0))),
           Math.max(0, ...shown.map(b => age(b.at, now).length)),
         ]
-        const room = inner - 2 - cols.filter(Boolean).reduce((n, w) => n + w + 2, -2)
+        const colsWidth = cols.filter(Boolean).reduce((n, w) => n + w + 2, 0)
+        // ⎇ on the current branch and ⧉ on a worktree's, each 2 columns.
+        const marks = (name?: string, worktree?: boolean) => (name === hd.name ? 2 : 0) + (worktree ? 2 : 0)
+        const widestBranch = Math.max(0, ...tree.map(r => r.guide.length + r.label.length + marks(r.branch?.name, r.branch?.worktree)))
         const synced = new Map(list.map(b => [b.name, b]))
-        // The worktrees view's far right: sync, then changed files or gone; columns as the tree's.
-        const treeCells = trees.map(t => {
+        // The worktrees view's columns: sync, then changed files or gone.
+        const treeCells = linkedTrees.map(t => {
           const b = t.branch ? synced.get(t.branch) : undefined
           const changed = t.path === root ? files.length : treeCounts?.get(t.path)
           return [!t.gone && b ? syncOf(b) : null, t.gone ? <Text color={HUD.faint}>gone</Text> : changed ? <Text color={HUD.faint}>{`${changed} changed`}</Text> : null]
         })
         const treeCols = [0, 1].map(i => Math.max(0, ...treeCells.map(cells => textLength(cells[i]))))
+        const treeColsWidth = treeCols.filter(Boolean).reduce((n, w) => n + w + 2, 0)
+        const widestTree = Math.max(0, ...linkedTrees.map(t => t.branch?.length ?? 8 + where(t.path).length))
+        const viewNames = ['base', 'prefix', ...(trees.length > 1 ? (['worktrees'] as const) : [])] as const
+        // The actions row needs each label, 2 between, then the ✕; the merged row its words and `show`.
+        const actsWidth = viewNames.reduce((n, one) => n + one.length + 4, 1)
+        const mergedWidth = merged ? `${merged} merged hidden`.length + 6 : 0
+        const rowsWidth = by === 'worktrees' ? widestTree + treeColsWidth : widestBranch + colsWidth
+        // As wide as its rows, not the pane: columns sit with the names and the frame leaves no blank right side.
+        const f = contentFrame(modalRows(4 + (by === 'worktrees' ? linkedTrees.length : tree.length) + (merged ? 2 : 0)), Math.max(actsWidth, mergedWidth, rowsWidth))
+        const inner = f.width - 4
+        const room = inner - colsWidth
+        const treeNameCol = Math.min(room, widestBranch)
+        // Sync and changes kept whole, the name cut to the rest. Only a detached one's path shows, as its id names no
+        // folder; it takes what is left, and under 4 columns shows not at all.
+        const left = inner - treeColsWidth
+        // Sync and changes follow the widest name: with no path to fill it, the far right leaves a gulf.
+        const nameCol = Math.min(left, widestTree)
         const worktreeRow = (t: (typeof trees)[number], i: number) => {
-          // The far right kept, the name cut to the rest, the path in what is left; under 4 columns, no path.
-          const left = inner - treeCols.filter(Boolean).reduce((n, w) => n + w + 2, 0)
-          const name = fit(t.branch ?? (t.head.slice(0, 7) || 'bare'), left)
+          const name = fit(t.branch ?? t.head.slice(0, 7), left)
           const pathRoom = left - name.length - 1
           const at = name.indexOf('/')
           const label = t.path === root ? [<Text bold color={HUD.action}>{name}</Text>]
@@ -2381,36 +2399,34 @@ export const register: Register = (on, options) => {
             : at < 0 ? [<Text>{name}</Text>]
             : [<Text color={prefixColor(name.slice(0, at + 1))}>{name.slice(0, at + 1)}</Text>, <Text>{name.slice(at + 1)}</Text>]
           return (
-            <Box justifyContent="space-between" backgroundColor={t.path === root ? LIT : undefined}>
-              <Box>
+            <Box gap={2} backgroundColor={t.path === root ? LIT : undefined}>
+              <Box width={nameCol} flexShrink={0}>
                 {label}
-                {pathRoom >= 4 ? <Text color={HUD.faint}>{` ${endOf(where(t.path), pathRoom)}`}</Text> : null}
+                {!t.branch && pathRoom >= 4 ? <Text color={HUD.faint}>{` ${endOf(where(t.path), pathRoom)}`}</Text> : null}
               </Box>
-              <Box gap={2} flexShrink={0}>
-                {treeCells[i]!.flatMap((cell, c) => (treeCols[c] ? [<Box width={treeCols[c]} justifyContent="flex-end">{cell}</Box>] : []))}
-              </Box>
+              {treeCells[i]!.flatMap((cell, c) => (treeCols[c] ? [<Box width={treeCols[c]} justifyContent="flex-end">{cell}</Box>] : []))}
             </Box>
           )
         }
-        const rows = by === 'worktrees' ? trees.map(worktreeRow) : tree.map(r => {
+        const rows = by === 'worktrees' ? linkedTrees.map(worktreeRow) : tree.map(r => {
           const b = r.branch
           const isCurrent = b?.name === hd.name
           const at = r.label.indexOf('/')
+          const rest = room - r.guide.length - marks(b?.name, b?.worktree)
           const label = isCurrent
-            ? [<Text bold color={HUD.action}>⎇ </Text>, <Text bold color={HUD.action}>{fit(r.label, room - 2 - r.guide.length)}</Text>]
+            ? [<Text bold color={HUD.action}>⎇ </Text>, <Text bold color={HUD.action}>{fit(r.label, rest)}</Text>]
             : r.heading || at < 0
-              ? [<Text color={r.heading ? prefixColor(r.heading) : undefined}>{fit(r.label, room - r.guide.length)}</Text>]
-              : [<Text color={prefixColor(r.label.slice(0, at + 1))}>{r.label.slice(0, at + 1)}</Text>, <Text>{fit(r.label.slice(at + 1), room - r.guide.length - at - 1)}</Text>]
+              ? [<Text color={r.heading ? prefixColor(r.heading) : undefined}>{fit(r.label, rest)}</Text>]
+              : [<Text color={prefixColor(r.label.slice(0, at + 1))}>{r.label.slice(0, at + 1)}</Text>, <Text>{fit(r.label.slice(at + 1), rest - at - 1)}</Text>]
           return (
-            <Box justifyContent="space-between" backgroundColor={isCurrent ? LIT : undefined}>
-              <Box>
+            <Box gap={2} backgroundColor={isCurrent ? LIT : undefined}>
+              <Box width={b ? treeNameCol : undefined} flexShrink={0}>
                 {r.guide ? <Text color={HUD.faint}>{r.guide}</Text> : null}
                 {label}
                 {b?.worktree ? <Text color={HUD.faint}> ⧉</Text> : null}
               </Box>
-              {b ? (
-                <Box gap={2} flexShrink={0}>
-                  {[
+              {b
+                ? [
                     syncOf(b),
                     b.pr ? (
                       <Text>
@@ -2419,9 +2435,8 @@ export const register: Register = (on, options) => {
                       </Text>
                     ) : null,
                     <Text color={HUD.faint}>{age(b.at, now)}</Text>,
-                  ].flatMap((cell, i) => (cols[i] ? [<Box width={cols[i]} justifyContent="flex-end">{cell}</Box>] : []))}
-                </Box>
-              ) : null}
+                  ].flatMap((cell, i) => (cols[i] ? [<Box width={cols[i]} justifyContent="flex-end">{cell}</Box>] : []))
+                : null}
             </Box>
           )
         })
@@ -2436,7 +2451,7 @@ export const register: Register = (on, options) => {
             </Box>,
           )
         // The chosen view is plain text; only the other is a button, and switching opens on the current branch again.
-        const acts = (['base', 'prefix', ...(trees.length > 1 ? (['worktrees'] as const) : [])] as const).map(one => {
+        const acts = viewNames.map(one => {
           const label = `${one === 'base' ? '\uf419' : one === 'prefix' ? '\uea83' : '⧉'} ${one}`
           return by === one ? (
             <Text color="claude">{label}</Text>
@@ -2446,7 +2461,7 @@ export const register: Register = (on, options) => {
             </Button>
           )
         })
-        const here = by === 'worktrees' ? trees.findIndex(t => t.path === root) : tree.findIndex(r => r.branch?.name === hd.name)
+        const here = by === 'worktrees' ? linkedTrees.findIndex(t => t.path === root) : tree.findIndex(r => r.branch?.name === hd.name)
         return drawLayer('m', f, { top: f.top, left: f.left - PAD }, acts, [], rows, open!.top, here)
       }
       const inner = modalRows(0).width - 4
