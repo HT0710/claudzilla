@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { runText, split } from '../hooks/register'
+import { cutPath, runText, split } from '../hooks/register'
 
 const text = '━━━━\n\n**TL;DR** x\n\n──\n\n## H\n\n┈┈\n\nmore\n\n```text\n━━━━\n```\n\n━━━━'
 const props = { text, isFirstOfReply: true }
@@ -641,4 +641,467 @@ test("Claude gets the end of a long output, where the errors are", async ($, on)
   const row = JSON.stringify(session.appended().map(r => r.message))
   expect(row).toContain('END</bash-stdout>')
   expect(row).not.toContain('START')
+})
+
+const patch = (...lines: string[]) => ({ type: 'update', filePath: '/p/a.txt', structuredPatch: [{ lines }] })
+const created = (content: string) => ({ type: 'create', filePath: '/p/b.txt', content, structuredPatch: [] })
+
+// Stands for the engine's own rows; `seen` counts how often the chain below folio ran.
+function native(on: any, cwd: object = { value: '/p' }) {
+  const seen = { calls: 0 }
+  on('session.cwd', () => cwd)
+  on('ui.render', { component: 'ToolUse' }, () => { seen.calls++; return { type: 'Text' as const, children: ['native'] } })
+  on('ui.render', { component: 'ToolResult' }, () => ({ type: 'Text' as const, children: ['native block'] }))
+  return seen
+}
+const VIEW = { columns: 80, rows: 20, isFullscreen: true }
+const mountRow = ($: any, tool: string, output: unknown, extra: object = {}, file = '/p/a.txt', id = 'r1', viewport: object = VIEW) =>
+  $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolUse', requestId: id,
+    props: { tool_use_id: id, tool, input: { file_path: file }, output, isRunning: false, isErrored: false, isInterrupted: false, ...extra }, viewport })
+const drawn = async ($: any, tool: string, output: unknown, extra: object = {}, file?: string) =>
+  textOf(await mountRow($, tool, output, extra, file))
+// A compact row is a Client, which draws once sized; anything else is the mounted tree's own Text.
+const textOf = async (ui: any, id = 'r1') => {
+  const at = id.includes(':') ? id : `fold:${id}`
+  try {
+    await ui.resize({ columns: 60, rows: 1, in: at })
+    return (await ui.find({ type: 'Text', in: at }))?.text
+  } catch {
+    return (await ui.find({ type: 'Text' }))?.text
+  }
+}
+
+for (const [name, tool, output, want] of [
+  ['an edit', 'Edit', patch(' a', '-b', '-c', '+d'), '● Updated (a.txt)  +1 −2'],
+  ['hunks added together', 'Edit', { structuredPatch: [{ lines: ['+a'] }, { lines: ['+b', '-c'] }] }, '● Updated (a.txt)  +2 −1'],
+  ['only added lines', 'Edit', patch(' a', '+b'), '● Updated (a.txt)  +1'],
+  ['only removed lines', 'Edit', patch(' a', '-b'), '● Updated (a.txt)  −1'],
+  ['an overwrite', 'Write', patch('-a', '+b'), '● Wrote (a.txt)  +1 −1'],
+  ['a new file', 'Write', created('a\nb\nc\n'), '● Wrote (a.txt)  +3 new'],
+  ['a new file with no last newline', 'Write', created('a\nb'), '● Wrote (a.txt)  +2 new'],
+  ['an empty new file', 'Write', created(''), '● Wrote (a.txt)  +0 new'],
+] as const) {
+  test(`${name} draws its counts on the row`, async ($, on) => {
+    const seen = native(on)
+    expect(await drawn($, tool, output)).toBe(want)
+    expect(seen.calls).toBeGreaterThan(0)
+  })
+}
+
+const click = async (ui: any, at: string) => {
+  await ui.resize({ columns: 60, rows: 1, in: at })
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: at })
+  await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: at })
+}
+
+test('the whole fold row lights under the pointer, and goes dark again', async ($, on) => {
+  native(on)
+  const ui = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
+  await ui.resize({ columns: 60, rows: 1, in: 'fold:e1' })
+  const back = async () => (await ui.find({ type: 'Box', in: 'fold:e1' }))?.props.backgroundColor
+  expect(await back()).toBeUndefined()
+  await ui.pointer({ type: 'enter', x: 0, y: 0, in: 'fold:e1' })
+  expect(await back()).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /^Updated$/, in: 'fold:e1' }))?.props.color).toBeUndefined()
+  await ui.pointer({ type: 'leave', x: 0, y: 0, in: 'fold:e1' })
+  expect(await back()).toBeUndefined()
+})
+
+test('the fold row takes the full width, so a press anywhere on it counts', async ($, on) => {
+  native(on)
+  const ui = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
+  expect((await ui.find({ type: 'Client' }))?.props.width).toBe('100%')
+})
+
+test('a run of edits folds into its first row, with one blank line above it', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', patch('-a', '+b'), {}, '/p/a.txt', 'e1')
+  const second = await mountRow($, 'Edit', patch('+c'), {}, '/p/b.txt', 'e2')
+  const third = await mountRow($, 'Edit', patch('-d'), {}, '/p/a.txt', 'e3')
+  expect(await textOf(first, 'e1')).toBe('● Edited (2 files)  +2 −2')
+  expect((await first.find({ type: 'Box' }))?.props.marginTop).toBe(1)
+  expect(await textOf(second, 'e2')).toBeUndefined()
+  expect(await textOf(third, 'e3')).toBeUndefined()
+})
+
+test('one file edited twice reads as one file', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
+  await mountRow($, 'Edit', patch('+c'), {}, '/p/a.txt', 'e2')
+  expect(await textOf(first, 'e1')).toBe('● Edited (1 file)  +2')
+})
+
+test('a row between edits starts a new run', async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'ToolGroup' }, () => ({ type: 'Text' as const, children: ['group'] }))
+  const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
+  await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolGroup', requestId: 'c1', props: { calls: [], isActive: false, isExpanded: false }, viewport: VIEW })
+  const second = await mountRow($, 'Edit', patch('+c'), {}, '/p/b.txt', 'e2')
+  expect(await textOf(first, 'e1')).toBe('● Updated (a.txt)  +1')
+  expect(await textOf(second, 'e2')).toBe('● Updated (b.txt)  +1')
+})
+
+test("margin's hidden intent row does not break a run", async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
+  await mountRow($, 'mcp__margin__intent', {}, {}, '/p/a.txt', 'i1')
+  await mountRow($, 'Edit', patch('+c'), {}, '/p/b.txt', 'e2')
+  expect(await textOf(first, 'e1')).toBe('● Edited (2 files)  +2')
+})
+
+test('a failed edit stays named under a closed fold', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
+  await mountRow($, 'Edit', patch('+c'), {}, '/p/b.txt', 'e2')
+  const third = await mountRow($, 'Edit', 'Error: it failed.', { isErrored: true }, '/p/c.txt', 'e3')
+  expect(await textOf(first, 'e1')).toBe('● Edited (2 files)  +2')
+  expect(await textOf(third, 'file:e3')).toBe('  └ c.txt           Error editing file')
+})
+
+test('a run where every edit failed says so', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', 'Error: it failed.', { isErrored: true }, '/p/a.txt', 'e1')
+  await mountRow($, 'Edit', 'Error: it failed.', { isErrored: true }, '/p/b.txt', 'e2')
+  expect(await textOf(first, 'e1')).toBe('● Failed (2 edits)')
+  expect(await textOf(first, 'file:e1')).toBe('  ├ a.txt           Error editing file')
+})
+
+test('a running edit keeps its native row under the fold', async ($, on) => {
+  native(on)
+  await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
+  expect(await textOf(await mountRow($, 'Edit', undefined, { isRunning: true }, '/p/b.txt', 'e2'), 'e2')).toBe('native')
+})
+
+const diffOf = async (ui: any) => (await ui.find({ type: 'Code' }))?.props.source
+
+test('a click on the fold opens its file tree, and another closes it', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', patch('-a', '+b'), {}, '/p/a.txt', 'e1')
+  const second = await mountRow($, 'Write', created('a\n'), {}, '/p/sub/b.txt', 'e2')
+  await click(first, 'fold:e1')
+  expect(await textOf(first, 'e1')).toBe('○ Edited (2 files)  +2 −1')
+  expect(await textOf(first, 'file:e1')).toBe('  ├ a.txt           +1 −1')
+  expect(await textOf(second, 'file:e2')).toBe('  └ sub/b.txt       +1 new')
+  await click(first, 'fold:e1')
+  expect(await textOf(first, 'e1')).toBe('● Edited (2 files)  +2 −1')
+})
+
+const hunk = (...lines: string[]) => ({ structuredPatch: [{ oldStart: 3, oldLines: 1, newStart: 3, newLines: 2, lines }] })
+
+test('a long name moves the header counts to the same column', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a/long/folder/a.txt', 'e1')
+  await mountRow($, 'Edit', patch('+c'), {}, '/p/b.txt', 'e2')
+  await click(first, 'fold:e1')
+  expect(await textOf(first, 'e1')).toBe('○ Edited (2 files)       +2')
+  expect(await textOf(first, 'file:e1')).toBe('  ├ a/long/folder/a.txt  +1')
+})
+
+for (const [path, max, want] of [
+  ['a.txt', 20, 'a.txt'],
+  ['plugins/folio/hooks/register.tsx', 32, 'plugins/folio/hooks/register.tsx'],
+  ['plugins/folio/hooks/register.tsx', 28, 'plugins/…/hooks/register.tsx'],
+  ['plugins/folio/hooks/register.tsx', 24, 'plugins/…/register.tsx'],
+  ['plugins/folio/hooks/register.tsx', 20, '…/hooks/register.tsx'],
+  ['plugins/folio/hooks/register.tsx', 16, '…/register.tsx'],
+  ['/home/me/project/deep/a.txt', 16, '…/deep/a.txt'],
+  ['plugins/folio/a-very-long-file-name.tsx', 12, '…le-name.tsx'],
+] as const) {
+  test(`cutPath fits ${path} in ${max}`, () => {
+    expect(cutPath(path, max)).toBe(want)
+    expect(cutPath(path, max).length).toBeLessThanOrEqual(max)
+  })
+}
+
+test('a long path is cut at half the chat width, and the counts stay', async ($, on) => {
+  native(on)
+  const file = '/p/plugins/folio/hooks/register.tsx'
+  const ui = await mountRow($, 'Edit', patch('+b'), {}, file, 'e1', { columns: 40, rows: 20, isFullscreen: true })
+  expect(await textOf(ui, 'e1')).toBe('● Updated (…/hooks/register.tsx)  +1')
+})
+
+test('a wide chat keeps the same path whole', async ($, on) => {
+  native(on)
+  const file = '/p/plugins/folio/hooks/register.tsx'
+  const ui = await mountRow($, 'Edit', patch('+b'), {}, file, 'e1', { columns: 120, rows: 20, isFullscreen: true })
+  expect(await textOf(ui, 'e1')).toBe('● Updated (plugins/folio/hooks/register.tsx)  +1')
+})
+
+test('a very narrow chat keeps a floor for the name', async ($, on) => {
+  native(on)
+  const file = '/p/plugins/folio/hooks/register.tsx'
+  const ui = await mountRow($, 'Edit', patch('+b'), {}, file, 'e1', { columns: 24, rows: 20, isFullscreen: true })
+  expect(await textOf(ui, 'e1')).toBe('● Updated (…/hooks/register.tsx)  +1')
+})
+
+test('the tree lines take the border colour', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
+  await mountRow($, 'Edit', patch('+c'), {}, '/p/b.txt', 'e2')
+  await click(first, 'fold:e1')
+  await first.resize({ columns: 60, rows: 1, in: 'file:e1' })
+  expect((await first.find({ type: 'Text', text: /^  ├ $/, in: 'file:e1' }))?.props.color).toBe('promptBorder')
+})
+
+test('brackets and path slashes take the border colour', async ($, on) => {
+  native(on)
+  const ui = await mountRow($, 'Edit', patch('+b'), {}, '/p/sub/a.txt', 'e1')
+  await ui.resize({ columns: 60, rows: 1, in: 'fold:e1' })
+  for (const mark of [/^ \($/, /^\/$/, /^\)$/]) expect((await ui.find({ type: 'Text', text: mark, in: 'fold:e1' }))?.props.color).toBe('promptBorder')
+  expect((await ui.find({ type: 'Text', text: /^a\.txt$/, in: 'fold:e1' }))?.props.color).toBeUndefined()
+})
+
+test('tree rows colour their path slashes too', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/sub/a.txt', 'e1')
+  await mountRow($, 'Edit', patch('+c'), {}, '/p/b.txt', 'e2')
+  await click(first, 'fold:e1')
+  await first.resize({ columns: 60, rows: 1, in: 'file:e1' })
+  expect((await first.find({ type: 'Text', text: /^\/$/, in: 'file:e1' }))?.props.color).toBe('promptBorder')
+})
+
+test('the header bolds only its verb, and colours the count', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
+  await mountRow($, 'Edit', patch('+c'), {}, '/p/b.txt', 'e2')
+  await first.resize({ columns: 60, rows: 1, in: 'fold:e1' })
+  const piece = (text: RegExp) => first.find({ type: 'Text', text, in: 'fold:e1' })
+  expect((await piece(/^Edited$/))?.props.bold).toBe(true)
+  expect((await piece(/^2$/))?.props.color).toBe('claude')
+  expect((await piece(/^ files$/))?.props.bold).toBeUndefined()
+  expect((await piece(/^ \($/))?.props.color).toBe('promptBorder')
+  expect((await piece(/^\)$/))?.props.color).toBe('promptBorder')
+})
+
+test('a click on a file opens its diff alone, and closing the fold closes it', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', hunk(' a', '+b'), {}, '/p/a.txt', 'e1')
+  const second = await mountRow($, 'Edit', hunk(' a', '+c'), {}, '/p/b.txt', 'e2')
+  await click(first, 'fold:e1')
+  expect(await diffOf(second)).toBeUndefined()
+  await click(second, 'file:e2')
+  expect(await diffOf(second)).toBe('@@ -3,1 +3,2 @@\n a\n+c')
+  expect(await diffOf(first)).toBeUndefined()
+  await click(first, 'fold:e1')
+  expect(await diffOf(second)).toBeUndefined()
+})
+
+test('the tree line runs beside every open diff', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', hunk(' a', '+b'), {}, '/p/a.txt', 'e1')
+  const second = await mountRow($, 'Edit', hunk(' a', '+c'), {}, '/p/b.txt', 'e2')
+  await click(first, 'fold:e1')
+  await click(first, 'file:e1')
+  await click(second, 'file:e2')
+  const line = async (ui: any) => (await ui.find({ type: 'Text', text: /^│/ }))?.props.color
+  expect(await line(first)).toBe('promptBorder')
+  expect(await line(second)).toBe('promptBorder')
+  const gap = async (ui: any) => (await ui.findAll({ type: 'Box' })).find((box: any) => box.children.some((c: any) => c?.type === 'Code'))?.props.paddingBottom
+  expect(await gap(first)).toBe(1)
+  expect(await gap(second)).toBeUndefined()
+})
+
+test('the last row turns its corner to a tee while its diff is open', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', hunk(' a', '+b'), {}, '/p/a.txt', 'e1')
+  const second = await mountRow($, 'Edit', hunk(' a', '+c'), {}, '/p/b.txt', 'e2')
+  await click(first, 'fold:e1')
+  expect(await textOf(second, 'file:e2')).toMatch(/^  └ /)
+  await click(second, 'file:e2')
+  expect(await textOf(second, 'file:e2')).toMatch(/^  ├ /)
+  await click(second, 'file:e2')
+  expect(await textOf(second, 'file:e2')).toMatch(/^  └ /)
+})
+
+test('a diff drops the control characters the Code element refuses', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', hunk(' a\f', '+b\r', '+\tc\u001b[0m'), {}, '/p/a.txt', 'e1')
+  await click(first, 'fold:e1')
+  expect(await diffOf(first)).toBe('@@ -3,1 +3,2 @@\n a\n+b\n+\tc[0m')
+})
+
+test('a diff too big for the Code element opens nothing, and the row stays', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Write', created(`${'x'.repeat(100_000)}\n`), {}, '/p/a.txt', 'e1')
+  await click(first, 'fold:e1')
+  expect(await diffOf(first)).toBeUndefined()
+  expect(await textOf(first, 'e1')).toBe('● Wrote (a.txt)  +1 new')
+})
+
+test('a click on a failed tree row changes nothing', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
+  const second = await mountRow($, 'Edit', 'Error: it failed.', { isErrored: true }, '/p/b.txt', 'e2')
+  await click(second, 'file:e2')
+  expect(await textOf(second, 'file:e2')).toMatch(/^  └ /)
+  expect(await textOf(first, 'e1')).toBe('● Edited (1 file)  +1')
+})
+
+test('a new file opens as all added lines', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Write', created('a\nb\n'), {}, '/p/a.txt', 'e1')
+  await click(first, 'fold:e1')
+  expect(await diffOf(first)).toBe('@@ -0,0 +1,2 @@\n+a\n+b')
+})
+
+test('a lone edit has no tree: a click opens its diff', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', hunk(' a', '+b'), {}, '/p/a.txt', 'e1')
+  expect(await diffOf(first)).toBeUndefined()
+  await click(first, 'fold:e1')
+  expect(await diffOf(first)).toBe('@@ -3,1 +3,2 @@\n a\n+b')
+  expect(await textOf(first, 'e1')).toBe('● Updated (a.txt)  +1')
+  expect((await first.find({ type: 'Text', text: /^│/ }))?.props.color).toBe('promptBorder')
+})
+
+test('a failed edit has no diff to open', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', 'Error: it failed.', { isErrored: true }, '/p/a.txt', 'e1')
+  await click(first, 'fold:e1')
+  expect(await diffOf(first)).toBeUndefined()
+})
+
+test('a surface other than the terminal keeps the native rows', async ($, on) => {
+  native(on)
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'desktop', component: 'ToolUse', requestId: 'e1',
+    props: { tool_use_id: 'e1', tool: 'Edit', input: { file_path: '/p/a.txt' }, output: patch('+b'), isRunning: false, isErrored: false, isInterrupted: false }, viewport: VIEW })
+  expect((await ui.find({ type: 'Text' }))?.text).toBe('native')
+})
+
+test('a switch of transcript ends the run, so an edit in the chat keeps its row', async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Text' as const, children: ['band'] }))
+  await mountRow($, 'Edit', patch('+b'), {}, '/p/agent.txt', 'e1')
+  const band = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'AbovePrompt', requestId: 'b1', props: { view: { agentId: 'a1' } } as any, viewport: VIEW })
+  await band.unmount?.()
+  await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'AbovePrompt', requestId: 'b2', props: { view: {} } as any, viewport: VIEW })
+  expect(await textOf(await mountRow($, 'Edit', patch('+c'), {}, '/p/a.txt', 'e2'), 'e2')).toBe('● Updated (a.txt)  +1')
+})
+
+test('a cwd that cannot be read leaves absolute paths whole', async ($, on) => {
+  native(on, { deny: 'gone' })
+  expect(await textOf(await mountRow($, 'Edit', patch('+b'), {}, '/x/a.txt', 'e1'), 'e1')).toBe('● Updated (/x/a.txt)  +1')
+})
+
+test('off the fullscreen layout each edit keeps its own row, as a printed row cannot change', async ($, on) => {
+  native(on)
+  const view = { columns: 80, rows: 20, isFullscreen: false }
+  const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1', view)
+  const second = await mountRow($, 'Edit', patch('+c'), {}, '/p/b.txt', 'e2', view)
+  expect(await textOf(first, 'e1')).toBe('● Updated (a.txt)  +1')
+  expect(await textOf(second, 'e2')).toBe('● Updated (b.txt)  +1')
+})
+
+test('a file outside the session folder keeps its full path', async ($, on) => {
+  native(on)
+  expect(await drawn($, 'Edit', patch('-a', '+b'), {}, '/other/a.txt')).toBe('● Updated (/other/a.txt)  +1 −1')
+})
+
+test('a nested file keeps its path from the session folder', async ($, on) => {
+  native(on)
+  expect(await drawn($, 'Edit', patch('-a', '+b'), {}, '/p/sub/a.txt')).toBe('● Updated (sub/a.txt)  +1 −1')
+})
+
+const block = async ($: any, tool: string, output: unknown, extra: object = {}, id = 'r1') => {
+  await mountRow($, tool, output, extra, '/p/a.txt', id)
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolResult', requestId: id,
+    props: { tool_use_id: id, tool, output, isErrored: false, ...extra }, viewport: VIEW })
+  return (await ui.find({ type: 'Text' }))?.text
+}
+
+test('the engine block under a compact row draws nothing, open or closed', async ($, on) => {
+  native(on)
+  expect(await block($, 'Edit', patch('-a', '+b'), {}, 'b1')).toBeUndefined()
+  expect(await block($, 'Edit', 'Error: it failed.', { isErrored: true }, 'b2')).toBeUndefined()
+})
+
+test('the engine block stays where the row stays native', async ($, on) => {
+  native(on)
+  expect(await block($, 'Edit', patch('-a', '+b'), { isExpanded: true }, 'b1')).toBe('native block')
+  expect(await block($, 'Edit', "The user doesn't want to proceed.", { isErrored: true }, 'b2')).toBe('native block')
+  expect(await block($, 'Bash', { stdout: 'x' }, {}, 'b3')).toBe('native block')
+})
+
+test('a running call stays native', async ($, on) => {
+  native(on)
+  expect(await drawn($, 'Edit', undefined, { isRunning: true })).toBe('native')
+})
+
+test('an interrupted call stays native', async ($, on) => {
+  native(on)
+  expect(await drawn($, 'Edit', 'Error: cut.', { isErrored: true, isInterrupted: true })).toBe('native')
+})
+
+test('the mark and counts take the theme colours', async ($, on) => {
+  native(on)
+  const ui = await mountRow($, 'Edit', patch('-a', '+b'))
+  await ui.resize({ columns: 60, rows: 1, in: 'fold:r1' })
+  expect((await ui.find({ type: 'Text', text: /^●$/, in: 'fold:r1' }))?.props.color).toBe('success')
+  expect((await ui.find({ type: 'Text', text: /^\+1$/, in: 'fold:r1' }))?.props.color).toBe('success')
+  expect((await ui.find({ type: 'Text', text: /^−1$/, in: 'fold:r1' }))?.props.color).toBe('error')
+})
+
+for (const [name, tool, output, extra] of [
+  ['the expanded view', 'Edit', patch('-a', '+b'), { isExpanded: true }],
+  ['an expanded error', 'Edit', 'Error: String to replace not found in file.', { isErrored: true, isExpanded: true }],
+  ['a refusal', 'Edit', "The user doesn't want to proceed with this tool use.", { isErrored: true }],
+  ['another tool\'s error', 'Bash', 'Error: exit 1', { isErrored: true }],
+  ['a held edit', 'Edit', { ...patch('-a', '+b'), staged: true }, {}],
+  ['a held new file', 'Write', { ...created('a\n'), staged: true }, {}],
+  ['a write that changed nothing', 'Write', { type: 'update', structuredPatch: [], originalFile: 'a' }, {}],
+  ['a write too large to diff', 'Write', { type: 'update', structuredPatch: [], originalFile: null }, {}],
+  ['another tool', 'Read', patch('-a', '+b'), {}],
+] as const) {
+  test(`${name} stays native`, async ($, on) => {
+    native(on)
+    expect(await drawn($, tool, output, extra)).toBe('native')
+  })
+}
+
+for (const [tool, want] of [['Edit', 'Error editing file'], ['Write', 'Error writing file']] as const) {
+  test(`a failed ${tool} draws its error on the row`, async ($, on) => {
+    native(on)
+    const ui = await mountRow($, tool, 'Error: it failed.', { isErrored: true })
+    expect(await textOf(ui)).toBe(`● ${tool === 'Edit' ? 'Update' : 'Write'} (a.txt)  ${want}`)
+    expect((await ui.find({ type: 'Text', text: /^●$/, in: 'fold:r1' }))?.props.color).toBe('error')
+  })
+}
+
+// One map of config files, as a session finds them: machine, then the repo's shared and local.
+function configured(on: any, files: Record<string, string>) {
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('env.get', (_: unknown, e: any) => ({ value: e.name === 'CLAUDE_CONFIG_DIR' ? '/cfg' : undefined }))
+  on('fs.read', (_: unknown, e: any) => (files[e.path] ? { value: files[e.path] } : { deny: 'ENOENT' }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '/repo\n', stderr: '' } }))
+}
+const start = { cwd: '/repo', surface: 'terminal' as const, isInteractive: true }
+const off = JSON.stringify({ folio: { hideEditDiff: false } })
+const on_ = JSON.stringify({ folio: { hideEditDiff: true } })
+
+test('hideEditDiff false in the machine file keeps the native diff', async ($, on) => {
+  native(on)
+  configured(on, { '/cfg/claudzilla.json': off })
+  await $.session.start(start)
+  expect(await drawn($, 'Edit', patch('-a', '+b'))).toBe('native')
+})
+
+test("a repo's local file wins over the shared and machine files", async ($, on) => {
+  native(on)
+  configured(on, { '/cfg/claudzilla.json': on_, '/repo/.claude/claudzilla.json': on_, '/repo/.claude/claudzilla.local.json': off })
+  await $.session.start(start)
+  expect(await drawn($, 'Edit', patch('-a', '+b'))).toBe('native')
+})
+
+test('hideEditDiff false keeps the native error row', async ($, on) => {
+  native(on)
+  configured(on, { '/cfg/claudzilla.json': off })
+  await $.session.start(start)
+  expect(await drawn($, 'Edit', 'Error: it failed.', { isErrored: true })).toBe('native')
+})
+
+test('a bad config file or value leaves the default', async ($, on) => {
+  native(on)
+  configured(on, { '/cfg/claudzilla.json': '{ nope', '/repo/.claude/claudzilla.json': JSON.stringify({ folio: { hideEditDiff: 'no' } }) })
+  await $.session.start(start)
+  expect(await drawn($, 'Edit', patch('-a', '+b'))).toBe('● Updated (a.txt)  +1 −1')
 })
