@@ -196,7 +196,7 @@ test('branch card: upstream sync and stash count', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: '1 on this branch' })).toBeDefined()
 })
 
-test('branch card, never pushed: local is the upstream value, faint, with nothing at the far right', async ($, on) => {
+test('branch card, never pushed: local is the upstream value, normal text, with nothing at the far right', async ($, on) => {
   quiet(on)
   on('process.run', (_, e) => ran(git(repoOn('a', { status: '## a\n' }))(e.argv) ?? ''))
   const ui = await mount($)
@@ -206,7 +206,8 @@ test('branch card, never pushed: local is the upstream value, faint, with nothin
   const row = find(card, n => n.type === 'Box' && n.props?.justifyContent === 'space-between')[0]
   const [left, right] = [row.children ?? row.props.children].flat()
   const local = find(left, n => n.type === 'Text' && own(n) === 'local')[0]
-  expect(local?.props?.color).toBe('#4f5c68')
+  expect(local).toBeDefined()
+  expect(local.props?.color).toBeUndefined()
   expect(find(right, n => n.type === 'Text').map(own).join('').trim()).toBe('')
 })
 
