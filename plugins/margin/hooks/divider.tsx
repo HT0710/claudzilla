@@ -53,7 +53,7 @@ const Divider: ClientModule<{ split: number; min: number; max: number; faded?: b
         <Text color={rule} hover={dim}>{'─'.repeat(Math.floor(side / 2))} </Text>
       </Text>
       <Text color={isLit ? 'claude' : rule} inverse={(isLit && !by) || undefined} bold>
-        {word}
+        <Text hover={dim}>{word}</Text>
       </Text>
       <Text>
         <Text color={rule} hover={dim}> {'─'.repeat(Math.ceil(side / 2))}</Text>

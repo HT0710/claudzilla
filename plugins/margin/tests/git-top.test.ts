@@ -772,7 +772,7 @@ test('a leave the next row\'s enter follows in time drops no card, as a draw bet
   expect(await rebaseCard()).toBe(true)
 })
 
-test("the divider's dimmed rule sits in a Text, so pointing at the divider never heats the dim group", async () => {
+test("the divider's dimmed rule and grip sit in a Text, so pointing at the divider never heats the dim group", async () => {
   const tag = (name: string) => Object.assign((props: object) => ({ type: name, props }), { tag: name })
   const surface = { elements: { Box: tag('Box'), Text: tag('Text') }, onPointer: () => {}, columns: 40 }
   const tree = Divider({ split: 3, min: 1, max: 5, line: 'line:4' }, surface as any)
@@ -786,7 +786,7 @@ test("the divider's dimmed rule sits in a Text, so pointing at the divider never
     walk(node.props?.children, inText || name === 'Text')
   }
   walk(tree, false)
-  expect(dims.length).toBe(2)
+  expect(dims.length).toBe(3)
   expect(dims.every(Boolean)).toBe(true)
 })
 
