@@ -1,5 +1,5 @@
 // The Git tab's top section, read from git and gh output: no engine calls, so tests feed it text.
-import type { Branch, Change, Check, CheckState, CommitView, Conflict, Counts, LogRow, Op, Pr, PrState, PrView, RebaseStep } from '../types'
+import type { Branch, Change, Check, CheckState, CommitView, Conflict, Counts, LogRow, Op, Pr, PrState, PrView, RebaseStep, Word } from '../types'
 
 // `git status --porcelain -b`'s first line: "## main...origin/main [ahead 1, behind 2]".
 export const parseHead = (head: string) => {
@@ -233,19 +233,20 @@ export const cutMiddle = (path: string, room: number) => {
   return `${path.slice(0, Math.max(1, room - tail.length - 1))}…${tail}`.slice(-room)
 }
 
-const WORD: Record<string, Change['word']> = { M: 'modified', T: 'modified', A: 'added', C: 'added', D: 'deleted', R: 'renamed', U: 'conflict', '?': 'untracked' }
-// One `status --porcelain -z` record, a rename's old path beside it. A conflict is U whatever git pairs it with (UU,
+const WORD: Record<string, Word> = { M: 'modified', T: 'modified', A: 'added', C: 'added', D: 'deleted', R: 'renamed', U: 'conflict', '?': 'untracked' }
+
+// One `status --porcelain -z` record. A conflict is U whatever git pairs it with (UU,
 // AA, DD, UD...); else the worktree's letter while it has unstaged changes, bright, else the index letter, staged,
 // dim. A rename shows its new name.
-export const changeOf = (line: string, from?: string): Change => {
+export const changeOf = (line: string): Change => {
   const xy = line.slice(0, 2)
   const path = line.slice(3)
   const conflict = xy.includes('U') || xy === 'AA' || xy === 'DD'
   const untracked = xy === '??'
   const staged = !conflict && !untracked && line[1] === ' '
   const letter = conflict ? 'U' : untracked ? '?' : staged ? line[0]! : line[1]!
-  const stage = conflict || untracked ? undefined : staged ? 'staged' : line[0] === ' ' ? 'not staged' : 'staged + not staged'
-  return { path, ...(from !== undefined && { from }), letter, dim: staged, word: WORD[letter] ?? 'modified', stage }
+  const stage = conflict || untracked ? [] : (['staged', 'not staged'] as const).filter((_, i) => line[i] !== ' ')
+  return { path, letter, dim: staged, word: WORD[letter] ?? 'modified', stage }
 }
 
 // `git diff --numstat -z -M`: "a\td\tpath\0", or for a rename "a\td\t\0old\0new\0"; a binary file counts "-".
@@ -258,7 +259,8 @@ export const parseStatusZ = (z: string): { head?: string; changes: Change[] } =>
   for (let i = 0; i < records.length; i++) {
     const record = records[i]!
     if (record.length < 4) continue
-    changes.push(/[RC]/.test(record[0]!) ? changeOf(record, records[++i]) : changeOf(record))
+    changes.push(changeOf(record))
+    if (/[RC]/.test(record[0]!)) i++
   }
   return { head, changes }
 }
