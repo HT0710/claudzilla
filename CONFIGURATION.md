@@ -88,6 +88,14 @@ An example; some values are not the defaults. Defaults: `subjectMax` 50, `commit
 
 A bad file or value is skipped and named on your next prompt; unknown keys are ignored.
 
+The same three files hold one folio option, under its own key and read when a session starts:
+
+```json
+{"folio": {"hideEditDiff": false}}
+```
+
+`hideEditDiff` (default `true`): folio draws an Edit or Write call as one row, such as `● Updated (a.txt)  +12 −3`, folds a run of them, and ctrl+o shows the full diffs. `false` keeps the diffs in the chat. A bad value is ignored without a message.
+
 ## Keybindings
 
 `~/.claude/keybindings.json` holds your keys. Install adds alt+o, alt+h, alt+l and alt+g for the margin's Overview, History, File and Git tabs, alt+k to focus the ballot card and alt+q to toggle the guide (`/claudzilla`), each with its part (removing the part removes the key), and each unless you bound that key (`Chat` or `Global`) or gave its action a key; a symlinked file is left alone; `"alt+o": null`, `"alt+h": null`, `"alt+l": null`, `"alt+g": null`, `"alt+k": null` or `"alt+q": null` in `Chat` opts out.

@@ -26,6 +26,76 @@ const note = (id: string, decision: string, data: object) => {
   t.event('folio.split', { decision, ...data })
 }
 
+const NAME_SHARE = 0.5
+const CODE_MAX = 100_000
+// eslint-disable-next-line no-control-regex
+const CODE_CONTROLS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g
+const TREE_LINE_ROWS = 500
+const NAME_FLOOR = 20
+
+// `done` once it landed, `tried` when it failed and changed nothing.
+const EDIT: Record<string, { done: string; tried: string; error: string }> = {
+  Edit: { done: 'Updated', tried: 'Update', error: 'Error editing file' },
+  Write: { done: 'Wrote', tried: 'Write', error: 'Error writing file' },
+}
+
+const newFileLines = (output: { content?: string }) => (output.content ? output.content.replace(/\n$/, '').split('\n') : [])
+
+// What an Edit or Write row shows in place of its result block; undefined where the engine's own rows should draw.
+function editSummary(tool: string, output: any, isErrored: boolean) {
+  const names = EDIT[tool]
+  if (!names) return undefined
+  // A refusal is errored too, with its own rows: only a tool's own error starts this way.
+  if (isErrored) return typeof output === 'string' && output.startsWith('Error') ? { error: names.error } : undefined
+  if (!output || typeof output !== 'object' || output.staged) return undefined
+  if (output.type === 'create') return { add: newFileLines(output).length, del: 0, isNew: true }
+  const lines: string[] = (output.structuredPatch ?? []).flatMap((hunk: { lines: string[] }) => hunk.lines)
+  const add = lines.filter(line => line[0] === '+').length
+  const del = lines.filter(line => line[0] === '-').length
+  return add + del ? { add, del, isNew: false } : undefined
+}
+
+// An Edit or Write result as unified-diff hunks, for the Code element: tab and newline its only control characters,
+// and over its size limit it refuses the row, so such a diff stays in ctrl+o. A new file has no patch: all added.
+function diffText(output: any) {
+  const lines = newFileLines(output)
+  type Hunk = { oldStart: number; oldLines: number; newStart: number; newLines: number; lines: string[] }
+  const text = (output.type === 'create'
+    ? [`@@ -0,0 +1,${lines.length} @@`, ...lines.map(line => `+${line}`)]
+    : (output.structuredPatch as Hunk[]).flatMap(h => [`@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`, ...h.lines])
+  ).join('\n').replace(CODE_CONTROLS, '')
+  return text.length <= CODE_MAX ? text : undefined
+}
+
+// A path cut in the middle to fit `max`: the first folder, then as many last segments as fit. The file name goes last.
+export function cutPath(path: string, max: number) {
+  if (path.length <= max) return path
+  const parts = path.split('/')
+  const file = parts.pop()!
+  const fits = (head: string) => {
+    let tail = file
+    if (`${head}/${tail}`.length > max) return undefined
+    for (const part of [...parts].slice(1).reverse()) {
+      if (`${head}/${part}/${tail}`.length > max) break
+      tail = `${part}/${tail}`
+    }
+    return `${head}/${tail}`
+  }
+  return (parts[0] && fits(`${parts[0]}/…`)) || fits('…') || `…${file.slice(1 - max)}`
+}
+
+// Same files in the same order as loadConfig in claude/hooks/rules-guard.mjs.
+async function readHideEditDiff($: EngineInterface, cwd: string) {
+  const dir = (await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined)) || `${(await $.env.get('HOME').catch(() => undefined)) ?? ''}/.claude`
+  const top = await $.process.run(['git', '-C', cwd, 'rev-parse', '--show-toplevel']).then(r => (r.exitCode === 0 ? r.stdout.trim() : ''), () => '')
+  let hide = true
+  for (const f of [`${dir}/claudzilla.json`, ...(top ? [`${top}/.claude/claudzilla.json`, `${top}/.claude/claudzilla.local.json`] : [])]) {
+    const value = await $.fs.read(f).then(text => JSON.parse(text)?.folio?.hideEditDiff).catch(() => undefined)
+    if (typeof value === 'boolean') hide = value
+  }
+  return hide
+}
+
 type Part = { text: string } | { rule: string } | { code: { lang: string; body: string } }
 
 // Splits a reply at frame lines and fenced blocks, outside ``` / ~~~ fences.
@@ -300,6 +370,10 @@ const MISS_MS = 5_000
 let toldNoPanel = false
 // shortcut: one cols-<session> file per session stays in TMPDIR ($.fs has no delete); clean it on session.end if $.fs gains one.
 let wroteColumns = 0
+// The session's folio.hideEditDiff; read at session.start.
+let hideEditDiff = true
+// Margin's intent report: its row draws nothing, so it must not break a run of edits.
+const INTENT_TOOL = 'mcp__margin__intent'
 
 // The chunk's spans that name an existing file, by span; none when the engine cannot say.
 async function links($: EngineInterface, text: string): Promise<Map<string, Link>> {
@@ -339,6 +413,7 @@ async function links($: EngineInterface, text: string): Promise<Map<string, Link
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await t.start(traceIo($))
+    hideEditDiff = await readHideEditDiff($, e.cwd)
     return next(e)
   })
 
@@ -351,7 +426,158 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     // A /clear or resume goes on under a new session id, which needs its own cols file.
     wroteColumns = 0
+    for (const rows of [runs, done, placed, shownDiffs]) rows.clear()
+    current = undefined
     await t.flush(traceIo($))
+    return next(e)
+  })
+
+  // A run of edits folds into its first row, as a big diff fills the chat. Off the fullscreen layout a printed row
+  // cannot change, so each edit keeps its own.
+  type Run = { ids: string[]; isOpen: boolean }
+  const runs = new Map<string, Run>()
+  const done = new Map<string, { file: string; diff?: string; summary: NonNullable<ReturnType<typeof editSummary>> }>()
+  const placed = new Set<string>()
+  // Edits whose diff a click on their tree row opened.
+  const shownDiffs = new Set<string>()
+  let current: Run | undefined
+  let shownView: string | undefined
+
+  // A run lies in one transcript: an agent's rows must not take in the main chat's.
+  on('ui.render', { component: 'AbovePrompt' }, async (_$, e, next) => {
+    const view = e.props.view.agentId
+    if (view !== shownView) current = undefined
+    shownView = view
+
+    return next(e)
+  })
+
+  on('ui.render', { component: ['UserMessage', 'AssistantMessage', 'ToolGroup', 'ToolUse'] }, async (_$, e, next) => {
+    const isHidden = e.component === 'ToolUse' && e.props.tool === INTENT_TOOL
+    if (isHidden || e.surface !== 'terminal' || placed.has(e.requestId)) return next(e)
+    placed.add(e.requestId)
+    if (e.component === 'ToolUse' && e.props.tool in EDIT) {
+      const run: Run = (e.viewport?.isFullscreen && current) || { ids: [], isOpen: false }
+      run.ids.push(e.requestId)
+      runs.set(e.requestId, run)
+      current = run
+    } else current = undefined
+    return next(e)
+  })
+
+  // Each hook runs next even when dropping it: margin tracks the row in view on this chain.
+  on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
+    const native = await next(e)
+    if (!hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || !runs.has(e.requestId) || !editSummary(e.props.tool, e.props.output, e.props.isErrored)) return native
+    const { Box } = $.ui.resolve(e)
+
+    return <Box />
+  })
+
+  on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
+    const native = await next(e)
+    const { tool, input, output, isRunning, isErrored, isInterrupted, isExpanded } = e.props
+    const run = runs.get(e.requestId)
+    // A Client draws nothing on mobile.
+    if (!hideEditDiff || e.surface !== 'terminal' || isExpanded || !run) return native
+    const summary = !isRunning && !isInterrupted ? editSummary(tool, output, isErrored) : undefined
+    if (summary && !done.has(e.requestId)) {
+      done.set(e.requestId, { file: String((input as { file_path?: string }).file_path), summary, diff: isErrored ? undefined : diffText(output) })
+      // The run's first row draws this one's counts; a lone edit has none to update.
+      if (run.ids.length > 1) $.ui.invalidate('ui.render')
+    }
+    if (!summary) return native
+    const elements = $.ui.resolve(e)
+    const { Box, Code, Text } = elements
+    const Client = 'Client' in elements ? elements.Client : undefined
+    if (!Client) return native
+    type Piece = { text: string; color?: string; bold?: boolean }
+    const row = (key: string, pieces: Piece[]) => <Client key={key} module="./fold.tsx" width="100%" height={1} props={{ pieces }} />
+    const cwd = await $.session.cwd().catch(() => '')
+    // A share of the chat, so a wide terminal shows more of a path; the floor still fits most file names.
+    const nameRoom = Math.max(NAME_FLOOR, Math.floor((e.viewport?.columns ?? 80) * NAME_SHARE))
+    const name = (file: string) => cutPath(cwd && file.startsWith(`${cwd}/`) ? file.slice(cwd.length + 1) : file, nameRoom)
+    const namePieces = (path: string): Piece[] =>
+      path.split(/(\/)/).filter(Boolean).map(text => (text === '/' ? { text, color: 'promptBorder' } : { text }))
+    const countPieces = (add: number, del: number, isNew = false, gap = '  '): Piece[] => [
+      { text: gap },
+      ...(add > 0 || isNew ? [{ text: `+${add}`, color: 'success' }] : []),
+      ...(add > 0 && del > 0 ? [{ text: ' ' }] : []),
+      ...(del > 0 ? [{ text: `−${del}`, color: 'error' }] : []),
+      ...(isNew ? [{ text: ' new' }] : []),
+    ]
+    const result = (entry: NonNullable<ReturnType<typeof done.get>>, gap = '  ') =>
+      'error' in entry.summary
+        ? [{ text: gap }, { text: entry.summary.error, color: 'error' }]
+        : countPieces(entry.summary.add, entry.summary.del, entry.summary.isNew, gap)
+    const self = done.get(e.requestId)!
+    const diff = (entry: typeof self, hasNext = false) => entry.diff && (
+      <Box position="relative" paddingLeft={4} paddingBottom={hasNext ? 1 : undefined}>
+        {/* Sized by the diff beside it, which may wrap: clipped, not counted. */}
+        <Box position="absolute" left={2} height="100%" overflow="hidden">
+          <Text color="promptBorder">{Array(TREE_LINE_ROWS).fill('│').join('\n')}</Text>
+        </Box>
+        <Code source={entry.diff} path={entry.file} format="diff" />
+      </Box>
+    )
+    const head = (mark: string, color: string, label: string): Piece[] => [{ text: mark, color }, { text: ' ' }, { text: label, bold: true }]
+    const entries = run.ids.flatMap(id => done.get(id) ?? [])
+    if (entries.length < 2) {
+      return (
+        <Box flexDirection="column" marginTop={1}>
+          {row(`fold:${e.requestId}`, [...head('●', isErrored ? 'error' : 'success', isErrored ? EDIT[tool]!.tried : EDIT[tool]!.done), { text: ' (', color: 'promptBorder' }, ...namePieces(name(self.file)), { text: ')', color: 'promptBorder' }, ...result(self)])}
+          {run.isOpen && diff(self)}
+        </Box>
+      )
+    }
+    const edits = entries.flatMap(entry => ('error' in entry.summary ? [] : entry.summary))
+    const add = edits.reduce((sum, edit) => sum + edit.add, 0)
+    const del = edits.reduce((sum, edit) => sum + edit.del, 0)
+    const files = new Set(entries.filter(entry => !('error' in entry.summary)).map(entry => entry.file)).size
+    // A failed edit stays named while the fold is closed.
+    const listed = run.isOpen ? entries : entries.filter(entry => 'error' in entry.summary)
+    const at = listed.indexOf(self)
+    const isFirst = entries[0] === self
+    if (!isFirst && at < 0) return <Box />
+    const mark = run.isOpen ? '○' : '●'
+    // Every row's counts start in one column: past the header or the widest listed name, whichever ends later.
+    const TREE_INDENT = 4
+    const [verb, count, noun] = edits.length ? ['Edited', files, files === 1 ? 'file' : 'files'] : ['Failed', entries.length, 'edits']
+    const label = `${verb} (${count} ${noun})`
+    const end = Math.max(label.length + 2, ...listed.map(entry => TREE_INDENT + name(entry.file).length))
+    const gapAfter = (width: number) => ' '.repeat(end - width + 2)
+
+    return (
+      <Box flexDirection="column" marginTop={isFirst ? 1 : 0}>
+        {isFirst && row(`fold:${e.requestId}`, [
+          ...head(mark, edits.length ? 'success' : 'error', verb),
+          { text: ' (', color: 'promptBorder' },
+          { text: String(count), color: 'claude' },
+          { text: ` ${noun}` },
+          { text: ')', color: 'promptBorder' },
+          ...(edits.length ? countPieces(add, del, false, gapAfter(label.length + 2)) : []),
+        ])}
+        {at >= 0 && row(`file:${e.requestId}`, [
+          { text: at === listed.length - 1 && !shownDiffs.has(e.requestId) ? '  └ ' : '  ├ ', color: 'promptBorder' },
+          ...namePieces(name(self.file)),
+          ...result(self, gapAfter(TREE_INDENT + name(self.file).length)),
+        ])}
+        {shownDiffs.has(e.requestId) && diff(self, at < listed.length - 1)}
+      </Box>
+    )
+  })
+
+  on('ui.message', async ($, e, next) => {
+    const run = runs.get(e.requestId)
+    const element = typeof e.element === 'string' ? e.element : ''
+    if (run && (e.data as { press?: boolean } | undefined)?.press) {
+      if (element.startsWith('fold:')) {
+        run.isOpen = !run.isOpen
+        for (const id of run.ids) shownDiffs.delete(id)
+      } else if (element.startsWith('file:') && done.get(e.requestId)?.diff && !shownDiffs.delete(e.requestId)) shownDiffs.add(e.requestId)
+      $.ui.invalidate('ui.render')
+    }
+
     return next(e)
   })
 
