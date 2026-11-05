@@ -32,7 +32,7 @@ settings.base.json     ──merge────▶  ~/.claude/settings.json  your
 |---|---|
 | `~/.claude/CLAUDE.local.md` | instructions for this machine only |
 | `~/.claude/settings.overrides.json` | settings for this machine only, merged last (e.g. `{"permissions":{"defaultMode":"dontAsk"}}`) |
-| `claudzilla.json` | turn guard checks on or off, see below |
+| `claudzilla.json` | turn guard checks on or off, see below; `{"hud":{"compact":true}}` draws the status line in 3 rows on a wide terminal (`~/.claude/claudzilla.json` only) |
 
 ## Guard hook config
 
