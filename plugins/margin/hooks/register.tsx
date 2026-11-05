@@ -186,7 +186,7 @@ const INTENT_TOOL = 'mcp__margin__intent'
 const INTENT_RULE = [
   'Intent reporting: the user watches a side panel showing your reading of their request and your plan.',
   `Call the \`${INTENT_TOOL}\` tool with wants, plan and steps at the start of every turn that answers a user prompt, as the first block of your message, before any other tool call in it.`,
-  'Then start every later message that calls another tool with it again as {"now": n}, n the 1-based step you are working on;',
+  'Then ping it as {"now": n}, n the 1-based step, as the first block of the message that starts a new step, and only then, as a ping splits the chat\'s tool rows;',
   'send wants, plan and steps again only when your plan changes. Never call it alone just to mark the last step done:',
   'your answer closes it. Do not mention the tool in your reply. Write wants, plan and steps in the language the user writes in.',
   "When a step spawns agents, list each Agent call's description in that step's agents, exactly as you pass it, and keep listing them when you redraft.",
