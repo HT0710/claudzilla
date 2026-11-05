@@ -90,8 +90,9 @@ const hover = (ui: Ui, row: string) => ui.pointer({ type: 'enter', x: 0, y: 0, i
 const piece = async (ui: Ui, row: string, text: string | RegExp) => (await ui.findAll({ type: 'Text', text, in: `row:${row}` })).at(-1)
 // The first branch the modal lists: the branch row reads "⎇ b20", so a bare name is the modal's.
 const firstListed = async (ui: Ui) => (await ui.findAll({ type: 'Text', text: /^b\d\d$/ }))[0]?.text
-const wheel = ($: Parameters<TestBody>[0], by: number, row: number) =>
-  $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 24, contentRows: 24, origin: { kind: 'person' }, pointer: { column: 10, row } })
+// Column 33: the pane's middle, inside a centred modal.
+const wheel = ($: Parameters<TestBody>[0], by: number, row: number, column = 33) =>
+  $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 24, contentRows: 24, origin: { kind: 'person' }, pointer: { column, row } })
 
 test('branch row: name, one mark only when needed, no counts', async ($, on) => {
   quiet(on)
@@ -226,11 +227,11 @@ test('branch modal columns: each as wide as its widest cell, 2 columns apart', a
     : Array.isArray(node) ? node.flatMap(n => find(n, test))
     : [...(test(node) ? [node] : []), ...find([node.props?.children, node.children], test)]
   const modal = await ui.find({ type: 'Box', key: 'modal' })
-  const groups = find(await ui.drawn(), n => n.type === 'Box' && n.props?.gap === 2 && n.props?.flexShrink === 0)
+  const groups = find(await ui.drawn(), n => n.type === 'Box' && n.props?.gap === 2)
   expect(modal).toBeDefined()
-  expect(groups.length).toBeGreaterThan(1)
-  // Every row's columns share their widths.
-  const widths = groups.map(g => JSON.stringify(find(g.props?.children ?? g.children, n => n.type === 'Box' && n.props?.width !== undefined).map(n => n.props.width)))
+  // Every row's name and columns share their widths.
+  const widths = groups.map(g => JSON.stringify(find(g.props?.children ?? g.children, n => n.type === 'Box' && n.props?.width !== undefined).map(n => n.props.width))).filter(w => w !== '[]')
+  expect(widths.length).toBeGreaterThan(1)
   expect(new Set(widths).size).toBe(1)
 })
 
@@ -342,6 +343,8 @@ test('the wheel inside the modal scrolls its list one row a tick; outside it doe
   await wheel($, 1, 10)
   expect(await firstListed(ui)).toBe('b15')
   await wheel($, 1, 0)
+  expect(await firstListed(ui)).toBe('b15')
+  await wheel($, 1, 10, 1)
   expect(await firstListed(ui)).toBe('b15')
 })
 
@@ -481,9 +484,46 @@ test('status runs in each other worktree only while the worktrees view shows, no
   expect(asked).toEqual(['git --no-optional-locks -C /home/me/repo-b status --porcelain', 'git --no-optional-locks -C /tmp/w status --porcelain'])
 })
 
+test('base view: columns follow the widest name, not the far right', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(treeRepo('main'))(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, 'branch')
+  // The widest: `├─ fix/b ⧉`. Every branch row's name column matches it.
+  expect((await ui.findAll({ type: 'Box' })).filter(box => box.props.width === 10).length).toBe(4)
+})
+
+test('the branch modal narrows to its content, far from the pane edges', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(treeRepo('main'))(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, 'branch')
+  const modal = await ui.find({ type: 'Box', key: 'modal' })
+  expect(modal?.props.width).toBeLessThan(props.bodyColumns * 0.7)
+  expect(Math.abs(modal!.props.left + 1 + modal!.props.width / 2 - props.bodyColumns / 2)).toBeLessThanOrEqual(2)
+})
+
+test('prefix view: a long heading stays whole, the modal widening to it', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(repoOn('main', { 'for-each-ref': 'main\t\t\t1790000000\naverylongprefixname/x\t\t\t1790000000\n', worktree: 'worktree /r\nbranch refs/heads/main\n', 'symbolic-ref': 'origin/main\n' }))(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, 'branch')
+  await ui.press({ key: 'm:by:prefix' })
+  expect(await ui.find({ type: 'Text', text: 'averylongprefixname/' })).toBeDefined()
+})
+
+test('from a linked worktree, status skips the main one', async ($, on) => {
+  quiet(on)
+  const asked: string[] = []
+  withTrees(on, TREES, {}, '/home/me/repo-b', 'fix/b', asked)
+  const ui = await mount($)
+  await worktreeView(ui)
+  expect(asked).toEqual(['git --no-optional-locks -C /tmp/w status --porcelain'])
+})
+
 test('worktrees view: the lit row counts its own changes', async ($, on) => {
   quiet(on)
-  withTrees(on, TREES, {}, undefined, undefined, [], { status: '## feat/a...origin/feat/a\n M x\n?? y\n' })
+  withTrees(on, TREES, {}, '/home/me/repo-b', 'fix/b', [], { status: '## fix/b...origin/fix/b\n M x\n?? y\n' })
   const ui = await mount($)
   await worktreeView(ui)
   expect(await ui.find({ type: 'Text', text: '2 changed' })).toBeDefined()
@@ -495,23 +535,24 @@ test('worktrees view: sync and changes keep their own columns', async ($, on) =>
   const ui = await mount($)
   await worktreeView(ui)
   // Each row's second cell as wide as `1 changed`, also the row with none.
-  expect((await ui.findAll({ type: 'Box' })).filter(box => box.props.width === 9).length).toBe(4)
+  expect((await ui.findAll({ type: 'Box' })).filter(box => box.props.width === 9 && box.props.justifyContent === 'flex-end').length).toBe(3)
 })
 
-test('a worktree under home, not beside the main one, reads from ~', async ($, on) => {
+test('worktrees view: sync and changes follow the widest name, not the far right', async ($, on) => {
   quiet(on)
-  withTrees(on, TREES.replace('/home/me/repo-b', '/home/me/w/x').replace('worktree /home/me/repo\n', 'worktree /home/me/d/repo\n'), {}, '/home/me/d/repo')
+  withTrees(on, TREES)
+  const ui = await mount($)
+  await worktreeView(ui)
+  // The widest: the detached `0123456 /tmp/w`. Every row's name column matches it.
+  expect((await ui.findAll({ type: 'Box' })).filter(box => box.props.width === 14).length).toBe(3)
+})
+
+test('a detached worktree under home, not beside the main one, reads from ~', async ($, on) => {
+  quiet(on)
+  withTrees(on, TREES.replace('/tmp/w', '/home/me/w/x').replace('worktree /home/me/repo\n', 'worktree /home/me/d/repo\n'), {}, '/home/me/d/repo')
   const ui = await mount($)
   await worktreeView(ui)
   expect(await ui.find({ type: 'Text', text: ' ~/w/x' })).toBeDefined()
-})
-
-test('a bare main worktree draws its name as bare', async ($, on) => {
-  quiet(on)
-  withTrees(on, TREES.replace('worktree /home/me/repo\nHEAD abc\nbranch refs/heads/feat/a', 'worktree /home/me/repo\nbare'), {}, '/home/me/repo-b', 'fix/b')
-  const ui = await mount($)
-  await worktreeView(ui)
-  expect(await ui.find({ type: 'Text', text: 'bare' })).toBeDefined()
 })
 
 test('a main worktree at the root folder gives no ../ paths', async ($, on) => {
@@ -567,15 +608,15 @@ test('no linked worktree: the branch modal has no worktrees view', async ($, on)
   expect(await ui.find({ type: 'Button', key: 'm:by:worktrees' })).toBeUndefined()
 })
 
-test('worktrees view: this one lit, paths beside the main one relative, sync and changes, detached id, gone', async ($, on) => {
+test('worktrees view: linked only, this one lit, a path only when detached, sync and changes, gone', async ($, on) => {
   quiet(on)
-  withTrees(on, TREES, { '/home/me/repo-b': ' M x\n M y\n?? z\n' })
+  withTrees(on, TREES, { '/tmp/w': ' M x\n M y\n?? z\n' }, '/home/me/repo-b', 'fix/b')
   const ui = await mount($)
   await worktreeView(ui)
   expect(await ui.find({ type: 'Text', text: /⧉ worktrees/ })).toBeDefined()
-  expect((await ui.find({ type: 'Text', text: 'feat/a' }))?.props).toMatchObject({ color: '#5d9678', bold: true })
-  expect(await ui.find({ type: 'Text', text: ' ../repo' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: ' ../repo-b' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'feat/a' })).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: 'fix/b' }))?.props).toMatchObject({ color: '#5d9678', bold: true })
+  expect(await ui.find({ type: 'Text', text: /\.\.\/repo/ })).toBeUndefined()
   expect((await ui.findAll({ type: 'Text', text: '↑2' })).at(-1)?.props.color).toBe('#d4b860')
   expect(await ui.find({ type: 'Text', text: '3 changed' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '0123456' })).toBeDefined()
@@ -583,22 +624,22 @@ test('worktrees view: this one lit, paths beside the main one relative, sync and
   expect(await ui.find({ type: 'Text', text: 'gone' })).toBeDefined()
 })
 
-test('a worktree path too long for the modal loses its start, keeping its last folder', async ($, on) => {
+test('a detached path too long for the modal loses its start, keeping its last folder', async ($, on) => {
   quiet(on)
-  withTrees(on, TREES.replace('/home/me/repo-b', '/home/me/a-very-long-folder-name-for-this-worktree-that-runs-past-the-modal-edge'))
+  withTrees(on, TREES.replace('/tmp/w', '/home/me/a-very-long-folder-name-for-this-worktree-that-runs-past-the-modal-edge'))
   const ui = await mount($)
   await worktreeView(ui)
   expect(await ui.find({ type: 'Text', text: /^ …[\w-]*-past-the-modal-edge$/ })).toBeDefined()
 })
 
-test('in a narrow pane a long branch name is cut and its path dropped, the far right kept', async ($, on) => {
+test('in a narrow pane a long branch name is cut and a detached path dropped, the far right kept', async ($, on) => {
   quiet(on)
   withTrees(on, TREES.replace('fix/b', 'fix/a-branch-name-much-too-long-for-a-narrow-modal'), { '/home/me/repo-b': ' M x\n' })
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 40 }, requestId: 'margin' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 30 }, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   await worktreeView(ui)
-  expect(await ui.find({ type: 'Text', text: /^a-branch-.*…$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: / \.\.\/repo-b$/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^a-.*…$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' /tmp/w' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: '1 changed' })).toBeDefined()
 })
 

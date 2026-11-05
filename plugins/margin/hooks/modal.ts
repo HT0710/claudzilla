@@ -21,6 +21,12 @@ export const modalFrame = (cols: number, rows: number, want: number): Frame => {
   return { top: Math.floor((rows - height) / 2), left: x, width: cols - 2 * x, height }
 }
 
+// `f` narrowed to `content` columns plus its border and padding, staying centred.
+export const contentFrame = (f: Frame, content: number): Frame => {
+  const width = Math.min(f.width, content + 4)
+  return { ...f, width, left: f.left + Math.floor((f.width - width) / 2) }
+}
+
 // Over a modal at its limit, the gaps that modal really left; over a shorter one, the modal's limit one step in,
 // so the stacked modal may cover it.
 export const stackFrame = (cols: number, rows: number, modal: Frame, want: number): Frame => {
