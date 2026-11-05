@@ -52,6 +52,6 @@ declare module 'claude-code' {
     margin: Panel
   }
   interface PluginState {
-    margin: { tab: Tab; notices: Tab[]; submitted: number; toolCalls: number; rowPointer: { left: string | null; at: string | null }; split: number; scrolled: { changes: number; commits: number }; historyTop: number; topicsSplit: number; topicsTop: number; intent: Intent; overview: Overview; spawns: Spawn[]; turns: number; expanded: number; file: FileView; modal: Modal | null; fetching: boolean; branchView: { by: 'base' | 'prefix'; showMerged: boolean }; gh: Gh; prViews: Record<number, PrView> }
+    margin: { tab: Tab; notices: Tab[]; submitted: number; toolCalls: number; rowPointer: { left: string | null; at: string | null }; split: number; scrolled: { changes: number; commits: number }; historyTop: number; topicsSplit: number; topicsTop: number; intent: Intent; overview: Overview; spawns: Spawn[]; turns: number; expanded: number; file: FileView; modal: Modal | null; fetching: boolean; branchView: { by: 'base' | 'prefix' | 'worktrees'; showMerged: boolean }; gh: Gh; prViews: Record<number, PrView> }
   }
 }

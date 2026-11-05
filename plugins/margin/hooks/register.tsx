@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { AgentRow, Check, CheckState, CommitView, Counts, FileView, LogRow, Gh, Intent, Modal, ModalKey, Op, Overview, Pr, PrState, PrView, Spawn, Stage, Step, Tab, Word } from '../types'
-import { LOG_FORMAT, age, branches, cutMiddle, fileKey, incomingPrs, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseStatusZ, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows, worst } from './git-data'
+import { LOG_FORMAT, age, branches, cutMiddle, fileKey, incomingPrs, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseStatusZ, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows, worktrees, worst } from './git-data'
 import { mdRows } from './markdown'
 import { capped, modalFrame, scrollWindow, stackFrame } from './modal'
 import type { Frame } from './modal'
@@ -168,7 +168,7 @@ const modal = atom({ plugin: 'margin', key: 'modal' } as const, null as Modal | 
 // While `git fetch origin` runs from the branch row.
 const fetching = atom({ plugin: 'margin', key: 'fetching' } as const, false)
 // The branch modal's tree: by the branch each was made from, or by prefix; merged branches shown or not.
-const branchView = atom({ plugin: 'margin', key: 'branchView' } as const, { by: 'base' as 'base' | 'prefix', showMerged: false })
+const branchView = atom({ plugin: 'margin', key: 'branchView' } as const, { by: 'base' as 'base' | 'prefix' | 'worktrees', showMerged: false })
 // GitHub's PRs for this repo, read on a timer off the draw path; each PR's modal details once opened.
 const gh = atom({ plugin: 'margin', key: 'gh' } as const, { at: 0, remote: '', prs: [] } as Gh)
 const prViews = atom({ plugin: 'margin', key: 'prViews' } as const, {} as Record<number, PrView>)
@@ -568,6 +568,7 @@ const readGit = ($: EngineInterface) =>
       .catch(() => undefined),
     $.process.run(['git', 'stash', 'list', '--format=%gs']).catch(() => undefined),
     $.process.run(['git', 'for-each-ref', 'refs/heads', '--format=%(refname:short)%09%(upstream:short)%09%(upstream:track)%09%(committerdate:unix)']).catch(() => undefined),
+    $.process.run(['git', 'worktree', 'list', '--porcelain']).catch(() => undefined),
   ])
 // Kept until a tool call or a prompt may have changed the repo, or the tab is picked again: a chat
 // scroll or a drag redraws the pane many times a second. `signal`: the draw that started the runs.
@@ -633,8 +634,11 @@ let rowLines: Record<string, number> = {}
 const LEAVE_HOLD = 30
 let leaving: { row: string; n: number } | undefined
 let leaves = 0
-// The branch modal's own reads, kept as gitRead is: linked worktrees and the default branch.
-let branchRead: { key: string; signal: AbortSignal; run: Promise<[{ stdout: string } | undefined, { exitCode: number; stdout: string } | undefined]> } | undefined
+// The branch modal's own read, kept as gitRead is: the default branch.
+let branchRead: { key: string; signal: AbortSignal; run: Promise<{ exitCode: number; stdout: string } | undefined> } | undefined
+// Each other worktree's count of uncommitted files, by path, kept as gitRead is; read only while the worktrees view
+// shows, as a status per worktree would hold back every draw.
+let treeRead: { key: string; signal: AbortSignal; run: Promise<Map<string, number>> } | undefined
 // The shown PR's local reads, kept per repo change and base: behind and ahead of the base, conflicting files.
 let prRead: { key: string; signal: AbortSignal; run: Promise<({ stdout: string } | undefined)[]> } | undefined
 // The rebase or merge in progress, kept as gitRead is.
@@ -1704,7 +1708,7 @@ export const register: Register = (on, options) => {
         gitRead = { key, signal: next.signal, runs: readGit($) }
         runs = await gitRead.runs
       }
-      const [status, diff, unpushed, count, remote, gitDir, stash, refs] = runs
+      const [status, diff, unpushed, count, remote, gitDir, stash, refs, worktreeRun] = runs
       const now = await $.clock.now()
       await readTheme($)
       const basic = await (basicGlyphs ??= configDir($)
@@ -1739,6 +1743,10 @@ export const register: Register = (on, options) => {
       // Two or more open PRs out of this branch, or, on a branch with none open, the PRs coming into it: one summary row.
       const summary = own.length > 1 ? { out: true, list: own } : !isOpen(own[0]) && incoming.length ? { out: false, list: incoming } : undefined
       const pr = !summary && own.length === 1 ? own[0] : undefined
+      // Every worktree, the main one first. In a linked one the branch name takes ⧉.
+      const worktreeList = worktreeRun?.exitCode === 0 ? worktreeRun.stdout : ''
+      const trees = worktrees(worktreeList)
+      const linked = trees.findIndex(t => t.path === gitDir?.root) > 0
       const prKey = pr && `${key}:${pr.base}:${pr.conflicting}`
       if (prKey && dropped(prRead, prKey))
         prRead = {
@@ -1829,7 +1837,7 @@ export const register: Register = (on, options) => {
       const fetchLabel = `${basic ? '↻' : '\uf46a'} ${fetchedAt === undefined ? 'never' : age(fetchedAt, now)}`
       // The fetch row's width as drawn: while a fetch runs it reads "◌ fetching".
       const fetchWidth = isFetching ? 10 : [...fetchLabel].length
-      const branchLabel = `⎇ ${fit(hd.name, e.props.bodyColumns - 2 * PAD - fetchWidth - 5)}`
+      const branchLabel = `⎇ ${fit(hd.name, e.props.bodyColumns - 2 * PAD - fetchWidth - 5 - (linked ? 2 : 0))}`
       const fetchedText = fetchedAt === undefined ? 'never' : `${clock(fetchedAt)} ${new Date(fetchedAt).toDateString() === new Date(now).toDateString() ? 'today' : dayName(new Date(fetchedAt))}`
       const fetchNow = async () => {
         await update($, fetching, () => true)
@@ -2297,27 +2305,53 @@ export const register: Register = (on, options) => {
           )
         )
       })()
+      const home = trees.length > 1 ? await $.env.get('HOME').catch(() => undefined) : undefined
+      const parent = trees[0]?.path.replace(/[^/]+$/, '') ?? ''
+      // Beside the main worktree as ../, else under home as ~.
+      const where = (path: string) => (parent !== '/' && path.startsWith(parent) ? `../${path.slice(parent.length)}` : home && path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path)
+      // Cut from the start: a worktree's last folder tells it apart.
+      const endOf = (path: string, room: number) => (path.length <= room ? path : `…${path.slice(1 - room)}`)
       const modalRows = (want: number) => modalFrame(e.props.bodyColumns, tabRows, want)
       if (open?.key === 'branch' && dropped(branchRead))
         branchRead = {
           key,
           signal: next.signal,
-          run: Promise.all([
-            $.process.run(['git', 'worktree', 'list', '--porcelain']).catch(() => undefined),
-            $.process.run(['git', 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).catch(() => undefined),
-          ]),
+          run: $.process.run(['git', 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).catch(() => undefined),
         }
-      const [worktreeRun, defaultRun] = open?.key === 'branch' ? await branchRead!.run : []
+      const defaultRun = open?.key === 'branch' ? await branchRead!.run : undefined
       const view = await read($, branchView)
+      const showTrees = open?.key === 'branch' && view.by === 'worktrees' && trees.length > 1
+      if (showTrees && dropped(treeRead))
+        treeRead = {
+          key,
+          signal: next.signal,
+          run: (async () => {
+            const counts = new Map<string, number>()
+            await Promise.all(
+              trees.filter(t => !t.gone && t.path !== root).map(t =>
+                $.process
+                  .run(['git', '--no-optional-locks', '-C', t.path, 'status', '--porcelain'])
+                  .then(r => {
+                    if (!r.exitCode) counts.set(t.path, r.stdout.split('\n').filter(Boolean).length)
+                  })
+                  .catch(() => undefined),
+              ),
+            )
+            return counts
+          })(),
+        }
+      const treeCounts = showTrees ? await treeRead!.run : undefined
       const views = await read($, prViews)
       const commitViewsNow = await read($, commitViews)
       // The branch modal: the tree of local branches, the current one lit; it opens on it. Rows only inform.
       const branchModal = () => {
         const defaultName = (defaultRun?.exitCode === 0 && defaultRun.stdout.trim().replace(/^origin\//, '')) || 'main'
-        const list = branches(refs?.exitCode === 0 ? refs.stdout : '', prs, worktreeRun?.stdout ?? '', defaultName)
-        const tree = treeRows(list, view.by, view.showMerged)
-        const merged = list.filter(b => b.pr?.state === 'merged').length
-        const f = modalRows(4 + tree.length + (merged ? 2 : 0))
+        const list = branches(refs?.exitCode === 0 ? refs.stdout : '', prs, worktreeList, defaultName)
+        // The worktrees view only while there is a linked worktree; else base.
+        const by = showTrees ? 'worktrees' : view.by === 'worktrees' ? 'base' : view.by
+        const tree = by === 'worktrees' ? [] : treeRows(list, by, view.showMerged)
+        const merged = by === 'worktrees' ? 0 : list.filter(b => b.pr?.state === 'merged').length
+        const f = modalRows(4 + (by === 'worktrees' ? trees.length : tree.length) + (merged ? 2 : 0))
         const inner = f.width - 4
         // Columns: sync, the PR with its mark, age. Each as wide as its widest cell, 2 columns apart and 2 past the
         // name; a column no row fills is dropped.
@@ -2328,7 +2362,37 @@ export const register: Register = (on, options) => {
           Math.max(0, ...shown.map(b => age(b.at, now).length)),
         ]
         const room = inner - 2 - cols.filter(Boolean).reduce((n, w) => n + w + 2, -2)
-        const rows = tree.map(r => {
+        const synced = new Map(list.map(b => [b.name, b]))
+        // The worktrees view's far right: sync, then changed files or gone; columns as the tree's.
+        const treeCells = trees.map(t => {
+          const b = t.branch ? synced.get(t.branch) : undefined
+          const changed = t.path === root ? files.length : treeCounts?.get(t.path)
+          return [!t.gone && b ? syncOf(b) : null, t.gone ? <Text color={HUD.faint}>gone</Text> : changed ? <Text color={HUD.faint}>{`${changed} changed`}</Text> : null]
+        })
+        const treeCols = [0, 1].map(i => Math.max(0, ...treeCells.map(cells => textLength(cells[i]))))
+        const worktreeRow = (t: (typeof trees)[number], i: number) => {
+          // The far right kept, the name cut to the rest, the path in what is left; under 4 columns, no path.
+          const left = inner - treeCols.filter(Boolean).reduce((n, w) => n + w + 2, 0)
+          const name = fit(t.branch ?? (t.head.slice(0, 7) || 'bare'), left)
+          const pathRoom = left - name.length - 1
+          const at = name.indexOf('/')
+          const label = t.path === root ? [<Text bold color={HUD.action}>{name}</Text>]
+            : !t.branch ? [<Text color={HUD.faint}>{name}</Text>]
+            : at < 0 ? [<Text>{name}</Text>]
+            : [<Text color={prefixColor(name.slice(0, at + 1))}>{name.slice(0, at + 1)}</Text>, <Text>{name.slice(at + 1)}</Text>]
+          return (
+            <Box justifyContent="space-between" backgroundColor={t.path === root ? LIT : undefined}>
+              <Box>
+                {label}
+                {pathRoom >= 4 ? <Text color={HUD.faint}>{` ${endOf(where(t.path), pathRoom)}`}</Text> : null}
+              </Box>
+              <Box gap={2} flexShrink={0}>
+                {treeCells[i]!.flatMap((cell, c) => (treeCols[c] ? [<Box width={treeCols[c]} justifyContent="flex-end">{cell}</Box>] : []))}
+              </Box>
+            </Box>
+          )
+        }
+        const rows = by === 'worktrees' ? trees.map(worktreeRow) : tree.map(r => {
           const b = r.branch
           const isCurrent = b?.name === hd.name
           const at = r.label.indexOf('/')
@@ -2372,17 +2436,18 @@ export const register: Register = (on, options) => {
             </Box>,
           )
         // The chosen view is plain text; only the other is a button, and switching opens on the current branch again.
-        const acts = (['base', 'prefix'] as const).map(by => {
-          const label = `${by === 'base' ? '\uf419' : '\uea83'} ${by}`
-          return view.by === by ? (
+        const acts = (['base', 'prefix', ...(trees.length > 1 ? (['worktrees'] as const) : [])] as const).map(one => {
+          const label = `${one === 'base' ? '\uf419' : one === 'prefix' ? '\uea83' : '⧉'} ${one}`
+          return by === one ? (
             <Text color="claude">{label}</Text>
           ) : (
-            <Button key={`m:by:${by}`} plain dimColor onPress={() => Promise.all([update($, branchView, v => ({ ...v, by })), update($, modal, m => m && { ...m, top: -1 })])}>
+            <Button key={`m:by:${one}`} plain dimColor onPress={() => Promise.all([update($, branchView, v => ({ ...v, by: one })), update($, modal, m => m && { ...m, top: -1 })])}>
               {label}
             </Button>
           )
         })
-        return drawLayer('m', f, { top: f.top, left: f.left - PAD }, acts, [], rows, open!.top, tree.findIndex(r => r.branch?.name === hd.name))
+        const here = by === 'worktrees' ? trees.findIndex(t => t.path === root) : tree.findIndex(r => r.branch?.name === hd.name)
+        return drawLayer('m', f, { top: f.top, left: f.left - PAD }, acts, [], rows, open!.top, here)
       }
       const inner = modalRows(0).width - 4
       // A row too wide for its layer (a stacked modal is narrower than the rows it reuses) is cut at the left side's
@@ -2749,10 +2814,10 @@ export const register: Register = (on, options) => {
             {/* The HUD statusline's branch glyph and green; one mark after it only when the branch needs you. */}
             {topRow(
               'branch',
-              [<Text color={HUD.action}>{branchLabel}</Text>, mark && <Text color={MARKS[mark][1]}>{` ${MARKS[mark][0]}`}</Text>],
+              [<Text color={HUD.action}>{branchLabel}</Text>, linked && <Text color={HUD.faint}> ⧉</Text>, mark && <Text color={MARKS[mark][1]}>{` ${MARKS[mark][0]}`}</Text>],
               [],
               card('card:branch', 0, 'left', upstreamName ? kv('upstream', upstreamName, sync) : kv('upstream', sync), ...(stashes ? [kv('stash', <Text>{counted(`${stashes} on this branch`)}</Text>)] : [])),
-              [...branchLabel].length + (mark ? 2 : 0),
+              [...branchLabel].length + (linked ? 2 : 0) + (mark ? 2 : 0),
             )}
             {topRow(
               'fetch',
