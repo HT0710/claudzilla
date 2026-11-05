@@ -1849,9 +1849,7 @@ export const register: Register = (on, options) => {
         await update($, toolCalls, n => n + 1)
         await readGh($)
       }
-      // Merged branches start hidden each time the branch modal opens.
       const openModal = async (key: ModalKey, row?: LogRow) => {
-        if (key === 'branch') await update($, branchView, v => ({ ...v, showMerged: false }))
         if (row) await update($, commitViews, all => ({ ...all, [row.full]: { ...all[row.full], row } }))
         await setModal($, () => ({ key, top: key === 'branch' ? -1 : 0, ...(row && { sha: row.full }) }))
         if (row) await readCommitView($, row.full)
