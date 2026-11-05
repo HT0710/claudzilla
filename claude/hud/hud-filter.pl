@@ -337,7 +337,9 @@ push @out, rule(3, sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]])) 
     my @L = ( [$mo,       sub { "\e[38;2;127;182;217m$_[0]\e[0m" }],
               [$skill,    sub { "\e[38;2;147;180;224m$G_SKILL $_[0]\e[0m" }],
               [$thinking, sub { "\e[38;2;169;143;217m\x{25C7} thinking\e[0m" }] );
-    my @R = ( [$sname,    sub { "\e[38;5;109m$_[0]\e[0m" }],
+    my $clock = $f{compact} ? sprintf('%02d:%02d %s %02d %s', @lt[2,1], $DAY[$lt[6]], $lt[3], $MON[$lt[4]]) : undef;
+    my @R = ( [$clock,    sub { "\e[38;2;141;166;194m$_[0]\e[0m" }],
+              [$sname,    sub { "\e[38;5;109m$_[0]\e[0m" }],
               [$id,       sub { "\e[38;2;79;92;104m$_[0]\e[0m" }],
               [$session,  sub { "\e[38;2;69;97;134mup $_[0]\e[0m" }] );
     my $build = sub {
@@ -347,7 +349,7 @@ push @out, rule(3, sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]])) 
     };
     my $fits = sub { fits($build->()) };
     for my $i (2,1) { last if $fits->(); $L[$i][0] = undef }     # thinking, skill
-    for my $i (1,0) { last if $fits->(); $R[$i][0] = undef }      # session id, then name
+    for my $i (0,2,1) { last if $fits->(); $R[$i][0] = undef }    # clock, session id, then name
     $L[0][0] = undef unless $fits->();                            # model, last resort
     my ($ls,$rs) = $build->();
     push @out, pad($ls, $rs);
