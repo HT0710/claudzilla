@@ -2829,7 +2829,7 @@ export const register: Register = (on, options) => {
               'branch',
               [<Text color={HUD.action}>{branchLabel}</Text>, linked && <Text color={HUD.faint}> ⧉</Text>, mark && <Text color={MARKS[mark][1]}>{` ${MARKS[mark][0]}`}</Text>],
               [],
-              card('card:branch', 0, 'left', upstreamName ? kv('upstream', upstreamName, sync) : kv('upstream', sync), ...(stashes ? [kv('stash', <Text>{counted(`${stashes} on this branch`)}</Text>)] : [])),
+              card('card:branch', 0, 'left', upstreamName ? kv('upstream', upstreamName, sync) : kv('upstream', hd.upstream), ...(stashes ? [kv('stash', <Text>{counted(`${stashes} on this branch`)}</Text>)] : [])),
               [...branchLabel].length + (linked ? 2 : 0) + (mark ? 2 : 0),
             )}
             {topRow(
