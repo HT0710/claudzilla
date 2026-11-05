@@ -1381,16 +1381,7 @@ test('deleted row neither presses nor lights; its card still shows', async ($, o
   const box = (await ui.drawn()) as unknown
   expect(JSON.stringify(box)).not.toMatch(new RegExp(`"scope":"card:${fileKey('old.ts')}","backgroundColor"`))
   await hover(ui, fileKey('old.ts'))
-  expect(await ui.find({ type: 'Text', text: /deleted · staged/ })).toBeDefined()
-})
-
-test('file card: full path, status word and stage', async ($, on) => {
-  quiet(on)
-  on('process.run', (_, e) => ran(git(changesRepo('MM a.ts\n', '2\t1\ta.ts\0'))(e.argv) ?? ''))
-  const ui = await mount($)
-  await hover(ui, fileKey('a.ts'))
-  expect(await ui.find({ type: 'Text', text: /status/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'modified · staged + not staged' })).toBeDefined()
+  expect((await cardTexts(ui, fileKey('old.ts'))).texts).toEqual(expect.arrayContaining(['status  ', 'deleted', 'staged']))
 })
 
 // The drawn texts of a row's card, each Text's own string.
@@ -1404,27 +1395,56 @@ const cardTexts = async (ui: Ui, key: string) => {
   return { card, find, texts: find(card, n => n.type === 'Text').map(own).filter(Boolean) }
 }
 
-test('a file card has no title row repeating the path; its labels start at the card edge', async ($, on) => {
+test('a file card: status, the change word, one pill per true stage', async ($, on) => {
   quiet(on)
-  on('process.run', (_, e) => ran(git(changesRepo('MM a.ts\n', '2\t1\ta.ts\0'))(e.argv) ?? ''))
+  on('process.run', (_, e) => ran(git(changesRepo('MM both.ts\nA  index.ts\n M tree.ts\n', '2\t1\tboth.ts\0'))(e.argv) ?? ''))
   const ui = await mount($)
-  await hover(ui, fileKey('a.ts'))
-  const { texts } = await cardTexts(ui, fileKey('a.ts'))
-  expect(texts).not.toContain('a.ts')
-  expect(texts).toContain('status  ')
+  const words = async (key: string) => {
+    await hover(ui, fileKey(key))
+    return (await cardTexts(ui, fileKey(key))).texts.filter(t => /[a-z]/.test(t))
+  }
+  expect(await words('both.ts')).toEqual(['status  ', 'modified', 'staged', 'not staged'])
   // The row shows the line counts; the card does not repeat them.
-  expect(texts.filter(t => /^[+−]\d/.test(t))).toEqual([])
+  expect((await cardTexts(ui, fileKey('both.ts'))).texts.filter(t => /^[+−]\d/.test(t))).toEqual([])
+  expect(await words('index.ts')).toEqual(['status  ', 'added', 'staged'])
+  expect(await words('tree.ts')).toEqual(['status  ', 'modified', 'not staged'])
 })
 
-test('rename row shows the new name and its counts; card has from', async ($, on) => {
+test('a stage pill takes the green and grey of the PR pills', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(changesRepo('MM both.ts\n'))(e.argv) ?? ''))
+  const ui = await mount($)
+  await hover(ui, fileKey('both.ts'))
+  const { card, find } = await cardTexts(ui, fileKey('both.ts'))
+  const word = (text: string) => find(card, n => n.type === 'Text' && [n.children ?? n.props?.children].flat().includes(text))[0]?.props
+  expect(word('staged')).toMatchObject({ backgroundColor: '#1d3a2a', color: 'success' })
+  expect(word('not staged')).toMatchObject({ backgroundColor: '#2a2e33', color: '#808286' })
+})
+
+test('a status pill takes its letter colour; an untracked or conflict file has no stage pill', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(changesRepo(' M m.ts\nA  a.ts\nD  d.ts\nR  o.ts -> r.ts\n?? u.ts\nUU c.ts\n'))(e.argv) ?? ''))
+  const ui = await mount($)
+  const pills: [string, string, string, string][] = [
+    ['m.ts', 'modified', '#3a3220', '#e5c07b'], ['a.ts', 'added', '#1d3a2a', '#98c379'], ['d.ts', 'deleted', '#3a2030', '#e06c75'],
+    ['r.ts', 'renamed', '#1c2f44', '#61afef'], ['u.ts', 'untracked', '#173538', '#56b6c2'], ['c.ts', 'conflict', '#3a2030', '#e06c75'],
+  ]
+  for (const [key, word, backgroundColor, color] of pills) {
+    await hover(ui, fileKey(key))
+    const { card, find, texts } = await cardTexts(ui, fileKey(key))
+    expect(find(card, n => n.type === 'Text' && [n.children ?? n.props?.children].flat().includes(word))[0]?.props).toMatchObject({ backgroundColor, color })
+    if (word === 'untracked' || word === 'conflict') expect(texts.filter(t => /[a-z]/.test(t))).toEqual(['status  ', word])
+  }
+})
+
+test('rename row shows the new name and its counts; its card has no old path', async ($, on) => {
   quiet(on)
   on('process.run', (_, e) => ran(git(changesRepo('R  docs/git.md -> docs/git-tab.md\n', '2\t2\t\0docs/git.md\0docs/git-tab.md\0'))(e.argv) ?? ''))
   const ui = await mount($)
   expect(await piece(ui, fileKey('docs/git-tab.md'), /docs\/git-tab\.md$/)).toBeDefined()
   expect(await piece(ui, fileKey('docs/git-tab.md'), '+2')).toBeDefined()
   await hover(ui, fileKey('docs/git-tab.md'))
-  expect(await ui.find({ type: 'Text', text: /from/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'docs/git.md' })).toBeDefined()
+  expect((await cardTexts(ui, fileKey('docs/git-tab.md'))).texts.filter(t => /[a-z]/.test(t))).toEqual(['status  ', 'renamed', 'staged'])
 })
 
 test('card follows the row after a scroll', async ($, on) => {
@@ -1434,7 +1454,7 @@ test('card follows the row after a scroll', async ($, on) => {
   const ui = await mount($)
   await wheel($, 5, 5)
   await hover(ui, fileKey('f05.ts'))
-  expect(await ui.find({ type: 'Text', text: 'modified · not staged' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'not staged' })).toBeDefined()
   expect(await rowText(ui, /f05\.ts$/)).toBeDefined()
 })
 

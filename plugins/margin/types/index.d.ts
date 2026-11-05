@@ -23,11 +23,9 @@ export type Pr = {
 }
 export type Counts = { add: number; del: number } | 'bin'
 // One CHANGES row: the letter the row shows, dim when only staged, and the card's words.
-export type Change = {
-  path: string; from?: string; letter: string; dim: boolean
-  word: 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflict'
-  stage?: 'staged' | 'not staged' | 'staged + not staged'
-}
+export type Stage = 'staged' | 'not staged'
+export type Word = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflict'
+export type Change = { path: string; letter: string; dim: boolean; stage: Stage[]; word: Word }
 // One COMMITS row: `at` in ms; `refs` the branches pointing at it, `remote` '' for a local one; `tags` tag names.
 export type LogRow = { full: string; short: string; author: string; at: number; refs: { remote: string; branch: string }[]; tags: string[]; subject: string }
 export type CommitView = { body: string; files: { path: string; status: string; additions: number; deletions: number }[] }

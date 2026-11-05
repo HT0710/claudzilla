@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AgentRow, Check, CheckState, CommitView, Counts, FileView, LogRow, Gh, Intent, Modal, ModalKey, Op, Overview, Pr, PrState, PrView, Spawn, Step, Tab } from '../types'
+import type { AgentRow, Check, CheckState, CommitView, Counts, FileView, LogRow, Gh, Intent, Modal, ModalKey, Op, Overview, Pr, PrState, PrView, Spawn, Stage, Step, Tab, Word } from '../types'
 import { LOG_FORMAT, age, branches, cutMiddle, fileKey, incomingPrs, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseStatusZ, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows, worst } from './git-data'
 import { mdRows } from './markdown'
 import { capped, modalFrame, scrollWindow, stackFrame } from './modal'
@@ -1909,7 +1909,7 @@ export const register: Register = (on, options) => {
       // The CHANGES and COMMITS rows drawn, each a line of its own: its tab row and its card's rows. A card that would
       // pass the tab's bottom opens upward, so the line above it dims instead of the line below.
       const lower = [
-        ...shownChanges.map((c, i) => ({ key: fileKey(c.path), zone: 'changes', at: topRows + 2 + (changesShown < changesRows ? 1 : 0) + i, n: c.from ? 2 : 1 })),
+        ...shownChanges.map((c, i) => ({ key: fileKey(c.path), zone: 'changes', at: topRows + 2 + (changesShown < changesRows ? 1 : 0) + i, n: 1 })),
         ...shownCommits.map((c, j) => ({ key: commitKey(c.full), zone: 'commits', at: commitsAt0 + j, n: 1 + (c.refs.length || c.tags.length ? 1 : 0) + (commitStats.has(c.full) ? 1 : 0) })),
       ]
       const upOf = (at: number, n: number) => at + 4 + n > tabRows
@@ -1965,7 +1965,7 @@ export const register: Register = (on, options) => {
         return row
       }
       // A card's kv rows share one info column, so every far-right text starts past the same column. A row with a
-      // far-right text keeps its info whole; a row with none (refs, from) widens the column only as far as the 75% cap
+      // far-right text keeps its info whole; a row with none (refs) widens the column only as far as the 75% cap
       // leaves room beside the far-right texts, and is cut with … at its end, so a long branch name cuts no count.
       const kvArgs = new WeakMap<object, [string, JSX.Element | string, JSX.Element | undefined]>()
       const infoLength = (info: JSX.Element | string) => (typeof info === 'string' ? info : toPieces(info).map(x => x.text).join('')).length
@@ -2117,9 +2117,13 @@ export const register: Register = (on, options) => {
           <Text bold={bold}>{rest}</Text>,
         ]
       }
-      const PILL: Record<PrState, [string, string]> = { open: ['#1d3a2a', 'success'], draft: ['#2a2e33', SCOPE], merged: ['#2e2640', HUD.label], closed: ['#3a2030', 'error'] }
+      const PILL: Record<PrState | Stage | Word, [string, string]> = {
+        open: ['#1d3a2a', 'success'], draft: ['#2a2e33', SCOPE], merged: ['#2e2640', HUD.label], closed: ['#3a2030', 'error'],
+        staged: ['#1d3a2a', 'success'], 'not staged': ['#2a2e33', SCOPE],
+        modified: ['#3a3220', STATUS.M!], added: ['#1d3a2a', STATUS.A!], deleted: ['#3a2030', STATUS.D!], renamed: ['#1c2f44', STATUS.R!], untracked: ['#173538', STATUS['?']!], conflict: ['#3a2030', STATUS.U!],
+      }
       // A state pill: the rounded ends in its background colour around the word.
-      const pill = (state: PrState) => [
+      const pill = (state: PrState | Stage | Word) => [
         <Text color={PILL[state][0]}>{''}</Text>,
         <Text backgroundColor={PILL[state][0]} color={PILL[state][1]}>{state}</Text>,
         <Text color={PILL[state][0]}>{''}</Text>,
@@ -2795,12 +2799,12 @@ export const register: Register = (on, options) => {
                 const color = STATUS[c.letter] ?? HUD.faint
                 // Two columns in, the letter, then the path and counts as every file list draws them.
                 const { left, right } = changeParts([<Text>  </Text>, <Text color={c.dim ? dim(color) : color}>{c.letter}</Text>], c.path, counts.get(c.path) ?? lineCounts.get(c.path), room - 3, c.dim ? HUD.faint : undefined)
-                const status = c.word === 'conflict' ? <Text color={TYPES.fix}>conflict</Text> : `${c.word}${c.stage ? ` · ${c.stage}` : ''}`
+                const status = <Text>{[c.word, ...c.stage].flatMap((s, j) => [...(j ? [<Text> </Text>] : []), ...pill(s)])}</Text>
                 return topRow(
                   fileKey(c.path),
                   left,
                   right ? [right] : [],
-                  card(`card:${fileKey(c.path)}`, topRows + 2 + (changesShown < changesRows ? 1 : 0) + i, 'center', ...(c.from ? [kv('from', printable(c.from))] : []), kv('status', status)),
+                  card(`card:${fileKey(c.path)}`, topRows + 2 + (changesShown < changesRows ? 1 : 0) + i, 'center', kv('status', status)),
                 )
               })}
             </Box>
