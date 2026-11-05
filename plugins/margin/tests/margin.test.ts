@@ -2919,9 +2919,10 @@ test('a now ping with no report this turn is ignored', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: '3/3 steps' })).toBeDefined()
 })
 
-test('the rule asks for a now ping with every later tool message', async ($, on) => {
+test('the rule asks for a now ping only on a new step', async ($, on) => {
   const { rule } = await registered($, on)
   expect(rule).toContain('{"now": n}')
+  expect(rule).toContain('starts a new step, and only then')
 })
 
 test('the rule asks for the report in the user\'s language', async ($, on) => {
