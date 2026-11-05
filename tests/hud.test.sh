@@ -164,6 +164,30 @@ wn=$(data <<<'{"session_id":"w1"}' | COLUMNS=40 perl "$HUD/hud-filter.pl" 2>"$TM
 check "render: limits pending, narrow -> 4 meter rows" [ "$(grep -cE '^(ctx|cch|5h|wk) ' <<<"$wn")" -eq 4 ]
 check "render: limits pending -> no warnings" [ ! -s "$TMP/warn" ]
 
+# strip <cols> <payload>: rendered rows, colours removed
+strip() { data <<<"$2" | COLUMNS=$1 perl "$HUD/hud-filter.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
+widest() { perl -CS -ne 'chomp; $m = length if length > $m; END { print $m }'; }
+check "render: default -> 6 rows, 2 rules" [ "$(strip 170 "$full" | grep -c '━')/$(strip 170 "$full" | wc -l | tr -d ' ')" = 2/6 ]
+check "data: compact off by default" [ -z "$(key compact "$(data <<<"$full")")" ]
+printf '{bad' > "$C/claudzilla.json"
+check "data: bad config -> not compact" [ -z "$(key compact "$(data <<<"$full")")" ]
+echo '{"hud":{"compact":false}}' > "$C/claudzilla.json"
+check "data: compact false -> not compact" [ -z "$(key compact "$(data <<<"$full")")" ]
+echo '{"hud":{"compact":true}}' > "$C/claudzilla.json"
+check "data: compact true" [ "$(key compact "$(data <<<"$full")")" = 1 ]
+out=$(strip 170 "$full")
+check "compact: 3 rows" [ "$(wc -l <<<"$out")" -eq 3 ]
+check "compact: no rules" bash -c "! grep -q '━' <<<'$out'"
+check "compact: one meter row" grep -q '^ctx .* 42%  *┃ cch .*┃ 5h  .* 30%  *2h0m ┃ wk  .* 12%  2d7h$' <<<"$out"
+check "compact: meter row fills 166 cols" [ "$(sed -n 2p <<<"$out" | widest)" -eq 166 ]
+check "compact: no time or date" bash -c "! grep -qE '[0-9]{2}:[0-9]{2}| (Sun|Mon|Tue|Wed|Thu|Fri|Sat) ' <<<'$out'"
+check "compact: 109 cols -> one meter row" [ "$(strip 109 '{"session_id":"w1"}' | wc -l)" -eq 3 ]
+check "compact: 108 cols -> two columns, 4 rows" [ "$(strip 108 '{"session_id":"w1"}' | wc -l)" -eq 4 ]
+check "compact: 108 cols, short notes -> height holds" [ "$(strip 108 "$full" | wc -l)" -eq 4 ]
+check "compact: no limits -> cache beside ctx" grep -q '^ctx .*┃ cch .* 33%  *40m$' <<<"$(strip 120 "$nolim")"
+check "compact: 40 cols -> meters stack, no rules" [ "$(strip 40 '{"session_id":"w1"}' | wc -l)" -eq 6 ]
+rm "$C/claudzilla.json"
+
 check "render: not a repo -> no branch" bash -c "! head -1 <<<'$(render "$full")' | grep -q '⎇'"
 narrow=$(data <<<"$full" | COLUMNS=60 perl "$HUD/hud-filter.pl" | perl -pe 's/\e\[[0-9;]*m//g')
 check "render: narrow fits 56 cols" [ "$(perl -CS -ne 'chomp; $m = length if length > $m; END { print $m }' <<<"$narrow")" -eq 56 ]
