@@ -127,6 +127,11 @@ if (d.transcript_path) {
 // logged in, no reply yet: limits arrive with the first one, so hold their slots
 if (out.profile && last === undefined && out["5h"] === undefined && out.wk === undefined) out.lim_wait = 1;
 
+try {
+  const dir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+  if (JSON.parse(readFileSync(join(dir, "claudzilla.json"), "utf8")).hud?.compact === true) out.compact = 1;
+} catch { /* no config: the default layout */ }
+
 process.stdout.write(
   Object.entries(out)
     .filter(([, v]) => v !== undefined && v !== null && v !== "")

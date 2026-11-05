@@ -1,5 +1,6 @@
 #!/usr/bin/perl -0777
 # hud-data.mjs key/value lines -> E2 layout: identity row, rule, meters in two columns (ctx over cch | 5h over wk), rule, activity row.
+# hud.compact in claudzilla.json: no rules, and all meters on one row when the width allows.
 use strict; use warnings;
 # stdin, stdout, files and `git` output are UTF-8: decode on read, so non-ASCII paths aren't encoded twice.
 # Invalid bytes (a branch name git allows) become U+FFFD, quietly: a statusline has no stderr reader.
@@ -199,10 +200,14 @@ my $note_w = sub { my $w = 0; for (grep { defined } @mv{@_}) { $w = length $_->[
 my $tw = $note_w->(qw(ctx cch 5h wk));
 # two columns, ctx over cache | 5h over wk, when each half keeps a usable bar; else one meter per row.
 # Each column right-aligns its own notes.
+my @one = grep { defined } @mv{qw(ctx cch 5h wk)};
+# a fixed note width of 5, not $tw: the row count must not flip as a reset countdown changes length
+my $ONE = $f{compact} && @one && int(($W - 3 * $#one) / @one) - 11 - 5 >= 8;
 my $CL = int(($W - 3) / 2); my $CRW = $W - 3 - $CL;
-my $TWO = ($mv{'5h'} || $mv{wk}) && $CL - 11 - $tw >= 8;
+my $TWO = !$ONE && ($mv{'5h'} || $mv{wk}) && $CL - 11 - $tw >= 8;
 my ($twl, $twr) = $TWO ? ($note_w->(qw(ctx cch)), $note_w->(qw(5h wk))) : ($tw, $tw);
-my @m = $TWO ? grep { defined } @mv{qw(ctx cch)} : grep { defined } @mv{qw(ctx cch 5h wk)};
+# empty on one row: the sweep's fill-edge pulse then starts mid-row, so it reaches both ends
+my @m = $ONE ? () : $TWO ? grep { defined } @mv{qw(ctx cch)} : @one;
 my $n  = ($TWO ? $CL : $W) - 4 - 5 - 2 - $twl;
 
 # --- sweep -----------------------------------------------------------------
@@ -287,16 +292,28 @@ sub rule {
     return paint(@px);
 }
 my @lt = localtime;
-push @out, rule(-1, sprintf(' %02d:%02d ', @lt[2,1]));
+push @out, rule(-1, sprintf(' %02d:%02d ', @lt[2,1])) unless $f{compact};
 
-if ($TWO) {
+my $DIV = " \e[38;2;38;50;64m\x{2503}\e[0m ";
+if ($ONE) {
+    my $room = $W - 3 * $#one;
+    my $x = 0;
+    my @hs = heads(1);      # middle row: the spin's row scale is 1, so it reaches both ends
+    my @cols;
+    for my $i (0 .. $#one) {
+        my $col = int($room * ($i + 1) / @one) - int($room * $i / @one);
+        push @cols, meter_line(@{$one[$i]}, $col - 11 - $tw, $tw, map { $_ - $x } @hs);
+        $x += $col + 3;
+    }
+    push @out, join($DIV, @cols);
+} elsif ($TWO) {
     # a missing meter leaves its slot blank
     my $nr = $CRW - 4 - 5 - 2 - $twr;
     for my $i (0, 1) {
         my ($l, $r) = ($mv{(qw(ctx cch))[$i]}, $mv{(qw(5h wk))[$i]});
         my @hs = heads($row++);
         push @out, ($l ? meter_line(@$l, $n, $twl, @hs) : ' ' x $CL)
-                 . " \e[38;2;38;50;64m\x{2503}\e[0m "
+                 . $DIV
                  . ($r ? meter_line(@$r, $nr, $twr, map { $_ - $CL - 3 } @hs) : ' ' x $CRW);
     }
 } else {
@@ -306,7 +323,7 @@ if ($TWO) {
     }
 }
 
-push @out, rule(3, sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]]));
+push @out, rule(3, sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]])) unless $f{compact};
 
 # activity: model, skill, thinking; uptime flush right
 {   # same treatment as the identity row, measured on the rendered strings
