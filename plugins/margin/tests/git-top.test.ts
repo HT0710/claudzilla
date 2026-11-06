@@ -2365,6 +2365,20 @@ test('a redraw starts no second round of status runs', async ($, on) => {
   expect(asked.length).toBe(runs)
 })
 
+test('a jump from a COMMITS row onto its card keeps the card closed under the pointer', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  quiet(on, 5 * MIN, false, {}, true)
+  const fulls = ['a', 'b', 'c', 'd', 'e', 'f'].map(c => c.repeat(40))
+  on('process.run', (_, e) => ran(commitsRepo(fulls.map(full => logLine(full, 'feat: one')), [])(e.argv) ?? ''))
+  const ui = await mount($)
+  const [first, under] = [fulls[0]!, fulls[2]!]
+  await hover(ui, `c:${first}`)
+  await ui.pointer({ type: 'leave', x: 0, y: 0, in: `row:c:${first}` })
+  await hover(ui, `c:${under}`)
+  await clock.advance(100)
+  expect((await cardTexts(ui, `c:${first}`)).card).toBeUndefined()
+})
+
 const narrow = async ($: Parameters<TestBody>[0]) => {
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 40 }, requestId: 'margin' })
   await ui.press({ key: 'Git' })
