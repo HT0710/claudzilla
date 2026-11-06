@@ -9,7 +9,7 @@ SPEEDS="$REPO/.github/visuals/speeds.txt"
 # shellcheck source=lib.sh
 . "$REPO/.github/visuals/lib.sh"
 DEMO="$HOME/acme-api"
-SHOTS="statusline statusline-compact ballot margin primer run"
+SHOTS="statusline statusline-compact ballot margin edits primer run"
 
 # ask PROMPT SECS: send PROMPT, wait until its turn ends: a "✻ Sautéed for 21s · done 5:03 am" line
 # not on screen before (a long reply scrolls the prompt itself away).
@@ -137,6 +137,21 @@ shot_margin() {
 
   click $(locate 'Git') && wait_for 'COMMITS' 8 && sleep 1 && grab "$WORK/git.ansi" && still "$WORK/git.ansi" "$A/git.png" || return 1
   click $(locate 'History') && sleep 2 && grab "$WORK/history.ansi" && still "$WORK/history.ansi" "$A/history.png"
+}
+
+# folio's edit rows: two edits fold into one row; a click opens its tree of files.
+shot_edits() {
+  local at top end
+  # Tall: the tree opens under the row, and the reply under it must not push the row off screen.
+  start "$DEMO" 110 60 && margin_want off || return 1
+  ask "add a one-line comment at the top of auth/token.js and auth/token.test.js saying what each file holds. edit only, run nothing" 200 || return 1
+  at=$(locate 'Edited (2 files)') || return 1
+  click $at && wait_for '└' 8 && sleep 1 || return 1
+  # The folded row and its open tree only: the reply under it can run past the screen.
+  top=$(row 'Edited (2 files)'); end=$(row '└ auth/')
+  [ -n "$top" ] && [ -n "$end" ] || return 1
+  top=$((top - 2))
+  grab "$WORK/edits.ansi" "$top" "$end" && still "$WORK/edits.ansi" "$A/edits.png"
 }
 
 # The primer pane: topics beside a section.

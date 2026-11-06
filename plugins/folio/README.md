@@ -26,6 +26,10 @@ When the command ends, a row like a typed `!` command's leaves the output for Cl
 
 An Edit or Write call draws one row with its counts in place of its diff: `● Updated (a.txt)  +12 −3`, or `+3 new` for a new file. A run of edits with nothing between them folds into one row, `● Edited (3 files)  +15 −3`, and a failed or denied edit keeps its own row with its reason. Click the row to open a tree of the edited files, and click a file to see its diff in place. A lone edit has no tree: a click opens its diff. Folding needs the fullscreen layout; elsewhere each edit keeps its own row and no click. ctrl+o and `--verbose` still draw every diff, and a refusal or a change held for review draws as usual. Set `hideEditDiff` to `false` to keep diffs in the chat ([CONFIGURATION.md](../../CONFIGURATION.md)).
 
+<img src="../../.github/assets/edits.png" alt="Two edits folded into one Edited (2 files) row, clicked open to a tree of auth/token.js and auth/token.test.js with their line counts" width="720">
+
+*Two edits in one turn fold into one row; a click opens the tree. Click a file to see its diff.*
+
 ## Install
 
 claudzilla's `install.sh` installs it.
