@@ -8,8 +8,8 @@ import type { ClientModule } from 'claude-code'
 // Dragged, the rule stays put and shows how far (`by`), posting once let go: moved under the pointer, it
 // got rows counted from where the terminal had not yet moved it, and jumped.
 // Clicked, a press and release that never left its row, it jumps to the top, or from the top to the bottom.
-// `top`: a scrolled zone's back-to-top line instead, its grip ↑: no drag, a click posts `top`, unless faded, as the
-// faded tab presses nothing.
+// `top`: a scrolled zone's back-to-top line instead, its grip ↑: no drag, a click posts `top`.
+// Faded it takes no grab, as the faded tab presses nothing.
 const Divider: ClientModule<{ split: number; min: number; max: number; faded?: boolean; top?: boolean; line?: string }, { grabbed?: number; by?: number; moved?: boolean; isOver?: boolean }> = ({ split, min, max, faded, top, line }, surface) => {
   const { Box, Text } = surface.elements
   // Rows a drag of `d` moves the rule, as far as the zone can go: a zone under `min` never shrinks, and
@@ -20,14 +20,14 @@ const Divider: ClientModule<{ split: number; min: number; max: number; faded?: b
     const { grabbed, moved } = surface.state ?? {}
     if (e.type === 'enter') surface.setState({ ...surface.state, isOver: true })
     else if (e.type === 'leave') surface.setState({ ...surface.state, isOver: false })
-    else if (e.type === 'down' && e.button === 'left') surface.setState({ grabbed: e.y, isOver: true })
+    else if (e.type === 'down' && e.button === 'left' && !faded) surface.setState({ grabbed: e.y, isOver: true })
     // A drag holds the pointer past the edges with no leave: an up off the rule ends the light. A move
     // with no button held while grabbed is an up the surface missed.
     else if (e.type === 'up' || (e.type === 'move' && !e.button && grabbed !== undefined)) {
       surface.setState({ isOver: e.y === 0 && e.x >= 0 && e.x < surface.columns })
       if (grabbed === undefined) return
       if (top) {
-        if (!faded && e.y === grabbed) surface.post({ top: true })
+        if (e.y === grabbed) surface.post({ top: true })
         return
       }
       const to = split > min ? min : max
