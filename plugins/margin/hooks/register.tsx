@@ -888,7 +888,7 @@ const readOp = async ($: EngineInterface, dir: string, names: string[], branch: 
     const [headName, onto, done, todo] = await Promise.all(['head-name', 'onto', 'done', 'git-rebase-todo'].map(name => file(`rebase-merge/${name}`)))
     const op = parseRebase({ headName, onto, done, todo, numstat, cached, unmerged })
     // The base by name: a local branch at onto first, else a remote one, else its short id.
-    const at = (await git('branch', '-a', '--points-at', op.onto, '--format=%(refname:short)')).split('\n').filter(Boolean)
+    const at = (await git('branch', '-a', '--points-at', op.onto, '--format=%(refname:short)')).split('\n').filter(name => name && !name.startsWith('('))
     return { ...op, onto: at.find(name => !name.startsWith('origin/')) ?? at[0] ?? op.onto.slice(0, 7) }
   }
   const at = verb === 'cherry-pick' ? 'CHERRY_PICK_HEAD' : verb === 'revert' ? 'REVERT_HEAD' : 'MERGE_HEAD'
