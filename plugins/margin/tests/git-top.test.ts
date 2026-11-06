@@ -1040,7 +1040,7 @@ test('PR modal: title, meta row with the verb by state, divider', async ($, on) 
 
 test('a base conflict adds the conflicts row', async ($, on) => {
   quiet(on)
-  withPr(on, repoOn('a', { 'merge-tree': 'abc123\nplugins/margin/hooks/register.tsx\nGUIDE.md\n\nCONFLICT (content)\n' }), [prJson({ mergeable: 'CONFLICTING' })])
+  withPr(on, repoOn('a', { 'merge-tree': 'abc123\0plugins/margin/hooks/register.tsx\0GUIDE.md\0\0CONFLICT (content)\0' }), [prJson({ mergeable: 'CONFLICTING' })])
   const ui = await openPr($)
   expect(await ui.find({ type: 'Text', text: ' conflicts in register.tsx, GUIDE.md' })).toBeDefined()
 })
@@ -1228,9 +1228,9 @@ const rebaseDir = (doneN: number) => ({
 // A conflict stop on step 2: one unmerged file, onto release/1.7.
 const conflictRepo = (more: Record<string, string> = {}) => repoOn('x', {
   status: '## HEAD (no branch)\nUU f.txt\n',
-  '--diff-filter=U': 'f.txt\n',
+  '--diff-filter=U': 'f.txt\0',
   '--cached': '',
-  '--numstat': '0\t0\tf.txt\n4\t0\tf.txt\n',
+  '--numstat': '0\t0\tf.txt\x004\t0\tf.txt\0',
   '--points-at': 'release/1.7\n',
   ...more,
 })
@@ -2098,7 +2098,7 @@ test('a failed check log with colour codes draws as plain text', async ($, on) =
 
 test('a conflict file name with a control character draws as a space in the PR modal', async ($, on) => {
   quiet(on)
-  withPr(on, repoOn('a', { 'merge-tree': 'abc\na\x1bb.ts\n\nInfo\n' }), [prJson({ mergeable: 'CONFLICTING' })])
+  withPr(on, repoOn('a', { 'merge-tree': 'abc\0a\x1bb.ts\0\0Info\0' }), [prJson({ mergeable: 'CONFLICTING' })])
   const ui = await openPr($)
   expect(await ui.find({ type: 'Text', text: ' conflicts in a b.ts' })).toBeDefined()
 })
@@ -2250,8 +2250,8 @@ test('a stacked section that goes closes with it, so the next one opens nothing'
   const clock = mock.clock(on, { now: NOW })
   on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }) as any)
   const names = ['a', 'b', 'c', 'd', 'e'].map(n => `${n}.txt`)
-  const numstat = names.map(name => `4\t0\t${name}\n`).join('')
-  const repo: Record<string, string> = conflictRepo({ '--diff-filter=U': `${names.join('\n')}\n`, '--numstat': numstat })
+  const numstat = names.map(name => `4\t0\t${name}\0`).join('')
+  const repo: Record<string, string> = conflictRepo({ '--diff-filter=U': `${names.join('\0')}\0`, '--numstat': numstat })
   on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
   const ui = await mount($)
   await tap(ui, 'rebase')
@@ -2262,7 +2262,7 @@ test('a stacked section that goes closes with it, so the next one opens nothing'
   await $.tool.call({ tool: 'Bash', command: 'git add .' })
   await ui.drawn()
   await clock.advance(1)
-  Object.assign(repo, { '--diff-filter=U': `${names.join('\n')}\n`, '--cached': '' })
+  Object.assign(repo, { '--diff-filter=U': `${names.join('\0')}\0`, '--cached': '' })
   await $.tool.call({ tool: 'Bash', command: 'git checkout -m .' })
   await ui.drawn()
   expect(await ui.find({ key: 's:x' })).toBeUndefined()
@@ -2428,4 +2428,64 @@ test('a row whose far-right text cannot fit keeps the shared value column', asyn
   const boxes = find(card, n => n.type === 'Box' && n.props?.flexShrink === 0 && n.props?.width !== undefined)
   const checks = boxes.find(n => JSON.stringify(n).includes('checks'))
   expect(checks.props.width).toBe(Math.max(...boxes.map(n => n.props.width)))
+})
+
+// As git answers: without -z a non-ASCII path comes back quoted and escaped.
+const quoted = (name: string) => (argv: readonly string[], text: string) => (argv.includes('-z') ? text.replaceAll('\n', '\0') : text.replaceAll(name, `"${name.replaceAll('é', '\\303\\251')}"`))
+
+test('a rebase conflict on a non-ASCII path opens that file', async ($, on) => {
+  quiet(on, 5 * MIN, false, { ...rebaseDir(2), '/repo/café.ts': 'conflict text' })
+  const repo = conflictRepo({ '--diff-filter=U': 'café.ts\n', '--numstat': '4\t0\tcafé.ts\n' })
+  on('process.run', (_, e) => ran(e.argv.includes('diff') && !e.argv.includes('HEAD') ? quoted('café.ts')(e.argv, git(repo)(e.argv) ?? '') : (git(repo)(e.argv) ?? '')))
+  const ui = await mount($)
+  await tap(ui, 'rebase')
+  await tap(ui, `mf:${fileKey('café.ts')}`)
+  expect(await ui.find({ type: 'Text', text: '/repo/café.ts' })).toBeDefined()
+})
+
+test('the base conflict list reads a non-ASCII path as it is', async ($, on) => {
+  quiet(on)
+  const tree = 'abc\ncafé.ts\n\nCONFLICT (content): Merge conflict in café.ts\n'
+  on('process.run', (_, e) => {
+    if (e.argv[0] === 'gh') return ran(JSON.stringify(e.argv[2] === 'list' ? [prJson({ mergeable: 'CONFLICTING' })] : viewJson()))
+    return ran(e.argv.includes('merge-tree') ? quoted('café.ts')(e.argv, tree) : (git(repoOn('a'))(e.argv) ?? ''))
+  })
+  const ui = await openPr($)
+  expect(await ui.find({ type: 'Text', text: ' conflicts in café.ts' })).toBeDefined()
+})
+
+test('a conflict path with a control character draws as a space on the rebase card', async ($, on) => {
+  quiet(on, 5 * MIN, false, rebaseDir(2))
+  on('process.run', (_, e) => ran(git(conflictRepo({ '--diff-filter=U': 'a\x1bb.ts\0', '--numstat': '4\t0\ta\x1bb.ts\0' }))(e.argv) ?? ''))
+  const ui = await mount($)
+  const { texts } = await cardTexts(ui, 'rebase')
+  expect(texts.join('')).toContain('a b.ts')
+  expect(texts.join('')).not.toContain('\x1b')
+})
+
+test('a conflict path with a control character opens in the File tab, drawn as a space', async ($, on) => {
+  quiet(on, 5 * MIN, false, { ...rebaseDir(2), '/repo/a\x1bb.ts': 'conflict text' })
+  on('process.run', (_, e) => ran(git(conflictRepo({ '--diff-filter=U': 'a\x1bb.ts\0', '--numstat': '4\t0\ta\x1bb.ts\0' }))(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, 'rebase')
+  await tap(ui, `mf:${fileKey('a\x1bb.ts')}`)
+  expect(await ui.find({ type: 'Text', text: '/repo/a b.ts' })).toBeDefined()
+})
+
+test('a file the File tab cannot show names its path with control characters as spaces', async ($, on) => {
+  quiet(on, 5 * MIN, false, rebaseDir(2))
+  on('process.run', (_, e) => ran(git(conflictRepo({ '--diff-filter=U': 'a\x1bb.ts\0', '--numstat': '4\t0\ta\x1bb.ts\0' }))(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, 'rebase')
+  await tap(ui, `mf:${fileKey('a\x1bb.ts')}`)
+  expect(await ui.find({ type: 'Text', text: '/repo/a b.ts' })).toBeDefined()
+})
+
+test('a conflict path with a tab keeps its whole name', async ($, on) => {
+  quiet(on, 5 * MIN, false, { ...rebaseDir(2), '/repo/a\tb.ts': 'conflict text' })
+  on('process.run', (_, e) => ran(git(conflictRepo({ '--diff-filter=U': '', '--cached': '1\t1\ta\tb.ts\0', '--numstat': '' }))(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, 'rebase')
+  await tap(ui, `mf:${fileKey('a\tb.ts')}`)
+  expect(await ui.find({ type: 'Text', text: '/repo/a b.ts' })).toBeDefined()
 })
