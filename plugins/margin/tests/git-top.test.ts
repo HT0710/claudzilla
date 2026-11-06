@@ -2489,3 +2489,71 @@ test('a conflict path with a tab keeps its whole name', async ($, on) => {
   await tap(ui, `mf:${fileKey('a\tb.ts')}`)
   expect(await ui.find({ type: 'Text', text: '/repo/a b.ts' })).toBeDefined()
 })
+
+test('picking Git again drops a rebase that ended outside this chat', async ($, on) => {
+  const dir: Record<string, string | null> = { ...rebaseDir(1) }
+  quiet(on, 5 * MIN, false, dir)
+  on('process.run', (_, e) => ran(git(conflictRepo())(e.argv) ?? ''))
+  const ui = await mount($)
+  expect(await ui.find({ key: 'row:rebase' })).toBeDefined()
+  for (const name of Object.keys(dir)) dir[name] = null
+  await ui.press({ key: 'History' })
+  await ui.press({ key: 'Git' })
+  expect(await ui.find({ key: 'row:rebase' })).toBeUndefined()
+})
+
+test('picking Git again reads the PR base conflicts afresh', async ($, on) => {
+  quiet(on)
+  const repo = repoOn('a', { 'merge-tree': 'abc\0old.ts\0\0' })
+  withPr(on, repo, [prJson({ mergeable: 'CONFLICTING' })])
+  const ui = await openPr($)
+  await ui.press({ key: 'm:x' })
+  Object.assign(repo, { 'merge-tree': 'abc\0new.ts\0\0' })
+  await ui.press({ key: 'History' })
+  await ui.press({ key: 'Git' })
+  await tap(ui, 'pr')
+  expect(await ui.find({ type: 'Text', text: ' conflicts in new.ts' })).toBeDefined()
+})
+
+test('picking Git again reads the worktree counts afresh', async ($, on) => {
+  quiet(on, 5 * MIN, false, {}, true)
+  const asked: string[] = []
+  withTrees(on, TREES, {}, undefined, undefined, asked)
+  const ui = await mount($)
+  await worktreeView(ui)
+  const first = asked.length
+  await ui.press({ key: 'History' })
+  await ui.press({ key: 'Git' })
+  await tap(ui, 'branch')
+  await treeClock.advance(1)
+  expect(asked.length).toBe(2 * first)
+})
+
+test('picking Git again reads the default branch afresh', async ($, on) => {
+  quiet(on)
+  let reads = 0
+  on('process.run', (_, e) => {
+    if (e.argv.includes('symbolic-ref')) reads++
+    return ran(git(repoOn('a', { 'symbolic-ref': 'origin/main\n' }))(e.argv) ?? '')
+  })
+  const ui = await mount($)
+  await tap(ui, 'branch')
+  await ui.press({ key: 'History' })
+  await ui.press({ key: 'Git' })
+  await tap(ui, 'branch')
+  expect(reads).toBe(2)
+})
+
+test("picking Git again reads an untracked file's lines afresh", async ($, on) => {
+  quiet(on)
+  let lines = 8
+  on('process.run', (_, e) =>
+    e.argv[0] === 'find' ? ran(`  ${lines} 120 /repo/new.ts\n`) : ran(git(changesRepo('?? new.ts\n', '', { '--absolute-git-dir': '/repo/.git\n/repo/.git\n/repo\n' }))(e.argv) ?? ''),
+  )
+  const ui = await mount($)
+  expect(await piece(ui, fileKey('new.ts'), '+8')).toBeDefined()
+  lines = 9
+  await ui.press({ key: 'History' })
+  await ui.press({ key: 'Git' })
+  expect(await piece(ui, fileKey('new.ts'), '+9')).toBeDefined()
+})
