@@ -1968,7 +1968,8 @@ export const register: Register = (on, options) => {
       const card = (scope: string, row: number, anchor: 'left' | 'right' | 'center', ...rows: JSX.Element[]) => {
         const key = scope.slice(5)
         // As wide as its widest row, border and padding included, up to the 75% cap.
-        const width = Math.min(cardWidth, cardContent(rows) + 4)
+        // A file card's pills are all it says: it may pass the cap to show them whole.
+        const width = Math.min(key.startsWith('f:') ? e.props.bodyColumns - 4 : cardWidth, cardContent(rows) + 4)
         const place = anchor === 'left' ? { left: 0 } : anchor === 'right' ? { right: 0 } : { left: Math.floor((e.props.bodyColumns - width) / 2) - PAD }
         // Its border and rows, from row + 2.
         const top = upOf(row, rows.length) ? row - rows.length - 3 : row + 2
@@ -2020,9 +2021,13 @@ export const register: Register = (on, options) => {
         const width = sharedInfo(rows)
         const inset = insetOf(rows)
         const label = labelOf(rows)
+        const room = cardWidth - 4 - label - inset
         return rows.map(r => {
           const args = kvArgs.get(r)
-          return args ? kvRow(...args, width, inset, label) : r
+          if (!args) return r
+          // A row short of room for a far-right text that would fit leaves the shared column, down to its own value.
+          const left = args[2] ? room - 2 - textLength(args[2]) : width
+          return kvRow(...args, left >= infoLength(args[1]) ? Math.min(width, left) : width, inset, label)
         })
       }
       const kvRow = (label: string, info: JSX.Element | string, right?: JSX.Element, infoWidth?: number, inset = 1, labelWidth = label.length + 2) => (
@@ -2914,12 +2919,12 @@ export const register: Register = (on, options) => {
                 const color = STATUS[c.letter] ?? HUD.faint
                 // Two columns in, the letter, then the path and counts as every file list draws them.
                 const { left, right } = changeParts([<Text>  </Text>, <Text color={c.dim ? dim(color) : color}>{c.letter}</Text>], c.path, counts.get(c.path) ?? lineCounts.get(c.path), room - 3, c.dim ? HUD.faint : undefined)
-                const status = <Text>{[c.word, ...c.stage].flatMap((s, j) => [...(j ? [<Text> </Text>] : []), ...pill(s)])}</Text>
+                const status = <Text wrap="truncate-end">{[c.word, ...c.stage].flatMap((s, j) => [...(j ? [<Text> </Text>] : []), ...pill(s)])}</Text>
                 return topRow(
                   fileKey(c.path),
                   left,
                   right ? [right] : [],
-                  card(`card:${fileKey(c.path)}`, topRows + 2 + (changesShown < changesRows ? 1 : 0) + i, 'center', kv('status', status)),
+                  card(`card:${fileKey(c.path)}`, topRows + 2 + (changesShown < changesRows ? 1 : 0) + i, 'center', status),
                 )
               })}
             </Box>
@@ -2962,6 +2967,8 @@ export const register: Register = (on, options) => {
                 ]
               : [<Text>  </Text>, <Text color={isLocal ? undefined : HUD.faint}>{shown}</Text>]
             const stat = commitStats.get(full)
+            // The author gives way first: the age and counts stay whole. `commit` or `changes`, and 2 more, sets the label.
+            const authorRoom = cardWidth - 4 - (stat ? 9 : 8) - 2 - when.length - short.length - 4
             return topRow(
               commitKey(full),
               left,
@@ -2970,7 +2977,7 @@ export const register: Register = (on, options) => {
                 `card:${commitKey(full)}`,
                 commitsAt0 + j,
                 'center',
-                kv('commit', <Text><Text color="claude">{short}</Text><Text color={HUD.faint}>{' by '}</Text><Text>{author}</Text></Text>, <Text color={HUD.faint}>{when}</Text>),
+                kv('commit', <Text><Text color="claude">{short}</Text><Text color={HUD.faint}>{' by '}</Text><Text>{fit(author, Math.max(1, authorRoom))}</Text></Text>, <Text color={HUD.faint}>{when}</Text>),
                 ...(refs.length || tags.length ? [kv('refs', <Text>{refTexts(refs, tags)}</Text>)] : []),
                 ...(stat ? [kv('changes', <Text>{counted(plural(stat.files, 'file'))}</Text>, churnOf(stat.add, stat.del))] : []),
               ),
