@@ -901,7 +901,7 @@ const readOp = async ($: EngineInterface, dir: string, names: string[], branch: 
 const pick = async ($: EngineInterface, next: Tab) => {
   if (next !== 'Git' && (await read($, modal))) await setModal($, () => null)
   // Picking Git reads the repo afresh: it may have changed outside this chat.
-  if (next === 'Git') gitRead = logRead = undefined
+  if (next === 'Git') gitRead = logRead = opRead = prRead = wcRead = branchRead = treeRead = undefined
   await update($, tab, () => next)
   if (next === 'Overview' && overviewStale && (await isPlaced($))) $.clock.after(0, () => readOverview($))
   // Each write draws the pane; a second draw could land before the first, and the terminal
