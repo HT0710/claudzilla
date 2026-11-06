@@ -425,6 +425,11 @@ check "prompt: cross-session message, no panel reminder" [ "${out#*Side panel}" 
 SETTINGS="$CLAUDE_CONFIG_DIR/settings.json"
 printf '{"enabledPlugins":{"margin@claudzilla":true}}' > "$SETTINGS"; : > "$IX"
 new_session; out=$(hook UserPromptSubmit prompt=q "transcript_path=$IX")
+check "prompt: margin enabled, not installed, no panel reminder" [ "${out#*Side panel}" = "$out" ]
+hook Stop last_assistant_message=hi "transcript_path=$IX" >/dev/null
+check "stop: margin not installed, no flag" [ "$(state .flags.length)" = 0 ]
+mkdir -p "$CLAUDE_CONFIG_DIR/plugins"; printf '{"version":2,"plugins":{"margin@claudzilla":[{"scope":"user"}]}}' > "$CLAUDE_CONFIG_DIR/plugins/installed_plugins.json"
+new_session; out=$(hook UserPromptSubmit prompt=q "transcript_path=$IX")
 check "prompt: margin enabled, panel reminder on first prompt" has "$out" 'call `mcp__margin__intent`'
 printf '{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}\n' >> "$IX"; hook Stop last_assistant_message=hi "transcript_path=$IX" >/dev/null
 check "stop: no intent report this turn, flagged" has "$(state .flags)" "skipped the side panel report"
