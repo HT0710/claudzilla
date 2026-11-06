@@ -199,14 +199,15 @@ function readFrom(path, from) {
     if (fd !== undefined) closeSync(fd);
   }
 }
-// Margin enabled with intent reports on: the tool exists from the first prompt, before any call shows it.
+// Margin enabled, installed and with intent reports on: the tool exists from the first prompt, before any call shows
+// it. An install that failed leaves it enabled, with no tool to call.
 // A project's settings can turn the plugin off, so they win over the user's.
 function intentOn(cwd) {
   const read = (f) => { try { return JSON.parse(readFileSync(f, "utf8")); } catch { return {}; } };
   const user = read(join(CONFIG_DIR, "settings.json"));
   const enabled = Object.assign({}, user.enabledPlugins, ...["settings.json", "settings.local.json"].map((f) => read(join(cwd, ".claude", f)).enabledPlugins));
   const key = Object.keys(enabled).find((k) => k.startsWith("margin@") && enabled[k]);
-  return !!key && user.pluginConfigs?.[key]?.options?.intent !== false;
+  return !!read(join(CONFIG_DIR, "plugins", "installed_plugins.json")).plugins?.[key] && user.pluginConfigs?.[key]?.options?.intent !== false;
 }
 // The transcript's last TAIL bytes as lines; [] if unreadable.
 function tailLines(path) {
