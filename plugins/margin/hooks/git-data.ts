@@ -97,22 +97,15 @@ const todoLines = (text: string) =>
     return m ? [{ cmd: m[1]!, sha: m[2]!.slice(0, 7), subject: printable(m[3]!) }] : []
   })
 
-// `git diff --numstat`: a conflicted path prints a combined row first, so the last row per path wins.
-const numstat = (text: string) => {
-  const rows = new Map<string, Conflict>()
-  for (const line of text.split('\n')) {
-    const [add, del, path] = line.split('\t')
-    if (path) rows.set(path, { path, additions: Number(add) || 0, deletions: Number(del) || 0 })
-  }
-  return rows
-}
+const conflict = (path: string, counts?: Counts): Conflict => ({ path, additions: counts && counts !== 'bin' ? counts.add : 0, deletions: counts && counts !== 'bin' ? counts.del : 0 })
 
 // The files git stopped on, with their line counts; once none is unmerged, the staged ones, which hold the fixes.
+// A conflicted path prints a combined row first: parseNumstat keeps the last row per path.
 const conflicts = (unmerged: string, unstaged: string, cached: string) => {
-  const paths = unmerged.split('\n').filter(Boolean)
-  const counts = numstat(unstaged)
-  if (paths.length) return { conflicts: paths.map(path => counts.get(path) ?? { path, additions: 0, deletions: 0 }), resolved: false }
-  return { conflicts: [...numstat(cached).values()], resolved: true }
+  const paths = unmerged.split('\0').filter(Boolean)
+  const counts = parseNumstat(unstaged)
+  if (paths.length) return { conflicts: paths.map(path => conflict(path, counts.get(path))), resolved: false }
+  return { conflicts: [...parseNumstat(cached)].map(([path, counts]) => conflict(path, counts)), resolved: true }
 }
 
 export const parseRebase = (f: { headName: string; onto: string; done: string; todo: string; numstat: string; cached: string; unmerged: string }): Extract<Op, { kind: 'rebase' }> => {
@@ -286,9 +279,9 @@ export const parseNumstat = (z: string) => {
   const out = new Map<string, Counts>()
   const parts = z.split('\0')
   for (let i = 0; i < parts.length; i++) {
-    const [add, del, path] = parts[i]!.split('\t')
+    const [add, del, ...path] = parts[i]!.split('\t')
     if (del === undefined) continue
-    const name = path || (i += 2, parts[i])
+    const name = path.join('\t') || (i += 2, parts[i])
     if (name) out.set(name, add === '-' ? 'bin' : { add: Number(add), del: Number(del) })
   }
   return out

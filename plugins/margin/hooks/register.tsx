@@ -885,7 +885,7 @@ const readOp = async ($: EngineInterface, dir: string, names: string[], branch: 
   if (!rebasing && !verb && !names.includes('MERGE_HEAD')) return undefined
   const file = (name: string) => $.fs.read(`${dir}/${name}`).then(String, () => '')
   const git = (...argv: string[]) => $.process.run(['git', ...argv]).then(run => run.stdout, () => '')
-  const [numstat, cached, unmerged] = await Promise.all([git('diff', '--numstat'), git('diff', '--cached', '--numstat'), git('diff', '--name-only', '--diff-filter=U')])
+  const [numstat, cached, unmerged] = await Promise.all([git('diff', '--numstat', '-z'), git('diff', '--cached', '--numstat', '-z'), git('diff', '--name-only', '--diff-filter=U', '-z')])
   if (rebasing) {
     const [headName, onto, done, todo] = await Promise.all(['head-name', 'onto', 'done', 'git-rebase-todo'].map(name => file(`rebase-merge/${name}`)))
     const op = parseRebase({ headName, onto, done, todo, numstat, cached, unmerged })
@@ -1040,7 +1040,9 @@ const WORKING = ['running', 'waiting', 'idle']
 const FILE_SPAN = 200
 const FILE_LINE = 500
 // The File tab's view from a read: `text` empty stands for a file it cannot show (unreadable or binary).
-export const fileView = (path: string, line: number, read: string | undefined): NonNullable<FileView> => {
+export const fileView = (raw: string, line: number, read: string | undefined): NonNullable<FileView> => {
+  // Drawn only, and Text and Code refuse control characters: a path from git can hold one.
+  const path = printable(raw)
   if (read === undefined || read.includes('\0')) return { path, line, first: 1, text: '' }
   const all = read.replace(/\r?\n$/, '').split(/\r?\n/)
   const from = Math.max(0, Math.min(line - 1 - FILE_SPAN, all.length - (2 * FILE_SPAN + 1)))
@@ -1771,8 +1773,8 @@ export const register: Register = (on, options) => {
           run: Promise.all([
             $.process.run(['git', 'rev-list', '--count', `HEAD..origin/${pr.base}`]).catch(() => undefined),
             $.process.run(['git', 'rev-list', '--count', `origin/${pr.base}..HEAD`]).catch(() => undefined),
-            // Exits 1 on a conflict, the files still listed: the tree id, then a name a line.
-            pr.conflicting ? $.process.run(['git', 'merge-tree', '--write-tree', '--name-only', 'HEAD', `origin/${pr.base}`]).catch(() => undefined) : Promise.resolve(undefined),
+            // Exits 1 on a conflict, the files still listed: the tree id, then each name, then an empty record.
+            pr.conflicting ? $.process.run(['git', 'merge-tree', '--write-tree', '--name-only', '-z', 'HEAD', `origin/${pr.base}`]).catch(() => undefined) : Promise.resolve(undefined),
           ]),
         }
       const [behindRun, aheadRun, treeRun] = pr ? await prRead!.run : []
@@ -1786,7 +1788,7 @@ export const register: Register = (on, options) => {
         $.clock.after(0, () => setModal($, m => (m?.key === open.key ? null : m)))
       // The row that opened the modal: a commit's is keyed by its sha.
       const openRow = open?.key === 'commit' ? commitKey(open.sha ?? '') : open?.key
-      const conflictFiles = treeRun ? treeRun.stdout.split('\n\n')[0]!.split('\n').slice(1).filter(Boolean).map(printable) : []
+      const conflictFiles = treeRun ? treeRun.stdout.split('\0\0')[0]!.split('\0').slice(1).filter(Boolean).map(printable) : []
       // The body less 3 columns: a path gets room + 1 after its status letter and a space; a commit's
       // subject room + 2 less its hash.
       const room = e.props.bodyColumns - 2 * PAD - 3
@@ -2260,7 +2262,7 @@ export const register: Register = (on, options) => {
           rebase && op.edit ? [<Text color="warning">edit</Text>, <Text color={HUD.faint}>{` ${stop?.sha ?? ''}`}</Text>]
           : blocked ? [<Text color={TYPES.fix}>{`✗ ${plural(op.conflicts.length, 'conflict')}`}</Text>]
           : [<Text color={HUD.action}>✓ ready</Text>]
-        const names = op.conflicts.map(c => c.path.slice(c.path.lastIndexOf('/') + 1)).join(', ')
+        const names = op.conflicts.map(c => printable(c.path.slice(c.path.lastIndexOf('/') + 1))).join(', ')
         // The card adds where it stopped and the files to fix; the modal's actions say what to do.
         const rows = [
           rebase

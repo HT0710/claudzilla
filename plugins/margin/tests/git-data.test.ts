@@ -81,7 +81,7 @@ const TWO = 'pick fa24b8c2ed64c78d08a1d945090c1ff0e3df3562 # feat(x): two\n'
 const THREE = 'pick 16d77eae9ea6fe20267414c89994256bd2fa74b8 # docs(x): three\n'
 
 test('a conflict stop: steps marked done, stop, todo; head from head-name', () => {
-  const op = parseRebase({ headName: HEAD_NAME, onto: ONTO, done: ONE + TWO, todo: THREE, numstat: '0\t0\tf.txt\n4\t0\tf.txt\n', cached: '', unmerged: 'f.txt\n' })
+  const op = parseRebase({ headName: HEAD_NAME, onto: ONTO, done: ONE + TWO, todo: THREE, numstat: '0\t0\tf.txt\x004\t0\tf.txt\x00', cached: '', unmerged: 'f.txt\x00' })
   expect(op).toMatchObject({ kind: 'rebase', head: 'feat/x', onto: '5e7dbcbb8a85c012da009d6523d686489df6d25f', at: 1, edit: false, resolved: false })
   expect(op.steps).toEqual([
     { sha: '0fdeb40', subject: 'feat(x): one', mark: 'done' },
@@ -97,12 +97,12 @@ test('an edit stop is marked edit, with no conflicts', () => {
 })
 
 test('resolved conflicts read as resolved, from the staged files', () => {
-  const op = parseRebase({ headName: HEAD_NAME, onto: ONTO, done: ONE + TWO, todo: THREE, numstat: '', cached: '1\t1\tf.txt\n', unmerged: '' })
+  const op = parseRebase({ headName: HEAD_NAME, onto: ONTO, done: ONE + TWO, todo: THREE, numstat: '', cached: '1\t1\tf.txt\x00', unmerged: '' })
   expect(op).toMatchObject({ resolved: true, conflicts: [{ path: 'f.txt', additions: 1, deletions: 1 }] })
 })
 
 test('a merge reads the branch from MERGE_MSG and its incoming commits', () => {
-  const op = parseMerge({ msg: "Merge branch 'release/1.7' into feat/x\n\n# Conflicts:\n", sha: '5e7dbcbb8a85c012da009d6523d686489df6d25f\n', log: '5e7dbcb\tfix: upper b\t1793603824\n', numstat: '0\t0\tf.txt\n4\t0\tf.txt\n', cached: '', unmerged: 'f.txt\n', head: 'feat/x' })
+  const op = parseMerge({ msg: "Merge branch 'release/1.7' into feat/x\n\n# Conflicts:\n", sha: '5e7dbcbb8a85c012da009d6523d686489df6d25f\n', log: '5e7dbcb\tfix: upper b\t1793603824\n', numstat: '0\t0\tf.txt\x004\t0\tf.txt\x00', cached: '', unmerged: 'f.txt\x00', head: 'feat/x' })
   expect(op).toEqual({ kind: 'merge', head: 'feat/x', from: 'release/1.7', sha: '5e7dbcb', incoming: [{ subject: 'fix: upper b', at: 1793603824000 }], conflicts: [{ path: 'f.txt', additions: 4, deletions: 0 }], resolved: false })
 })
 
@@ -242,7 +242,22 @@ test('a control character in an author reads as a space', () => {
 })
 
 test('a conflict on an edit step reads as a conflict, not an edit stop', () => {
-  const op = parseRebase({ headName: HEAD_NAME, onto: ONTO, done: ONE, todo: TWO, numstat: '0\t0\tf.txt\n4\t0\tf.txt\n', cached: '', unmerged: 'f.txt\n' })
+  const op = parseRebase({ headName: HEAD_NAME, onto: ONTO, done: ONE, todo: TWO, numstat: '0\t0\tf.txt\x004\t0\tf.txt\x00', cached: '', unmerged: 'f.txt\x00' })
   expect(op).toMatchObject({ edit: false, resolved: false })
   expect(op.conflicts.length).toBe(1)
+})
+
+test('a conflict keeps its real path, with its counts, in -z output', () => {
+  const op = parseRebase({ headName: HEAD_NAME, onto: ONTO, done: ONE + TWO, todo: THREE, numstat: '0\t0\tcafé.ts\x004\t0\tcafé.ts\x00', cached: '', unmerged: 'café.ts\x00' })
+  expect(op.conflicts).toEqual([{ path: 'café.ts', additions: 4, deletions: 0 }])
+})
+
+test('a staged rename reads as its new path', () => {
+  const op = parseRebase({ headName: HEAD_NAME, onto: ONTO, done: ONE + TWO, todo: THREE, numstat: '', cached: '0\t0\t\x00old.txt\x00new.txt\x00', unmerged: '' })
+  expect(op.conflicts).toEqual([{ path: 'new.txt', additions: 0, deletions: 0 }])
+})
+
+test('a binary conflict counts no lines', () => {
+  const op = parseRebase({ headName: HEAD_NAME, onto: ONTO, done: ONE + TWO, todo: THREE, numstat: '-\t-\ta.png\x00', cached: '', unmerged: 'a.png\x00' })
+  expect(op.conflicts).toEqual([{ path: 'a.png', additions: 0, deletions: 0 }])
 })
