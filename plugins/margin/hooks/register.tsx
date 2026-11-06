@@ -1960,7 +1960,7 @@ export const register: Register = (on, options) => {
       // Shown on hover, one row below its row: a step down lands on the next row, not on the card. A card under the
       // pointer keeps its group lit, so with row Clients the card of the row last left is not drawn: a jump past the
       // next row onto the card is the row's leave.
-      rowLines = Object.fromEntries(lines.flatMap((line, i) => line.map(key => [key, i])))
+      rowLines = Object.fromEntries([...topLines.flatMap((line, i) => line.map(key => [key, i])), ...lower.map(l => [l.key, l.at])])
       const spans = cardSpan
       cardSpan = {}
       const gone = pointer.left && spans[pointer.left]
