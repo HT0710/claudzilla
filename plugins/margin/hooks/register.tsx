@@ -169,6 +169,7 @@ const modal = atom({ plugin: 'margin', key: 'modal' } as const, null as Modal | 
 const fetching = atom({ plugin: 'margin', key: 'fetching' } as const, false)
 // While a rebase or merge action runs: a press in that time starts no second one.
 let gitActing = false
+let rerunning = false
 // The branch modal's tree: by the branch each was made from, or by prefix; merged branches shown or not.
 const branchView = atom({ plugin: 'margin', key: 'branchView' } as const, { by: 'base' as 'base' | 'prefix' | 'worktrees', showMerged: false })
 // GitHub's PRs for this repo, read on a timer off the draw path; each PR's modal details once opened.
@@ -857,11 +858,22 @@ const readPrView = async ($: EngineInterface, n: number, failed?: { name: string
 }
 // Reruns each failed run of a PR's checks, then reads the PR list again.
 const rerunFailed = async ($: EngineInterface, runs: string[]) => {
-  for (const id of runs) {
-    const run = await $.process.run(['gh', 'run', 'rerun', id, '--failed']).catch(() => undefined)
-    if (run?.exitCode !== 0) $.ui.toast(`gh run rerun failed: ${(run?.stderr ?? '').split('\n')[0]}`)
+  if (rerunning) return
+  rerunning = true
+  try {
+    let started = true
+    for (const id of runs) {
+      const run = await $.process.run(['gh', 'run', 'rerun', id, '--failed']).catch(() => undefined)
+      if (run?.exitCode !== 0) {
+        started = false
+        $.ui.toast(`gh run rerun failed: ${(run?.stderr ?? '').split('\n')[0]}`)
+      }
+    }
+    if (started) $.ui.toast('Rerun started')
+    await readGh($)
+  } finally {
+    rerunning = false
   }
-  await readGh($)
 }
 // A rebase or merge in progress, from the git dir's files; none otherwise.
 const readOp = async ($: EngineInterface, dir: string, names: string[], branch: string): Promise<Op | undefined> => {
