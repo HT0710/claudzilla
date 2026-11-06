@@ -442,7 +442,7 @@ Two parts save tokens: caveman shortens replies, and rtk shortens command output
 
 claudzilla does some things without being asked. This list names each one, so none of them surprises you. Settings named here are explained in *Customize claudzilla* (`/claudzilla customize`).
 
-- **Auto-update:** when a session starts or you run `/clear`, a background job checks for a new claudzilla release, at most once a day. If there is one, it updates the clone at `~/claudzilla` and runs the installer again; restart Claude to apply it. If the clone has uncommitted edits or local commits, it skips the update and shows a notice instead. To get only the notice, put `{"rulesGuard":{"autoUpdate":false}}` in `~/.claude/claudzilla.json`.
+- **Auto-update:** when a session starts or you run `/clear`, a background job checks for a new claudzilla release, at most once an hour. If there is one, it updates the clone at `~/claudzilla` and runs the installer again; restart Claude to apply it. If the clone has uncommitted edits or local commits, it skips the update and shows a notice instead. To get only the notice, put `{"rulesGuard":{"autoUpdate":false}}` in `~/.claude/claudzilla.json`.
 - **Transcript reads by the guard:** the guard reads the end of the current session's transcript, the saved file of the session, to measure context and to see whether a check ran. It keeps its notes in a temporary file for each session.
 - **Rule counts:** at startup, if the last `/rule-review` report is missing or a week old, a background job scans your transcripts in `~/.claude/projects/` and saves counts in `~/.claude/claudzilla-reports/`. When rules slipped, the next session shows a one-line summary once. The counts leave your machine only if you say yes in `/rule-review`. To stop the scan and the summary, put `{"rulesGuard":{"reviewNudge":false}}` in `~/.claude/claudzilla.json`.
 - **Command rewriting:** if you installed rtk, a hook passes each shell command Claude runs through rtk, which shortens the output Claude reads. Run `rtk gain` in a terminal to see the tokens it saved.
@@ -617,7 +617,7 @@ A guard file, such as `~/.claude/claudzilla.json`. If the file already has other
 
 #### How updates arrive
 
-Each feature, fix or refactor pushed to claudzilla's `main` branch ships as a release once its tests pass. At most once a day, a new session or `/clear` installs the newest release in the background. A notice appears when a session starts; if you installed the herald plugin, a toast also tells you when an update is available, installing, installed, or failed. Restart Claude to apply an update; `/claudzilla news` lists what changed. If the clone has local changes, the update waits and the notice gives the command to run. Auto-update is described in *What runs on its own* (`/claudzilla background`).
+Each feature, fix or refactor pushed to claudzilla's `main` branch ships as a release once its tests pass. At most once an hour, a new session or `/clear` installs the newest release in the background. A notice appears when a session starts; if you installed the herald plugin, a toast also tells you when an update is available, installing, installed, or failed. Restart Claude to apply an update; `/claudzilla news` lists what changed. If the clone has local changes, the update waits and the notice gives the command to run. Auto-update is described in *What runs on its own* (`/claudzilla background`).
 
 #### Update by hand
 
