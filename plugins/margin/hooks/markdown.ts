@@ -7,9 +7,23 @@ export type MdSpan = Style & { text: string }
 export type MdRow = { indent: number; spans: MdSpan[] } | { code: string; language?: string }
 
 // No backtick after the opening ``` : "```foo``` bar" is inline code, not a fence.
-const FENCE = /^\s*(```(?!.*`)|~~~)\s*(\S*)/
+const FENCE = /^\s*(`{3,}(?!.*`)|~{3,})\s*(\S*)/
+// A fence closes on its own marker, at least as long, with no info string.
+const closes = (open: string, line: string) => {
+  const m = FENCE.exec(line)
+  return !!m && m[1]![0] === open[0] && m[1]!.length >= open.length && !m[2]
+}
 const ITEM = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/
 const same = (a: Style, b: Style) => a.bold === b.bold && a.italic === b.italic && a.code === b.code && a.href === b.href
+
+// A body can link anywhere: only http(s), and within the engine's 2048 characters, as a longer link refuses the pane.
+const linkable = (href: string) => {
+  try {
+    return /^https?:\/\//i.test(href) && encodeURI(href).length <= 2048
+  } catch {
+    return false
+  }
+}
 
 // Words with their style; `glue`: no space before it, as in "(`a.ts`)".
 const words = (text: string, base: Style) => {
@@ -28,7 +42,7 @@ const words = (text: string, base: Style) => {
     push(text.slice(at, m.index), {})
     if (m[1] !== undefined) push(m[2]!, { code: true })
     else if (m[3] !== undefined) push(m[3], { bold: true })
-    else if (m[4] !== undefined) push(m[4], { href: m[5] })
+    else if (m[4] !== undefined) push(m[4], linkable(m[5]!) ? { href: m[5] } : {})
     else push(m[6]!, { italic: true })
     at = m.index! + m[0].length
   }
@@ -77,7 +91,7 @@ const blockRows = (lines: string[], width: number): MdRow[] => {
   const fence = FENCE.exec(lines[0]!)
   if (fence) {
     const body = lines.slice(1)
-    if (FENCE.test(body.at(-1) ?? '')) body.pop()
+    if (body.length && closes(fence[1]!, body.at(-1)!)) body.pop()
     return body.map(code => ({ code, ...(fence[2] ? { language: fence[2] } : {}) }))
   }
   // A table reads as one row per data row: the first cell bold, the rest after it.
@@ -106,19 +120,28 @@ const blockRows = (lines: string[], width: number): MdRow[] => {
 }
 
 // Rows of `md` at `width`: blocks split at blank lines, never inside a fence, a blank row between those that draw.
-// An HTML comment line reads as blank, as GitHub hides it.
+// An HTML comment reads as blank, as GitHub hides it. Only one that opens a line: mid-line it stays text.
 export function mdRows(md: string, width: number): MdRow[] {
   const blocks: string[][] = []
   let cur: string[] = []
-  let fence = false
-  for (const line of md.replace(/\r/g, '').split('\n')) {
-    // A fence is its own block, even with no blank line around it.
-    if (FENCE.test(line)) {
-      if (!fence && cur.length) blocks.push(cur), (cur = [])
+  let fence = ''
+  let comment = false
+  // Tab and newline are the only control characters the engine draws.
+  for (const line of md.replace(/\r/g, '').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, ' ').split('\n')) {
+    const open = FENCE.exec(line)
+    if (fence) {
       cur.push(line)
-      if (fence) blocks.push(cur), (cur = [])
-      fence = !fence
-    } else if (fence || (line.trim() && !/^\s*<!--.*-->\s*$/.test(line))) cur.push(line)
+      if (closes(fence, line)) blocks.push(cur), (cur = []), (fence = '')
+    } else if (comment) comment = !line.includes('-->')
+    // A fence is its own block, even with no blank line around it.
+    else if (open) {
+      if (cur.length) blocks.push(cur), (cur = [])
+      cur.push(line)
+      fence = open[1]!
+    } else if (/^\s*<!--/.test(line) && !/-->/.test(line)) {
+      comment = true
+      if (cur.length) blocks.push(cur), (cur = [])
+    } else if (line.trim() && !/^\s*<!--.*-->\s*$/.test(line)) cur.push(line)
     else if (cur.length) blocks.push(cur), (cur = [])
   }
   if (cur.length) blocks.push(cur)
