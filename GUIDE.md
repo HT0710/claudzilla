@@ -655,6 +655,14 @@ It asks first, then removes claudzilla's links, settings entries, keys and plugi
 
 Headline features of recent versions. Restart Claude after an update to use them.
 
+#### v1.7.0
+
+- **Git tab:** the margin's Git tab shows the branch with a mark only when it needs you, a rebase or merge in progress with continue, skip and abort, the branch's pull request with its checks and description, and a tree of every branch with a `worktrees` view. Hover a row for a card, and click it for the details.
+- **Changes and commits:** CHANGES lists each changed file with its status and line counts, and COMMITS each recent commit. Click a commit for its message and files, and, once pushed, a link to its page.
+- **Short edit rows:** an Edit or Write call draws one row with its line counts, and a run of edits folds into one row. Click the row for a tree of the edited files and each diff. `{"folio": {"hideEditDiff": false}}` keeps the diffs in the chat.
+- **Compact status line:** `{"hud":{"compact":true}}` in `~/.claude/claudzilla.json` draws the status line in 3 rows.
+- **Brainstorm on the ballot card:** when `brainstorming` has options for you, each question comes as a Decision, so one key answers it.
+
 #### v1.6.0
 
 - **Run and Copy:** buttons under each code block in a reply. Copy puts the block on the clipboard, and two clicks on Run run a shell block and stream its output into the block's card.
@@ -676,10 +684,3 @@ Headline features of recent versions. Restart Claude after an update to use them
 - A ballot card answer goes into the prompt box in your voice: "show you the diff" becomes "show me the diff".
 - When context grows large, a **Compact** line and a toast say so; `/claudzilla compact` drafts a `/compact` line into your prompt box.
 - A toast shows when your 5-hour or weekly limit passes 50%, 75% and 90%.
-
-#### v1.4.0
-
-- `/claudzilla` opens this guide in a pane, and alt+g toggles it.
-- `/claudzilla report` drafts a problem report from a local trace of what each part did.
-- `install.sh` picks parts with `--full`, `--custom`, `--add` and `--remove`, and removes claudzilla with `--uninstall`.
-- The status line shows the claudzilla version.
