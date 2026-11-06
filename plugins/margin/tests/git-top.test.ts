@@ -2229,6 +2229,13 @@ test('a worktree path with a control character draws as a space', async ($, on) 
   expect(await ui.find({ type: 'Text', text: ' /tmp/w x' })).toBeDefined()
 })
 
+test('the rebase row names the branch at onto, not git\'s (no branch) line', async ($, on) => {
+  quiet(on, 5 * MIN, false, rebaseDir(1))
+  on('process.run', (_, e) => ran(git(conflictRepo({ '--points-at': '(no branch, rebasing feat/x)\nrelease/1.7\n' }))(e.argv) ?? ''))
+  const ui = await mount($)
+  expect(await piece(ui, 'rebase', 'release/1.7')).toBeDefined()
+})
+
 test('a stacked section that goes closes with it, so the next one opens nothing', async ($, on) => {
   quiet(on, 5 * MIN, false, rebaseDir(2), true)
   const clock = mock.clock(on, { now: NOW })
