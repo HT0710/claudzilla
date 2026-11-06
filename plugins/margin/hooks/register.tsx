@@ -885,6 +885,7 @@ const readOp = async ($: EngineInterface, dir: string, names: string[], branch: 
   return verb ? { ...op, verb, from: op.sha } : op
 }
 const pick = async ($: EngineInterface, next: Tab) => {
+  if (next !== 'Git' && (await read($, modal))) await setModal($, () => null)
   // Picking Git reads the repo afresh: it may have changed outside this chat.
   if (next === 'Git') gitRead = logRead = undefined
   await update($, tab, () => next)
@@ -1764,7 +1765,11 @@ export const register: Register = (on, options) => {
       const behind = Number(behindRun?.stdout.trim()) || 0
       const prCommits = Number(aheadRun?.stdout.trim()) || 0
       // Rows behind an open modal: dim, with no hover, card or link. A modal with nothing to show is not open.
-      const dimmed = !!open && (open.key === 'branch' || (open.key === 'pr' && !!pr) || (open.key === 'rebase' && !!op) || (open.key === 'prs' && !!summary) || (open.key === 'commit' && !!open.sha))
+      const dimmed = !!open && (open.key === 'branch' || (open.key === 'pr' && !!pr && pr.n === open.n) || (open.key === 'rebase' && !!op) || (open.key === 'prs' && !!summary) || (open.key === 'commit' && !!open.sha))
+      // Its subject gone, it closes: left open, it would swallow the next Escape and come back with the next subject.
+      // A failed read says nothing about the subject.
+      if (open && !dimmed && !next.signal.aborted && status?.exitCode === 0 && gitDir && (open.key === 'rebase' || remote?.exitCode === 0))
+        $.clock.after(0, () => setModal($, m => (m?.key === open.key ? null : m)))
       // The row that opened the modal: a commit's is keyed by its sha.
       const openRow = open?.key === 'commit' ? commitKey(open.sha ?? '') : open?.key
       const conflictFiles = treeRun ? treeRun.stdout.split('\n\n')[0]!.split('\n').slice(1).filter(Boolean).map(printable) : []
@@ -1851,7 +1856,7 @@ export const register: Register = (on, options) => {
       }
       const openModal = async (key: ModalKey, row?: LogRow) => {
         if (row) await update($, commitViews, all => ({ ...all, [row.full]: { ...all[row.full], row } }))
-        await setModal($, () => ({ key, top: key === 'branch' ? -1 : 0, ...(row && { sha: row.full }) }))
+        await setModal($, () => ({ key, top: key === 'branch' ? -1 : 0, ...(row && { sha: row.full }), ...(key === 'pr' && { n: pr?.n }) }))
         if (row) await readCommitView($, row.full)
         const failed = pr?.checks.find(c => c.state === 'bad' && c.job)
         if (key === 'pr' && pr) await readPrView($, pr.n, failed && { name: failed.name, job: failed.job! })
@@ -2496,6 +2501,8 @@ export const register: Register = (on, options) => {
         ]
         const f = modalRows(4 + rows.length)
         const sub = open?.sub && sections.find(one => one.label === open.sub!.key)
+        // As for a modal: a stacked one whose list has gone closes.
+        if (open?.sub && !sub && !next.signal.aborted) $.clock.after(0, () => setModal($, m => (m?.sub?.key === open.sub!.key ? { ...m, sub: undefined } : m)))
         // The stacked modal is drawn after the modal, not in it, so the modal's border never paints over it.
         const stacked = sub && (() => {
           const width = stackFrame(e.props.bodyColumns, tabRows, f, 0).width - 4

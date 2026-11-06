@@ -60,8 +60,8 @@ const quiet = (on: Parameters<TestBody>[1], fetched = 5 * MIN, basic = false, di
   })
   on('tool.call', () => ({ result: { stdout: '', stderr: '' } }) as any)
   on('fs.exists', (_, e) => ({ value: basic && String((e as any).path ?? '').endsWith('.claudzilla-basic-glyphs') }))
-  const top = [...new Set(Object.keys(dir).map(path => path.split('/')[0]!))].map(name => ({ name, kind: name.includes('_') ? 'file' : 'dir', size: 1, mtimeMs: 0, isLink: false }))
-  on('fs.list', () => ({ value: [{ name: 'FETCH_HEAD', kind: 'file', size: 1, mtimeMs: NOW - fetched, isLink: false }, ...top] }))
+  const top = () => [...new Set(Object.keys(dir).filter(path => dir[path] !== null).map(path => path.split('/')[0]!))].map(name => ({ name, kind: name.includes('_') ? 'file' : 'dir', size: 1, mtimeMs: 0, isLink: false }))
+  on('fs.list', () => ({ value: [{ name: 'FETCH_HEAD', kind: 'file', size: 1, mtimeMs: NOW - fetched, isLink: false }, ...top()] }))
 }
 const refs = (names: string[]) => names.map(name => `${name}\torigin/${name}\t\t1790000000`).join('\n') + '\n'
 const forty = Array.from({ length: 40 }, (_, i) => `b${String(i + 1).padStart(2, '0')}`)
@@ -2156,12 +2156,100 @@ test('presses landing while a rebase action runs start no second git run', async
   expect(runs.length).toBe(1)
 })
 
+test('a rebase that ended outside the modal closes it, so the next stop opens nothing', async ($, on) => {
+  const dir: Record<string, string | null> = { ...rebaseDir(1) }
+  quiet(on, 5 * MIN, false, dir, true)
+  const clock = mock.clock(on, { now: NOW })
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }) as any)
+  const repo: Record<string, string> = conflictRepo()
+  on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, 'rebase')
+  for (const name of Object.keys(dir)) dir[name] = null
+  await $.tool.call({ tool: 'Bash', command: 'git rebase --abort' })
+  await ui.drawn()
+  await clock.advance(1)
+  for (const [name, text] of Object.entries(rebaseDir(1))) dir[name] = text
+  await $.tool.call({ tool: 'Bash', command: 'git rebase main' })
+  expect(await ui.find({ key: 'm:abort' })).toBeUndefined()
+})
+
+test('the PR modal closes when the branch moves to another PR, rather than show it empty', async ($, on) => {
+  quiet(on)
+  const repo = repoOn('a')
+  withPr(on, repo, [prJson(), prJson({ number: 170, headRefName: 'b' })])
+  const ui = await openPr($)
+  expect(await ui.find({ key: 'm:copy' })).toBeDefined()
+  repo.status = '## b...origin/b\n'
+  await $.tool.call({ tool: 'Bash', command: 'git switch b' })
+  await ui.drawn()
+  expect(await ui.find({ key: 'm:copy' })).toBeUndefined()
+})
+
+test('a tab key closes an open modal, so the next Escape is not spent on it', async ($, on) => {
+  quiet(on)
+  const opens: unknown[] = []
+  on('ui.open', (_, e) => (opens.push((e as any).closeOnEscape), { value: { isPlaced: true } }) as any)
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }) as any)
+  on('process.run', (_, e) => ran(git(repoOn('b20'))(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, 'branch')
+  expect(opens.at(-1)).toBe(true)
+  await $.command.run({ command: 'margin-history', args: '', origin: { kind: 'composer' } } as any)
+  expect(opens.at(-1)).toBeUndefined()
+})
+
+test('opening a file from a modal closes the modal', async ($, on) => {
+  quiet(on, 5 * MIN, false, { '/repo/b.ts': 'pr file text' })
+  withPr(on, repoOn('a'), [prJson()], viewJson({ files: [{ path: 'b.ts', additions: 1, deletions: 0, changeType: 'MODIFIED' }] }))
+  const ui = await openPr($)
+  await wheel($, 20, 10)
+  await tap(ui, `mf:${fileKey('b.ts')}`)
+  await ui.press({ key: 'Git' })
+  expect(await ui.find({ key: 'm:copy' })).toBeUndefined()
+})
+
+test('a click on a faded divider posts nothing and grabs nothing', () => {
+  const tag = (name: string) => Object.assign((props: object) => ({ type: name, props }), { tag: name })
+  let pointer = (_: any) => {}
+  const posts: unknown[] = []
+  const surface: any = { elements: { Box: tag('Box'), Text: tag('Text') }, onPointer: (f: typeof pointer) => (pointer = f), columns: 40, post: (m: unknown) => posts.push(m), setState: (s: unknown) => (surface.state = s) }
+  Divider({ split: 3, min: 1, max: 5, faded: true }, surface)
+  pointer({ type: 'down', x: 0, y: 0, button: 'left' })
+  pointer({ type: 'up', x: 0, y: 0, button: 'left' })
+  expect(posts).toEqual([])
+  expect(surface.state?.grabbed).toBeUndefined()
+})
+
 test('a worktree path with a control character draws as a space', async ($, on) => {
   quiet(on)
   withTrees(on, TREES.replace('/tmp/w', '/tmp/w\x1bx'))
   const ui = await mount($)
   await worktreeView(ui)
   expect(await ui.find({ type: 'Text', text: ' /tmp/w x' })).toBeDefined()
+})
+
+test('a stacked section that goes closes with it, so the next one opens nothing', async ($, on) => {
+  quiet(on, 5 * MIN, false, rebaseDir(2), true)
+  const clock = mock.clock(on, { now: NOW })
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }) as any)
+  const names = ['a', 'b', 'c', 'd', 'e'].map(n => `${n}.txt`)
+  const numstat = names.map(name => `4\t0\t${name}\n`).join('')
+  const repo: Record<string, string> = conflictRepo({ '--diff-filter=U': `${names.join('\n')}\n`, '--numstat': numstat })
+  on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, 'rebase')
+  await wheel($, 20, 10)
+  await ui.press({ key: 'm:all:CONFLICTS' })
+  expect(await ui.find({ key: 's:x' })).toBeDefined()
+  Object.assign(repo, { '--diff-filter=U': '', '--cached': numstat })
+  await $.tool.call({ tool: 'Bash', command: 'git add .' })
+  await ui.drawn()
+  await clock.advance(1)
+  Object.assign(repo, { '--diff-filter=U': `${names.join('\n')}\n`, '--cached': '' })
+  await $.tool.call({ tool: 'Bash', command: 'git checkout -m .' })
+  await ui.drawn()
+  expect(await ui.find({ key: 's:x' })).toBeUndefined()
 })
 
 test('an ask holds only for its step: when the rebase moves on, skip asks again', async ($, on) => {
@@ -2183,3 +2271,24 @@ test('an ask holds only for its step: when the rebase moves on, skip asks again'
   expect(runs.filter(r => r.includes('rebase --skip'))).toEqual([])
 })
 
+test('a failed git read leaves an open modal alone', async ($, on) => {
+  quiet(on, 5 * MIN, false, {}, true)
+  const clock = mock.clock(on, { now: NOW })
+  let failing = false
+  const repo = repoOn('a')
+  on('process.run', (_, e) => {
+    if (failing && e.argv.includes('status')) return ran('', 1)
+    if (e.argv[0] === 'gh' && e.argv[2] === 'list') return ran(JSON.stringify([prJson()]))
+    if (e.argv[0] === 'gh' && e.argv[2] === 'view') return ran(JSON.stringify(viewJson()))
+    return ran(git(repo)(e.argv) ?? '')
+  })
+  const ui = await openPr($)
+  failing = true
+  await $.tool.call({ tool: 'Bash', command: 'true' })
+  await ui.drawn()
+  await clock.advance(1)
+  failing = false
+  await $.tool.call({ tool: 'Bash', command: 'true' })
+  await ui.drawn()
+  expect(await ui.find({ key: 'm:copy' })).toBeDefined()
+})
