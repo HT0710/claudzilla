@@ -227,3 +227,16 @@ test('parseStatusZ: head, then changes; a rename skips the old path in the next 
   expect(head).toBe('## b...origin/b')
   expect(changes.map(c => [c.letter, c.path])).toEqual([['M', 'a b.ts'], ['R', 'new name.md'], ['?', 'x.ts']])
 })
+
+test('control characters in a check name, a rebase subject and a merge subject read as spaces', () => {
+  const pr = parsePrs(JSON.stringify([{ number: 1, title: '', state: 'OPEN', headRefName: 'a', baseRefName: 'b', author: { login: 'x' }, statusCheckRollup: [{ __typename: 'CheckRun', name: 'te\x1bst', status: 'COMPLETED', conclusion: 'SUCCESS' }, { __typename: 'StatusContext', context: 'ci\x07x', state: 'SUCCESS' }] }]))[0]!
+  expect(pr.checks.map(c => c.name)).toEqual(['te st', 'ci x'])
+  const op = parseRebase({ headName: 'refs/heads/x\n', onto: 'a\n', done: 'pick abc1234 # do\x1bne\n', todo: 'pick def5678 # to\x1bdo\n', numstat: '', cached: '', unmerged: '' })
+  expect(op.steps.map(s => s.subject)).toEqual(['do ne', 'to do'])
+  const merge = parseMerge({ msg: '', sha: 'abc1234\n', log: 'abc1234\tin\x1bcoming\t1\n', numstat: '', cached: '', unmerged: '', head: 'x' })
+  expect(merge.incoming[0]!.subject).toBe('in coming')
+})
+
+test('a control character in an author reads as a space', () => {
+  expect(parseLog('abc\x1fa\x1fHT\x1b0710\x1f1\x1f\x1fsub\n')[0]!.author).toBe('HT 0710')
+})
