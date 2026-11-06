@@ -9,7 +9,7 @@ SPEEDS="$REPO/.github/visuals/speeds.txt"
 # shellcheck source=lib.sh
 . "$REPO/.github/visuals/lib.sh"
 DEMO="$HOME/acme-api"
-SHOTS="statusline ballot margin primer run"
+SHOTS="statusline statusline-compact ballot margin primer run"
 
 # ask PROMPT SECS: send PROMPT, wait until its turn ends: a "✻ Sautéed for 21s · done 5:03 am" line
 # not on screen before (a long reply scrolls the prompt itself away).
@@ -55,18 +55,43 @@ print(*hit)' "$1"
 # has DIR REGEX: some frame in DIR shows REGEX.
 has() { cat "$1"/*.ansi | sed 's/\x1b\[[0-9;:]*m//g' | grep -E -- "$2" >/dev/null; }
 
-shot_statusline() {
-  local d="$WORK/statusline"; rm -rf "$d"
-  # Under ~30 rows the status line drops its model/skill row; keep the bottom 13 (spinner to status line).
+# hud_compact true|false: the status line layout for the next session; the user's own claudzilla.json
+# is saved once and put back on exit.
+CONF="$HOME/.claude/claudzilla.json"
+hud_compact() {
+  [ -e "$WORK/claudzilla.json.orig" ] || [ -e "$WORK/claudzilla.json.none" ] ||
+    { [ -e "$CONF" ] && cp "$CONF" "$WORK/claudzilla.json.orig" || touch "$WORK/claudzilla.json.none"; }
+  python3 -I - "$CONF" "$1" <<'PY' || return 1
+import json, os, sys
+path, on = sys.argv[1], sys.argv[2] == "true"
+conf = json.load(open(path)) if os.path.exists(path) else {}
+conf.setdefault("hud", {})["compact"] = on
+json.dump(conf, open(path, "w"), indent=2)
+PY
+}
+hud_restore() {
+  if [ -e "$WORK/claudzilla.json.orig" ]; then cp "$WORK/claudzilla.json.orig" "$CONF"
+  elif [ -e "$WORK/claudzilla.json.none" ]; then rm -f "$CONF"; fi
+}
+
+# statusline_clip NAME COMPACT TOP: one real turn from row TOP down; the context meter must climb and the skill show.
+statusline_clip() {
+  local d="$WORK/$1"; rm -rf "$d"
+  hud_compact "$2" || return 1
+  # Under ~30 rows the status line drops its model/skill row. TOP keeps the spinner, prompt box and status line.
   start "$DEMO" 110 30 && margin_want off || return 1
-  frames "$d" 240 17 & local f=$!
+  trap 'finish; hud_restore' EXIT
+  frames "$d" 240 "$3" & local f=$!
   ask "why does the auth test fail?" 200; local ok=$?
   sleep 2; touch "$d/stop"; wait "$f"
   [ "$ok" = 0 ] && has "$d" 'systematic-debugging' || return 1
   [ "$(sed 's/\x1b\[[0-9;:]*m//g' "$d/0001.ansi" | grep -o 'ctx.*' )" != \
     "$(sed 's/\x1b\[[0-9;:]*m//g' "$(ls "$d"/*.ansi | tail -1)" | grep -o 'ctx.*')" ] || return 1
-  clip statusline "$d"
+  clip "$1" "$d"
 }
+shot_statusline() { statusline_clip statusline false 17; }
+# 3 rows shorter: the same rows above it, 3 rows lower.
+shot_statusline_compact() { statusline_clip statusline-compact true 20; }
 
 # Card appears, a digit picks, the answer lands in the prompt box, Enter sends.
 shot_ballot() {
@@ -153,4 +178,5 @@ for s in "$@"; do
   retry "${RETRIES:-3}" "shot_${s//-/_}" || { echo "shot $s failed 3 times" >&2; exit 1; }
 done
 
+hud_restore
 rm -rf "$WORK" "$DEMO"
