@@ -183,6 +183,13 @@ check "compact: one meter row" grep -q '^cch  [^ ].*[^ ]  33%  40m ┃ ctx  [^ ]
 check "compact: meter row fills 166 cols" [ "$(sed -n 2p <<<"$out" | widest)" -eq 166 ]
 check "compact: time then date on the bottom row" grep -qE '[0-9]{2}:[0-9]{2} (Sun|Mon|Tue|Wed|Thu|Fri|Sat) [0-9]{2} [A-Z][a-z]{2}  .*up ' <<<"$(sed -n 3p <<<"$out")"
 check "compact: narrow bottom row drops the clock first" bash -c "! grep -qE '[0-9]{2}:[0-9]{2} ' <<<'$(strip 40 "$full" | tail -1)'"
+# The clock goes before live state: wherever it shows, the skill shows too.
+clock_alone=0; rendered=$(data <<<"$full")
+for w in $(seq 40 170); do
+  bottom=$(COLUMNS=$w perl "$HUD/hud-filter.pl" <<<"$rendered" | perl -pe 's/\e\[[0-9;]*m//g' | tail -1)
+  grep -qE '[0-9]{2}:[0-9]{2} ' <<<"$bottom" && ! grep -q 'pr' <<<"$bottom" && clock_alone=$w
+done
+check "compact: clock never outlives the skill" [ "$clock_alone" = 0 ]
 check "compact: 109 cols -> one meter row" [ "$(strip 109 '{"session_id":"w1"}' | wc -l)" -eq 3 ]
 check "compact: 108 cols -> two columns, 4 rows" [ "$(strip 108 '{"session_id":"w1"}' | wc -l)" -eq 4 ]
 check "compact: 108 cols, short notes -> height holds" [ "$(strip 108 "$full" | wc -l)" -eq 4 ]
