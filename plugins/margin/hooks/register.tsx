@@ -1936,8 +1936,11 @@ export const register: Register = (on, options) => {
       const topLines = [['branch', 'fetch'], ...(op ? [['rebase']] : []), ...(pr ? [['pr']] : summary ? [['prs']] : [])]
       // The CHANGES and COMMITS rows drawn, each a line of its own: its tab row and its card's rows. A card that would
       // pass the tab's bottom opens upward, so the line above it dims instead of the line below.
+      // A file card's status row too wide for the pane moves its last pill to a second row: the 8-column label, each
+      // pill its word and 2 caps, a space between, and the card's border and padding.
+      const fileWraps = (c: (typeof shownChanges)[number]) => c.stage.length > 0 && 8 + [c.word, ...c.stage].reduce((n, s) => n + s.length + 3, -1) + 4 > e.props.bodyColumns - 4
       const lower = [
-        ...shownChanges.map((c, i) => ({ key: fileKey(c.path), zone: 'changes', at: topRows + 2 + (changesShown < changesRows ? 1 : 0) + i, n: 1 })),
+        ...shownChanges.map((c, i) => ({ key: fileKey(c.path), zone: 'changes', at: topRows + 2 + (changesShown < changesRows ? 1 : 0) + i, n: fileWraps(c) ? 2 : 1 })),
         ...shownCommits.map((c, j) => ({ key: commitKey(c.full), zone: 'commits', at: commitsAt0 + j, n: 1 + (c.refs.length || c.tags.length ? 1 : 0) + (commitStats.has(c.full) ? 1 : 0) })),
       ]
       const upOf = (at: number, n: number) => at + 4 + n > tabRows
@@ -1970,7 +1973,7 @@ export const register: Register = (on, options) => {
       const card = (scope: string, row: number, anchor: 'left' | 'right' | 'center', ...rows: JSX.Element[]) => {
         const key = scope.slice(5)
         // As wide as its widest row, border and padding included, up to the 75% cap.
-        // A file card's pills are all it says: it may pass the cap to show them whole.
+        // A file card may pass the cap to show its pills whole.
         const width = Math.min(key.startsWith('f:') ? e.props.bodyColumns - 4 : cardWidth, cardContent(rows) + 4)
         const place = anchor === 'left' ? { left: 0 } : anchor === 'right' ? { right: 0 } : { left: Math.floor((e.props.bodyColumns - width) / 2) - PAD }
         // Its border and rows, from row + 2.
@@ -2921,12 +2924,20 @@ export const register: Register = (on, options) => {
                 const color = STATUS[c.letter] ?? HUD.faint
                 // Two columns in, the letter, then the path and counts as every file list draws them.
                 const { left, right } = changeParts([<Text>  </Text>, <Text color={c.dim ? dim(color) : color}>{c.letter}</Text>], c.path, counts.get(c.path) ?? lineCounts.get(c.path), room - 3, c.dim ? HUD.faint : undefined)
-                const status = <Text wrap="truncate-end">{[c.word, ...c.stage].flatMap((s, j) => [...(j ? [<Text> </Text>] : []), ...pill(s)])}</Text>
+                // Plain rows, not kv: a kv value stops at the 75% cap, which would cut the pills.
+                const statusRow = (label: string, words: (Stage | Word)[]) => (
+                  <Text wrap="truncate-end">
+                    <Text color={HUD.faint}>{label.padEnd(8)}</Text>
+                    {words.flatMap((s, j) => [...(j ? [<Text> </Text>] : []), ...pill(s)])}
+                  </Text>
+                )
+                const words = [c.word, ...c.stage]
+                const status = fileWraps(c) ? [statusRow('status', words.slice(0, -1)), statusRow('', words.slice(-1))] : [statusRow('status', words)]
                 return topRow(
                   fileKey(c.path),
                   left,
                   right ? [right] : [],
-                  card(`card:${fileKey(c.path)}`, topRows + 2 + (changesShown < changesRows ? 1 : 0) + i, 'center', status),
+                  card(`card:${fileKey(c.path)}`, topRows + 2 + (changesShown < changesRows ? 1 : 0) + i, 'center', ...status),
                 )
               })}
             </Box>
