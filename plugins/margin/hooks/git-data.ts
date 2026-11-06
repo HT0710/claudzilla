@@ -35,15 +35,18 @@ const runTime = (from?: string, to?: string) => {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s`
 }
 
+// A control character in any text gets the whole pane refused: -z paths can hold one.
+export const printable = (text: string) => text.replace(/[\x00-\x1f\x7f]/g, ' ')
+
 const check = (c: any): Check => {
   if (c.__typename === 'StatusContext') {
     const state: CheckState = c.state === 'SUCCESS' ? 'ok' : BAD.has(c.state) ? 'bad' : 'run'
-    return { state, name: c.context ?? '', time: state === 'run' ? 'running' : '' }
+    return { state, name: printable(c.context ?? ''), time: state === 'run' ? 'running' : '' }
   }
   const state: CheckState = c.status !== 'COMPLETED' ? 'run' : BAD.has(c.conclusion) ? 'bad' : SKIP.has(c.conclusion) ? 'skip' : 'ok'
   const [, run, job] = /\/runs\/(\d+)\/job\/(\d+)/.exec(c.detailsUrl ?? '') ?? []
   const time = state === 'run' ? 'running' : state === 'skip' ? 'skipped' : runTime(c.startedAt, c.completedAt)
-  return { state, name: c.name ?? '', time, ...(run && { run, job }) }
+  return { state, name: printable(c.name ?? ''), time, ...(run && { run, job }) }
 }
 
 // `gh pr list --json ...`. A PR from a fork is dropped: `--head` cannot tell owners apart.
@@ -91,7 +94,7 @@ export const stashCount = (list: string, branch: string) =>
 const todoLines = (text: string) =>
   text.split('\n').flatMap(line => {
     const m = /^(\w+) ([0-9a-f]{7,40}) (?:# )?(.*)$/.exec(line)
-    return m ? [{ cmd: m[1]!, sha: m[2]!.slice(0, 7), subject: m[3]! }] : []
+    return m ? [{ cmd: m[1]!, sha: m[2]!.slice(0, 7), subject: printable(m[3]!) }] : []
   })
 
 // `git diff --numstat`: a conflicted path prints a combined row first, so the last row per path wins.
@@ -135,7 +138,7 @@ export const parseMerge = (f: { msg: string; sha: string; log: string; numstat: 
   sha: f.sha.trim().slice(0, 7),
   incoming: f.log.split('\n').filter(Boolean).map(line => {
     const [, subject = '', at = '0'] = line.split('\t')
-    return { subject, at: Number(at) * 1000 }
+    return { subject: printable(subject), at: Number(at) * 1000 }
   }),
   ...conflicts(f.unmerged, f.numstat, f.cached),
 })
@@ -297,7 +300,7 @@ export const parseLog = (stdout: string): LogRow[] =>
     // Full names (--decorate=full) tell a local branch from a remote one: refs/heads/<b>, refs/remotes/<r>/<b>.
     const names = decor ? decor.split(', ').map(name => name.replace(/^HEAD -> /, '')).filter(name => name !== 'HEAD' && !name.endsWith('/HEAD')) : []
     return {
-      full, short, author, at: Number(ct) * 1000,
+      full, short, author: printable(author), at: Number(ct) * 1000,
       refs: names.flatMap(name => {
         if (name.startsWith('refs/heads/')) return [{ remote: '', branch: name.slice(11) }]
         const [, remote = '', branch = ''] = /^refs\/remotes\/([^/]+)\/(.+)$/.exec(name) ?? []

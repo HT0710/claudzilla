@@ -2073,3 +2073,31 @@ test('a committed file name with a control character draws as a space in the com
   await tap(ui, `c:${A}`)
   expect(await rowText(ui, / a b\.ts$/)).toBeDefined()
 })
+
+test('a failed check log with colour codes draws as plain text', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => {
+    if (e.argv[0] === 'gh' && e.argv[2] === 'list') return ran(JSON.stringify([prJson({ statusCheckRollup: [failedRun] })]))
+    if (e.argv[0] === 'gh' && e.argv[2] === 'view' && e.argv[1] === 'pr') return ran(JSON.stringify(viewJson()))
+    if (e.argv[0] === 'gh' && e.argv[1] === 'run') return ran('test\tRun\t2026-11-02T06:39:42.1Z \x1b[31mFAIL\x1b[0m a\x07b\n')
+    return ran(git(repoOn('a'))(e.argv) ?? '')
+  })
+  const ui = await openPr($)
+  expect(await ui.find({ type: 'Text', text: 'FAIL a b' })).toBeDefined()
+})
+
+test('a conflict file name with a control character draws as a space in the PR modal', async ($, on) => {
+  quiet(on)
+  withPr(on, repoOn('a', { 'merge-tree': 'abc\na\x1bb.ts\n\nInfo\n' }), [prJson({ mergeable: 'CONFLICTING' })])
+  const ui = await openPr($)
+  expect(await ui.find({ type: 'Text', text: ' conflicts in a b.ts' })).toBeDefined()
+})
+
+test('a worktree path with a control character draws as a space', async ($, on) => {
+  quiet(on)
+  withTrees(on, TREES.replace('/tmp/w', '/tmp/w\x1bx'))
+  const ui = await mount($)
+  await worktreeView(ui)
+  expect(await ui.find({ type: 'Text', text: ' /tmp/w x' })).toBeDefined()
+})
+
