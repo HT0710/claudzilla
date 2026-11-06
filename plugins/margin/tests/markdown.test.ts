@@ -47,3 +47,34 @@ test('inline triple backticks are a code span, not a fence; quotes lose > on eve
   expect(texts('> a\n> b', 80)).toEqual(['a b'])
   expect(texts('a\n\n<!-- hidden -->\n\n```\n```\n\nb', 80)).toEqual(['a', '', 'b'])
 })
+
+test('control characters in a body draw as spaces; a fence keeps its tab', () => {
+  expect(JSON.stringify(mdRows('a\x1b[31mred\x07\n\n```\n\tb\x1bc\n```', 80))).not.toMatch(/\\u00(0[0-8b-f]|1|7f)/)
+  expect(mdRows('```\n\tb\x1bc\n```', 80)).toEqual([{ code: '\tb c', language: undefined }])
+})
+
+test('only http and https links stay links: the text of any other scheme draws plain', () => {
+  expect(mdRows('[a](x-handler://run) [b](file:///etc/passwd)', 80)).toEqual([{ indent: 0, spans: [{ text: 'a b' }] }])
+  expect(mdRows('[a](HTTP://x.io)', 80)).toEqual([{ indent: 0, spans: [{ text: 'a', href: 'HTTP://x.io' }] }])
+})
+
+test('a multi-line HTML comment reads as blank, as GitHub hides it; inside a fence it stays', () => {
+  expect(texts('a\n<!--\nhide\n-->\nb', 80)).toEqual(['a', '', 'b'])
+  expect(texts('a\n<!-- hide\nhide -->\nb', 80)).toEqual(['a', '', 'b'])
+  expect(texts('```\n<!--\n```', 80)).toEqual(['code:<!--'])
+})
+
+test('a fence closes only on its own marker, as long, with no info string', () => {
+  expect(texts('```\n~~~\n```js\nx\n```\nafter', 80)).toEqual(['code:~~~', 'code:```js', 'code:x', '', 'after'])
+  expect(texts('````\n```\n````', 80)).toEqual(['code:```'])
+  expect(texts('```\na\n~~~', 80)).toEqual(['code:a', 'code:~~~'])
+})
+
+test('a link past 2048 characters, written or percent-encoded, draws plain: the engine refuses the whole pane on one', () => {
+  const at = 'https://x.io/'
+  const fit = at + 'a'.repeat(2048 - at.length)
+  expect(mdRows(`[a](${fit})`, 80)).toEqual([{ indent: 0, spans: [{ text: 'a', href: fit }] }])
+  expect(mdRows(`[a](${fit}a)`, 80)).toEqual([{ indent: 0, spans: [{ text: 'a' }] }])
+  expect(mdRows(`[a](${at}${'字'.repeat(1000)})`, 80)).toEqual([{ indent: 0, spans: [{ text: 'a' }] }])
+  expect(mdRows(`[a](${at}\ud800)`, 80)).toEqual([{ indent: 0, spans: [{ text: 'a' }] }])
+})
