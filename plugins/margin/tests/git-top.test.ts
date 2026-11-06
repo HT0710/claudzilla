@@ -454,12 +454,17 @@ const TREES = [
 ].join('\n\n') + '\n'
 // `here`: the worktree this session runs in, on its branch.
 // `asked`: the status runs in other worktrees. `more`: this repo's answers over repoOn's.
-const withTrees = (on: Parameters<TestBody>[1], list: string, dirty: Record<string, string> = {}, here = '/home/me/repo', branch = 'feat/a', asked: string[] = [], more: Record<string, string> = {}) =>
+// Status runs start on a timer off the draw: worktreeView moves this clock.
+let treeClock: ReturnType<typeof mock.clock>
+const withTrees = (on: Parameters<TestBody>[1], list: string, dirty: Record<string, string> = {}, here = '/home/me/repo', branch = 'feat/a', asked: string[] = [], more: Record<string, string> = {}) => {
+  treeClock = mock.clock(on, { now: NOW })
   on('process.run', (_, e) => {
     const at = e.argv.indexOf('-C')
     if (at >= 0) {
       asked.push(e.argv.join(' '))
-      return ran(dirty[e.argv[at + 1]!] ?? '')
+      const answer = dirty[e.argv[at + 1]!] ?? ''
+      if (answer === 'hang') return new Promise(() => {})
+      return answer === 'fail' ? ran('', 128) : ran(answer)
     }
     return ran(git(repoOn(branch, {
       '--absolute-git-dir': `${here}/.git\n/home/me/repo/.git\n${here}\n`,
@@ -469,19 +474,23 @@ const withTrees = (on: Parameters<TestBody>[1], list: string, dirty: Record<stri
       ...more,
     }))(e.argv) ?? '')
   })
+}
 const worktreeView = async (ui: Ui) => {
   await tap(ui, 'branch')
   await ui.press({ key: 'm:by:worktrees' })
+  await treeClock.advance(1)
+  await ui.drawn()
 }
 
 test('status runs in each other worktree only while the worktrees view shows, not this one or a gone one', async ($, on) => {
-  quiet(on)
+  quiet(on, 5 * MIN, false, {}, true)
   const asked: string[] = []
   withTrees(on, TREES, {}, undefined, undefined, asked)
   const ui = await mount($)
   await tap(ui, 'branch')
   expect(asked).toEqual([])
   await ui.press({ key: 'm:by:worktrees' })
+  await treeClock.advance(1)
   expect(asked).toEqual(['git --no-optional-locks -C /home/me/repo-b status --porcelain', 'git --no-optional-locks -C /tmp/w status --porcelain'])
 })
 
@@ -514,7 +523,7 @@ test('prefix view: a long heading stays whole, the modal widening to it', async 
 })
 
 test('from a linked worktree, status skips the main one', async ($, on) => {
-  quiet(on)
+  quiet(on, 5 * MIN, false, {}, true)
   const asked: string[] = []
   withTrees(on, TREES, {}, '/home/me/repo-b', 'fix/b', asked)
   const ui = await mount($)
@@ -523,7 +532,7 @@ test('from a linked worktree, status skips the main one', async ($, on) => {
 })
 
 test('worktrees view: the lit row counts its own changes', async ($, on) => {
-  quiet(on)
+  quiet(on, 5 * MIN, false, {}, true)
   withTrees(on, TREES, {}, '/home/me/repo-b', 'fix/b', [], { status: '## fix/b...origin/fix/b\n M x\n?? y\n' })
   const ui = await mount($)
   await worktreeView(ui)
@@ -531,7 +540,7 @@ test('worktrees view: the lit row counts its own changes', async ($, on) => {
 })
 
 test('worktrees view: sync and changes keep their own columns', async ($, on) => {
-  quiet(on)
+  quiet(on, 5 * MIN, false, {}, true)
   withTrees(on, TREES, { '/home/me/repo-b': ' M x\n' })
   const ui = await mount($)
   await worktreeView(ui)
@@ -540,7 +549,7 @@ test('worktrees view: sync and changes keep their own columns', async ($, on) =>
 })
 
 test('worktrees view: sync and changes follow the widest name, not the far right', async ($, on) => {
-  quiet(on)
+  quiet(on, 5 * MIN, false, {}, true)
   withTrees(on, TREES)
   const ui = await mount($)
   await worktreeView(ui)
@@ -549,7 +558,7 @@ test('worktrees view: sync and changes follow the widest name, not the far right
 })
 
 test('a detached worktree under home, not beside the main one, reads from ~', async ($, on) => {
-  quiet(on)
+  quiet(on, 5 * MIN, false, {}, true)
   withTrees(on, TREES.replace('/tmp/w', '/home/me/w/x').replace('worktree /home/me/repo\n', 'worktree /home/me/d/repo\n'), {}, '/home/me/d/repo')
   const ui = await mount($)
   await worktreeView(ui)
@@ -557,7 +566,7 @@ test('a detached worktree under home, not beside the main one, reads from ~', as
 })
 
 test('a main worktree at the root folder gives no ../ paths', async ($, on) => {
-  quiet(on)
+  quiet(on, 5 * MIN, false, {}, true)
   withTrees(on, TREES.replace('worktree /home/me/repo\n', 'worktree /repo\n'), {}, '/repo')
   const ui = await mount($)
   await worktreeView(ui)
@@ -587,14 +596,14 @@ test('the worktrees view falls back to base once the linked worktree is gone', a
 })
 
 test('in a linked worktree the branch name takes a faint ⧉', async ($, on) => {
-  quiet(on)
+  quiet(on, 5 * MIN, false, {}, true)
   withTrees(on, TREES, {}, '/home/me/repo-b', 'fix/b')
   const ui = await mount($)
   expect((await piece(ui, 'branch', ' ⧉'))?.props.color).toBe('#4f5c68')
 })
 
 test('the main worktree draws no ⧉ on the branch row, and no worktree row', async ($, on) => {
-  quiet(on)
+  quiet(on, 5 * MIN, false, {}, true)
   withTrees(on, TREES)
   const ui = await mount($)
   expect(await piece(ui, 'branch', ' ⧉')).toBeUndefined()
@@ -602,7 +611,7 @@ test('the main worktree draws no ⧉ on the branch row, and no worktree row', as
 })
 
 test('no linked worktree: the branch modal has no worktrees view', async ($, on) => {
-  quiet(on)
+  quiet(on, 5 * MIN, false, {}, true)
   withTrees(on, TREES.split('\n\n')[0]!)
   const ui = await mount($)
   await tap(ui, 'branch')
@@ -610,7 +619,7 @@ test('no linked worktree: the branch modal has no worktrees view', async ($, on)
 })
 
 test('worktrees view: linked only, this one lit, a path only when detached, sync and changes, gone', async ($, on) => {
-  quiet(on)
+  quiet(on, 5 * MIN, false, {}, true)
   withTrees(on, TREES, { '/tmp/w': ' M x\n M y\n?? z\n' }, '/home/me/repo-b', 'fix/b')
   const ui = await mount($)
   await worktreeView(ui)
@@ -626,7 +635,7 @@ test('worktrees view: linked only, this one lit, a path only when detached, sync
 })
 
 test('a detached path too long for the modal loses its start, keeping its last folder', async ($, on) => {
-  quiet(on)
+  quiet(on, 5 * MIN, false, {}, true)
   withTrees(on, TREES.replace('/tmp/w', '/home/me/a-very-long-folder-name-for-this-worktree-that-runs-past-the-modal-edge'))
   const ui = await mount($)
   await worktreeView(ui)
@@ -634,7 +643,7 @@ test('a detached path too long for the modal loses its start, keeping its last f
 })
 
 test('in a narrow pane a long branch name is cut and a detached path dropped, the far right kept', async ($, on) => {
-  quiet(on)
+  quiet(on, 5 * MIN, false, {}, true)
   withTrees(on, TREES.replace('fix/b', 'fix/a-branch-name-much-too-long-for-a-narrow-modal'), { '/home/me/repo-b': ' M x\n' })
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 30 }, requestId: 'margin' })
   await ui.press({ key: 'Git' })
@@ -2222,7 +2231,7 @@ test('a click on a faded divider posts nothing and grabs nothing', () => {
 })
 
 test('a worktree path with a control character draws as a space', async ($, on) => {
-  quiet(on)
+  quiet(on, 5 * MIN, false, {}, true)
   withTrees(on, TREES.replace('/tmp/w', '/tmp/w\x1bx'))
   const ui = await mount($)
   await worktreeView(ui)
@@ -2323,4 +2332,35 @@ test('a failed git read leaves an open modal alone', async ($, on) => {
   await $.tool.call({ tool: 'Bash', command: 'true' })
   await ui.drawn()
   expect(await ui.find({ key: 'm:copy' })).toBeDefined()
+})
+
+test('a worktree whose status failed says so, not clean', async ($, on) => {
+  quiet(on, 5 * MIN, false, {}, true)
+  withTrees(on, TREES, { '/home/me/repo-b': 'fail' })
+  const ui = await mount($)
+  await worktreeView(ui)
+  expect((await ui.find({ type: 'Text', text: '? changed' }))?.props.color).toBe('warning')
+})
+
+test('a hung worktree holds back no draw: the others show their counts', async ($, on) => {
+  quiet(on, 5 * MIN, false, {}, true)
+  withTrees(on, TREES, { '/home/me/repo-b': 'hang', '/tmp/w': ' M x\n?? y\n' })
+  const ui = await mount($)
+  await tap(ui, 'branch')
+  await ui.press({ key: 'm:by:worktrees' })
+  void treeClock.advance(1)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '2 changed' })).toBeDefined()
+})
+
+test('a redraw starts no second round of status runs', async ($, on) => {
+  quiet(on, 5 * MIN, false, {}, true)
+  const asked: string[] = []
+  withTrees(on, TREES, {}, undefined, undefined, asked)
+  const ui = await mount($)
+  await worktreeView(ui)
+  const runs = asked.length
+  await ui.drawn()
+  await treeClock.advance(1)
+  expect(asked.length).toBe(runs)
 })

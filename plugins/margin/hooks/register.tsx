@@ -641,7 +641,9 @@ let leaves = 0
 let branchRead: { key: string; signal: AbortSignal; run: Promise<{ exitCode: number; stdout: string } | undefined> } | undefined
 // Each other linked worktree's count of uncommitted files, by path, kept as gitRead is; read only while the worktrees view
 // shows, as a status per worktree would hold back every draw.
-let treeRead: { key: string; signal: AbortSignal; run: Promise<Map<string, number>> } | undefined
+let treeRead: { key: string; signal: AbortSignal } | undefined
+// Each linked worktree's uncommitted files, null when its status failed.
+const treeStatus = new Map<string, number | null>()
 // The shown PR's local reads, kept per repo change and base: behind and ahead of the base, conflicting files.
 let prRead: { key: string; signal: AbortSignal; run: Promise<({ stdout: string } | undefined)[]> } | undefined
 // The rebase or merge in progress, kept as gitRead is.
@@ -2337,26 +2339,26 @@ export const register: Register = (on, options) => {
       const defaultRun = open?.key === 'branch' ? await branchRead!.run : undefined
       const view = await read($, branchView)
       const showTrees = open?.key === 'branch' && view.by === 'worktrees' && trees.length > 1
-      if (showTrees && dropped(treeRead))
-        treeRead = {
-          key,
-          signal: next.signal,
-          run: (async () => {
-            const counts = new Map<string, number>()
-            await Promise.all(
-              trees.slice(1).filter(t => !t.gone && t.path !== root).map(t =>
-                $.process
-                  .run(['git', '--no-optional-locks', '-C', t.path, 'status', '--porcelain'])
-                  .then(r => {
-                    if (!r.exitCode) counts.set(t.path, r.stdout.split('\n').filter(Boolean).length)
-                  })
-                  .catch(() => undefined),
-              ),
-            )
-            return counts
-          })(),
-        }
-      const treeCounts = showTrees ? await treeRead!.run : undefined
+      // Off the draw, each count landing on its own: a slow worktree holds back no other draw.
+      if (showTrees && dropped(treeRead)) {
+        const { signal } = next
+        treeRead = { key, signal }
+        for (const t of trees.slice(1).filter(t => !t.gone && t.path !== root))
+          $.clock.after(0, () =>
+            $.process
+              .run(['git', '--no-optional-locks', '-C', t.path, 'status', '--porcelain'], { timeoutMs: 5000 })
+              .then(
+                r => (r.exitCode ? null : r.stdout.split('\n').filter(Boolean).length),
+                () => null,
+              )
+              .then(count => {
+                // A run lost with a dropped draw says nothing about the worktree: the next draw reads it again.
+                if (count === null && signal.aborted) return
+                treeStatus.set(t.path, count)
+                $.ui.invalidate('ui.render')
+              }),
+          )
+      }
       const views = await read($, prViews)
       const commitViewsNow = await read($, commitViews)
       // The branch modal: the tree of local branches, the current one lit; it opens on it. Rows only inform.
@@ -2384,8 +2386,11 @@ export const register: Register = (on, options) => {
         // The worktrees view's columns: sync, then changed files or gone.
         const treeCells = linkedTrees.map(t => {
           const b = t.branch ? synced.get(t.branch) : undefined
-          const changed = t.path === root ? files.length : treeCounts?.get(t.path)
-          return [!t.gone && b ? syncOf(b) : null, t.gone ? <Text color={HUD.faint}>gone</Text> : changed ? <Text color={HUD.faint}>{`${changed} changed`}</Text> : null]
+          const changed = t.path === root ? files.length : treeStatus.get(t.path)
+          return [
+            !t.gone && b ? syncOf(b) : null,
+            t.gone ? <Text color={HUD.faint}>gone</Text> : changed === null ? <Text color="warning">? changed</Text> : changed ? <Text color={HUD.faint}>{`${changed} changed`}</Text> : null,
+          ]
         })
         const treeCols = [0, 1].map(i => Math.max(0, ...treeCells.map(cells => textLength(cells[i]))))
         const treeColsWidth = treeCols.filter(Boolean).reduce((n, w) => n + w + 2, 0)
