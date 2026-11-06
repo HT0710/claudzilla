@@ -2252,6 +2252,31 @@ test('a stacked section that goes closes with it, so the next one opens nothing'
   expect(await ui.find({ key: 's:x' })).toBeUndefined()
 })
 
+test('rerun says it started, and a press while it runs starts no second one', async ($, on) => {
+  quiet(on)
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => (toasts.push(String((e as any).text)), { value: undefined }) as any)
+  const runs: string[] = []
+  let release = () => {}
+  on('process.run', async (_, e) => {
+    if (e.argv[0] === 'gh' && e.argv[2] === 'list') return ran(JSON.stringify([prJson({ statusCheckRollup: [failedRun] })]))
+    if (e.argv[0] === 'gh' && e.argv[2] === 'view') return ran(JSON.stringify(viewJson()))
+    if (e.argv[0] === 'gh' && e.argv[1] === 'run' && e.argv[2] === 'rerun') {
+      runs.push(e.argv.join(' '))
+      await new Promise<void>(done => (release = done))
+      return ran('')
+    }
+    return ran(git(repoOn('a'))(e.argv) ?? '')
+  })
+  const ui = await openPr($)
+  const presses = [ui.press({ key: 'm:rerun' }), ui.press({ key: 'm:rerun' })]
+  await ui.drawn()
+  release()
+  await Promise.allSettled(presses)
+  expect(runs).toEqual(['gh run rerun 41 --failed'])
+  expect(toasts).toEqual(['Rerun started'])
+})
+
 test('an ask holds only for its step: when the rebase moves on, skip asks again', async ($, on) => {
   const dir: Record<string, string | null> = { ...rebaseDir(2) }
   quiet(on, 5 * MIN, false, dir)
