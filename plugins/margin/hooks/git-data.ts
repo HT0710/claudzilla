@@ -118,7 +118,8 @@ const conflicts = (unmerged: string, unstaged: string, cached: string) => {
 export const parseRebase = (f: { headName: string; onto: string; done: string; todo: string; numstat: string; cached: string; unmerged: string }): Extract<Op, { kind: 'rebase' }> => {
   const done = todoLines(f.done)
   const at = done.length - 1
-  const edit = /^e(dit)?$/.test(done[at]?.cmd ?? '')
+  // A conflict can stop an edit step too: only a clean stop waits to be edited.
+  const edit = /^e(dit)?$/.test(done[at]?.cmd ?? '') && !f.unmerged.trim()
   const files = conflicts(f.unmerged, f.numstat, f.cached)
   const steps: RebaseStep[] = [
     ...done.map((s, i) => ({ sha: s.sha, subject: s.subject, mark: i === at ? ('stop' as const) : ('done' as const) })),

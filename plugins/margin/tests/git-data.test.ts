@@ -240,3 +240,9 @@ test('control characters in a check name, a rebase subject and a merge subject r
 test('a control character in an author reads as a space', () => {
   expect(parseLog('abc\x1fa\x1fHT\x1b0710\x1f1\x1f\x1fsub\n')[0]!.author).toBe('HT 0710')
 })
+
+test('a conflict on an edit step reads as a conflict, not an edit stop', () => {
+  const op = parseRebase({ headName: HEAD_NAME, onto: ONTO, done: ONE, todo: TWO, numstat: '0\t0\tf.txt\n4\t0\tf.txt\n', cached: '', unmerged: 'f.txt\n' })
+  expect(op).toMatchObject({ edit: false, resolved: false })
+  expect(op.conflicts.length).toBe(1)
+})
