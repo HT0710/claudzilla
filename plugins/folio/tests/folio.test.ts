@@ -758,10 +758,25 @@ test('a failed edit keeps its native row, reason included; the fold counts the r
   expect(await textOf(first, 'e1')).toBe('● Edited (2 files)  +2')
 })
 
-test('a running edit keeps its native row under the fold', async ($, on) => {
+test('a live edit never joins a run an old row started, so it keeps its own row', async ($, on) => {
   native(on)
-  await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
-  expect(await textOf(await mountRow($, 'Edit', undefined, { isRunning: true }, '/p/b.txt', 'e2'), 'e2')).toBe('native')
+  await mountRow($, 'Edit', patch('+old'), {}, '/p/old.txt', 'e1')
+  const running = await mountRow($, 'Edit', undefined, { isRunning: true }, '/p/new.txt', 'e2')
+  await running.unmount()
+  const live = await mountRow($, 'Edit', patch('+b'), {}, '/p/new.txt', 'e2')
+  expect(await textOf(live, 'e2')).toBe('● Updated (new.txt)  +1')
+})
+
+test('a live run keeps native rows while running, then folds as its edits land', async ($, on) => {
+  native(on)
+  const row = (file: string, id: string) => ({ tool_use_id: id, tool: 'Edit', input: { file_path: file }, output: patch('+b'), isRunning: false, isErrored: false, isInterrupted: false })
+  const first = await mountRow($, 'Edit', undefined, { isRunning: true }, '/p/a.txt', 'e1')
+  const second = await mountRow($, 'Edit', undefined, { isRunning: true }, '/p/b.txt', 'e2')
+  expect(await textOf(second, 'e2')).toBe('native')
+  await first.redraw(row('/p/a.txt', 'e1'))
+  await second.redraw(row('/p/b.txt', 'e2'))
+  await first.redraw(row('/p/a.txt', 'e1'))
+  expect(await textOf(first, 'e1')).toBe('● Edited (2 files)  +2')
 })
 
 const diffOf = async (ui: any) => (await ui.find({ type: 'Code' }))?.props.source

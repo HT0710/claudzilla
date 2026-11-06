@@ -428,7 +428,7 @@ export const register: Register = on => {
 
   // A run of edits folds into its first row, as a big diff fills the chat. Off the fullscreen layout a printed row
   // cannot change, so each edit keeps its own.
-  type Run = { ids: string[]; isOpen: boolean }
+  type Run = { ids: string[]; isOpen: boolean; isLive: boolean }
   const runs = new Map<string, Run>()
   const done = new Map<string, { file: string; diff?: string; summary: NonNullable<ReturnType<typeof editSummary>> }>()
   const placed = new Set<string>()
@@ -451,7 +451,9 @@ export const register: Register = on => {
     if (isHidden || e.surface !== 'terminal' || placed.has(e.requestId)) return next(e)
     placed.add(e.requestId)
     if (e.component === 'ToolUse' && e.props.tool in EDIT) {
-      const run: Run = (e.viewport?.isFullscreen && current) || { ids: [], isOpen: false }
+      // A row first drawn with its output is an old one, scrolled to: a live edit must not land in its run, off screen.
+      const isLive = e.props.output === undefined
+      const run: Run = (e.viewport?.isFullscreen && current?.isLive === isLive && current) || { ids: [], isOpen: false, isLive }
       run.ids.push(e.requestId)
       runs.set(e.requestId, run)
       current = run
