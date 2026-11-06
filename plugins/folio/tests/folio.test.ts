@@ -749,21 +749,13 @@ test("margin's hidden intent row does not break a run", async ($, on) => {
   expect(await textOf(first, 'e1')).toBe('● Edited (2 files)  +2')
 })
 
-test('a failed edit stays named under a closed fold', async ($, on) => {
+test('a failed edit keeps its native row, reason included; the fold counts the rest', async ($, on) => {
   native(on)
   const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
   await mountRow($, 'Edit', patch('+c'), {}, '/p/b.txt', 'e2')
-  const third = await mountRow($, 'Edit', 'Error: it failed.', { isErrored: true }, '/p/c.txt', 'e3')
+  const third = await mountRow($, 'Edit', 'Error: ledger: /p/c.txt was edited by another session 2m ago.', { isErrored: true }, '/p/c.txt', 'e3')
+  expect(await textOf(third, 'e3')).toBe('native')
   expect(await textOf(first, 'e1')).toBe('● Edited (2 files)  +2')
-  expect(await textOf(third, 'file:e3')).toBe('  └ c.txt           Error editing file')
-})
-
-test('a run where every edit failed says so', async ($, on) => {
-  native(on)
-  const first = await mountRow($, 'Edit', 'Error: it failed.', { isErrored: true }, '/p/a.txt', 'e1')
-  await mountRow($, 'Edit', 'Error: it failed.', { isErrored: true }, '/p/b.txt', 'e2')
-  expect(await textOf(first, 'e1')).toBe('● Failed (2 edits)')
-  expect(await textOf(first, 'file:e1')).toBe('  ├ a.txt           Error editing file')
 })
 
 test('a running edit keeps its native row under the fold', async ($, on) => {
@@ -928,15 +920,6 @@ test('a diff too big for the Code element opens nothing, and the row stays', asy
   expect(await textOf(first, 'e1')).toBe('● Wrote (a.txt)  +1 new')
 })
 
-test('a click on a failed tree row changes nothing', async ($, on) => {
-  native(on)
-  const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
-  const second = await mountRow($, 'Edit', 'Error: it failed.', { isErrored: true }, '/p/b.txt', 'e2')
-  await click(second, 'file:e2')
-  expect(await textOf(second, 'file:e2')).toMatch(/^  └ /)
-  expect(await textOf(first, 'e1')).toBe('● Edited (1 file)  +1')
-})
-
 test('a new file opens as all added lines', async ($, on) => {
   native(on)
   const first = await mountRow($, 'Write', created('a\nb\n'), {}, '/p/a.txt', 'e1')
@@ -952,13 +935,6 @@ test('a lone edit has no tree: a click opens its diff', async ($, on) => {
   expect(await diffOf(first)).toBe('@@ -3,1 +3,2 @@\n a\n+b')
   expect(await textOf(first, 'e1')).toBe('● Updated (a.txt)  +1')
   expect((await first.find({ type: 'Text', text: /^│/ }))?.props.color).toBe('promptBorder')
-})
-
-test('a failed edit has no diff to open', async ($, on) => {
-  native(on)
-  const first = await mountRow($, 'Edit', 'Error: it failed.', { isErrored: true }, '/p/a.txt', 'e1')
-  await click(first, 'fold:e1')
-  expect(await diffOf(first)).toBeUndefined()
 })
 
 test('a surface other than the terminal keeps the native rows', async ($, on) => {
@@ -1012,13 +988,13 @@ const block = async ($: any, tool: string, output: unknown, extra: object = {}, 
 test('the engine block under a compact row draws nothing, open or closed', async ($, on) => {
   native(on)
   expect(await block($, 'Edit', patch('-a', '+b'), {}, 'b1')).toBeUndefined()
-  expect(await block($, 'Edit', 'Error: it failed.', { isErrored: true }, 'b2')).toBeUndefined()
 })
 
 test('the engine block stays where the row stays native', async ($, on) => {
   native(on)
   expect(await block($, 'Edit', patch('-a', '+b'), { isExpanded: true }, 'b1')).toBe('native block')
   expect(await block($, 'Edit', "The user doesn't want to proceed.", { isErrored: true }, 'b2')).toBe('native block')
+  expect(await block($, 'Edit', 'Error: ledger: /p/a.txt was edited by another session.', { isErrored: true }, 'b4')).toBe('native block')
   expect(await block($, 'Bash', { stdout: 'x' }, {}, 'b3')).toBe('native block')
 })
 
@@ -1044,6 +1020,10 @@ test('the mark and counts take the theme colours', async ($, on) => {
 for (const [name, tool, output, extra] of [
   ['the expanded view', 'Edit', patch('-a', '+b'), { isExpanded: true }],
   ['an expanded error', 'Edit', 'Error: String to replace not found in file.', { isErrored: true, isExpanded: true }],
+  ['a tool error', 'Edit', 'Error: String to replace not found in file.', { isErrored: true }],
+  ['a tool error on Write', 'Write', 'Error: it failed.', { isErrored: true }],
+  ['a hook denial', 'Edit', 'Error: ledger: /p/a.txt was edited by another session 2m ago.', { isErrored: true }],
+  ['a rule denial', 'Write', 'Error: Permission to use Write has been denied.', { isErrored: true }],
   ['a refusal', 'Edit', "The user doesn't want to proceed with this tool use.", { isErrored: true }],
   ['another tool\'s error', 'Bash', 'Error: exit 1', { isErrored: true }],
   ['a held edit', 'Edit', { ...patch('-a', '+b'), staged: true }, {}],
@@ -1055,15 +1035,6 @@ for (const [name, tool, output, extra] of [
   test(`${name} stays native`, async ($, on) => {
     native(on)
     expect(await drawn($, tool, output, extra)).toBe('native')
-  })
-}
-
-for (const [tool, want] of [['Edit', 'Error editing file'], ['Write', 'Error writing file']] as const) {
-  test(`a failed ${tool} draws its error on the row`, async ($, on) => {
-    native(on)
-    const ui = await mountRow($, tool, 'Error: it failed.', { isErrored: true })
-    expect(await textOf(ui)).toBe(`● ${tool === 'Edit' ? 'Update' : 'Write'} (a.txt)  ${want}`)
-    expect((await ui.find({ type: 'Text', text: /^●$/, in: 'fold:r1' }))?.props.color).toBe('error')
   })
 }
 

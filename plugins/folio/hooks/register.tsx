@@ -33,20 +33,14 @@ const CODE_CONTROLS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g
 const TREE_LINE_ROWS = 500
 const NAME_FLOOR = 20
 
-// `done` once it landed, `tried` when it failed and changed nothing.
-const EDIT: Record<string, { done: string; tried: string; error: string }> = {
-  Edit: { done: 'Updated', tried: 'Update', error: 'Error editing file' },
-  Write: { done: 'Wrote', tried: 'Write', error: 'Error writing file' },
-}
+const EDIT: Record<string, string> = { Edit: 'Updated', Write: 'Wrote' }
 
 const newFileLines = (output: { content?: string }) => (output.content ? output.content.replace(/\n$/, '').split('\n') : [])
 
 // What an Edit or Write row shows in place of its result block; undefined where the engine's own rows should draw.
 function editSummary(tool: string, output: any, isErrored: boolean) {
-  const names = EDIT[tool]
-  if (!names) return undefined
-  // A refusal is errored too, with its own rows: only a tool's own error starts this way.
-  if (isErrored) return typeof output === 'string' && output.startsWith('Error') ? { error: names.error } : undefined
+  // An errored edit keeps the engine's row: a denial's reason shows only there.
+  if (!(tool in EDIT) || isErrored) return undefined
   if (!output || typeof output !== 'object' || output.staged) return undefined
   if (output.type === 'create') return { add: newFileLines(output).length, del: 0, isNew: true }
   const lines: string[] = (output.structuredPatch ?? []).flatMap((hunk: { lines: string[] }) => hunk.lines)
@@ -482,7 +476,7 @@ export const register: Register = on => {
     if (!hideEditDiff || e.surface !== 'terminal' || isExpanded || !run) return native
     const summary = !isRunning && !isInterrupted ? editSummary(tool, output, isErrored) : undefined
     if (summary && !done.has(e.requestId)) {
-      done.set(e.requestId, { file: String((input as { file_path?: string }).file_path), summary, diff: isErrored ? undefined : diffText(output) })
+      done.set(e.requestId, { file: String((input as { file_path?: string }).file_path), summary, diff: diffText(output) })
       // The run's first row draws this one's counts; a lone edit has none to update.
       if (run.ids.length > 1) $.ui.invalidate('ui.render')
     }
@@ -506,10 +500,7 @@ export const register: Register = on => {
       ...(del > 0 ? [{ text: `−${del}`, color: 'error' }] : []),
       ...(isNew ? [{ text: ' new' }] : []),
     ]
-    const result = (entry: NonNullable<ReturnType<typeof done.get>>, gap = '  ') =>
-      'error' in entry.summary
-        ? [{ text: gap }, { text: entry.summary.error, color: 'error' }]
-        : countPieces(entry.summary.add, entry.summary.del, entry.summary.isNew, gap)
+    const result = (entry: NonNullable<ReturnType<typeof done.get>>, gap = '  ') => countPieces(entry.summary.add, entry.summary.del, entry.summary.isNew, gap)
     const self = done.get(e.requestId)!
     const diff = (entry: typeof self, hasNext = false) => entry.diff && (
       <Box position="relative" paddingLeft={4} paddingBottom={hasNext ? 1 : undefined}>
@@ -525,37 +516,35 @@ export const register: Register = on => {
     if (entries.length < 2) {
       return (
         <Box flexDirection="column" marginTop={1}>
-          {row(`fold:${e.requestId}`, [...head('●', isErrored ? 'error' : 'success', isErrored ? EDIT[tool]!.tried : EDIT[tool]!.done), { text: ' (', color: 'promptBorder' }, ...namePieces(name(self.file)), { text: ')', color: 'promptBorder' }, ...result(self)])}
+          {row(`fold:${e.requestId}`, [...head('●', 'success', EDIT[tool]!), { text: ' (', color: 'promptBorder' }, ...namePieces(name(self.file)), { text: ')', color: 'promptBorder' }, ...result(self)])}
           {run.isOpen && diff(self)}
         </Box>
       )
     }
-    const edits = entries.flatMap(entry => ('error' in entry.summary ? [] : entry.summary))
-    const add = edits.reduce((sum, edit) => sum + edit.add, 0)
-    const del = edits.reduce((sum, edit) => sum + edit.del, 0)
-    const files = new Set(entries.filter(entry => !('error' in entry.summary)).map(entry => entry.file)).size
-    // A failed edit stays named while the fold is closed.
-    const listed = run.isOpen ? entries : entries.filter(entry => 'error' in entry.summary)
+    const add = entries.reduce((sum, entry) => sum + entry.summary.add, 0)
+    const del = entries.reduce((sum, entry) => sum + entry.summary.del, 0)
+    const files = new Set(entries.map(entry => entry.file)).size
+    const listed = run.isOpen ? entries : []
     const at = listed.indexOf(self)
     const isFirst = entries[0] === self
     if (!isFirst && at < 0) return <Box />
     const mark = run.isOpen ? '○' : '●'
     // Every row's counts start in one column: past the header or the widest listed name, whichever ends later.
     const TREE_INDENT = 4
-    const [verb, count, noun] = edits.length ? ['Edited', files, files === 1 ? 'file' : 'files'] : ['Failed', entries.length, 'edits']
-    const label = `${verb} (${count} ${noun})`
+    const noun = files === 1 ? 'file' : 'files'
+    const label = `Edited (${files} ${noun})`
     const end = Math.max(label.length + 2, ...listed.map(entry => TREE_INDENT + name(entry.file).length))
     const gapAfter = (width: number) => ' '.repeat(end - width + 2)
 
     return (
       <Box flexDirection="column" marginTop={isFirst ? 1 : 0}>
         {isFirst && row(`fold:${e.requestId}`, [
-          ...head(mark, edits.length ? 'success' : 'error', verb),
+          ...head(mark, 'success', 'Edited'),
           { text: ' (', color: 'promptBorder' },
-          { text: String(count), color: 'claude' },
+          { text: String(files), color: 'claude' },
           { text: ` ${noun}` },
           { text: ')', color: 'promptBorder' },
-          ...(edits.length ? countPieces(add, del, false, gapAfter(label.length + 2)) : []),
+          ...countPieces(add, del, false, gapAfter(label.length + 2)),
         ])}
         {at >= 0 && row(`file:${e.requestId}`, [
           { text: at === listed.length - 1 && !shownDiffs.has(e.requestId) ? '  └ ' : '  ├ ', color: 'promptBorder' },
