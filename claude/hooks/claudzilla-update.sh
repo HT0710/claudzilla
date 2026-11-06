@@ -1,6 +1,6 @@
 #!/bin/sh
 # SessionStart hook: keep the claudzilla clone current. A background job fetches
-# (at most daily) and, with rulesGuard.autoUpdate on (default), fast-forwards to the
+# (at most hourly) and, with rulesGuard.autoUpdate on (default), fast-forwards to the
 # newest release tag and re-runs install.sh; the next session reports the result.
 # Startup never waits on the network.
 # Each notice is also a line in the events file, which the herald mod toasts.
@@ -63,7 +63,7 @@ elif [ -n "$user" ]; then
   printf '{"systemMessage":"%s"}\n' "$(json "$user")"
 fi
 
-stale=$({ [ -f "$gd/shallow" ] || [ -z "$(find "$gd/FETCH_HEAD" -mmin -1440 2>/dev/null)" ]; } && echo 1)
+stale=$({ [ -f "$gd/shallow" ] || [ -z "$(find "$gd/FETCH_HEAD" -mmin -60 2>/dev/null)" ]; } && echo 1)
 [ -n "$stale" ] || { [ "$auto" = true ] && [ "${n:-0}" -gt 0 ]; } || exit 0
 find "$lock" -maxdepth 0 -mmin +60 -exec rmdir {} \; 2>/dev/null   # left by a killed job
 (

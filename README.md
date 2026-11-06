@@ -170,7 +170,7 @@ Full reference, install internals and keybindings: **[CONFIGURATION.md](CONFIGUR
 
 ## Update
 
-Each push to `main` with a feature, fix or refactor ships a release, once the tests pass. At most once a day, a new session or `/clear` installs the newest release in the background, unless the clone has local changes; then you get a notice. After an update, `/claudzilla news` lists what changed. To update by hand (latest `main`, may be ahead of the release):
+Each push to `main` with a feature, fix or refactor ships a release, once the tests pass. At most once an hour, a new session or `/clear` installs the newest release in the background, unless the clone has local changes; then you get a notice. After an update, `/claudzilla news` lists what changed. To update by hand (latest `main`, may be ahead of the release):
 
 ```bash
 cd ~/claudzilla && git pull && ./install.sh
