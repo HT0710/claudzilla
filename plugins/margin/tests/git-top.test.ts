@@ -1630,11 +1630,14 @@ test('a file card: the change word, one pill per true stage', async ($, on) => {
     await hover(ui, fileKey(key))
     return (await cardTexts(ui, fileKey(key))).texts.filter(t => /[a-z]/.test(t))
   }
-  expect(await words('both.ts')).toEqual(['modified', 'staged', 'not staged'])
+  expect(await words('both.ts')).toEqual(['status  ', 'modified', 'staged', 'not staged'])
   // The row shows the line counts; the card does not repeat them.
   expect((await cardTexts(ui, fileKey('both.ts'))).texts.filter(t => /^[+−]\d/.test(t))).toEqual([])
-  expect(await words('index.ts')).toEqual(['added', 'staged'])
-  expect(await words('tree.ts')).toEqual(['modified', 'not staged'])
+  expect(await words('index.ts')).toEqual(['status  ', 'added', 'staged'])
+  expect(await words('tree.ts')).toEqual(['status  ', 'modified', 'not staged'])
+  await hover(ui, fileKey('both.ts'))
+  const { card, find } = await cardTexts(ui, fileKey('both.ts'))
+  expect(find(card, n => n.props?.wrap === 'truncate-end').length).toBe(1)
 })
 
 test('a stage pill takes the green and grey of the PR pills', async ($, on) => {
@@ -1660,7 +1663,7 @@ test('a status pill takes its letter colour; an untracked or conflict file has n
     await hover(ui, fileKey(key))
     const { card, find, texts } = await cardTexts(ui, fileKey(key))
     expect(find(card, n => n.type === 'Text' && [n.children ?? n.props?.children].flat().includes(word))[0]?.props).toMatchObject({ backgroundColor, color })
-    if (word === 'untracked' || word === 'conflict') expect(texts.filter(t => /[a-z]/.test(t))).toEqual([word])
+    if (word === 'untracked' || word === 'conflict') expect(texts.filter(t => /[a-z]/.test(t))).toEqual(['status  ', word])
   }
 })
 
@@ -1671,7 +1674,7 @@ test('rename row shows the new name and its counts; its card has no old path', a
   expect(await piece(ui, fileKey('docs/git-tab.md'), /docs\/git-tab\.md$/)).toBeDefined()
   expect(await piece(ui, fileKey('docs/git-tab.md'), '+2')).toBeDefined()
   await hover(ui, fileKey('docs/git-tab.md'))
-  expect((await cardTexts(ui, fileKey('docs/git-tab.md'))).texts.filter(t => /[a-z]/.test(t))).toEqual(['renamed', 'staged'])
+  expect((await cardTexts(ui, fileKey('docs/git-tab.md'))).texts.filter(t => /[a-z]/.test(t))).toEqual(['status  ', 'renamed', 'staged'])
 })
 
 test('card follows the row after a scroll', async ($, on) => {
@@ -2399,16 +2402,42 @@ test('at 40 columns a commit card keeps its age and counts: the author gives way
   expect(changes + 2 + '+80 −4'.length).toBeLessThanOrEqual(26)
 })
 
-test('at 40 columns a file card shows all three pills whole', async ($, on) => {
+test('at 40 columns a file card keeps its label and moves the last pill to a second row', async ($, on) => {
   quiet(on)
   on('process.run', (_, e) => ran(git(changesRepo('MM both.ts\n', '2\t1\tboth.ts\0'))(e.argv) ?? ''))
   const ui = await narrow($)
   await hover(ui, fileKey('both.ts'))
   const { card, find } = await cardTexts(ui, fileKey('both.ts'))
-  // modified, staged and not staged, each with its 2 caps, and 2 spaces between.
-  expect(card.props.width).toBe(36)
-  // Narrower, it stays one row: its span counts one.
-  expect(find(card, n => n.props?.wrap === 'truncate-end').length).toBe(1)
+  // The label's 8, modified and staged with their 2 caps each and a space, and 4 of border and padding.
+  expect(card.props.width).toBe(31)
+  expect(find(card, n => n.props?.wrap === 'truncate-end').length).toBe(2)
+})
+
+test('at 40 columns a two-row file card near the bottom opens upward, and the row above dims', async ($, on) => {
+  quiet(on)
+  const names = Array.from({ length: 30 }, (_, i) => `f${String(i).padStart(2, '0')}.ts`)
+  on('process.run', (_, e) => ran(git(changesRepo(names.map(n => `MM ${n}\n`).join('')))(e.argv) ?? ''))
+  const ui = await narrow($)
+  // The divider dragged to its lowest: the last CHANGES rows sit near the tab's bottom.
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
+  await ui.pointer({ type: 'move', x: 0, y: 40, button: 'left', in: 'divider' })
+  await ui.pointer({ type: 'up', x: 0, y: 40, button: 'left', in: 'divider' })
+  const drawn = JSON.stringify(await ui.drawn())
+  const rows = names.filter(n => drawn.includes(`"row:${fileKey(n)}"`))
+  const tops: number[] = []
+  for (const n of rows) {
+    await hover(ui, fileKey(n))
+    tops.push((await cardTexts(ui, fileKey(n))).card.props.top)
+  }
+  // Cards opening downward step one row lower per row from the first; one opening upward sits above that line.
+  const upward = rows.map((_, i) => tops[i]! < tops[0]! + i)
+  expect(upward.some(Boolean)).toBe(true)
+  for (const [i, n] of rows.entries()) {
+    if (!i) continue
+    const line = (await rowProps(ui, fileKey(n)))?.line
+    const under = (await rowProps(ui, fileKey(rows[i - 1]!)))?.left.every(p => p.under?.scope === line)
+    expect([n, !!under]).toEqual([n, upward[i]])
+  }
 })
 
 test('a summary card keeps the 75% cap', async ($, on) => {
