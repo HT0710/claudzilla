@@ -360,7 +360,7 @@ From the moment you submit until Claude reports, the header shows `planning…` 
 
 **Git** starts with the session folder's branch. A mark after its name shows only when the branch needs you: `↓` to pull, `↕` when it has diverged, `✗` when origin deleted it. A faint `⧉` after the name means the session runs in a linked worktree. Hover the name for its upstream and stashes, and click it for a tree of every local branch. When the repository has a linked worktree, the tree's `worktrees` view lists each one with its branch, sync and uncommitted files. The age at the right is the last fetch: click it to run `git fetch origin`.
 
-A rebase or merge in progress gets its own row with what it waits on, such as `✗ 1 conflict`. Click it to see each step and the files to fix, and to continue, skip or abort.
+A rebase or merge in progress gets its own row with what it waits on, such as `✗ 1 conflict`. Click it to see each step and the files to fix, and to continue, skip or abort. Skip and abort ask on the first click and run on the second.
 
 When `gh` is set up for a GitHub repo, the next row shows the branch's pull request: its number, its base, its CI state and an `open`, `draft`, `merged` or `closed` pill. Hover it for the base, checks and changes; click it for the description (drawn as Markdown: headings, lists, code and links), checks, commits and files, with `github`, `copy` and `rerun` actions. Two open PRs from one branch, or PRs coming into a base branch, share one summary row.
 

@@ -167,6 +167,8 @@ const expanded = atom({ plugin: 'margin', key: 'expanded' } as const, -1)
 const modal = atom({ plugin: 'margin', key: 'modal' } as const, null as Modal | null)
 // While `git fetch origin` runs from the branch row.
 const fetching = atom({ plugin: 'margin', key: 'fetching' } as const, false)
+// While a rebase or merge action runs: a press in that time starts no second one.
+let gitActing = false
 // The branch modal's tree: by the branch each was made from, or by prefix; merged branches shown or not.
 const branchView = atom({ plugin: 'margin', key: 'branchView' } as const, { by: 'base' as 'base' | 'prefix' | 'worktrees', showMerged: false })
 // GitHub's PRs for this repo, read on a timer off the draw path; each PR's modal details once opened.
@@ -2670,21 +2672,34 @@ export const register: Register = (on, options) => {
         const rebase = op.kind === 'rebase'
         const ready = !blocked
         const runGit = async (argv: string[]) => {
-          // No editor: continue and commit keep the message git wrote.
-          const run = await $.process.run(['git', '-c', 'core.editor=true', ...argv]).catch(() => undefined)
-          if (run?.exitCode !== 0) $.ui.toast(`git ${argv[0]} failed: ${(run?.stderr ?? '').split('\n')[0]}`)
-          // Closed: a rebase that ended must not open it again at the next one; a new stop is a click away.
-          await setModal($, () => null)
-          await update($, toolCalls, n => n + 1)
+          if (gitActing) return
+          gitActing = true
+          try {
+            // No editor: continue and commit keep the message git wrote.
+            const run = await $.process.run(['git', '-c', 'core.editor=true', ...argv]).catch(() => undefined)
+            if (run?.exitCode !== 0) $.ui.toast(`git ${argv[0]} failed: ${(run?.stderr ?? '').split('\n')[0]}`)
+            // Closed: a rebase that ended must not open it again at the next one; a new stop is a click away.
+            await setModal($, () => null)
+            await update($, toolCalls, n => n + 1)
+          } finally {
+            gitActing = false
+          }
         }
         // abort throws work away (red); continue and commit go forward (green) once nothing blocks them.
-        const act = (word: string, icon: string, argv: string[]) => (
-          <Button key={`m:${word}`} plain onPress={() => runGit(argv)}>
-            {/* The mockup's buttons: abort throws work away (error); continue and commit go forward (success) once
-                nothing blocks them; else the accent. */}
-            <Text color={word === 'abort' ? 'error' : ready && (word === 'continue' || word === 'commit') ? 'success' : 'claude'}>{`${icon} ${word}`}</Text>
-          </Button>
-        )
+        // abort and skip lose work, and sit side by side: the first press asks, the second runs.
+        const act = (word: string, icon: string, argv: string[]) => {
+          const asks = word === 'abort' || word === 'skip'
+          // Held for this step only: the rebase may move on while the modal stays open.
+          const ask = `${word}:${rebase ? op.at : ''}`
+          const asking = open?.armed === ask
+          return (
+            <Button key={`m:${word}`} plain onPress={() => (asks && !asking ? setModal($, m => m && { ...m, armed: ask }) : runGit(argv))}>
+              {/* The mockup's buttons: abort throws work away (error); continue and commit go forward (success) once
+                  nothing blocks them; else the accent. */}
+              <Text color={word === 'abort' || asking ? 'error' : ready && (word === 'continue' || word === 'commit') ? 'success' : 'claude'}>{`${icon} ${word}${asking ? '?' : ''}`}</Text>
+            </Button>
+          )
+        }
         const acts = rebase
           ? [act('continue', '', ['rebase', '--continue']), act('skip', '', ['rebase', '--skip']), act('abort', '', ['rebase', '--abort'])]
           : [act('commit', '', ['commit', '--no-edit']), act('abort', '', [op.verb ?? 'merge', '--abort'])]

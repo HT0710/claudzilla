@@ -1511,6 +1511,7 @@ test('a cherry-pick in progress uses the same row with its own verb, and aborts 
   await tap(ui, 'rebase')
   expect(await ui.find({ type: 'Text', text: 'fix: upper b' })).toBeDefined()
   await ui.press({ key: 'm:abort' })
+  await ui.press({ key: 'm:abort' })
   expect(runs).toContain('git -c core.editor=true cherry-pick --abort')
 })
 
@@ -2093,11 +2094,92 @@ test('a conflict file name with a control character draws as a space in the PR m
   expect(await ui.find({ type: 'Text', text: ' conflicts in a b.ts' })).toBeDefined()
 })
 
+// A rebase stop with a real repo: the first press arms, the second runs.
+const armed = (on: Parameters<TestBody>[1], runs: string[]) => {
+  quiet(on, 5 * MIN, false, rebaseDir(1))
+  on('process.run', (_, e) => {
+    runs.push(e.argv.join(' '))
+    return ran(git(conflictRepo({ '--diff-filter=U': '', '--numstat': '' }))(e.argv) ?? '')
+  })
+}
+
+test('rebase abort runs only on a second press, and its label asks in red first', async ($, on) => {
+  const runs: string[] = []
+  armed(on, runs)
+  const ui = await mount($)
+  await tap(ui, 'rebase')
+  await ui.press({ key: 'm:abort' })
+  expect(runs.filter(r => r.includes('--abort'))).toEqual([])
+  expect((await ui.find({ type: 'Text', text: ' abort?' }))?.props.color).toBe('error')
+  await ui.press({ key: 'm:abort' })
+  expect(runs.filter(r => r.includes('--abort')).length).toBe(1)
+})
+
+test('rebase skip asks first too; a press on abort moves the ask, and neither runs', async ($, on) => {
+  const runs: string[] = []
+  armed(on, runs)
+  const ui = await mount($)
+  await tap(ui, 'rebase')
+  await ui.press({ key: 'm:skip' })
+  expect((await ui.find({ type: 'Text', text: ' skip?' }))?.props.color).toBe('error')
+  await ui.press({ key: 'm:abort' })
+  expect(await ui.find({ type: 'Text', text: ' skip?' })).toBeUndefined()
+  expect(runs.filter(r => / rebase --(abort|skip)/.test(r))).toEqual([])
+})
+
+test('continue still runs on one press', async ($, on) => {
+  const runs: string[] = []
+  armed(on, runs)
+  const ui = await mount($)
+  await tap(ui, 'rebase')
+  await ui.press({ key: 'm:continue' })
+  expect(runs).toContain('git -c core.editor=true rebase --continue')
+})
+
+test('presses landing while a rebase action runs start no second git run', async ($, on) => {
+  quiet(on, 5 * MIN, false, rebaseDir(1))
+  const runs: string[] = []
+  let release = () => {}
+  on('process.run', async (_, e) => {
+    if (e.argv.includes('--continue')) {
+      runs.push(e.argv.join(' '))
+      await new Promise<void>(done => (release = done))
+    }
+    return ran(git(conflictRepo({ '--diff-filter=U': '', '--numstat': '' }))(e.argv) ?? '')
+  })
+  const ui = await mount($)
+  await tap(ui, 'rebase')
+  const presses = [ui.press({ key: 'm:continue' }), ui.press({ key: 'm:continue' })]
+  await ui.drawn()
+  release()
+  await Promise.allSettled(presses)
+  expect(runs.length).toBe(1)
+})
+
 test('a worktree path with a control character draws as a space', async ($, on) => {
   quiet(on)
   withTrees(on, TREES.replace('/tmp/w', '/tmp/w\x1bx'))
   const ui = await mount($)
   await worktreeView(ui)
   expect(await ui.find({ type: 'Text', text: ' /tmp/w x' })).toBeDefined()
+})
+
+test('an ask holds only for its step: when the rebase moves on, skip asks again', async ($, on) => {
+  const dir: Record<string, string | null> = { ...rebaseDir(2) }
+  quiet(on, 5 * MIN, false, dir)
+  const runs: string[] = []
+  on('process.run', (_, e) => {
+    runs.push(e.argv.join(' '))
+    return ran(git(conflictRepo())(e.argv) ?? '')
+  })
+  const ui = await mount($)
+  await tap(ui, 'rebase')
+  await ui.press({ key: 'm:skip' })
+  Object.assign(dir, rebaseDir(3))
+  await $.tool.call({ tool: 'Bash', command: 'git rebase --continue' })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: ' skip?' })).toBeUndefined()
+  await ui.press({ key: 'm:skip' })
+  expect(runs.filter(r => r.includes('rebase --skip'))).toEqual([])
 })
 
