@@ -83,7 +83,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 
   *Real speed. Press 1: the option's id and text go into the prompt box; Enter sends it. Needs the `ballot` part.*
 
-- **Dividers and file links:** lines frame the TL;DR, `Next:` and each `---`, fitted to the chat width. A file path in a reply is a link: click it to see those lines in the margin. Each code block sits in a card with a Copy button. Two clicks on Run run a shell block, and its output streams into the card ([details](plugins/folio/README.md)).
+- **Dividers and file links:** lines frame the TL;DR, `Next:` and each `---`, fitted to the chat width. A file path in a reply is a link: click it to see those lines in the margin. Each code block sits in a card with a Copy button. Two clicks on Run run a shell block, and its output streams into the card. An Edit or Write draws one row with its line counts in place of its diff, and a run of edits folds into one row; click it for the edited files and each diff ([details](plugins/folio/README.md)).
 
   <img src=".github/assets/filelink.gif" alt="Clicking auth/token.js:3 in a reply opens the margin's File tab with line 3 marked" width="720">
 
@@ -110,13 +110,15 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 - **Two sessions, one file:** before Claude edits a file another session edited in the last 30 minutes, it pauses once and the other session is told ([details](plugins/ledger/README.md)).
 
 ### A better terminal
-- **Statusline:** cwd, branch, masked account email, context / prompt cache / 5h / weekly meters, model, effort, active skill, claudzilla version.
+- **Statusline:** cwd, branch, masked account email, context / prompt cache / 5h / weekly meters, model, effort, active skill, claudzilla version. `{"hud":{"compact":true}}` in `~/.claude/claudzilla.json` draws it in 3 rows.
 
   <img src=".github/assets/statusline.gif" alt="The status line during one turn: the context meter climbs and the loaded skill appears beside the model" width="720">
 
   *3× speed. One real turn: the context meter climbs and the skill Claude loaded appears. The `5h` and `wk` meters show only on a Claude subscription login, such as Pro, Max or Team. The symbols need the MesloLGS NF font; without it, basic symbols.*
 
+
 - **Margin:** `/margin` shows what Claude plans and does, lists this chat's prompts, previews files and shows git; click to jump, reuse or rewind ([details](plugins/margin/README.md)).
+- **Git tab:** the branch with a mark only when it needs you, a rebase or merge in progress with continue, skip and abort, the branch's pull request with its CI checks and description, a tree of every branch with its worktrees, then changed files and recent commits. Hover a row for a card, click it for details.
 
   <img src=".github/assets/overview.gif" alt="The margin's Overview tab during a fix: planning, then ASK, PLAN and steps that tick off one by one until done" width="720">
 
@@ -128,7 +130,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 <details>
 <summary>More screenshots</summary>
 
-Margin Git tab: the branch, changed files and recent commits.
+Margin Git tab: the branch, changed files and recent commits; hover a row for a card, click it for details.
 
 <img src=".github/assets/git.png" alt="The margin's Git tab: master with one changed file under CHANGES and one commit under COMMITS" width="720">
 
