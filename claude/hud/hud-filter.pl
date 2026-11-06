@@ -348,8 +348,9 @@ push @out, rule(3, sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]])) 
                 join($j, map { $_->[1]->($_->[0]) } grep { $_->[0] } @R));
     };
     my $fits = sub { fits($build->()) };
+    $R[0][0] = undef unless $fits->();                            # clock
     for my $i (2,1) { last if $fits->(); $L[$i][0] = undef }     # thinking, skill
-    for my $i (0,2,1) { last if $fits->(); $R[$i][0] = undef }    # clock, session id, then name
+    for my $i (2,1) { last if $fits->(); $R[$i][0] = undef }      # session id, then name
     $L[0][0] = undef unless $fits->();                            # model, last resort
     my ($ls,$rs) = $build->();
     push @out, pad($ls, $rs);
