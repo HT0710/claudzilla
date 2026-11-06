@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { cutPath, runText, split } from '../hooks/register'
+import { cutPath, diffRows, runText, split } from '../hooks/register'
 
 const text = '━━━━\n\n**TL;DR** x\n\n──\n\n## H\n\n┈┈\n\nmore\n\n```text\n━━━━\n```\n\n━━━━'
 const props = { text, isFirstOfReply: true }
@@ -903,9 +903,26 @@ test('the tree line runs beside every open diff', async ($, on) => {
   const line = async (ui: any) => (await ui.find({ type: 'Text', text: /^│/ }))?.props.color
   expect(await line(first)).toBe('promptBorder')
   expect(await line(second)).toBe('promptBorder')
-  const gap = async (ui: any) => (await ui.findAll({ type: 'Box' })).find((box: any) => box.children.some((c: any) => c?.type === 'Code'))?.props.paddingBottom
-  expect(await gap(first)).toBe(1)
-  expect(await gap(second)).toBeUndefined()
+  // One row per diff line, and one more for the gap before the next file.
+  const rows = async (ui: any) => (await ui.find({ type: 'Text', text: /^│/ }))?.text.split('\n').length
+  expect(await rows(first)).toBe(3)
+  expect(await rows(second)).toBe(2)
+})
+
+test('diffRows counts what the Code element draws', () => {
+  const head = '@@ -3,1 +3,2 @@'
+  expect(diffRows(`${head}\n a\n+b`, 40)).toBe(2)
+  // A `...` row between hunks; `\ No newline` draws none.
+  expect(diffRows(`${head}\n a\n+b\n@@ -50,1 +51,1 @@\n-c\n+d\n\\ No newline at end of file`, 40)).toBe(5)
+  // 36 cells of room past a 1-digit gutter: 37 wraps once, a tab or a wide character takes two.
+  expect(diffRows(`${head}\n+${'x'.repeat(36)}`, 40)).toBe(1)
+  expect(diffRows(`${head}\n+${'x'.repeat(37)}`, 40)).toBe(2)
+  expect(diffRows(`${head}\n+\t${'x'.repeat(35)}`, 40)).toBe(2)
+  expect(diffRows(`${head}\n+漢${'x'.repeat(35)}`, 40)).toBe(2)
+  // A joined emoji draws two cells; a 3-digit hunk gutter leaves 34 cells of room.
+  expect(diffRows(`${head}\n+👨\u200D👩\u200D👧${'x'.repeat(34)}`, 40)).toBe(1)
+  expect(diffRows(`@@ -98,3 +98,3 @@\n ${'x'.repeat(34)}`, 40)).toBe(1)
+  expect(diffRows(`@@ -98,3 +98,3 @@\n ${'x'.repeat(35)}`, 40)).toBe(2)
 })
 
 test('the last row turns its corner to a tee while its diff is open', async ($, on) => {

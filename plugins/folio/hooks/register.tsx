@@ -30,7 +30,6 @@ const NAME_SHARE = 0.5
 const CODE_MAX = 100_000
 // eslint-disable-next-line no-control-regex
 const CODE_CONTROLS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g
-const TREE_LINE_ROWS = 500
 const NAME_FLOOR = 20
 
 const EDIT: Record<string, string> = { Edit: 'Updated', Write: 'Wrote' }
@@ -59,6 +58,23 @@ function diffText(output: any) {
     : (output.structuredPatch as Hunk[]).flatMap(h => [`@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`, ...h.lines])
   ).join('\n').replace(CODE_CONTROLS, '')
   return text.length <= CODE_MAX ? text : undefined
+}
+
+// Cells a string takes in a Code element, per grapheme: a tab, and a wide East Asian or emoji one, take two.
+const graphemes = new Intl.Segmenter()
+const cells = (text: string) =>
+  [...graphemes.segment(text)].reduce((sum, { segment }) =>
+    sum + (segment === '\t' || /[\u1100-\u115F\u2600-\u27BF\u2B50\u2B55\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6\u{1F000}-\u{1FAFF}\u{20000}-\u{3FFFF}]/u.test(segment) ? 2 : 1), 0)
+
+// Rows the Code element draws for a diff `width` cells wide: a `...` row between hunks, and each line one row
+// plus its wraps under the hunk's gutter (the widest line number, a space, a marker). `\ No newline` draws none.
+export function diffRows(diff: string, width: number) {
+  return diff.split(/^(?=@@ )/m).reduce((sum, hunk, i) => {
+    const [head = '', ...lines] = hunk.replace(/\n$/, '').split('\n')
+    const [a = 0, b = 1, c = 0, d = 1] = (head.match(/^@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@/) ?? []).slice(1).map(n => (n === '' ? 1 : +n))
+    const room = Math.max(width - String(Math.max(a + b, c + d) - 1).length - 3, 1)
+    return sum + (i ? 1 : 0) + lines.filter(line => line[0] !== '\\').reduce((rows, line) => rows + Math.max(1, Math.ceil(cells(line.slice(1)) / room)), 0)
+  }, 0)
 }
 
 // A path cut in the middle to fit `max`: the first folder, then as many last segments as fit. The file name goes last.
@@ -505,12 +521,12 @@ export const register: Register = on => {
     const result = (entry: NonNullable<ReturnType<typeof done.get>>, gap = '  ') => countPieces(entry.summary.add, entry.summary.del, entry.summary.isNew, gap)
     const self = done.get(e.requestId)!
     const diff = (entry: typeof self, hasNext = false) => entry.diff && (
-      <Box position="relative" paddingLeft={4} paddingBottom={hasNext ? 1 : undefined}>
-        {/* Sized by the diff beside it, which may wrap: clipped, not counted. */}
-        <Box position="absolute" left={2} height="100%" overflow="hidden">
-          <Text color="promptBorder">{Array(TREE_LINE_ROWS).fill('│').join('\n')}</Text>
+      <Box paddingLeft={2}>
+        {/* Counted, not clipped: a clipped box scrolled past its top draws from the screen's top row and overruns. */}
+        <Text color="promptBorder">{Array(diffRows(entry.diff, (e.viewport?.columns ?? 80) - 4) + (hasNext ? 1 : 0)).fill('│').join('\n')}</Text>
+        <Box paddingLeft={1} flexGrow={1}>
+          <Code source={entry.diff} path={entry.file} format="diff" />
         </Box>
-        <Code source={entry.diff} path={entry.file} format="diff" />
       </Box>
     )
     const head = (mark: string, color: string, label: string): Piece[] => [{ text: mark, color }, { text: ' ' }, { text: label, bold: true }]
