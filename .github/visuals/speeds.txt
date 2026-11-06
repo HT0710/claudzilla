@@ -3,3 +3,4 @@ filelink: 1×
 overview: 2×
 run: 2×
 statusline: 3×
+statusline-compact: 3×

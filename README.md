@@ -116,6 +116,9 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 
   *3× speed. One real turn: the context meter climbs and the skill Claude loaded appears. The `5h` and `wk` meters show only on a Claude subscription login, such as Pro, Max or Team. The symbols need the MesloLGS NF font; without it, basic symbols.*
 
+  <img src=".github/assets/statusline-compact.gif" alt="The compact status line during one turn: four meters on one row, the time and date beside the session id" width="720">
+
+  *3× speed. The same turn with `{"hud":{"compact":true}}`: 3 rows, all four meters on one row, the time and date on the bottom row.*
 
 - **Margin:** `/margin` shows what Claude plans and does, lists this chat's prompts, previews files and shows git; click to jump, reuse or rewind ([details](plugins/margin/README.md)).
 - **Git tab:** the branch with a mark only when it needs you, a rebase or merge in progress with continue, skip and abort, the branch's pull request with its CI checks and description, a tree of every branch with its worktrees, then changed files and recent commits. Hover a row for a card, click it for details.
