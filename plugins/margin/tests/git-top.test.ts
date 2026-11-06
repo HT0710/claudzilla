@@ -1608,7 +1608,7 @@ test('deleted row neither presses nor lights; its card still shows', async ($, o
   const box = (await ui.drawn()) as unknown
   expect(JSON.stringify(box)).not.toMatch(new RegExp(`"scope":"card:${fileKey('old.ts')}","backgroundColor"`))
   await hover(ui, fileKey('old.ts'))
-  expect((await cardTexts(ui, fileKey('old.ts'))).texts).toEqual(expect.arrayContaining(['status  ', 'deleted', 'staged']))
+  expect((await cardTexts(ui, fileKey('old.ts'))).texts).toEqual(expect.arrayContaining(['deleted', 'staged']))
 })
 
 // The drawn texts of a row's card, each Text's own string.
@@ -1622,7 +1622,7 @@ const cardTexts = async (ui: Ui, key: string) => {
   return { card, find, texts: find(card, n => n.type === 'Text').map(own).filter(Boolean) }
 }
 
-test('a file card: status, the change word, one pill per true stage', async ($, on) => {
+test('a file card: the change word, one pill per true stage', async ($, on) => {
   quiet(on)
   on('process.run', (_, e) => ran(git(changesRepo('MM both.ts\nA  index.ts\n M tree.ts\n', '2\t1\tboth.ts\0'))(e.argv) ?? ''))
   const ui = await mount($)
@@ -1630,11 +1630,11 @@ test('a file card: status, the change word, one pill per true stage', async ($, 
     await hover(ui, fileKey(key))
     return (await cardTexts(ui, fileKey(key))).texts.filter(t => /[a-z]/.test(t))
   }
-  expect(await words('both.ts')).toEqual(['status  ', 'modified', 'staged', 'not staged'])
+  expect(await words('both.ts')).toEqual(['modified', 'staged', 'not staged'])
   // The row shows the line counts; the card does not repeat them.
   expect((await cardTexts(ui, fileKey('both.ts'))).texts.filter(t => /^[+−]\d/.test(t))).toEqual([])
-  expect(await words('index.ts')).toEqual(['status  ', 'added', 'staged'])
-  expect(await words('tree.ts')).toEqual(['status  ', 'modified', 'not staged'])
+  expect(await words('index.ts')).toEqual(['added', 'staged'])
+  expect(await words('tree.ts')).toEqual(['modified', 'not staged'])
 })
 
 test('a stage pill takes the green and grey of the PR pills', async ($, on) => {
@@ -1660,7 +1660,7 @@ test('a status pill takes its letter colour; an untracked or conflict file has n
     await hover(ui, fileKey(key))
     const { card, find, texts } = await cardTexts(ui, fileKey(key))
     expect(find(card, n => n.type === 'Text' && [n.children ?? n.props?.children].flat().includes(word))[0]?.props).toMatchObject({ backgroundColor, color })
-    if (word === 'untracked' || word === 'conflict') expect(texts.filter(t => /[a-z]/.test(t))).toEqual(['status  ', word])
+    if (word === 'untracked' || word === 'conflict') expect(texts.filter(t => /[a-z]/.test(t))).toEqual([word])
   }
 })
 
@@ -1671,7 +1671,7 @@ test('rename row shows the new name and its counts; its card has no old path', a
   expect(await piece(ui, fileKey('docs/git-tab.md'), /docs\/git-tab\.md$/)).toBeDefined()
   expect(await piece(ui, fileKey('docs/git-tab.md'), '+2')).toBeDefined()
   await hover(ui, fileKey('docs/git-tab.md'))
-  expect((await cardTexts(ui, fileKey('docs/git-tab.md'))).texts.filter(t => /[a-z]/.test(t))).toEqual(['status  ', 'renamed', 'staged'])
+  expect((await cardTexts(ui, fileKey('docs/git-tab.md'))).texts.filter(t => /[a-z]/.test(t))).toEqual(['renamed', 'staged'])
 })
 
 test('card follows the row after a scroll', async ($, on) => {
@@ -2363,4 +2363,55 @@ test('a redraw starts no second round of status runs', async ($, on) => {
   await ui.drawn()
   await treeClock.advance(1)
   expect(asked.length).toBe(runs)
+})
+
+const narrow = async ($: Parameters<TestBody>[0]) => {
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 40 }, requestId: 'margin' })
+  await ui.press({ key: 'Git' })
+  return ui
+}
+
+test('at 40 columns a commit card keeps its age and counts: the author gives way', async ($, on) => {
+  quiet(on)
+  const stat = `\x1e${A}\n\n 2 files changed, 80 insertions(+), 4 deletions(-)\n`
+  on('process.run', (_, e) => ran(commitsRepo([logLine(A, 'feat: one')], [], stat)(e.argv) ?? ''))
+  const ui = await narrow($)
+  await hover(ui, `c:${A}`)
+  const { card, find, texts } = await cardTexts(ui, `c:${A}`)
+  expect(texts.some(t => t.endsWith('…'))).toBe(true)
+  // Card 30 wide, 26 inside: each row's label and value leave its far-right text and the gap.
+  const [commit, changes] = find(card, n => n.type === 'Box' && n.props?.flexShrink === 0 && n.props?.width !== undefined).map(n => n.props.width)
+  expect(commit + 2 + texts.find(t => /^\d+[a-z]+$/.test(t))!.length).toBeLessThanOrEqual(26)
+  expect(changes + 2 + '+80 −4'.length).toBeLessThanOrEqual(26)
+})
+
+test('at 40 columns a file card shows all three pills whole', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(changesRepo('MM both.ts\n', '2\t1\tboth.ts\0'))(e.argv) ?? ''))
+  const ui = await narrow($)
+  await hover(ui, fileKey('both.ts'))
+  const { card, find } = await cardTexts(ui, fileKey('both.ts'))
+  // modified, staged and not staged, each with its 2 caps, and 2 spaces between.
+  expect(card.props.width).toBe(36)
+  // Narrower, it stays one row: its span counts one.
+  expect(find(card, n => n.props?.wrap === 'truncate-end').length).toBe(1)
+})
+
+test('a summary card keeps the 75% cap', async ($, on) => {
+  quiet(on)
+  withPr(on, repoOn('a'), many(2, () => ({ headRefName: 'a', baseRefName: 'b'.repeat(60) })))
+  const ui = await mount($)
+  await hover(ui, 'prs')
+  expect((await cardTexts(ui, 'prs')).card.props.width).toBeLessThanOrEqual(50)
+})
+
+test('a row whose far-right text cannot fit keeps the shared value column', async ($, on) => {
+  quiet(on)
+  withPr(on, repoOn('a'), [prJson({ statusCheckRollup: [checkRun('build (ubuntu-latest, node 22) with a long job name', 'FAILURE')] })])
+  const ui = await narrow($)
+  await hover(ui, 'pr')
+  const { card, find } = await cardTexts(ui, 'pr')
+  const boxes = find(card, n => n.type === 'Box' && n.props?.flexShrink === 0 && n.props?.width !== undefined)
+  const checks = boxes.find(n => JSON.stringify(n).includes('checks'))
+  expect(checks.props.width).toBe(Math.max(...boxes.map(n => n.props.width)))
 })
