@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { AgentRow, Check, CheckState, CommitView, Counts, FileView, LogRow, Gh, Intent, Modal, ModalKey, Op, Overview, Pr, PrState, PrView, Spawn, Stage, Step, Tab, Word } from '../types'
-import { LOG_FORMAT, age, branches, cutMiddle, fileKey, incomingPrs, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseStatusZ, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows, worktrees, worst } from './git-data'
+import { LOG_FORMAT, age, branches, cutMiddle, fileKey, incomingPrs, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseStatusZ, parseMerge, parsePrView, parsePrs, parseRebase, printable, sortChecks, stashCount, syncMark, treeRows, worktrees, worst } from './git-data'
 import { mdRows } from './markdown'
 import { capped, contentFrame, modalFrame, scrollWindow, stackFrame } from './modal'
 import type { Frame } from './modal'
@@ -655,8 +655,6 @@ let topicsZone: { from: number; to: number; end: number; offset: number; divider
 // takes a row, unless it would be the zone's only one.
 const zoneEnd = (n: number, rows: number) => (n > rows ? n - rows + (rows > 1 ? 1 : 0) : 0)
 // Counts UTF-16 units, not cells: a wide glyph (CJK, emoji) can still overflow by one.
-// A control character in any text gets the whole pane refused: -z paths can hold one.
-const printable = (text: string) => text.replace(/[\x00-\x1f\x7f]/g, ' ')
 // A commit row's key: hover scopes take at most 64 characters, so a SHA-256 id goes by its first 40.
 const commitKey = (sha: string) => `c:${sha.slice(0, 40)}`
 const fit = (text: string, room: number) => (text.length > room ? `${text.slice(0, room - 1)}…` : text)
@@ -852,7 +850,7 @@ const readPrView = async ($: EngineInterface, n: number, failed?: { name: string
   const lines = (log?.exitCode === 0 ? log.stdout.split('\n') : [])
     .filter(line => line.trim())
     .slice(-3)
-    .map(line => line.split('\t').at(-1)!.replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z ?/, ''))
+    .map(line => printable(line.split('\t').at(-1)!.replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z ?/, '').replace(/\x1b\[[\d;]*[A-Za-z]/g, '')))
   await update($, prViews, all => ({ ...all, [n]: { ...view, ...(failed && lines.length && { log: { check: failed.name, lines } }) } }))
 }
 // Reruns each failed run of a PR's checks, then reads the PR list again.
@@ -1767,7 +1765,7 @@ export const register: Register = (on, options) => {
       const dimmed = !!open && (open.key === 'branch' || (open.key === 'pr' && !!pr) || (open.key === 'rebase' && !!op) || (open.key === 'prs' && !!summary) || (open.key === 'commit' && !!open.sha))
       // The row that opened the modal: a commit's is keyed by its sha.
       const openRow = open?.key === 'commit' ? commitKey(open.sha ?? '') : open?.key
-      const conflictFiles = treeRun ? treeRun.stdout.split('\n\n')[0]!.split('\n').slice(1).filter(Boolean) : []
+      const conflictFiles = treeRun ? treeRun.stdout.split('\n\n')[0]!.split('\n').slice(1).filter(Boolean).map(printable) : []
       // The body less 3 columns: a path gets room + 1 after its status letter and a space; a commit's
       // subject room + 2 less its hash.
       const room = e.props.bodyColumns - 2 * PAD - 3
@@ -2400,7 +2398,7 @@ export const register: Register = (on, options) => {
             <Box gap={2} backgroundColor={t.path === root ? LIT : undefined}>
               <Box width={nameCol} flexShrink={0}>
                 {label}
-                {!t.branch && pathRoom >= 4 ? <Text color={HUD.faint}>{` ${endOf(where(t.path), pathRoom)}`}</Text> : null}
+                {!t.branch && pathRoom >= 4 ? <Text color={HUD.faint}>{` ${endOf(printable(where(t.path)), pathRoom)}`}</Text> : null}
               </Box>
               {treeCells[i]!.flatMap((cell, c) => (treeCols[c] ? [<Box width={treeCols[c]} justifyContent="flex-end">{cell}</Box>] : []))}
             </Box>
