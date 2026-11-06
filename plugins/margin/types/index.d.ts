@@ -45,7 +45,7 @@ export type Op =
 export type Branch = { name: string; base?: string; ahead: number; behind: number; upstream: 'ok' | 'local' | 'gone'; pr?: Pr; worktree: boolean; at: number }
 export type ModalKey = 'branch' | 'pr' | 'prs' | 'rebase' | 'commit'
 // `top`: the first list row shown; `sub`: the stacked modal over it, keyed by its section; `sha`: the commit modal's.
-export type Modal = { key: ModalKey; top: number; sub?: { key: string; top: number }; sha?: string }
+export type Modal = { key: ModalKey; top: number; sub?: { key: string; top: number }; sha?: string; n?: number; armed?: string }
 
 declare module 'claude-code' {
   interface EngineInterface {
