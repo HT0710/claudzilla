@@ -28,6 +28,9 @@ jobs:
       - run: bash tests/guide.test.sh
       - run: bash tests/visuals.test.sh
       - run: bash tests/release.test.sh
+      # After the shell tests: install.sh acts differently once claude is on PATH.
+      - run: npm i -g @anthropic-ai/claude-code@2.1.319
+      - run: for p in plugins/*/; do claude plugin test "$p"; done
 
   release:
     needs: test
