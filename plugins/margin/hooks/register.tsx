@@ -2204,7 +2204,8 @@ export const register: Register = (on, options) => {
             cols.add = Math.max(cols.add, c.add || !c.del ? `+${c.add}`.length : 0)
             cols.del = Math.max(cols.del, c.del ? `−${c.del}`.length : 0)
           }
-        if (list.includes('bin')) cols.add += Math.max(0, 3 - colsWidth(cols))
+        // Widen the side already drawn, so an all-deletions list gains no separator.
+        if (list.includes('bin')) cols[cols.add ? 'add' : 'del'] += Math.max(0, 3 - colsWidth(cols))
         return cols
       }
       const churnOf = (add: number, del: number, cols?: Cols) => {
@@ -2237,7 +2238,9 @@ export const register: Register = (on, options) => {
           right: counts === 'bin' ? <Text color={HUD.faint}>{'bin'.padStart(cols ? colsWidth(cols) : 3)}</Text> : counts ? churnOf(counts.add, counts.del, cols) : undefined,
         }
       }
-      // Over every change, not the rows drawn, so the columns hold still as CHANGES scrolls.
+      // Over every change, not the rows drawn, so tracked rows hold the columns still as CHANGES scrolls.
+      // shortcut: untracked counts are read only for drawn rows, so a wide one shifts the columns once drawn; read all
+      // untracked counts if users report the jitter.
       const changeCols = churnCols(changes.map(c => counts.get(c.path) ?? lineCounts.get(c.path)))
       // A modal's file row: lit under the pointer, a press opens the file in the File tab. `layer`: the modal's key
       // prefix, m or s for the stacked one. A deleted file neither lights nor opens.
