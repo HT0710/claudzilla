@@ -289,6 +289,7 @@ check "palette: invalid override still renders" bash -c '[ -n "$1" ] && grep -q 
 printf '{bad' > "$GC/claudzilla.json"
 check "palette: broken file -> every default sent" [ "$(CLAUDE_CONFIG_DIR="$GC" node "$HUD/hud-data.mjs" </dev/null | grep -c '^pal_')" -eq 23 ]
 rm "$GC/claudzilla.json"
+check "palette: no pal_ lines -> frame drawn, exit 0" bash -c 'out=$(printf "" | CLAUDE_CONFIG_DIR="$1" COLUMNS=120 perl "$2/hud-filter.pl") && [ -n "$out" ]' _ "$GC" "$HUD"
 
 # --- trace: hud.change only when the output changes ---
 TRC="$TMP/trcfg"; TRT="$TMP/trtmp"; mkdir -p "$TRC" "$TRT"; TR="$TMP/trrepo"; mkdir -p "$TR"

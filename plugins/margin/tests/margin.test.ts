@@ -3666,6 +3666,14 @@ test('an ignored key with control characters shows in the toast without them', a
   expect(toasts).toEqual(['claudzilla.json: ignored palette.shared.bad[31mkey'])
 })
 
+test('more than 5 ignored paths: toast names 5, then +N more, cut by code point', async ($, on) => {
+  const long = '😀'.repeat(30)
+  const toasts = paletteHost(on, JSON.stringify({ palette: { shared: { a: 1, b: 1, c: 1, d: 1, [long]: 1, f: 1, g: 1 } } }))
+  await paletteStart($)
+  const p = 'palette.shared.'
+  expect(toasts).toEqual([`claudzilla.json: ignored ${p}a, ${p}b, ${p}c, ${p}d, ${p}${'😀'.repeat(24)}… +2 more`])
+})
+
 test('no palette key: no toast', async ($, on) => {
   const toasts = paletteHost(on, '{}')
   await paletteStart($)

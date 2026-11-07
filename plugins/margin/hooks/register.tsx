@@ -1124,8 +1124,9 @@ export const register: Register = (on, options) => {
     const { palette, ignored } = await readPalette($)
     applyPalette(palette)
     // Paths are the user's own JSON keys: no control bytes into the toast, and a bounded length.
-    const named = ignored.map(path => path.replace(/[\x00-\x1f\x7f-\x9f]/g, '')).map(path => (path.length > 40 ? `${path.slice(0, 39)}…` : path))
-    if (named.length) $.ui.toast(`claudzilla.json: ignored ${named.join(', ')}`)
+    const named = ignored.slice(0, 5).map(path => [...path.replace(/[\x00-\x1f\x7f-\x9f]/g, '')]).map(cps => (cps.length > 40 ? `${cps.slice(0, 39).join('')}…` : cps.join('')))
+    const more = ignored.length > 5 ? ` +${ignored.length - 5} more` : ''
+    if (named.length) $.ui.toast(`claudzilla.json: ignored ${named.join(', ')}${more}`)
     await t.start(traceIo($))
     // A reload drops the module's runs; the atom stays, maybe mid-run, and would show reading… for good.
     await update($, overview, now => (now.running ? { ...now, running: false } : now))
