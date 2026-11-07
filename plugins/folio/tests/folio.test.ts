@@ -677,9 +677,9 @@ for (const [name, tool, output, want] of [
   ['only added lines', 'Edit', patch(' a', '+b'), '● Updated (a.txt)  +1'],
   ['only removed lines', 'Edit', patch(' a', '-b'), '● Updated (a.txt)  −1'],
   ['an overwrite', 'Write', patch('-a', '+b'), '● Wrote (a.txt)  +1 −1'],
-  ['a new file', 'Write', created('a\nb\nc\n'), '● Wrote (a.txt)  +3 new'],
-  ['a new file with no last newline', 'Write', created('a\nb'), '● Wrote (a.txt)  +2 new'],
-  ['an empty new file', 'Write', created(''), '● Wrote (a.txt)  +0 new'],
+  ['a new file', 'Write', created('a\nb\nc\n'), '● Created (a.txt)  +3'],
+  ['a new file with no last newline', 'Write', created('a\nb'), '● Created (a.txt)  +2'],
+  ['an empty new file', 'Write', created(''), '● Created (a.txt)  +0'],
 ] as const) {
   test(`${name} draws its counts on the row`, async ($, on) => {
     const seen = native(on)
@@ -788,9 +788,31 @@ test('a click on the fold opens its file tree, and another closes it', async ($,
   await click(first, 'fold:e1')
   expect(await textOf(first, 'e1')).toBe('○ Edited (2 files)  +2 −1')
   expect(await textOf(first, 'file:e1')).toBe('  ├ a.txt           +1 −1')
-  expect(await textOf(second, 'file:e2')).toBe('  └ sub/b.txt       +1 new')
+  expect(await textOf(second, 'file:e2')).toBe('  └ sub/b.txt  new  +1')
   await click(first, 'fold:e1')
   expect(await textOf(first, 'e1')).toBe('● Edited (2 files)  +2 −1')
+})
+
+test('a fold whose first edit made a new file draws closed and open', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Write', created('a\n'), {}, '/p/x.js', 'e1')
+  const second = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e2')
+  expect(await textOf(first, 'e1')).toBe('● Edited (2 files)  +2')
+  await click(first, 'fold:e1')
+  expect(await textOf(first, 'file:e1')).toBe('  ├ x.js   new      +1')
+  expect(await textOf(second, 'file:e2')).toBe('  └ a.txt           +1')
+})
+
+test('the tree lines up its + and − counts in columns', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', patch(...Array(10).fill('+x'), '-y'), {}, '/p/a.txt', 'e1')
+  const second = await mountRow($, 'Edit', patch(' a', '-b'), {}, '/p/b.txt', 'e2')
+  const third = await mountRow($, 'Edit', patch('+c', '-d'), {}, '/p/c.txt', 'e3')
+  await click(first, 'fold:e1')
+  expect(await textOf(first, 'e1')).toBe('○ Edited (3 files)  +11 −3')
+  expect(await textOf(first, 'file:e1')).toBe('  ├ a.txt           +10 −1')
+  expect(await textOf(second, 'file:e2')).toBe('  ├ b.txt               −1')
+  expect(await textOf(third, 'file:e3')).toBe('  └ c.txt           +1  −1')
 })
 
 const hunk = (...lines: string[]) => ({ structuredPatch: [{ oldStart: 3, oldLines: 1, newStart: 3, newLines: 2, lines }] })
@@ -949,7 +971,7 @@ test('a diff too big for the Code element opens nothing, and the row stays', asy
   const first = await mountRow($, 'Write', created(`${'x'.repeat(100_000)}\n`), {}, '/p/a.txt', 'e1')
   await click(first, 'fold:e1')
   expect(await diffOf(first)).toBeUndefined()
-  expect(await textOf(first, 'e1')).toBe('● Wrote (a.txt)  +1 new')
+  expect(await textOf(first, 'e1')).toBe('● Created (a.txt)  +1')
 })
 
 test('a new file opens as all added lines', async ($, on) => {
