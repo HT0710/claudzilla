@@ -28,6 +28,9 @@ my ($G_ON, $G_OFF, $G_BRANCH, $G_SKILL, $G_CACHE) =
     : ("\x{25B0}", "\x{25B1}", "\x{2387}", "\x{2691}", "\x{25AC}");
 
 my %f = map { /^([^\t]+)\t(.*)$/ ? ($1, $2) : () } split /\n/, $txt;
+# hud-data.mjs pal_<table>_<key> lines: "<table>_<key>" -> [r, g, b]
+my %PAL = map { $f{$_} =~ /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i ? (substr($_, 4) => [map { hex } $1, $2, $3]) : () } grep { /^pal_/ } keys %f;
+sub fg { "\e[38;2;" . join(';', @{ $PAL{$_[0]} }) . "m" }
 my ($id, $META_CWD, $EFFORT, $SID) = @f{qw(id cwd effort sid)};
 # session name (/rename, or derived like "maxis-24") - the handle peers message us by.
 # Not in the statusline JSON, so look it up in the per-pid session registry.
@@ -104,8 +107,8 @@ sub paint {                     # [char, r, g, b] cells -> string, colour code o
     return $out . "\e[0m";
 }
 my $WID = 10;   # highlight half-width in cells
-my @A = (0x0e,0x20,0x42); my @B = (0xa8,0xd6,0xff);   # blue ramp, dark -> bright
-my @O = (0xff,0xaa,0x5a);                             # ...then warm over the last 30% of the track
+my @A = @{ $PAL{hud_rampLow} }; my @B = @{ $PAL{hud_rampHigh} };   # blue ramp, dark -> bright
+my @O = @{ $PAL{hud_rampHot} };                                     # ...then warm over the last 30% of the track
 sub ramp {
     my $x = shift;                                    # 0..1, already eased
     return $x < 0.7 ? [ map { $A[$_] + ($B[$_]-$A[$_]) * ($x/0.7) } 0..2 ]
@@ -121,17 +124,17 @@ sub meter_line {
     my $cc = $label eq 'cch' ? [map { int($_+0.5) } @{ ramp(0.1 + 0.9 * ($pct/100) ** 0.85) }] : undef;
     $f = $n if $cc;
     my @cell;
-    push @cell, [$_, [163,150,210]] for split //, sprintf('%-*s ', $lw, $label); # title
+    push @cell, [$_, $PAL{shared_label}] for split //, sprintf('%-*s ', $lw, $label); # title
     for my $i (0 .. $n-1) {                                                   # bar
         my $on = $i < $f;
         push @cell, [$cc ? $G_CACHE : $on ? $G_ON : $G_OFF,
-                     $on ? $cc // [map { int($_+0.5) } @{ ramp(($n > 1 ? $i/($n-1) : 1) ** 0.85) }] : [30,42,58],
+                     $on ? $cc // [map { int($_+0.5) } @{ ramp(($n > 1 ? $i/($n-1) : 1) ** 0.85) }] : $PAL{hud_track},
                      $on ? 0.65 : 0.30];
     }
     my $x = ($pct/100) ** 0.85; $x = 0.4 if $x < 0.4;                         # figure
-    my $fc = $wait ? [64,71,80] : $cc // [map { int($_+0.5) } @{ ramp($x) }];
+    my $fc = $wait ? $PAL{hud_note} : $cc // [map { int($_+0.5) } @{ ramp($x) }];
     push @cell, [$_, $fc] for split //, sprintf(' %*s%%  ', $pw, $wait ? '--' : $pct);
-    push @cell, [$_, [64,71,80]] for split //, sprintf("%*s", $tw, $note);    # note
+    push @cell, [$_, $PAL{hud_note}] for split //, sprintf("%*s", $tw, $note);    # note
     my @px;
     for my $i (0 .. $#cell) {
         my ($ch,$c,$w) = @{$cell[$i]};
@@ -161,11 +164,11 @@ sub cwd_str {
     my $text = shift;
     my @ch = split //, $text;
     my $ph = (time() + $OFF) / $DRIFT;
+    my ($lo, $hi) = @PAL{qw(hud_cwdLow hud_cwdHigh)};
     my $s = "";
     for my $i (0 .. $#ch) {
         my $t = (1 - cos(6.283185307 * (($i + $ph) / $PERIOD)) ) / 2;
-        my @c = (int(0x4a + (0x93-0x4a)*$t + 0.5), int(0x6b + (0xb4-0x6b)*$t + 0.5),
-                 int(0x8a + (0xe0-0x8a)*$t + 0.5));
+        my @c = map { int($lo->[$_] + ($hi->[$_]-$lo->[$_])*$t + 0.5) } 0..2;
         $s .= "\e[38;2;$c[0];$c[1];$c[2]m$ch[$i]";
     }
     return $s . "\e[0m";
@@ -173,14 +176,14 @@ sub cwd_str {
 {   # narrow panes: shed the least important pieces, then trim the path itself
     my $path = $cwd // '~';
     my $p    = $profile // '';
-    my @opt = ( [$branch, sub { $dim->('  ') . "\e[38;2;93;150;120m$G_BRANCH $_[0]\e[0m" }],
-                [$dirty,  sub { $dim->(' ')  . "\e[38;2;140;120;80m$_[0]\e[0m"  }],
-                [$churn,  sub { $dim->('  ') . "\e[38;2;110;140;110m$_[0]\e[0m" }] );
+    my @opt = ( [$branch, sub { $dim->('  ') . fg('shared_action') . "$G_BRANCH $_[0]\e[0m" }],
+                [$dirty,  sub { $dim->(' ')  . fg('shared_dirty') . "$_[0]\e[0m"  }],
+                [$churn,  sub { $dim->('  ') . fg('shared_churn') . "$_[0]\e[0m" }] );
     my $build = sub {
         my $l = cwd_str($path);
         for my $o (@opt) { $l .= $o->[1]->($o->[0]) if defined $o->[0] }
-        my $r = $p ne '' ? "\e[38;2;95;158;168m$p\e[0m" : '';
-        $r .= ($r ne '' ? $dim->('  ') : '') . "\e[38;2;157;101;84m$ver\e[0m" if defined $ver;
+        my $r = $p ne '' ? fg('hud_profile') . "$p\e[0m" : '';
+        $r .= ($r ne '' ? $dim->('  ') : '') . fg('hud_version') . "$ver\e[0m" if defined $ver;
         return ($l, $r);
     };
     my $fits = sub { fits($build->()) };
@@ -281,20 +284,20 @@ sub rule {
         my $g = 0;
         for my $h (@hs) { my $v = glow($i - $h, $CWID, 2); $g = $v if $v > $g }
         my $ch = "\x{2501}";
-        my @b  = (38,50,64); my $w = 0.75;                  # hairline
+        my @b  = @{ $PAL{hud_divider} }; my $w = 0.75;      # hairline
         if (length $label && $i >= $start && $i < $start + length $label) {
             $ch = substr($label, $i - $start, 1);
-            @b  = $ch eq ' ' ? (13,18,24) : (141,166,194);  # inset clock / date
+            @b  = $ch eq ' ' ? (13,18,24) : @{ $PAL{hud_clock} };  # inset clock / date
             $w  = $ch eq ' ' ? 0 : 0.9;
         }
-        push @px, [$ch, $g > 0 ? (map { $b[$_] + ([255,236,200]->[$_] - $b[$_]) * ($g*$w) } 0..2) : @b];
+        push @px, [$ch, $g > 0 ? (map { $b[$_] + ($PAL{hud_sweep}[$_] - $b[$_]) * ($g*$w) } 0..2) : @b];
     }
     return paint(@px);
 }
 my @lt = localtime;
 push @out, rule(-1, sprintf(' %02d:%02d ', @lt[2,1])) unless $f{compact};
 
-my $DIV = " \e[38;2;38;50;64m\x{2503}\e[0m ";
+my $DIV = " " . fg('hud_divider') . "\x{2503}\e[0m ";
 if ($ONE) {
     @one = grep { defined } @mv{qw(cch ctx 5h wk)};     # the three usage fills sit together, the cache clock apart
     my $room = $W - 3 * $#one;
@@ -333,15 +336,15 @@ push @out, rule(3, sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]])) 
 # activity: model, skill, thinking; uptime flush right
 {   # same treatment as the identity row, measured on the rendered strings
     my $mo = $model;
-    $mo .= "\e[38;2;127;182;217m\e[2m  $EFFORT\e[0m" if defined $mo && $EFFORT;
-    my @L = ( [$mo,       sub { "\e[38;2;127;182;217m$_[0]\e[0m" }],
-              [$skill,    sub { "\e[38;2;147;180;224m$G_SKILL $_[0]\e[0m" }],
-              [$thinking, sub { "\e[38;2;169;143;217m\x{25C7} thinking\e[0m" }] );
+    $mo .= fg('hud_model') . "\e[2m  $EFFORT\e[0m" if defined $mo && $EFFORT;
+    my @L = ( [$mo,       sub { fg('hud_model') . "$_[0]\e[0m" }],
+              [$skill,    sub { fg('hud_skill') . "$G_SKILL $_[0]\e[0m" }],
+              [$thinking, sub { fg('hud_thinking') . "\x{25C7} thinking\e[0m" }] );
     my $clock = $f{compact} ? sprintf('%02d:%02d %s %02d %s', @lt[2,1], $DAY[$lt[6]], $lt[3], $MON[$lt[4]]) : undef;
-    my @R = ( [$clock,    sub { "\e[38;2;141;166;194m$_[0]\e[0m" }],
-              [$sname,    sub { "\e[38;5;109m$_[0]\e[0m" }],
-              [$id,       sub { "\e[38;2;79;92;104m$_[0]\e[0m" }],
-              [$session,  sub { "\e[38;2;69;97;134mup $_[0]\e[0m" }] );
+    my @R = ( [$clock,    sub { fg('hud_clock') . "$_[0]\e[0m" }],
+              [$sname,    sub { (exists $PAL{hud_session} ? fg('hud_session') : "\e[38;5;109m") . "$_[0]\e[0m" }],
+              [$id,       sub { fg('shared_faint') . "$_[0]\e[0m" }],
+              [$session,  sub { fg('shared_idle') . "up $_[0]\e[0m" }] );
     my $build = sub {
         my $j = $dim->('  ');
         return (join($j, map { $_->[1]->($_->[0]) } grep { $_->[0] } @L),

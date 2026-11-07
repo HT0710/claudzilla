@@ -1,5 +1,6 @@
 import type { Register } from 'claude-code'
 
+import { DEFAULTS } from './palette'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
@@ -10,7 +11,7 @@ export type Offer = { title: string; rows: Row[]; why: string; go: string }
 // Bare digits are the only hotkeys the band arms; one goes to the draft row.
 const MAX_ROWS = 8
 // The panel's secondary gray; dimColor barely shows in some terminals.
-const FAINT = '#808286'
+const FAINT = DEFAULTS.shared.muted
 
 // Null hides the band.
 let offer: Offer | null = null

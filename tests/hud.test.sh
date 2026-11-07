@@ -243,6 +243,36 @@ check "render: ahead with feat -> next minor" grep -q 'a…h@example.test  v9.10
 g tag backup
 check "render: non-release tag ignored" grep -q 'a…h@example.test  v9.10.0$' <<<"$(ver)"
 
+# --- palette: today's look, byte for byte ---
+# time and localtime frozen, so the sweep, the path drift and the clock repeat run to run
+PL="$TMP/perl"; mkdir -p "$PL"
+cat > "$PL/Frozen.pm" <<'EOF'
+package Frozen;
+BEGIN { my $t = $ENV{FROZEN_TIME}; *CORE::GLOBAL::time = sub () { $t }; *CORE::GLOBAL::localtime = sub (;$) { CORE::localtime(@_ ? $_[0] : $t) } }
+1;
+EOF
+# a tagged clone copy (fixed version) that is also the dirty cwd (branch, dirty, churn), under a fake HOME (~/gold)
+GH="$TMP/ghome"; G="$GH/gold"; GC="$TMP/gcfg"; mkdir -p "$G/claude/hud" "$G/.github" "$GC/sessions"
+cp "$HUD/hud-filter.pl" "$G/claude/hud/"; cp "$REPO/.github/next-version.sh" "$G/.github/"; printf 'a\nb\n' > "$G/f"
+gg() { git -C "$G" -c user.name=t -c user.email=t@t "$@"; }
+gg init -q -b main; gg add -A; gg commit -qm init; gg tag v9.9.9; printf 'a\nc\n' > "$G/f"; touch "$G/u"
+echo '{"sessionId":"abcdef1234567890","name":"maxis-24"}' > "$GC/sessions/1.json"
+KV=$(printf 'id\tabcdef12\nsid\tabcdef1234567890\ncwd\t%s\nmodel\tOpus\neffort\thigh\nctx\t42\ncch\t50\ncch_note\t30m\n5h\t30\n5h_note\t2h0m\nwk\t12\nwk_note\t2d7h\nprofile\ta…h@example.test\nup\t90m\nskill\tpr\nthinking\t1' "$G")
+# frame <offset s> <cols> [extra kv line]: the payload plus hud-data's pal_ lines, as the pipe sends them
+frame() { { printf '%s\n' "$KV" ${3:+"$3"}; CLAUDE_CONFIG_DIR="$GC" node "$HUD/hud-data.mjs" </dev/null | grep '^pal_'; } |
+  FROZEN_TIME=$((1790000000 + $1)) TZ=UTC HOME="$GH" CLAUDE_CONFIG_DIR="$GC" COLUMNS=$2 PERL5LIB="$PL" perl -MFrozen "$G/claude/hud/hud-filter.pl"; }
+golden() { for t in 0 40 50; do echo "== $t 120"; frame "$t" 120; done; echo "== 45 170 compact"; frame 45 170 $'compact\t1'; echo "== 0 60"; frame 0 60; }
+golden > "$TMP/golden.out"
+[ -n "${HUD_GOLDEN_WRITE:-}" ] && cp "$TMP/golden.out" "$REPO/tests/fixtures/hud-golden.txt"
+check "palette: no palette -> byte-identical to tests/fixtures/hud-golden.txt" cmp -s "$TMP/golden.out" "$REPO/tests/fixtures/hud-golden.txt"
+want=$(node --experimental-strip-types --no-warnings -e "import {DEFAULTS} from '$REPO/plugins/margin/hooks/palette.ts'; for (const t of ['shared','hud']) for (const [k,v] of Object.entries(DEFAULTS[t])) if (v !== null) console.log('pal_'+t+'_'+k+'\t'+v)" | sort)
+got=$(CLAUDE_CONFIG_DIR="$GC" node "$HUD/hud-data.mjs" </dev/null | grep '^pal_' | sort)
+check "palette: hud-data shared and hud defaults equal palette.ts" bash -c '[ -n "$1" ] && [ "$1" = "$2" ]' _ "$want" "$got"
+check "palette: no session colour sent by default" bash -c '! grep -q "^pal_hud_session" <<<"$1"' _ "$got"
+for p in folio primer ballot; do
+  check "palette.ts copy in $p identical to margin" cmp -s "$REPO/plugins/margin/hooks/palette.ts" "$REPO/plugins/$p/hooks/palette.ts"
+done
+
 # --- trace: hud.change only when the output changes ---
 TRC="$TMP/trcfg"; TRT="$TMP/trtmp"; mkdir -p "$TRC" "$TRT"; TR="$TMP/trrepo"; mkdir -p "$TR"
 git -C "$TR" init -q -b main

@@ -1,6 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
+import { DEFAULTS } from './palette'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
@@ -11,7 +12,7 @@ const PAD = 2
 const MIN_TOC = 3
 const MIN_BODY = 3
 // The panel plugin's palette: section labels.
-const HUD = { label: '#a396d2' }
+const HUD = { label: DEFAULTS.shared.label }
 
 export type Section = { slug: string; heading: string; part: string; body: string }
 

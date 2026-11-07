@@ -701,7 +701,7 @@ test('the whole fold row lights under the pointer, and goes dark again', async (
   const back = async () => (await ui.find({ type: 'Box', in: 'fold:e1' }))?.props.backgroundColor
   expect(await back()).toBeUndefined()
   await ui.pointer({ type: 'enter', x: 0, y: 0, in: 'fold:e1' })
-  expect(await back()).toBeDefined()
+  expect(await back()).toBe('#0f1c28')
   expect((await ui.find({ type: 'Text', text: /^Updated$/, in: 'fold:e1' }))?.props.color).toBeUndefined()
   await ui.pointer({ type: 'leave', x: 0, y: 0, in: 'fold:e1' })
   expect(await back()).toBeUndefined()
