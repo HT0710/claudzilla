@@ -4,6 +4,7 @@
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+trap 'kill $(jobs -p) 2>/dev/null; exit 130' INT TERM   # stop running sections, then the EXIT trap cleans up
 . "$REPO/tests/lib.sh"
 q() { node -p "JSON.stringify(require(process.argv[1])$2)" "$1"; }
 clean_env() { env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME "$@"; }   # never reach a real Windows side
