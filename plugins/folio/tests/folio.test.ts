@@ -1154,6 +1154,57 @@ test('a running row takes the theme colours, its dot dim', async ($, on) => {
   expect((await ui.find({ type: 'Text', text: /^ \($/ }))?.props.color).toBe('promptBorder')
 })
 
+// A background agent's finish row, after its Agent call drew as a1; `seen` counts the chain below folio.
+function finished(on: any) {
+  native(on)
+  const seen = { calls: 0 }
+  on('ui.render', { component: 'UserMessage' }, () => { seen.calls++; return { type: 'Text' as const, children: ['native'] } })
+  return seen
+}
+const launched = { status: 'async_launched', agentId: 'x1', description: 'Slow task', prompt: 'p', outputFile: '/o' }
+const notice = async ($: any, task: object, extra: object = {}) => {
+  await mountRow($, 'Agent', launched, { input: { description: 'Slow task', prompt: 'p' } }, '/p/a.txt', 'a1')
+  return $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
+    props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 'a1', ...task }, ...extra }, viewport: VIEW })
+}
+
+for (const [status, durationMs, want, dot] of [
+  ['completed', 12_000, '● Agent (Slow task)  done · 12s', 'success'],
+  ['failed', 122_000, '● Agent (Slow task)  failed · 2m 2s', 'error'],
+  ['killed', 12_000, '● Agent (Slow task)  stopped · 12s', 'inactive'],
+  ['completed', 3_723_000, '● Agent (Slow task)  done · 1h 2m', 'success'],
+  ['completed', undefined, '● Agent (Slow task)  done', 'success'],
+] as const) {
+  test(`a ${status} background agent's notification reads ${want}`, async ($, on) => {
+    const seen = finished(on)
+    const ui = await notice($, { status, durationMs })
+    expect(await textOf(ui)).toBe(want)
+    expect((await ui.find({ type: 'Text', text: /^●$/ }))?.props.color).toBe(dot)
+    expect(seen.calls).toBeGreaterThan(0)
+  })
+}
+
+for (const [name, task, extra] of [
+  ['an unknown status', { status: 'paused', durationMs: 12_000 }, {}],
+  ['an unknown call', { status: 'completed', toolUseId: 'b9' }, {}],
+  ['no call id', { status: 'completed', toolUseId: undefined }, {}],
+  ['an expanded row', { status: 'completed' }, { isExpanded: true }],
+  ['another origin', { status: 'completed' }, { origin: { kind: 'composer' } }],
+  ['no task', { status: 'completed' }, { task: undefined }],
+] as const) {
+  test(`a notification with ${name} stays native`, async ($, on) => {
+    finished(on)
+    expect(await textOf(await notice($, task, extra))).toBe('native')
+  })
+}
+
+test('hideEditDiff false keeps the native notification row', async ($, on) => {
+  finished(on)
+  configured(on, { '/cfg/claudzilla.json': off })
+  await $.session.start(start)
+  expect(await textOf(await notice($, { status: 'completed', durationMs: 12_000 }))).toBe('native')
+})
+
 // Counts the redraws the one blink timer asks for.
 const blinks = (on: any) => {
   const w = { periods: 0, clock: mock.clock(on, { now: 0 }) }

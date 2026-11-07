@@ -1,4 +1,4 @@
-import type { EngineInterface, Register, Timer } from 'claude-code'
+import type { Elements, EngineInterface, Register, RenderNode, Timer } from 'claude-code'
 
 import { href, linked, mentions } from './mentions'
 import { DEFAULTS, readPalette } from './palette'
@@ -76,6 +76,13 @@ const RUNNING: Record<string, (input: any, name: (file: string) => string) => [s
   Skill: input => ['Loading', String(input.skill), ''],
   Edit: (input, name) => ['Updating', name(String(input.file_path)), ''],
   Write: (input, name) => ['Writing', name(String(input.file_path)), ''],
+}
+// A background agent's finish row: its tail and dot colour, by the task's status.
+const ENDED: Record<string, [string, string]> = { completed: ['done', 'success'], failed: ['failed', 'error'], killed: ['stopped', 'inactive'] }
+// As the engine writes a task's duration: 12s, 2m 2s, 1h 2m.
+const took = (ms: number) => {
+  const s = Math.round(ms / 1000)
+  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor(s / 60) % 60}m`
 }
 // The engine's own blink rate is not documented.
 const BLINK_MS = 500
@@ -471,7 +478,7 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     // A /clear or resume goes on under a new session id, which needs its own cols file.
     wroteColumns = 0
-    for (const rows of [runs, done, placed, shownDiffs]) rows.clear()
+    for (const rows of [runs, done, placed, shownDiffs, agents]) rows.clear()
     current = undefined
     await t.flush(traceIo($))
     return next(e)
@@ -491,6 +498,18 @@ export const register: Register = on => {
   const blinking = new Set<string>()
   let blink: Timer | undefined
   let isLit = true
+  // Agent calls' descriptions by tool_use_id: a finish notification names only the call.
+  const agents = new Map<string, string>()
+  // Plain text, not the fold's Client: nothing opens on a press, so nothing lights under the pointer.
+  const textRow = ({ Box, Text }: Elements['terminal'], dot: RenderNode, [label, arg, tail]: [string, string, string]) => (
+    <Box marginTop={1}>
+      <Text wrap="truncate-end">
+        {dot} <Text bold>{label}</Text>
+        <Text color="promptBorder"> (</Text>{arg}<Text color="promptBorder">)</Text>
+        {tail && `  ${tail}`}
+      </Text>
+    </Box>
+  )
 
   // A run lies in one transcript: an agent's rows must not take in the main chat's.
   on('ui.render', { component: 'AbovePrompt' }, async (_$, e, next) => {
@@ -530,6 +549,10 @@ export const register: Register = on => {
     const native = await next(e)
     const { tool, input, output, isRunning, isErrored, isInterrupted, isExpanded } = e.props
     const run = runs.get(e.requestId)
+    if (tool === 'Agent') {
+      if (agents.size > 500) agents.clear()
+      agents.set(e.requestId, String((input as { description?: string } | undefined)?.description))
+    }
     // A Client draws nothing on mobile.
     if (!hideEditDiff || e.surface !== 'terminal' || isExpanded) return native
     const cwd = tool in EDIT ? await $.session.cwd().catch(() => '') : ''
@@ -553,18 +576,9 @@ export const register: Register = on => {
       })
     }
     if (other) {
-      const { Box, Text } = $.ui.resolve(e)
-      const [label, arg, tail] = other
-      // Plain text, not the fold's Client: nothing opens on a press, so nothing lights under the pointer.
-      return (
-        <Box marginTop={1}>
-          <Text wrap="truncate-end">
-            {isLive ? <Text color="inactive">{isLit ? '●' : ' '}</Text> : <Text color="success">●</Text>} <Text bold>{label}</Text>
-            <Text color="promptBorder"> (</Text>{arg}<Text color="promptBorder">)</Text>
-            {tail && `  ${tail}`}
-          </Text>
-        </Box>
-      )
+      const elements = $.ui.resolve(e)
+      const { Text } = elements
+      return textRow(elements, isLive ? <Text color="inactive">{isLit ? '●' : ' '}</Text> : <Text color="success">●</Text>, other)
     }
     if (!run) return native
     const summary = !isRunning && !isInterrupted ? editSummary(tool, output, isErrored) : undefined
@@ -668,6 +682,18 @@ export const register: Register = on => {
     }
 
     return next(e)
+  })
+
+  on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
+    const native = await next(e)
+    const { origin, isExpanded, task } = e.props
+    const arg = task?.toolUseId && agents.get(task.toolUseId)
+    const ended = task?.status && ENDED[task.status]
+    if (!hideEditDiff || e.surface !== 'terminal' || isExpanded || origin.kind !== 'task-notification' || !arg || !ended) return native
+    const elements = $.ui.resolve(e)
+    const { Text } = elements
+    const [tail, color] = ended
+    return textRow(elements, <Text color={color}>●</Text>, ['Agent', arg, task.durationMs === undefined ? tail : `${tail} · ${took(task.durationMs)}`])
   })
 
   // A reply still streaming skips the hook below, so md-display.pl draws its lines from this width.
