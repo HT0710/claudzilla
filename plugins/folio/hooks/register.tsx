@@ -119,6 +119,62 @@ export function diffRows(diff: string, width: number) {
 }
 
 // A path cut in the middle to fit `max`: the first folder, then as many last segments as fit. The file name goes last.
+// A path with `.` and `..` folded, joined under `base` unless absolute.
+const resolve = (base: string, path: string) => {
+  const out: string[] = []
+  for (const part of (path.startsWith('/') || !base ? path : `${base}/${path}`).split('/')) {
+    if (part === '..') out.pop()
+    else if (part !== '.' && (part || !out.length)) out.push(part)
+  }
+  return out.join('/')
+}
+
+// Files a Bash command writes, under a leading `cd DIR &&`.
+// shortcut: regex parse of common write forms (sed -i, >, >>, tee), not a shell parser; a false hit costs a read and draws nothing.
+export function writeTargets(command: string): string[] {
+  const quoted: string[] = []
+  // Heredoc bodies hold text, not commands; quoted text holds no redirection.
+  const cmd = command
+    .replace(/<<-?\s*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n\s*\2\s*(\n|$)/g, m => m.split('\n')[0] + '\n')
+    .replace(/"[^"]*"|'[^']*'/g, m => `\0${quoted.push(m.slice(1, -1)) - 1}\0`)
+  const word = (w: string) => w.replace(/\0(\d+)\0/g, (_, i) => quoted[+i]!)
+  const out = new Set<string>()
+  for (const m of cmd.matchAll(/(?:^|[^0-9&<>])>>?\|?\s*([^\s;&|<>()]+)/g)) out.add(word(m[1]!))
+  for (const seg of cmd.split(/&&|\|\||[;|\n]/)) {
+    const words = seg.trim().split(/\s+/)
+    if (words[0] === 'tee') words.slice(1).filter(w => !w.startsWith('-')).forEach(w => out.add(word(w)))
+    if (words[0] === 'sed' && words.some(w => /^--in-place|^-[a-zA-Z]*i/.test(w))) {
+      const args = words.slice(1)
+      const hasScript = args.some(w => w === '-e' || w === '-f')
+      const plain = args.filter((w, i) => !w.startsWith('-') && !['-e', '-f'].includes(args[i - 1] ?? ''))
+      plain.slice(hasScript ? 0 : 1).forEach(w => out.add(word(w)))
+    }
+  }
+  const dir = cmd.match(/^\s*cd\s+([^\s;&|]+)\s*&&/)?.[1]
+  return [...out].filter(f => !f.startsWith('/dev/')).map(f => resolve(dir ? word(dir) : '', f))
+}
+
+// Lines added and removed between two texts: an LCS line diff, or for big files a multiset count.
+function diffCount(before: string | undefined, after: string) {
+  const lines = (s: string | undefined) => (s ? s.replace(/\n$/, '').split('\n') : [])
+  const [a, b] = [lines(before), lines(after)]
+  let same = 0
+  if (a.length * b.length > 4_000_000) {
+    const left = new Map<string, number>()
+    a.forEach(l => left.set(l, (left.get(l) ?? 0) + 1))
+    for (const l of b) if ((left.get(l) ?? 0) > 0) { left.set(l, left.get(l)! - 1); same++ }
+  } else {
+    let prev = new Array(b.length + 1).fill(0)
+    for (let i = 1; i <= a.length; i++) {
+      const cur = new Array(b.length + 1).fill(0)
+      for (let j = 1; j <= b.length; j++) cur[j] = a[i - 1] === b[j - 1] ? prev[j - 1] + 1 : Math.max(prev[j], cur[j - 1])
+      prev = cur
+    }
+    same = prev[b.length]
+  }
+  return { add: b.length - same, del: a.length - same }
+}
+
 export function cutPath(path: string, max: number) {
   if (path.length <= max) return path
   const parts = path.split('/')
@@ -478,7 +534,7 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     // A /clear or resume goes on under a new session id, which needs its own cols file.
     wroteColumns = 0
-    for (const rows of [runs, done, placed, shownDiffs, agents]) rows.clear()
+    for (const rows of [runs, done, placed, shownDiffs, agents, bashEdits, unfolded]) rows.clear()
     current = undefined
     await t.flush(traceIo($))
     return next(e)
@@ -500,16 +556,51 @@ export const register: Register = on => {
   let isLit = true
   // Agent calls' descriptions by tool_use_id: a finish notification names only the call.
   const agents = new Map<string, string>()
+  // Files each Bash call changed, by tool_use_id; and the calls of groups unfolded to show them.
+  const bashEdits = new Map<string, { file: string; add: number; del: number; isNew: boolean }[]>()
+  const unfolded = new Set<string>()
   // Plain text, not the fold's Client: nothing opens on a press, so nothing lights under the pointer.
-  const textRow = ({ Box, Text }: Elements['terminal'], dot: RenderNode, [label, arg, tail]: [string, string, string]) => (
-    <Box marginTop={1}>
-      <Text wrap="truncate-end">
-        {dot} <Text bold>{label}</Text>
-        <Text color="promptBorder"> (</Text>{arg}<Text color="promptBorder">)</Text>
-        {tail && `  ${tail}`}
-      </Text>
-    </Box>
+  const textLine = ({ Text }: Elements['terminal'], dot: RenderNode, [label, arg, tail]: [string, string, RenderNode]) => (
+    <Text wrap="truncate-end">
+      {dot} <Text bold>{label}</Text>
+      <Text color="promptBorder"> (</Text>{arg}<Text color="promptBorder">)</Text>
+      {tail && '  '}{tail}
+    </Text>
   )
+  const textRow = (elements: Elements['terminal'], dot: RenderNode, row: [string, string, RenderNode]) => (
+    <elements.Box marginTop={1}>{textLine(elements, dot, row)}</elements.Box>
+  )
+
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const targets = hideEditDiff ? writeTargets(e.command) : []
+    if (!targets.length) return next(e)
+    const cwd = await $.session.cwd().catch(() => '')
+    const files = targets.map(f => resolve(cwd, f))
+    const read = (f: string) => $.fs.read(f).then(text => text as string, () => undefined)
+    const before = await Promise.all(files.map(read))
+    const ran = await next(e)
+    if (ran.deny || ran.isError) return ran
+    const after = await Promise.all(files.map(read))
+    const found = files.flatMap((file, i) =>
+      after[i] === undefined || after[i] === before[i] ? [] : [{ file, isNew: before[i] === undefined, ...diffCount(before[i], after[i]!) }])
+    if (found.length) {
+      if (bashEdits.size > 500) bashEdits.clear()
+      bashEdits.set(e.tool_use_id, found)
+      $.ui.invalidate('ui.render')
+    }
+    return ran
+  })
+
+  // A group holding a Bash edit unfolds, so the edit gets its own row.
+  on('ui.render', { component: 'ToolGroup' }, async (_$, e, next) => {
+    const ids = e.props.calls.flatMap(c => c.tool_use_id ?? [])
+    // Already unfolded: the non-fullscreen ctrl+o transcript or --verbose, whose rows stay native.
+    if (e.props.isExpanded) ids.forEach(id => unfolded.delete(id))
+    if (!hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || !ids.some(id => bashEdits.has(id))) return next(e)
+    if (unfolded.size > 500) unfolded.clear()
+    ids.forEach(id => unfolded.add(id))
+    return next({ ...e, props: { ...e.props, isExpanded: true } })
+  })
 
   // A run lies in one transcript: an agent's rows must not take in the main chat's.
   on('ui.render', { component: 'AbovePrompt' }, async (_$, e, next) => {
@@ -538,7 +629,7 @@ export const register: Register = on => {
   // Each hook runs next even when dropping it: margin tracks the row in view on this chain.
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
     const native = await next(e)
-    const isEdit = runs.has(e.requestId) && editSummary(e.props.tool, e.props.output, e.props.isErrored)
+    const isEdit = (runs.has(e.requestId) && editSummary(e.props.tool, e.props.output, e.props.isErrored)) || (bashEdits.has(e.requestId) && !e.props.isErrored)
     if (!hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || !(isEdit || toolRow(e.props.tool, {}, e.props.output, e.props.isErrored))) return native
     const { Box } = $.ui.resolve(e)
 
@@ -553,12 +644,41 @@ export const register: Register = on => {
       if (agents.size > 500) agents.clear()
       agents.set(e.requestId, String((input as { description?: string } | undefined)?.description))
     }
+    // shortcut: fullscreen ctrl+o draws a call of an unfolded group as a ToolUse with isExpanded true and no ToolGroup,
+    // just like the unfolded group's own rows, so there it keeps the one-line row; upgrade once the props tell the views apart.
+    const isGroupRow = unfolded.has(e.requestId)
+    const bashEdit = bashEdits.get(e.requestId)
     // A Client draws nothing on mobile.
-    if (!hideEditDiff || e.surface !== 'terminal' || isExpanded) return native
-    const cwd = tool in EDIT ? await $.session.cwd().catch(() => '') : ''
+    if (!hideEditDiff || e.surface !== 'terminal' || (isExpanded && !isGroupRow)) return native
+    const cwd = tool in EDIT || isGroupRow || bashEdit ? await $.session.cwd().catch(() => '') : ''
     // A share of the chat, so a wide terminal shows more of a path; the floor still fits most file names.
     const nameRoom = Math.max(NAME_FLOOR, Math.floor((e.viewport?.columns ?? 80) * NAME_SHARE))
     const name = (file: string) => cutPath(cwd && file.startsWith(`${cwd}/`) ? file.slice(cwd.length + 1) : file, nameRoom)
+    if (isGroupRow || bashEdit) {
+      if (isRunning || isErrored || isInterrupted) return native
+      const elements = $.ui.resolve(e)
+      const { Box, Text } = elements
+      const dot = <Text color="success">●</Text>
+      if (bashEdit) {
+        return (
+          <Box flexDirection="column" marginTop={1}>
+            {bashEdit.map(c => textLine(elements, dot, [c.isNew ? 'Created' : EDIT.Edit!, name(c.file), <Text>
+              {(c.add > 0 || c.isNew) && <Text color="success">+{c.add}</Text>}
+              {(c.add > 0 || c.isNew) && c.del > 0 && ' '}
+              {c.del > 0 && <Text color="error">−{c.del}</Text>}
+            </Text>]))}
+          </Box>
+        )
+      }
+      // The call's main argument: its path, pattern, command or address.
+      const args = (input ?? {}) as Record<string, unknown>
+      const key = ['file_path', 'pattern', 'path', 'command', 'url', 'query'].find(k => typeof args[k] === 'string')
+      if (!key) return native
+      const label = tool === 'Bash' ? 'Ran' : tool
+      const arg = key === 'file_path' || key === 'path' ? name(String(args[key])) : String(args[key]).split('\n')[0]!
+      const room = Math.max((e.viewport?.columns ?? 80) - label.length - 8, NAME_FLOOR)
+      return textRow(elements, dot, [label, arg.length > room ? `${arg.slice(0, room - 1)}…` : arg, ''])
+    }
     const isLive = isRunning && !isInterrupted && !isErrored && tool in RUNNING
     const other = isLive ? RUNNING[tool]!(input ?? {}, name) : !isRunning && !isInterrupted ? toolRow(tool, input, output, isErrored) : undefined
     if (isLive) {

@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { cutPath, diffRows, runText, split } from '../hooks/register'
+import { cutPath, diffRows, runText, split, writeTargets } from '../hooks/register'
 
 const text = '━━━━\n\n**TL;DR** x\n\n──\n\n## H\n\n┈┈\n\nmore\n\n```text\n━━━━\n```\n\n━━━━'
 const props = { text, isFirstOfReply: true }
@@ -1340,4 +1340,146 @@ test('a bad palette value keeps the default, silently', async ($, on) => {
   await $.session.start(start)
   expect(await lit($)).toBe('#0f1c28')
   expect(toasts).toEqual([])
+})
+
+for (const [command, want] of [
+  ["sed -i 's/a/b/' a.txt", ['a.txt']],
+  ["sed -i.bak -e 's/a/b/' -e 's/c/d/' a.txt b.txt", ['a.txt', 'b.txt']],
+  ["sed -Ei 's/a/b/' a.txt", ['a.txt']],
+  ['echo x > a.txt', ['a.txt']],
+  ['echo x >> a.txt && echo y >b.txt', ['a.txt', 'b.txt']],
+  ['printf x > "my file.txt"', ['my file.txt']],
+  ['echo x | tee -a a.txt b.txt', ['a.txt', 'b.txt']],
+  ["cat > a.txt <<'EOF'\nline > not.txt\nEOF", ['a.txt']],
+  ['cat <<EOF > a.txt\nx\nEOF\necho done', ['a.txt']],
+  ["cd sub && sed -i 's/a/b/' ./a.txt", ['sub/a.txt']],
+  ['cd /abs && echo x > a.txt', ['/abs/a.txt']],
+  ['ls 2>/dev/null; echo x >&2; echo y > /dev/null', []],
+  ["sed 's/a/b/' a.txt", []],
+  ['grep -n x a.txt | head', []],
+  ['echo "a > b"', []],
+  ["echo 'x >> y' | cat", []],
+] as const) {
+  test(`writeTargets finds ${JSON.stringify(want)} in ${JSON.stringify(command)}`, () => {
+    expect(writeTargets(command)).toEqual([...want])
+  })
+}
+
+// Files under /p as the engine's fs sees them; a Bash call beneath the mod applies `run` to them.
+function bashFs(on: any, files: Record<string, string>, run: (files: Record<string, string>) => void = () => {}, isError = false) {
+  const seen = { reads: 0 }
+  on('ui.render', { component: 'ToolGroup' }, (_$: any, e: any) => ({ type: 'Text' as const, children: [`expanded:${e.props.isExpanded}`] }))
+  on('fs.read', (_: any, e: any) => (seen.reads++, e.path in files ? { value: files[e.path] } : { deny: 'ENOENT' }))
+  on('tool.call', () => (run(files), { result: { stdout: '', stderr: '' }, ...(isError ? { isError: true } : {}) }) as any)
+  return seen
+}
+const bash = ($: any, command: string, id = 'b1') => $.tool.call({ tool: 'Bash', command, tool_use_id: id } as any)
+const call = (id: string, tool: string, input: object, extra: object = {}) =>
+  ({ tool_use_id: id, tool, input, isRunning: false, isErrored: false, isInterrupted: false, output: { stdout: '' }, ...extra })
+let groups = 0
+const groupOf = async ($: any, calls: object[]) => {
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolGroup', requestId: `g${++groups}`,
+    props: { calls, isActive: false, isExpanded: false }, viewport: VIEW })
+  return (await ui.find({ type: 'Text' }))?.text
+}
+const useRow = async ($: any, c: any, extra: object = {}) =>
+  (await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolUse', requestId: c.tool_use_id, props: { ...c, ...extra }, viewport: VIEW }))
+const rowsOf = async (ui: any) => (await ui.findAll({ type: 'Text', text: /^● / })).map((t: any) => t.text)
+
+for (const [name, command, before, after, want] of [
+  ['an edit', "sed -i 's/a/b/' a.txt", { '/p/a.txt': 'a\nc\n' }, { '/p/a.txt': 'b\nc\n' }, ['● Updated (a.txt)  +1 −1']],
+  ['a new file', 'printf "x\\ny\\n" > new.txt', {}, { '/p/new.txt': 'x\ny\n' }, ['● Created (new.txt)  +2']],
+  ['two files', 'echo x | tee a.txt sub/b.txt', { '/p/a.txt': 'a\n' }, { '/p/a.txt': 'a\nx\n', '/p/sub/b.txt': 'x\n' }, ['● Updated (a.txt)  +1', '● Created (sub/b.txt)  +1']],
+  ['a cd first', 'cd sub && echo x >> b.txt', { '/p/sub/b.txt': 'a\nb\n' }, { '/p/sub/b.txt': 'x\n' }, ['● Updated (sub/b.txt)  +1 −2']],
+] as const) {
+  test(`a Bash call that writes ${name} draws its edit rows`, async ($, on) => {
+    native(on)
+    bashFs(on, { ...before }, files => Object.assign(files, after))
+    await bash($, command)
+    expect(await rowsOf(await useRow($, call('b1', 'Bash', { command })))).toEqual([...want])
+  })
+}
+
+test('a group holding a Bash edit unfolds; one with none, or an unchanged file, stays folded', async ($, on) => {
+  native(on)
+  bashFs(on, { '/p/a.txt': 'a\n', '/p/c.txt': 'c\n' }, files => (files['/p/a.txt'] = 'b\n'))
+  await bash($, "sed -i 's/a/b/' a.txt", 'b1')
+  await bash($, "sed -i 's/x/y/' c.txt", 'b2')
+  expect(await groupOf($, [call('r1', 'Read', { file_path: '/p/a.txt' }), call('b2', 'Bash', { command: 'x' })])).toBe('expanded:false')
+  expect(await rowsOf(await useRow($, call('b2', 'Bash', { command: "sed -i 's/x/y/' c.txt" })))).toEqual([])
+  expect(await groupOf($, [call('r1', 'Read', { file_path: '/p/a.txt' }), call('b1', 'Bash', { command: 'x' })])).toBe('expanded:true')
+})
+
+test('the other calls of an unfolded group draw one line each, rows outside it stay native', async ($, on) => {
+  native(on)
+  bashFs(on, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))
+  await bash($, 'echo b > a.txt', 'b1')
+  const long = `echo ${'x'.repeat(200)}`
+  const calls = [call('b1', 'Bash', { command: 'echo b > a.txt' }), call('b2', 'Bash', { command: 'ls -la\nmore' }), call('r1', 'Read', { file_path: '/p/sub/a.txt' }),
+    call('g1', 'Grep', { pattern: 'foo', path: '/p' }), call('b3', 'Bash', { command: long }), call('b4', 'Bash', { command: 'false' }, { isErrored: true }),
+    call('b5', 'Bash', { command: 'sleep 9' }, { isRunning: true, output: undefined })]
+  await groupOf($, calls)
+  const row = async (c: any) => (await rowsOf(await useRow($, c, { isExpanded: true })))[0] ?? 'native'
+  expect(await row(calls[0])).toBe('● Updated (a.txt)  +1 −1')
+  expect(await row(calls[1])).toBe('● Ran (ls -la)')
+  expect(await row(calls[2])).toBe('● Read (sub/a.txt)')
+  expect(await row(calls[3])).toBe('● Grep (foo)')
+  const cut = await row(calls[4])
+  expect(cut).toMatch(/^● Ran \(echo x+…\)$/)
+  expect(cut.length).toBeLessThanOrEqual(VIEW.columns - 2)
+  expect(await row(calls[5])).toBe('native')
+  expect(await row(calls[6])).toBe('native')
+  expect(await row(call('o1', 'Bash', { command: 'ls' }))).toBe('native')
+})
+
+test('an errored Bash edit stays native and its group folded', async ($, on) => {
+  native(on)
+  bashFs(on, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'), true)
+  await bash($, 'echo b > a.txt; false')
+  expect(await rowsOf(await useRow($, call('b1', 'Bash', { command: 'x' }, { isErrored: true })))).toEqual([])
+  expect(await groupOf($, [call('b1', 'Bash', { command: 'x' }, { isErrored: true })])).toBe('expanded:false')
+})
+
+test('a Bash edit in ctrl+o outside a group, and its engine block, stay native', async ($, on) => {
+  native(on)
+  bashFs(on, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))
+  await bash($, 'echo b > a.txt')
+  expect(await rowsOf(await useRow($, call('b1', 'Bash', { command: 'x' }), { isExpanded: true }))).toEqual([])
+  const result = async (extra: object) => {
+    const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolResult', requestId: 'b1',
+      props: { tool_use_id: 'b1', tool: 'Bash', output: { stdout: '' }, isErrored: false, ...extra }, viewport: VIEW })
+    const text = (await ui.find({ type: 'Text' }))?.text
+    await ui.unmount()
+    return text
+  }
+  expect(await result({ isExpanded: true })).toBe('native block')
+  expect(await result({})).toBeUndefined()
+})
+
+test('a Bash call with no write target reads no file', async ($, on) => {
+  native(on)
+  const seen = bashFs(on, {})
+  await bash($, 'ls -la | grep x')
+  expect(seen.reads).toBe(0)
+})
+
+test('hideEditDiff false keeps Bash edits native and their group folded', async ($, on) => {
+  native(on)
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('env.get', (_: unknown, e: any) => ({ value: e.name === 'CLAUDE_CONFIG_DIR' ? '/cfg' : undefined }))
+  on('process.run', (() => ({ value: { exitCode: 0, stdout: '/repo\n', stderr: '' } })) as any)
+  bashFs(on, { '/cfg/claudzilla.json': off, '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))
+  await $.session.start(start)
+  await bash($, 'echo b > a.txt')
+  expect(await rowsOf(await useRow($, call('b1', 'Bash', { command: 'x' })))).toEqual([])
+  expect(await groupOf($, [call('b1', 'Bash', { command: 'x' })])).toBe('expanded:false')
+})
+
+test('a session end forgets Bash edits', async ($, on) => {
+  native(on)
+  on('session.end', () => ({ sessionId: 's1' }))
+  bashFs(on, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))
+  await bash($, 'echo b > a.txt')
+  await $.session.end({ reason: 'clear' } as any)
+  expect(await groupOf($, [call('b1', 'Bash', { command: 'x' })])).toBe('expanded:false')
 })
