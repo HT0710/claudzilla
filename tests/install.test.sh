@@ -15,7 +15,40 @@ seedbase() { mkdir -p "$1/.claude"; cp "$REPO/settings.base.json" "$1/.claude/.c
 export CLAUDZILLA_FONT_URL="file://$TMP/nofont"   # never hit the network; font cases override
 export CLAUDZILLA_TTY=/dev/null   # menu reads EOF = Full, so fresh cases need no terminal
 export CLAUDZILLA_FONT=yes   # answer the font prompt; declined case overrides
+key() { node -p 'const [f,c,k]=process.argv.slice(1);JSON.stringify(require(f).bindings.filter(b=>b.context===c).map(b=>b.bindings[k]).find(v=>v!==undefined))' "$1/.claude/keybindings.json" "$2" "$3" 2>/dev/null; }
+inst() { local h=$1; shift; clean_env HOME="$h" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" "$@" >"$h/install.log" 2>&1; }
+new_stub() {  # fake claude logs argv, prints list/mlist; fake rtk keeps deps offline
+  local d; d=$(mktemp -d "$TMP/stub.XXXX")
+  printf '#!/bin/sh\necho "$*" >> "$(dirname "$0")/log"\ngrep -qxF "$*" "$(dirname "$0")/fail" 2>/dev/null && exit 1\ncase "$1 $2 $3" in "plugin list"*) cat "$(dirname "$0")/list" ;; "plugin marketplace list") cat "$(dirname "$0")/mlist" ;; esac\n' > "$d/claude"
+  printf '#!/bin/sh\n' > "$d/rtk"; chmod +x "$d/claude" "$d/rtk"; echo '[]' > "$d/list"; echo '[]' > "$d/mlist"; : > "$d/log"; echo "$d"
+}
+pinst() { local h=$1 s=$2; shift 2; clean_env HOME="$h" CLAUDZILLA_OFFLINE=0 PATH="$s:$PATH" bash "$REPO/install.sh" "$@" >"$h/install.log" 2>&1; }
+FD=".local/share/fonts"; STYLES=("Regular" "Bold" "Italic" "Bold Italic")
+stubs() {  # PATH stubs and font files several sections use; each section gets its own copy
+local s
+mkdir -p "$TMP/badfont"; for s in "${STYLES[@]}"; do echo tampered > "$TMP/badfont/MesloLGS NF $s.ttf"; done
+mkdir -p "$TMP/linux" "$TMP/darwin"; printf '#!/bin/sh\necho Linux\n' > "$TMP/linux/uname"; printf '#!/bin/sh\necho Darwin\n' > "$TMP/darwin/uname"; chmod +x "$TMP/linux/uname" "$TMP/darwin/uname"
+# WSL: stub the Windows side
+WB="$TMP/winbin"; mkdir -p "$WB"; cp "$TMP/linux/uname" "$WB/"
+cat > "$WB/cmd.exe" <<'S'
+#!/bin/sh
+printf 'C:\\Users\\u\\AppData\\Local\r\n'
+S
+cat > "$WB/wslpath" <<'S'
+#!/bin/sh
+case $1 in -u) echo "$WINLA" ;; -w) printf 'C:\\fonts\\%s\n' "$(basename "$2")" ;; esac
+S
+cat > "$WB/reg.exe" <<'S'
+#!/bin/sh
+printf '%s\n' "$*" >> "$REGLOG"
+S
+chmod +x "$WB"/*
+# fc-list stubs: the host's own fonts must not decide these cases
+mkdir -p "$TMP/nofc" "$TMP/fc"; printf '#!/bin/sh\n' > "$TMP/nofc/fc-list"; printf '#!/bin/sh\necho "MesloLGS Nerd Font Mono"\n' > "$TMP/fc/fc-list"; chmod +x "$TMP/nofc/fc-list" "$TMP/fc/fc-list"
+}
 
+# Each sec_* function is an independent group of cases; they run in parallel at the end of the file.
+sec_basics() {
 # --- content ---
 check "content: no home paths" \
   bash -c "! grep -rqE '/home/|/Users/' '$REPO/claude' '$REPO/settings.base.json'"
@@ -173,9 +206,10 @@ check "no record: existing duplicate collapsed" [ "$(rgBash "$S2")" -eq 1 ]
 echo '{bad' > "$R"; run_install "$H"; rc=$?
 check "record: unparsable record falls back" [ "$rc" -eq 0 ]
 check "record: unparsable record rewritten" cmp -s "$R" "$REPO/settings.base.json"
+}
 
+sec_keys() {
 # --- keybindings: alt+h toggles the panel, alt+k focuses the band, alt+g opens the guide ---
-key() { node -p 'const [f,c,k]=process.argv.slice(1);JSON.stringify(require(f).bindings.filter(b=>b.context===c).map(b=>b.bindings[k]).find(v=>v!==undefined))' "$1/.claude/keybindings.json" "$2" "$3" 2>/dev/null; }
 K=$(new_home); run_install "$K"
 check "keys: fresh alt+o opens overview" [ "$(key "$K" Chat alt+o)" = '"command:margin-overview"' ]
 check "keys: fresh alt+h opens history" [ "$(key "$K" Chat alt+h)" = '"command:margin-history"' ]
@@ -240,9 +274,10 @@ tk '{"bindings":[{"context":"Global","bindings":{"Meta+Q":"app:x"}},{"context":"
 check "tabkeys: own alt+q (alias, Global) keeps guide on alt+g" [ "$(key "$K" Chat alt+g)" = '"command:claudzilla"' ]
 tk '{"bindings":[{"context":"Global","bindings":{"ctrl+p":"command:margin"}}]}'
 check "tabkeys: command:margin on another key kept" bash -c "[ '$(key "$K" Global ctrl+p)' = '\"command:margin\"' ] && [ '$(key "$K" Chat alt+h)' = '\"command:margin-history\"' ]"
+}
 
+sec_modes() {
 # --- install modes: --full, --add, --remove ---
-inst() { local h=$1; shift; clean_env HOME="$h" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" "$@" >"$h/install.log" 2>&1; }
 A=$(new_home); inst "$A" --add hud
 check "add: hud linked" [ -L "$A/.claude/hud" ]
 check "add: no rules" [ ! -e "$A/.claude/rules" ]
@@ -278,7 +313,9 @@ check "saved: dropped part ignored" [ "$rc" -eq 0 ]
 E=$(new_home); inst "$E"
 node -e 'const f=process.argv[1],j=require(f);j.statusLine.command="mine";require("fs").writeFileSync(f,JSON.stringify(j))' "$E/.claude/settings.json"; inst "$E" --remove hud
 check "remove: user-edited key kept" [ "$(q "$E/.claude/settings.json" .statusLine.command)" = '"mine"' ]
+}
 
+sec_deps_update() {
 # Bad flag on a real run: no rtk download, nothing under ~/.local.
 S="$TMP/stub"; mkdir -p "$S/bin"; printf '#!/bin/sh\necho "$@" >> "%s/curl.log"\nexit 1\n' "$S" > "$S/bin/curl"; chmod +x "$S/bin/curl"
 ln -s "$(command -v node)" "$S/bin/node"
@@ -381,7 +418,7 @@ mkdir -p "$U/nogit"; cp "$REPO/claude/hooks/claudzilla-update.sh" "$U/nogit/"
 check "update: not a git repo is silent" [ -z "$(clean_env HOME="$U/home" sh "$U/nogit/claudzilla-update.sh" 2>&1)" ]
 # autoUpdate on (default): background pull + install.sh, result shown next session
 res="$(git -C "$U/clone" rev-parse --absolute-git-dir)/claudzilla-update.result"
-waitres() { for i in $(seq 20); do [ -f "$res" ] && break; sleep 0.5; done; }
+waitres() { for i in $(seq 60); do [ -f "$res" ] && break; sleep 0.5; done; }
 rm "$U/home/.claude/claudzilla.json"
 printf 'echo ran > "$HOME/ran"\n' > "$U/clone/install.sh"
 out=$(notice); waitres
@@ -461,7 +498,9 @@ check "shallow: untagged commit is no update" [ "$(git -C "$S/clone" log -1 --fo
 for i in $(seq 150); do printf '0\tlive\tx%s\n' "$i"; done > "$ev"; notice >/dev/null
 check "events: trimmed past 100 lines" [ "$(wc -l < "$ev" | tr -d ' ')" -le 22 ]
 check "events: trim keeps the newest" grep -qF $'0\tlive\tx150' "$ev"
+}
 
+sec_font() {
 # --- truecolor on WSL ---
 W=$(new_home); echo 'alias x=y' > "$W/.bashrc"; echo 'export COLORTERM=24bit' > "$W/.zshrc"
 wsl_install() { clean_env HOME="$1" WSL_DISTRO_NAME=Ubuntu CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" >"$1/install.log" 2>&1; }
@@ -481,9 +520,7 @@ check "wsl: appended rc line recorded" [ "$(q "$W/.claude/.claudzilla-installed.
 check "wsl: read-only rc not recorded" bash -c "! grep -q bashrc '$R/.claude/.claudzilla-installed.json' 2>/dev/null"
 
 # --- font ---
-FD=".local/share/fonts"; STYLES=("Regular" "Bold" "Italic" "Bold Italic")
 seed_fonts() { mkdir -p "$1/$FD"; for s in "${STYLES[@]}"; do echo x > "$1/$FD/MesloLGS NF $s.ttf"; done; }
-mkdir -p "$TMP/badfont"; for s in "${STYLES[@]}"; do echo tampered > "$TMP/badfont/MesloLGS NF $s.ttf"; done
 F=$(new_home); clean_env HOME="$F" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT_URL="file://$TMP/badfont" bash "$REPO/install.sh" >"$F/install.log" 2>&1; rc=$?
 check "font: checksum mismatch does not abort" [ "$rc" -eq 0 ]
 check "font: tampered file not installed" bash -c "! ls '$F/$FD' '$F/Library/Fonts' 2>/dev/null | grep -q ttf"
@@ -491,7 +528,6 @@ check "font: mismatch warned" grep -q 'MesloLGS NF.*checksum' "$F/install.log"
 U2=$(new_home); run_install "$U2"; rc=$?
 check "font: unreachable exits 0" [ "$rc" -eq 0 ]
 check "font: unreachable warned" grep -q 'font: download failed' "$U2/install.log"
-mkdir -p "$TMP/linux" "$TMP/darwin"; printf '#!/bin/sh\necho Linux\n' > "$TMP/linux/uname"; printf '#!/bin/sh\necho Darwin\n' > "$TMP/darwin/uname"; chmod +x "$TMP/linux/uname" "$TMP/darwin/uname"
 P=$(new_home); seed_fonts "$P"; clean_env HOME="$P" CLAUDZILLA_OFFLINE=1 PATH="$TMP/linux:$PATH" bash "$REPO/install.sh" >"$P/install.log" 2>&1
 check "font: present fonts not re-downloaded" bash -c "! grep -q 'font:' '$P/install.log'"
 check "font: seeded fonts not recorded" bash -c "! grep -q ttf '$P/.claude/.claudzilla-installed.json' 2>/dev/null"
@@ -512,21 +548,6 @@ check "font: re-download not recorded twice" [ "$(q "$G/.claude/.claudzilla-inst
 D=$(new_home); clean_env HOME="$D" CLAUDZILLA_OFFLINE=1 PATH="$TMP/darwin:$PATH" bash "$REPO/install.sh" >"$D/install.log" 2>&1
 check "font: macOS targets ~/Library/Fonts" grep -q 'Library/Fonts' "$D/install.log"
 
-# WSL: stub the Windows side
-WB="$TMP/winbin"; mkdir -p "$WB"; cp "$TMP/linux/uname" "$WB/"
-cat > "$WB/cmd.exe" <<'S'
-#!/bin/sh
-printf 'C:\\Users\\u\\AppData\\Local\r\n'
-S
-cat > "$WB/wslpath" <<'S'
-#!/bin/sh
-case $1 in -u) echo "$WINLA" ;; -w) printf 'C:\\fonts\\%s\n' "$(basename "$2")" ;; esac
-S
-cat > "$WB/reg.exe" <<'S'
-#!/bin/sh
-printf '%s\n' "$*" >> "$REGLOG"
-S
-chmod +x "$WB"/*
 WTREL="Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json"
 wsl_font() {  # $1 home, $2 WT settings content ('' = none)
   local la="$1/win"; mkdir -p "$la/$(dirname "$WTREL")"; [ -n "$2" ] && printf '%s' "$2" > "$la/$WTREL"
@@ -573,8 +594,6 @@ clean_env HOME="$K" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT=yes bash "$REPO/install
 check "font declined: yes later clears marker" [ ! -e "$K/.claude/.claudzilla-basic-glyphs" ]
 
 # no terminal (Claude's Bash tool): don't guess, hand the question to Claude
-# fc-list stubs: the host's own fonts must not decide these cases
-mkdir -p "$TMP/nofc" "$TMP/fc"; printf '#!/bin/sh\n' > "$TMP/nofc/fc-list"; printf '#!/bin/sh\necho "MesloLGS Nerd Font Mono"\n' > "$TMP/fc/fc-list"; chmod +x "$TMP/nofc/fc-list" "$TMP/fc/fc-list"
 Q=$(new_home); seedbase "$Q"; notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY -u CLAUDZILLA_FONT HOME="$Q" CLAUDZILLA_OFFLINE=1 PATH="$TMP/nofc:$PATH" bash "$REPO/install.sh" >"$Q/install.log" 2>&1 </dev/null; rc=$?
 check "font no tty: exit 0" [ "$rc" -eq 0 ]
 check "font no tty: nothing downloaded" bash -c "! grep -q 'download failed' '$Q/install.log'"
@@ -593,7 +612,9 @@ W=$(new_home); seedbase "$W"; notty env -u CLAUDE_CONFIG_DIR -u CLAUDZILLA_TTY -
 check "wsl font: Linux-side font still asked (Windows needs it)" grep -q 'AskUserQuestion' "$W/install.log"
 O=$(new_home); clean_env HOME="$O" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT=off bash "$REPO/install.sh" >/dev/null 2>&1
 check "font: CLAUDZILLA_FONT=off declines" [ -f "$O/.claude/.claudzilla-basic-glyphs" ]
+}
 
+sec_menu() {
 # symlinked keybindings.json on a removal: the warning says remove, not add
 K=$(new_home); mkdir -p "$K/dots"; inst "$K"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+h":"command:margin-history","alt+k":"abovePrompt:focus","alt+q":"command:claudzilla"}}]}' > "$K/dots/kb.json"
 rm -f "$K/.claude/keybindings.json"; ln -s "$K/dots/kb.json" "$K/.claude/keybindings.json"; inst "$K" --remove margin
@@ -639,14 +660,10 @@ check "remove on existing: no font download" bash -c "! grep -q 'checksum mismat
 check "remove on existing: font hint kept" grep -q AskUserQuestion "$R/install.log"
 G=$(new_home); seedbase "$G"; notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY -u CLAUDZILLA_FONT HOME="$G" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT_URL="file://$TMP/badfont" PATH="$TMP/fc:$TMP/linux:$PATH" bash "$REPO/install.sh" --full >"$G/install.log" 2>&1 </dev/null
 check "full with font installed another way: no download" bash -c "! grep -q 'checksum mismatch' '$G/install.log'"
-
-# --- plugins per part + ownership record ---
-new_stub() {  # fake claude logs argv, prints list/mlist; fake rtk keeps deps offline
-  local d; d=$(mktemp -d "$TMP/stub.XXXX")
-  printf '#!/bin/sh\necho "$*" >> "$(dirname "$0")/log"\ngrep -qxF "$*" "$(dirname "$0")/fail" 2>/dev/null && exit 1\ncase "$1 $2 $3" in "plugin list"*) cat "$(dirname "$0")/list" ;; "plugin marketplace list") cat "$(dirname "$0")/mlist" ;; esac\n' > "$d/claude"
-  printf '#!/bin/sh\n' > "$d/rtk"; chmod +x "$d/claude" "$d/rtk"; echo '[]' > "$d/list"; echo '[]' > "$d/mlist"; : > "$d/log"; echo "$d"
 }
-pinst() { local h=$1 s=$2; shift 2; clean_env HOME="$h" CLAUDZILLA_OFFLINE=0 PATH="$s:$PATH" bash "$REPO/install.sh" "$@" >"$h/install.log" 2>&1; }
+
+sec_plugins() {
+# --- plugins per part + ownership record ---
 S=$(new_stub); H=$(new_home); seedbase "$H"; echo '[{"id":"margin@claudzilla"}]' > "$S/list"; pinst "$H" "$S" --remove margin
 check "plugins: remove panel uninstalls it" grep -q 'plugin uninstall margin@claudzilla' "$S/log"
 S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S" --remove margin
@@ -682,9 +699,10 @@ S=$(new_stub); H=$(new_home); echo 'not json' > "$S/list"; pinst "$H" "$S"
 check "record: unparseable list records nothing" [ "$(node -p 'const r=require(process.argv[1]);r.plugins.length+r.files.length+r.marketplaces.length' "$H/.claude/.claudzilla-installed.json")" = 0 ]
 # removing a recorded plugin drops its record entry
 check "record: removed plugin's entry gone, others kept" [ "$(q "$R" .plugins)" = '["superpowers@claude-plugins-official"]' ]
+}
 
+sec_uninstall() {
 # --- uninstall ---
-uninst() { local h=$1; shift; clean_env HOME="$h" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" --uninstall "$@" >"$h/u.log" 2>&1; }
 U=$(new_home); inst "$U" --remove rtk; mkdir -p "$U/.claude/skills/mine"; echo x > "$U/.claude/skills/mine/SKILL.md"; echo mine > "$U/.claude/CLAUDE.local.md"
 mkdir -p "$U/.claude/.claudzilla-backup/x"
 node -e 'const f=process.argv[1]+"/.claude/",fs=require("fs"),s=require(f+"settings.json"),c=require(f+"claudzilla.json");s.model="mine";c.keep=1;fs.writeFileSync(f+"settings.json",JSON.stringify(s));fs.writeFileSync(f+"claudzilla.json",JSON.stringify(c))' "$U"
@@ -781,8 +799,9 @@ WX="$TMP/winlist"; mkdir -p "$WX"; cp "$TMP/linux/uname" "$WX/"; printf '#!/bin/
 H=$(new_home); inst "$H"; mkdir -p "$H/win/Microsoft/Windows/Fonts"; echo x > "$H/win/Microsoft/Windows/Fonts/MesloLGS NF Bold.ttf"
 clean_env HOME="$H" WSL_DISTRO_NAME=Ubuntu WINLA="$H/win" PATH="$WX:$PATH" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" --uninstall --yes >"$H/install.log" 2>&1
 check "uninstall leftovers: unrecorded Windows font listed, kept" bash -c "grep -q 'rm .*Windows/Fonts/MesloLGS.*Bold.ttf' '$H/install.log' && [ -f '$H/win/Microsoft/Windows/Fonts/MesloLGS NF Bold.ttf' ]"
+}
 
-
+sec_review() {
 # --- uninstall: review fixes ---
 minpath() { local d t; d=$(mktemp -d "$TMP/min.XXXX"); for t in bash env sh cat rm mkdir dirname readlink date uname perl find sed grep cmp mv tail cp ls tr basename; do ln -s "$(command -v $t)" "$d/$t" 2>/dev/null; done; echo "$d"; }
 # I1: only node is claudzilla's own, under ~/.local/bin; I4: online run never downloads
@@ -848,7 +867,9 @@ S=$(new_stub); H=$(new_home); seedbase "$H"; echo '[{"id":"margin@claudzilla"}]'
 check "rename: second run no old uninstall" bash -c "! grep -q 'plugin uninstall' '$S/log'"
 S=$(new_stub); H=$(new_home); seedbase "$H"; echo '[{"id":"panel@claudzilla"}]' > "$S/list"; echo 'plugin install margin@claudzilla' > "$S/fail"; pinst "$H" "$S"
 check "rename: old plugin kept when new id install fails" bash -c "! grep -q 'plugin uninstall panel@claudzilla' '$S/log'"
+}
 
+sec_ponytail() {
 # --- ponytail band + ledger: off once, then the user's choice stands ---
 ledger() { q "$1/.claude/settings.json" '.pluginConfigs?.["ponytail@ponytail"]?.options?.ledger'; }
 P=$(new_home); inst "$P" --remove rtk
@@ -886,5 +907,15 @@ V5=$(new_home); v15 "$V5"; inst "$V5" --remove margin
 check "old ids: an unpicked renamed plugin is not left enabled" [ "$(q "$V5/.claude/settings.json" '.enabledPlugins["margin@claudzilla"]')" = undefined ]
 V6=$(new_home); v15 "$V6"; inst "$V6" --uninstall --yes
 check "old ids: uninstall from v1.5 leaves no claudzilla plugin enabled" bash -c "! grep -q '@claudzilla' '$V6/.claude/settings.json'"
+}
 
+SECTIONS=$(declare -F | sed -n 's/^declare -f \(sec_\)/\1/p')   # every sec_* function, so a new one cannot be left out
+for s in $SECTIONS; do   # own $TMP each; output and counters land beside it
+  ( declare -F "$s" >/dev/null || exit 1; TMP="$TMP/$s"; mkdir "$TMP"; stubs; "$s"; echo "$pass $fail" > "$TMP.count" ) > "$TMP/$s.out" 2>&1 &
+done
+wait
+for s in $SECTIONS; do
+  cat "$TMP/$s.out"
+  if [ -f "$TMP/$s.count" ]; then read -r p f < "$TMP/$s.count"; pass=$((pass+p)); fail=$((fail+f)); else fail=$((fail+1)); echo "FAIL: $s did not finish"; fi
+done
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
