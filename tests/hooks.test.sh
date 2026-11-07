@@ -7,8 +7,8 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 export TMPDIR="$TMP" SID= CLAUDE_CONFIG_DIR="$TMP/cfg"
 unset COLUMNS   # width tests set it per call
 mkdir -p "$CLAUDE_CONFIG_DIR"
-pass=0 fail=0 n=0
-check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL: $name"; return 1; fi; }
+. "$REPO/tests/lib.sh"
+n=0
 RG="$REPO/claude/hooks/rules-guard.mjs"
 STATE="$TMP/claudzilla-rules"
 # hook <event> [key=value ...]: build the event JSON (dotted keys nest) and run rules-guard in $PWD

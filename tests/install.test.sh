@@ -4,8 +4,7 @@
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-pass=0 fail=0
-check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL: $name"; return 1; fi; }
+. "$REPO/tests/lib.sh"
 q() { node -p "JSON.stringify(require(process.argv[1])$2)" "$1"; }
 clean_env() { env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME "$@"; }   # never reach a real Windows side
 run_install() { clean_env HOME="$1" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" >"$1/install.log" 2>&1; }

@@ -7,8 +7,7 @@ HUD="$REPO/claude/hud"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 # keep every run (state files, trace) out of the real home
 export TMPDIR="$TMP" CLAUDE_CONFIG_DIR="$TMP/cfg"; mkdir -p "$CLAUDE_CONFIG_DIR"
-pass=0 fail=0
-check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL: $name"; return 1; fi; }
+. "$REPO/tests/lib.sh"
 iso() { node -p "new Date(Date.now() - $1 * 1000).toISOString()"; }
 now=$(date +%s)
 

@@ -24,8 +24,7 @@ unset $AUTHVARS
 cd "$TMP"  # git config user.email must not read the clone's own config
 R="$REPO/claude/skills/claudzilla-report/report.mjs"
 T="$CLAUDE_CONFIG_DIR/claudzilla-trace"
-pass=0 fail=0
-check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL: $name"; return 1; fi; }
+. "$REPO/tests/lib.sh"
 account() { printf '{"oauthAccount":{"emailAddress":"%s"}}' "$1" > "$CLAUDE_CONFIG_DIR/.claude.json"; }
 gitmail() { printf '[user]\n\temail = %s\n' "$1" > "$GIT_CONFIG_GLOBAL"; }
 rep() { node "$R" "$@" </dev/null; }

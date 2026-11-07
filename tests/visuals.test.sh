@@ -7,8 +7,7 @@ V="$REPO/.github/visuals"
 T="$(mktemp -d)"
 # Firefox runs from $HOME's view: a snap Firefox cannot read /tmp.
 H="$(mktemp -d "$HOME/visuals-test.XXXXXX")"; trap 'rm -rf "$T" "$H"' EXIT
-pass=0 fail=0
-check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL: $name"; return 1; fi; }
+. "$REPO/tests/lib.sh"
 
 conv() { printf '%b' "$1" > "$T/in.ansi"; shift; python3 -I "$V/ansi2html.py" "$T/in.ansi" "$T/out.html" '#d4d4d4' '#0d1117' "$@"; }
 

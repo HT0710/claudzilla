@@ -9,8 +9,7 @@ mkdir -p "$CLAUDE_CONFIG_DIR" "$HOME"
 T="$CLAUDE_CONFIG_DIR/claudzilla-trace"
 TR="$REPO/claude/hooks/trace.mjs"
 TP="$REPO/claude/hooks/trace.pl"
-pass=0 fail=0
-check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL: $name"; return 1; fi; }
+. "$REPO/tests/lib.sh"
 # js <code>: run code as a module with trace.mjs exports in scope
 js() { node --input-type=module -e "import * as t from '$TR'; $1" </dev/null; }
 fresh() { rm -rf "$T"; }
