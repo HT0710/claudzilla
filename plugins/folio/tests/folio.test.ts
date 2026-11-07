@@ -1070,6 +1070,64 @@ for (const [name, tool, output, extra] of [
   })
 }
 
+const fetched = { bytes: 577, code: 200, codeText: 'OK', result: 'x', durationMs: 5, url: 'https://example.com/' }
+const searched = { query: 'example domain', results: [], durationSeconds: 5, searchCount: 1 }
+const agentDone = { status: 'completed', agentId: 'a1', content: [], totalToolUseCount: 3, totalDurationMs: 9, totalTokens: 9, prompt: 'p' }
+for (const [name, tool, input, output, want] of [
+  ['a fetch', 'WebFetch', { url: 'https://example.com/a?b' }, fetched, '● Fetched (example.com)  200 · 577 B'],
+  ['a big fetch', 'WebFetch', { url: 'https://example.com' }, { ...fetched, bytes: 48_213 }, '● Fetched (example.com)  200 · 47 KB'],
+  ['a fetch of a bad url', 'WebFetch', { url: 'nope' }, { ...fetched, code: 404 }, '● Fetched (nope)  404 · 577 B'],
+  ['a search', 'WebSearch', { query: 'example domain' }, searched, '● Searched ("example domain")  1 search'],
+  ['searches', 'WebSearch', { query: 'q' }, { ...searched, searchCount: 2 }, '● Searched ("q")  2 searches'],
+  ['a search with no count', 'WebSearch', { query: 'q' }, { ...searched, searchCount: undefined }, '● Searched ("q")'],
+  ['a background agent', 'Agent', { description: 'Say hi', prompt: 'p' }, { status: 'async_launched', agentId: 'a1', description: 'Say hi', prompt: 'p', outputFile: '/o' }, '● Agent (Say hi)  backgrounded'],
+  ['a finished agent', 'Agent', { description: 'Say hi', prompt: 'p' }, agentDone, '● Agent (Say hi)  done'],
+  ['a remote agent', 'Agent', { description: 'Say hi', prompt: 'p' }, { status: 'remote_launched', taskId: 't', sessionUrl: 'u', description: 'Say hi', prompt: 'p', outputFile: '/o' }, '● Agent (Say hi)  remote'],
+  ['a skill', 'Skill', { skill: 'caveman:caveman-help' }, { success: true, commandName: 'caveman:caveman-help' }, '● Skill (caveman:caveman-help)  loaded'],
+  ['a forked skill', 'Skill', { skill: 's' }, { success: true, commandName: 's', status: 'forked', agentId: 'a', result: 'r' }, '● Skill (s)  done'],
+  ['a background skill', 'Skill', { skill: 's' }, { success: true, commandName: 's', status: 'forked', agentId: 'a', result: 'r', background: true }, '● Skill (s)  backgrounded'],
+] as const) {
+  test(`${name} draws a one-line row, and its engine block nothing`, async ($, on) => {
+    native(on)
+    expect(await drawn($, tool, output, { input })).toBe(want)
+    const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolResult', requestId: 'r1',
+      props: { tool_use_id: 'r1', tool, output, isErrored: false }, viewport: VIEW })
+    expect(await ui.find({ type: 'Text' })).toBeUndefined()
+  })
+}
+
+for (const [name, tool, input, output, extra] of [
+  ['a failed fetch', 'WebFetch', { url: 'https://x.y' }, 'Error: refused', { isErrored: true }],
+  ['a running fetch', 'WebFetch', { url: 'https://x.y' }, undefined, { isRunning: true }],
+  ['an expanded search', 'WebSearch', { query: 'q' }, searched, { isExpanded: true }],
+  ['an interrupted agent', 'Agent', { description: 'd' }, 'Error: cut.', { isErrored: true, isInterrupted: true }],
+  ['an agent of unknown shape', 'Agent', { description: 'd' }, { status: 'teammate_spawned' }, {}],
+  ['a skill not found', 'Skill', { skill: 's' }, { success: false, commandName: 's' }, {}],
+] as const) {
+  test(`${name} stays native, engine block too`, async ($, on) => {
+    native(on)
+    expect(await drawn($, tool, output, { input, ...extra })).toBe('native')
+    expect(await block($, tool, output, { input, ...extra }, 'b1')).toBe('native block')
+  })
+}
+
+test('a fetch between edits starts a new run, and takes no part in it', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
+  const web = await mountRow($, 'WebFetch', fetched, { input: { url: 'https://example.com' } }, '/p/a.txt', 'w1')
+  const second = await mountRow($, 'Edit', patch('+c'), {}, '/p/b.txt', 'e2')
+  expect(await textOf(first, 'e1')).toBe('● Updated (a.txt)  +1')
+  expect(await textOf(web, 'w1')).toBe('● Fetched (example.com)  200 · 577 B')
+  expect(await textOf(second, 'e2')).toBe('● Updated (b.txt)  +1')
+})
+
+test('hideEditDiff false keeps the native fetch row', async ($, on) => {
+  native(on)
+  configured(on, { '/cfg/claudzilla.json': off })
+  await $.session.start(start)
+  expect(await drawn($, 'WebFetch', fetched, { input: { url: 'https://example.com' } })).toBe('native')
+})
+
 // One map of config files, as a session finds them: machine, then the repo's shared and local.
 function configured(on: any, files: Record<string, string>) {
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))

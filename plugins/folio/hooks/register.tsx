@@ -51,6 +51,26 @@ function editSummary(tool: string, output: any, isErrored: boolean) {
   return add + del ? { add, del, isNew: false } : undefined
 }
 
+const host = (url: string) => {
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
+}
+const size = (bytes: number) => (bytes < 1024 ? `${bytes} B` : bytes < 1024 ** 2 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`)
+const AGENT_TAIL: Record<string, string> = { completed: 'done', async_launched: 'backgrounded', remote_launched: 'remote' }
+
+// Other tools' one-line rows as label, argument and tail; undefined where the engine's own rows should draw.
+const ROWS: Record<string, (input: any, output: any) => [string, string, string] | undefined> = {
+  WebFetch: (input, output) => ['Fetched', host(String(input.url)), `${output.code} · ${size(output.bytes)}`],
+  WebSearch: (input, { searchCount: n }) => ['Searched', `"${input.query}"`, n === undefined ? '' : `${n} search${n === 1 ? '' : 'es'}`],
+  Agent: (input, output) => (AGENT_TAIL[output.status] ? ['Agent', String(input.description), AGENT_TAIL[output.status]!] : undefined),
+  Skill: (input, output) => output.success ? ['Skill', String(input.skill), output.status === 'forked' ? (output.background ? 'backgrounded' : 'done') : 'loaded'] : undefined,
+}
+const toolRow = (tool: string, input: any, output: any, isErrored: boolean) =>
+  tool in ROWS && !isErrored && output && typeof output === 'object' ? ROWS[tool]!(input ?? {}, output) : undefined
+
 // An Edit or Write result as unified-diff hunks, for the Code element: tab and newline its only control characters,
 // and over its size limit it refuses the row, so such a diff stays in ctrl+o. A new file has no patch: all added.
 function diffText(output: any) {
@@ -484,7 +504,8 @@ export const register: Register = on => {
   // Each hook runs next even when dropping it: margin tracks the row in view on this chain.
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
     const native = await next(e)
-    if (!hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || !runs.has(e.requestId) || !editSummary(e.props.tool, e.props.output, e.props.isErrored)) return native
+    const isEdit = runs.has(e.requestId) && editSummary(e.props.tool, e.props.output, e.props.isErrored)
+    if (!hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || !(isEdit || toolRow(e.props.tool, {}, e.props.output, e.props.isErrored))) return native
     const { Box } = $.ui.resolve(e)
 
     return <Box />
@@ -495,7 +516,23 @@ export const register: Register = on => {
     const { tool, input, output, isRunning, isErrored, isInterrupted, isExpanded } = e.props
     const run = runs.get(e.requestId)
     // A Client draws nothing on mobile.
-    if (!hideEditDiff || e.surface !== 'terminal' || isExpanded || !run) return native
+    if (!hideEditDiff || e.surface !== 'terminal' || isExpanded) return native
+    const other = !isRunning && !isInterrupted ? toolRow(tool, input, output, isErrored) : undefined
+    if (other) {
+      const { Box, Text } = $.ui.resolve(e)
+      const [label, arg, tail] = other
+      // Plain text, not the fold's Client: nothing opens on a press, so nothing lights under the pointer.
+      return (
+        <Box marginTop={1}>
+          <Text wrap="truncate-end">
+            <Text color="success">●</Text> <Text bold>{label}</Text>
+            <Text color="promptBorder"> (</Text>{arg}<Text color="promptBorder">)</Text>
+            {tail && `  ${tail}`}
+          </Text>
+        </Box>
+      )
+    }
+    if (!run) return native
     const summary = !isRunning && !isInterrupted ? editSummary(tool, output, isErrored) : undefined
     if (summary && !done.has(e.requestId)) {
       done.set(e.requestId, { file: String((input as { file_path?: string }).file_path), summary, diff: diffText(output) })
