@@ -2194,29 +2194,57 @@ export const register: Register = (on, options) => {
       const CI: Record<CheckState, [string, string]> = { bad: ['✗ CI failed', TYPES.fix!], run: ['◌ CI running', 'claude'], ok: ['✓ CI passed', HUD.action], skip: ['✓ CI passed', HUD.action] }
       // Lines added and removed; a side that is 0 is left out, as the mockup draws it: "+8", "−9".
       const churnText = (add: number, del: number) => [add || !del ? `+${add}` : '', del ? `−${del}` : ''].filter(Boolean).join(' ')
-      const churnOf = (add: number, del: number) => (
-        <Text>
-          {add || !del ? <Text color="success">{`+${add}`}</Text> : null}
-          {(add || !del) && del ? ' ' : null}
-          {del ? <Text color="error">{`−${del}`}</Text> : null}
-        </Text>
-      )
+      // A file list's count columns: the widest "+n" and "−n", so each side lines up right-aligned; `bin` fits too.
+      type Cols = { add: number; del: number }
+      const colsWidth = (cols: Cols) => cols.add + (cols.add && cols.del ? 1 : 0) + cols.del
+      const churnCols = (list: (Counts | undefined)[]) => {
+        const cols = { add: 0, del: 0 }
+        for (const c of list)
+          if (c && c !== 'bin') {
+            cols.add = Math.max(cols.add, c.add || !c.del ? `+${c.add}`.length : 0)
+            cols.del = Math.max(cols.del, c.del ? `−${c.del}`.length : 0)
+          }
+        if (list.includes('bin')) cols.add += Math.max(0, 3 - colsWidth(cols))
+        return cols
+      }
+      const churnOf = (add: number, del: number, cols?: Cols) => {
+        const a = add || !del ? `+${add}` : ''
+        const d = del ? `−${del}` : ''
+        if (!cols)
+          return (
+            <Text>
+              {a ? <Text color="success">{a}</Text> : null}
+              {a && d ? ' ' : null}
+              {d ? <Text color="error">{d}</Text> : null}
+            </Text>
+          )
+        return (
+          <Text>
+            {' '.repeat(cols.add - a.length)}
+            {a ? <Text color="success">{a}</Text> : null}
+            {cols.add && cols.del ? ' '.repeat(1 + cols.del - d.length) : null}
+            {d ? <Text color="error">{d}</Text> : null}
+          </Text>
+        )
+      }
       // A changed file's parts, for a CHANGES row and every modal file list: its mark, its path cut in the middle so
       // the file name stays, and its line counts at the right (`bin` for a binary file). `room`: the path's columns
       // with no counts; counts take theirs and a 2-column gap.
-      const changeParts = (mark: JSX.Element[], path: string, counts: Counts | undefined, room: number, pathColor?: string) => {
-        const used = counts === 'bin' ? 3 : counts ? churnText(counts.add, counts.del).length : 0
+      const changeParts = (mark: JSX.Element[], path: string, counts: Counts | undefined, room: number, pathColor?: string, cols?: Cols) => {
+        const used = !counts ? 0 : cols ? colsWidth(cols) : counts === 'bin' ? 3 : churnText(counts.add, counts.del).length
         return {
           left: [...mark, <Text color={pathColor}>{` ${cutMiddle(printable(path), room - (used ? used + 2 : 0))}`}</Text>],
-          right: counts === 'bin' ? <Text color={HUD.faint}>bin</Text> : counts ? churnOf(counts.add, counts.del) : undefined,
+          right: counts === 'bin' ? <Text color={HUD.faint}>{'bin'.padStart(cols ? colsWidth(cols) : 3)}</Text> : counts ? churnOf(counts.add, counts.del, cols) : undefined,
         }
       }
+      // Over every change, not the rows drawn, so the columns hold still as CHANGES scrolls.
+      const changeCols = churnCols(changes.map(c => counts.get(c.path) ?? lineCounts.get(c.path)))
       // A modal's file row: lit under the pointer, a press opens the file in the File tab. `layer`: the modal's key
       // prefix, m or s for the stacked one. A deleted file neither lights nor opens.
       // A row Client, as a CHANGES row, so it lights where a Button would invert; a surface with no Client gets the
       // Button.
-      const fileRow = (mark: JSX.Element, path: string, add: number, del: number, width: number, layer: 'm' | 's', deleted = false) => {
-        const { left, right } = changeParts([mark], path, { add, del }, width - 3)
+      const fileRow = (mark: JSX.Element, path: string, add: number, del: number, width: number, layer: 'm' | 's', deleted = false, cols?: Cols) => {
+        const { left, right } = changeParts([mark], path, { add, del }, width - 3, undefined, cols)
         if (deleted) return line(left, right)
         const key = `${layer}f:${fileKey(path)}`
         rowActs[key] = () => openFile(path)
@@ -2610,8 +2638,9 @@ export const register: Register = (on, options) => {
         const logged = view?.log && checks.find(c => c.name === view.log!.check)
         const withLog = (list: Check[]) =>
           list.flatMap(c => [checkLine(c), ...(c === logged ? view!.log!.lines.map(text => line([<Text>   </Text>, <Text color={TYPES.fix}>▎</Text>, <Text color={HUD.faint}>{text}</Text>])) : [])])
+        const cols = churnCols((view?.files ?? []).map(f => ({ add: f.additions, del: f.deletions })))
         const files = (width: number, layer: 'm' | 's' = 's') =>
-          (view?.files ?? []).map(f => fileRow(<Text color={STATUS[f.status] ?? HUD.faint}>{` ${f.status}`}</Text>, f.path, f.additions, f.deletions, width, layer, f.status === 'D'))
+          (view?.files ?? []).map(f => fileRow(<Text color={STATUS[f.status] ?? HUD.faint}>{` ${f.status}`}</Text>, f.path, f.additions, f.deletions, width, layer, f.status === 'D', cols))
         const sections: Section[] = [
           ...(desc.length
             ? [{
@@ -2684,8 +2713,9 @@ export const register: Register = (on, options) => {
         const opened = open?.sha ? commitViewsNow[open.sha] : undefined
         if (!opened) return null
         const { row, view } = opened
+        const cols = churnCols((view?.files ?? []).map(f => ({ add: f.additions, del: f.deletions })))
         const files = (width: number, layer: 'm' | 's' = 's') =>
-          (view?.files ?? []).map(f => fileRow(<Text color={STATUS[f.status] ?? HUD.faint}>{` ${f.status}`}</Text>, f.path, f.additions, f.deletions, width, layer, f.status === 'D'))
+          (view?.files ?? []).map(f => fileRow(<Text color={STATUS[f.status] ?? HUD.faint}>{` ${f.status}`}</Text>, f.path, f.additions, f.deletions, width, layer, f.status === 'D', cols))
         const sections: Section[] = [
           ...(view?.body ? [{ label: 'DESCRIPTION', rows: mdBody(view.body, inner), full: (width: number) => mdBody(view.body, width) }] : []),
           ...(view
@@ -2769,8 +2799,9 @@ export const register: Register = (on, options) => {
           : m === 'todo' ? <Text color={HUD.faint}>○</Text>
           : blocked ? <Text color={TYPES.fix}>✗</Text>
           : <Text color={HUD.dirty}>■</Text>
+        const cols = churnCols(op.conflicts.map(c => ({ add: c.additions, del: c.deletions })))
         const conflicts = (width: number, layer: 'm' | 's' = 's') =>
-          op.conflicts.map(c => fileRow(<Text color={op.resolved ? HUD.action : TYPES.fix}>{` ${op.resolved ? 'M' : 'U'}`}</Text>, c.path, c.additions, c.deletions, width, layer))
+          op.conflicts.map(c => fileRow(<Text color={op.resolved ? HUD.action : TYPES.fix}>{` ${op.resolved ? 'M' : 'U'}`}</Text>, c.path, c.additions, c.deletions, width, layer, false, cols))
         const commits: Section = rebase
           ? {
               label: 'COMMITS',
@@ -2950,7 +2981,7 @@ export const register: Register = (on, options) => {
               {shownChanges.map((c, i) => {
                 const color = STATUS[c.letter] ?? HUD.faint
                 // Two columns in, the letter, then the path and counts as every file list draws them.
-                const { left, right } = changeParts([<Text>  </Text>, <Text color={c.dim ? dim(color) : color}>{c.letter}</Text>], c.path, counts.get(c.path) ?? lineCounts.get(c.path), room - 3, c.dim ? HUD.faint : undefined)
+                const { left, right } = changeParts([<Text>  </Text>, <Text color={c.dim ? dim(color) : color}>{c.letter}</Text>], c.path, counts.get(c.path) ?? lineCounts.get(c.path), room - 3, c.dim ? HUD.faint : undefined, changeCols)
                 // Plain rows, not kv: a kv value stops at the 75% cap, which would cut the pills.
                 const statusRow = (label: string, words: (Stage | Word)[]) => (
                   <Text wrap="truncate-end">
