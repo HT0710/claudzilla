@@ -767,12 +767,12 @@ test('a live edit never joins a run an old row started, so it keeps its own row'
   expect(await textOf(live, 'e2')).toBe('● Updated (new.txt)  +1')
 })
 
-test('a live run keeps native rows while running, then folds as its edits land', async ($, on) => {
+test('a live run draws running rows, then folds as its edits land', async ($, on) => {
   native(on)
   const row = (file: string, id: string) => ({ tool_use_id: id, tool: 'Edit', input: { file_path: file }, output: patch('+b'), isRunning: false, isErrored: false, isInterrupted: false })
   const first = await mountRow($, 'Edit', undefined, { isRunning: true }, '/p/a.txt', 'e1')
   const second = await mountRow($, 'Edit', undefined, { isRunning: true }, '/p/b.txt', 'e2')
-  expect(await textOf(second, 'e2')).toBe('native')
+  expect(await textOf(second, 'e2')).toBe('● Updating (b.txt)')
   await first.redraw(row('/p/a.txt', 'e1'))
   await second.redraw(row('/p/b.txt', 'e2'))
   await first.redraw(row('/p/a.txt', 'e1'))
@@ -1052,9 +1052,9 @@ test('the engine block stays where the row stays native', async ($, on) => {
   expect(await block($, 'Bash', { stdout: 'x' }, {}, 'b3')).toBe('native block')
 })
 
-test('a running call stays native', async ($, on) => {
+test('a running edit draws its running row', async ($, on) => {
   native(on)
-  expect(await drawn($, 'Edit', undefined, { isRunning: true })).toBe('native')
+  expect(await drawn($, 'Edit', undefined, { isRunning: true }, '/p/sub/a.txt')).toBe('● Updating (sub/a.txt)')
 })
 
 test('an interrupted call stays native', async ($, on) => {
@@ -1120,10 +1120,6 @@ for (const [name, tool, input, output, want] of [
 
 for (const [name, tool, input, output, extra] of [
   ['a failed fetch', 'WebFetch', { url: 'https://x.y' }, 'Error: refused', { isErrored: true }],
-  ['a running fetch', 'WebFetch', { url: 'https://x.y' }, undefined, { isRunning: true }],
-  ['a running search', 'WebSearch', { query: 'q' }, undefined, { isRunning: true }],
-  ['a running agent', 'Agent', { description: 'd' }, undefined, { isRunning: true }],
-  ['a running skill', 'Skill', { skill: 's' }, undefined, { isRunning: true }],
   ['an expanded search', 'WebSearch', { query: 'q' }, searched, { isExpanded: true }],
   ['an interrupted agent', 'Agent', { description: 'd' }, 'Error: cut.', { isErrored: true, isInterrupted: true }],
   ['an agent of unknown shape', 'Agent', { description: 'd' }, { status: 'teammate_spawned' }, {}],
@@ -1136,9 +1132,62 @@ for (const [name, tool, input, output, extra] of [
   })
 }
 
-test('a running write stays native', async ($, on) => {
+for (const [name, tool, input, want] of [
+  ['a running fetch', 'WebFetch', { url: 'https://example.com/a' }, '● Fetching (example.com)'],
+  ['a running search', 'WebSearch', { query: 'example domain' }, '● Searching ("example domain")'],
+  ['a running agent', 'Agent', { description: 'Say hi' }, '● Agent (Say hi)  running'],
+  ['a running skill', 'Skill', { skill: 'caveman:caveman-help' }, '● Loading (caveman:caveman-help)'],
+  ['a running write', 'Write', { file_path: '/p/a.txt' }, '● Writing (a.txt)'],
+] as const) {
+  test(`${name} draws its running row, and its engine block stays`, async ($, on) => {
+    native(on)
+    expect(await drawn($, tool, undefined, { input, isRunning: true })).toBe(want)
+    expect(await block($, tool, undefined, { input, isRunning: true }, 'b1')).toBe('native block')
+  })
+}
+
+test('a running row takes the theme colours, its dot dim', async ($, on) => {
   native(on)
-  expect(await drawn($, 'Write', undefined, { isRunning: true })).toBe('native')
+  const ui = await mountRow($, 'WebFetch', undefined, { input: { url: 'https://example.com' }, isRunning: true })
+  expect((await ui.find({ type: 'Text', text: /^●$/ }))?.props.color).toBe('inactive')
+  expect((await ui.find({ type: 'Text', text: /^Fetching$/ }))?.props.bold).toBe(true)
+  expect((await ui.find({ type: 'Text', text: /^ \($/ }))?.props.color).toBe('promptBorder')
+})
+
+// Counts the redraws the one blink timer asks for.
+const blinks = (on: any) => {
+  const w = { periods: 0, clock: mock.clock(on, { now: 0 }) }
+  on('ui.invalidate', (_$: any, e: any, next: any) => (w.periods++, next(e)))
+  return w
+}
+
+test("a running row's dot blinks with the clock", async ($, on) => {
+  native(on)
+  const { clock } = blinks(on)
+  const ui = await mountRow($, 'WebSearch', undefined, { input: { query: 'q' }, isRunning: true })
+  expect(await textOf(ui)).toBe('● Searching ("q")')
+  await clock.advance(500)
+  await ui.redraw()
+  expect(await textOf(ui)).toBe('  Searching ("q")')
+  await clock.advance(500)
+  await ui.redraw()
+  expect(await textOf(ui)).toBe('● Searching ("q")')
+})
+
+test('the blink timer stops once no running row is drawn, and never starts idle', async ($, on) => {
+  native(on)
+  const w = blinks(on)
+  const ui = await mountRow($, 'WebSearch', searched, { input: { query: 'q' } })
+  await w.clock.advance(2000)
+  expect(w.periods).toBe(0)
+  await ui.redraw({ tool_use_id: 'r1', tool: 'WebSearch', input: { query: 'q' }, output: undefined, isRunning: true, isErrored: false, isInterrupted: false })
+  await w.clock.advance(500)
+  expect(w.periods).toBeGreaterThan(0)
+  await ui.redraw({ tool_use_id: 'r1', tool: 'WebSearch', input: { query: 'q' }, output: searched, isRunning: false, isErrored: false, isInterrupted: false })
+  await w.clock.advance(1500)
+  const stopped = w.periods
+  await w.clock.advance(5000)
+  expect(w.periods).toBe(stopped)
 })
 
 for (const [tool, output, input] of [
