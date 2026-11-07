@@ -144,21 +144,24 @@ test('a commit subject with no Conventional Commits type shows whole', async ($,
   expect((await ui.find({ type: 'Text', text: /^ Merge branch x$/ }))?.props.color).toBeUndefined()
 })
 
-test('a changed file shows one status letter: bright while unstaged, dim once staged', async ($, on) => {
+test("a changed file shows git's two status letters: the index's dim, the worktree's bright", async ($, on) => {
   noHistory(on)
-  on('process.run', (_, e) => ran(git({ status: '## main\n M a.ts\nA  b.ts\nMM c.ts\n?? d.ts\n' })(e.argv) ?? ''))
+  on('process.run', (_, e) => ran(git({ status: '## main\n M a.ts\nA  b.ts\nAM c.ts\n?? d.ts\nUU e.ts\n' })(e.argv) ?? ''))
 
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
-  // Unstaged changes, a file staged and edited again included: the worktree's letter, bright.
-  const inRow = async (path: string, text: RegExp) => (await ui.findAll({ type: 'Text', text, in: `row:${fileKey(path)}` })).at(-1)?.props.color
-  expect([await inRow('a.ts', /^M$/), await inRow('c.ts', /^M$/)]).toEqual(['#e5c07b', '#e5c07b'])
-  expect(await inRow('a.ts', /a\.ts$/)).toBeUndefined()
-  // Wholly staged: the index's letter at 60%, its path faint.
-  expect(await inRow('b.ts', /^A$/)).toBe('#5b7549')
-  expect(await inRow('b.ts', /b\.ts$/)).toBe('#4f5c68')
-  expect(await inRow('d.ts', /^\?$/)).toBe('#56b6c2')
+  const inRow = async (path: string, text: RegExp) => (await ui.findAll({ type: 'Text', text, in: `row:${fileKey(path)}` })).map(t => t.props.color)
+  expect(await inRow('a.ts', /^M$/)).toEqual(['#e5c07b'])
+  expect((await inRow('a.ts', /a\.ts$/)).at(-1)).toBeUndefined()
+  // Staged, then edited again: the index's letter at 60%, the worktree's bright.
+  expect([...(await inRow('c.ts', /^A$/)), ...(await inRow('c.ts', /^M$/))]).toEqual(['#5b7549', '#e5c07b'])
+  // Wholly staged: its path faint too.
+  expect(await inRow('b.ts', /^A$/)).toEqual(['#5b7549'])
+  expect((await inRow('b.ts', /b\.ts$/)).at(-1)).toBe('#4f5c68')
+  // Untracked and conflicted: both letters bright in one colour.
+  expect(await inRow('d.ts', /^\?$/)).toEqual(['#56b6c2', '#56b6c2'])
+  expect(await inRow('e.ts', /^U$/)).toEqual(['#e06c75', '#e06c75'])
 })
 
 test('Git tab redraws after a tool call changes the repo', async ($, on) => {
@@ -789,15 +792,16 @@ test('a long branch row is cut to fit beside the fetch button, not wrapped', asy
   expect(branch.length + 2 + 1 + fetch.length).toBeLessThanOrEqual(props.bodyColumns - 4)
 })
 
-test('a conflict shows U, whatever git pairs it with', async ($, on) => {
+test("a conflict shows git's two letters, both red, whatever git pairs", async ($, on) => {
   noHistory(on)
   on('process.run', (_, e) => ran(git({ status: '## main\nAA both.ts\nUU c.ts\nDD d.ts\nUD e.ts\n' })(e.argv) ?? ''))
 
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
-  const letters = await Promise.all(['both.ts', 'c.ts', 'd.ts', 'e.ts'].map(async path => (await ui.find({ type: 'Text', text: /^U$/, in: `row:${fileKey(path)}` }))?.props.color))
-  expect(letters).toEqual(['#e06c75', '#e06c75', '#e06c75', '#e06c75'])
+  const letters = await Promise.all(['both.ts', 'c.ts', 'd.ts', 'e.ts'].map(async path => (await ui.findAll({ type: 'Text', text: /^[ADU]$/, in: `row:${fileKey(path)}` })).map(t => [t.text, t.props.color])))
+  const red = (xy: string) => [...xy].map(l => [l, '#e06c75'])
+  expect(letters).toEqual([red('AA'), red('UU'), red('DD'), red('UD')])
 })
 
 test('a renamed file shows its new name; paths come unescaped', async ($, on) => {

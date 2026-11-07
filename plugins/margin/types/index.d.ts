@@ -22,10 +22,10 @@ export type Pr = {
   additions: number; deletions: number; files: number; conflicting: boolean; checks: Check[]; url: string
 }
 export type Counts = { add: number; del: number } | 'bin'
-// One CHANGES row: the letter the row shows, dim when only staged, and the card's words.
+// One CHANGES row: git's two status letters, dim when only staged, and the card's words.
 export type Stage = 'staged' | 'not staged'
 export type Word = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflict'
-export type Change = { path: string; letter: string; dim: boolean; stage: Stage[]; word: Word }
+export type Change = { path: string; xy: string; dim: boolean; stage: Stage[]; words: Word[] }
 // One COMMITS row: `at` in ms; `refs` the branches pointing at it, `remote` '' for a local one; `tags` tag names.
 export type LogRow = { full: string; short: string; author: string; at: number; refs: { remote: string; branch: string }[]; tags: string[]; subject: string }
 export type CommitView = { body: string; files: { path: string; status: string; additions: number; deletions: number }[] }

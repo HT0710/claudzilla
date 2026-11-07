@@ -180,17 +180,17 @@ test('a path that does not fit loses its middle, keeping the file name', () => {
   expect(cutMiddle('plugins/margin/hooks/register.tsx', 22).length).toBe(22)
 })
 
-test('changeOf: conflict, staged, unstaged, both, untracked, rename', () => {
-  expect(changeOf('UU conflict.ts')).toMatchObject({ letter: 'U', word: 'conflict', stage: [], dim: false })
-  expect(changeOf('M  GUIDE.md')).toMatchObject({ letter: 'M', stage: ['staged'], dim: true })
-  expect(changeOf(' M a.ts')).toMatchObject({ letter: 'M', stage: ['not staged'], dim: false })
-  expect(changeOf('MM a.ts')).toMatchObject({ letter: 'M', stage: ['staged', 'not staged'], dim: false })
-  expect(changeOf('?? new file.ts')).toMatchObject({ letter: '?', word: 'untracked', path: 'new file.ts', stage: [] })
-  expect(changeOf('R  docs/git-tab.md')).toMatchObject({ letter: 'R', word: 'renamed', path: 'docs/git-tab.md', stage: ['staged'] })
-  expect(changeOf('AM a.ts')).toMatchObject({ letter: 'M', word: 'modified', stage: ['staged', 'not staged'] })
-  expect(changeOf('RM a.ts')).toMatchObject({ letter: 'M', word: 'modified', stage: ['staged', 'not staged'] })
-  expect(changeOf(' D a.ts')).toMatchObject({ letter: 'D', word: 'deleted', stage: ['not staged'] })
-  expect(changeOf('AD a.ts')).toMatchObject({ letter: 'D', word: 'deleted', stage: ['staged', 'not staged'] })
+test('changeOf: both git letters, a card word per changed side', () => {
+  expect(changeOf('UU conflict.ts')).toMatchObject({ xy: 'UU', words: ['conflict'], stage: [], dim: false })
+  expect(changeOf('M  GUIDE.md')).toMatchObject({ xy: 'M ', words: ['modified'], stage: ['staged'], dim: true })
+  expect(changeOf(' M a.ts')).toMatchObject({ xy: ' M', words: ['modified'], stage: ['not staged'], dim: false })
+  expect(changeOf('MM a.ts')).toMatchObject({ xy: 'MM', words: ['modified'], stage: ['staged', 'not staged'], dim: false })
+  expect(changeOf('?? new file.ts')).toMatchObject({ xy: '??', words: ['untracked'], path: 'new file.ts', stage: [] })
+  expect(changeOf('R  docs/git-tab.md')).toMatchObject({ xy: 'R ', words: ['renamed'], path: 'docs/git-tab.md', stage: ['staged'] })
+  expect(changeOf('AM a.ts')).toMatchObject({ xy: 'AM', words: ['added', 'modified'], stage: ['staged', 'not staged'] })
+  expect(changeOf('RM a.ts')).toMatchObject({ xy: 'RM', words: ['renamed', 'modified'], stage: ['staged', 'not staged'] })
+  expect(changeOf(' D a.ts')).toMatchObject({ xy: ' D', words: ['deleted'], stage: ['not staged'] })
+  expect(changeOf('AD a.ts')).toMatchObject({ xy: 'AD', words: ['added', 'deleted'], stage: ['staged', 'not staged'] })
 })
 
 test('parseNumstat: rename and space', () => {
@@ -225,7 +225,7 @@ test('parseLog: a remote HEAD is no ref', () => {
 test('parseStatusZ: head, then changes; a rename skips the old path in the next record; spaces stay unquoted', () => {
   const { head, changes } = parseStatusZ('## b...origin/b\0 M a b.ts\0R  new name.md\0old name.md\0?? x.ts\0')
   expect(head).toBe('## b...origin/b')
-  expect(changes.map(c => [c.letter, c.path])).toEqual([['M', 'a b.ts'], ['R', 'new name.md'], ['?', 'x.ts']])
+  expect(changes.map(c => [c.xy, c.path])).toEqual([[' M', 'a b.ts'], ['R ', 'new name.md'], ['??', 'x.ts']])
 })
 
 test('control characters in a check name, a rebase subject and a merge subject read as spaces', () => {
