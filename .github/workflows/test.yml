@@ -12,6 +12,24 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        suite:
+          - tests/hooks.test.sh
+          - tests/trace.test.sh
+          - tests/report.test.sh
+          - tests/install.test.sh
+          - tests/rule-review.test.sh
+          - tests/hud.test.sh
+          - tests/guide.test.sh
+          - tests/visuals.test.sh
+          - tests/release.test.sh
+          - plugins/ballot
+          - plugins/byline
+          - plugins/folio
+          - plugins/herald
+          - plugins/ledger
+          - plugins/margin
+          - plugins/primer
+    name: ${{ matrix.suite }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
@@ -19,18 +37,12 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - run: bash tests/hooks.test.sh
-      - run: bash tests/trace.test.sh
-      - run: bash tests/report.test.sh
-      - run: bash tests/install.test.sh
-      - run: bash tests/rule-review.test.sh
-      - run: bash tests/hud.test.sh
-      - run: bash tests/guide.test.sh
-      - run: bash tests/visuals.test.sh
-      - run: bash tests/release.test.sh
-      # After the shell tests: install.sh acts differently once claude is on PATH.
-      - run: npm i -g @anthropic-ai/claude-code@2.1.319
-      - run: for p in plugins/*/; do claude plugin test "$p"; done
+      - if: ${{ !startsWith(matrix.suite, 'plugins/') }}
+        run: bash ${{ matrix.suite }}
+      - if: startsWith(matrix.suite, 'plugins/')
+        run: npm i -g @anthropic-ai/claude-code@2.1.319
+      - if: startsWith(matrix.suite, 'plugins/')
+        run: claude plugin test ${{ matrix.suite }}
 
   release:
     needs: test
