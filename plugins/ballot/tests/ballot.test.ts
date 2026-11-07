@@ -486,3 +486,15 @@ test('a Compact line under a Next that asks nothing leaves the engine guess alon
   await $.prompt.suggest({ text: 'run the tests', origin: { kind: 'suggestion' } } as any)
   expect(shown).toEqual(['run the tests'])
 })
+
+test('a palette muted colours "go ahead, except…"', async ($, on) => {
+  engine(on)
+  on('env.get', (_: any, e: any) => ({ value: ({ CLAUDE_CONFIG_DIR: '/cfg', HOME: '/home/u' } as Record<string, string>)[e.name] }))
+  on('session.id', () => ({ value: 's1' }))
+  on('session.start', (_: any, e: any) => ({ cwd: e.cwd }))
+  on('fs.read', (_: any, e: any) => ({ value: e.path === '/cfg/claudzilla.json' ? JSON.stringify({ palette: { shared: { muted: '#112233' } } }) : '' }))
+  await $.session.start({ cwd: '/p', surface: 'terminal', isInteractive: true })
+  await $.turn.complete(done(LONE))
+  const ui = await $.ui.mount({ plugin: 'ballot', surface: 'terminal', ...BAND })
+  expect((await ui.find({ type: 'Text', text: 'go ahead, except…' }))?.props.color).toBe('#112233')
+})

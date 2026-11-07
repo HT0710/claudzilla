@@ -272,6 +272,23 @@ check "palette: no session colour sent by default" bash -c '! grep -q "^pal_hud_
 for p in folio primer ballot; do
   check "palette.ts copy in $p identical to margin" cmp -s "$REPO/plugins/margin/hooks/palette.ts" "$REPO/plugins/$p/hooks/palette.ts"
 done
+echo '{"palette":{"shared":{"action":"#010203","label":"#A0B0C0"},"hud":{"session":"#0a0b0c"}}}' > "$GC/claudzilla.json"
+out=$(frame 0 120)
+check "palette: shared.action recolours the branch" grep -q $'\e\\[38;2;1;2;3m⎇ main' <<<"$out"
+check "palette: uppercase hex accepted" grep -q $'\e\\[38;2;160;176;192mctx' <<<"$out"
+check "palette: hud.session colours the session name" grep -q $'\e\\[38;2;10;11;12mmaxis-24' <<<"$out"
+printf '{"palette":{"shared":{"label":"#12\\u001b[0m"},"hud":"x","margin":{"ahead":"#010203"}}}' > "$GC/claudzilla.json"
+kv=$(CLAUDE_CONFIG_DIR="$GC" node "$HUD/hud-data.mjs" </dev/null)
+check "palette: escape in a value -> default sent" [ "$(key pal_shared_label "$kv")" = '#a396d2' ]
+check "palette: \"hud\": \"x\" -> hud defaults sent" [ "$(key pal_hud_rampHot "$kv")" = '#ffaa5a' ]
+check "palette: escape never reaches the output" bash -c '! grep -q "#12" <<<"$1"' _ "$(frame 0 120)"
+check "palette: margin table not sent" bash -c '! grep -q "^pal_margin" <<<"$1"' _ "$kv"
+echo '{"palette":{"shared":{"label":"nope"},"hud":{"rampHot":"#12"}}}' > "$GC/claudzilla.json"
+out=$(frame 0 120)
+check "palette: invalid override still renders" bash -c '[ -n "$1" ] && grep -q "⎇ main" <<<"$1"' _ "$out"
+printf '{bad' > "$GC/claudzilla.json"
+check "palette: broken file -> every default sent" [ "$(CLAUDE_CONFIG_DIR="$GC" node "$HUD/hud-data.mjs" </dev/null | grep -c '^pal_')" -eq 23 ]
+rm "$GC/claudzilla.json"
 
 # --- trace: hud.change only when the output changes ---
 TRC="$TMP/trcfg"; TRT="$TMP/trtmp"; mkdir -p "$TRC" "$TRT"; TR="$TMP/trrepo"; mkdir -p "$TR"
