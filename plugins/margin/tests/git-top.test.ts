@@ -2427,14 +2427,14 @@ test('at 40 columns a commit card keeps its age and counts: the author gives way
   expect(changes + 2 + '+80 −4'.length).toBeLessThanOrEqual(26)
 })
 
-test('at 40 columns a file card keeps its label and moves the last pill to a second row', async ($, on) => {
+test('at 40 columns a file card keeps its label and moves the stage pills to a second row', async ($, on) => {
   quiet(on)
   on('process.run', (_, e) => ran(git(changesRepo('MM both.ts\n', '2\t1\tboth.ts\0'))(e.argv) ?? ''))
   const ui = await narrow($)
   await hover(ui, fileKey('both.ts'))
   const { card, find } = await cardTexts(ui, fileKey('both.ts'))
-  // The label's 8, modified and staged with their 2 caps each and a space, and 4 of border and padding.
-  expect(card.props.width).toBe(31)
+  // The label's 8, staged and not staged with their 2 caps each and a space, and 4 of border and padding.
+  expect(card.props.width).toBe(33)
   expect(find(card, n => n.props?.wrap === 'truncate-end').length).toBe(2)
 })
 
@@ -2445,6 +2445,18 @@ test('at 40 columns a staged-then-edited new file packs its four pills into rows
   await hover(ui, fileKey('new.ts'))
   const { card, find } = await cardTexts(ui, fileKey('new.ts'))
   // Rows: added and modified, then staged and not staged under them; the wider second row sets the width.
+  expect(find(card, n => n.props?.wrap === 'truncate-end').length).toBe(2)
+  expect(card.props.width).toBe(33)
+})
+
+test('at 44 columns the stage pills keep a row of their own when the four do not fit on one', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(changesRepo('AM new.ts\n', '2\t0\tnew.ts\0'))(e.argv) ?? ''))
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 44 }, requestId: 'margin' })
+  await ui.press({ key: 'Git' })
+  await hover(ui, fileKey('new.ts'))
+  const { card, find } = await cardTexts(ui, fileKey('new.ts'))
+  // added modified, then staged not staged: staged never sits beside the change words.
   expect(find(card, n => n.props?.wrap === 'truncate-end').length).toBe(2)
   expect(card.props.width).toBe(33)
 })

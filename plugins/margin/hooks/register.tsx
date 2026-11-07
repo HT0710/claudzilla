@@ -1963,15 +1963,21 @@ export const register: Register = (on, options) => {
       const topLines = [['branch', 'fetch'], ...(op ? [['rebase']] : []), ...(pr ? [['pr']] : summary ? [['prs']] : [])]
       // The CHANGES and COMMITS rows drawn, each a line of its own: its tab row and its card's rows. A card that would
       // pass the tab's bottom opens upward, so the line above it dims instead of the line below.
-      // A file card's status pills, packed into as many rows as the pane needs: the 8-column label, each pill its word
-      // and 2 caps, a space between, and the card's border and padding. A pill too wide for any row gets its own.
-      const pillRows = (c: (typeof shownChanges)[number]) =>
-        [...c.words, ...c.stage].reduce<(Stage | Word)[][]>((rows, w) => {
-          const last = rows.at(-1)
-          if (last && 8 + [...last, w].reduce((n, s) => n + s.length + 3, -1) + 4 <= e.props.bodyColumns - 4) last.push(w)
-          else rows.push([w])
-          return rows
-        }, [])
+      // A file card's status pills: one row when all fit, else the change words then the stage pills, each packed into as
+      // many rows as the pane needs, so a stage pill never reads as one word's. A row: the 8-column label, each pill its
+      // word and 2 caps, a space between, and the card's border and padding. A pill too wide for any row gets its own.
+      const pillRows = (c: (typeof shownChanges)[number]) => {
+        const fits = (row: (Stage | Word)[]) => 8 + row.reduce((n, s) => n + s.length + 3, -1) + 4 <= e.props.bodyColumns - 4
+        const pack = (pills: (Stage | Word)[]) =>
+          pills.reduce<(Stage | Word)[][]>((rows, w) => {
+            const last = rows.at(-1)
+            if (last && fits([...last, w])) last.push(w)
+            else rows.push([w])
+            return rows
+          }, [])
+        const all = [...c.words, ...c.stage]
+        return fits(all) ? [all] : [...pack(c.words), ...pack(c.stage)]
+      }
       const lower = [
         ...shownChanges.map((c, i) => ({ key: fileKey(c.path), zone: 'changes', at: topRows + 2 + (changesShown < changesRows ? 1 : 0) + i, n: pillRows(c).length })),
         ...shownCommits.map((c, j) => ({ key: commitKey(c.full), zone: 'commits', at: commitsAt0 + j, n: 1 + (c.refs.length || c.tags.length ? 1 : 0) + (commitStats.has(c.full) ? 1 : 0) })),
