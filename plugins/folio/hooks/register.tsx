@@ -552,14 +552,16 @@ export const register: Register = on => {
     const name = (file: string) => cutPath(cwd && file.startsWith(`${cwd}/`) ? file.slice(cwd.length + 1) : file, nameRoom)
     const namePieces = (path: string): Piece[] =>
       path.split(/(\/)/).filter(Boolean).map(text => (text === '/' ? { text, color: 'promptBorder' } : { text }))
-    const countPieces = (add: number, del: number, isNew = false, gap = '  '): Piece[] => [
+    const plus = (add: number, isNew = false) => (add > 0 || isNew ? `+${add}` : '')
+    // addWidth lines up a tree's − counts; a row with none keeps no trailing pad.
+    const countPieces = (add: number, del: number, isNew = false, gap = '  ', addWidth = 0): Piece[] => [
       { text: gap },
-      ...(add > 0 || isNew ? [{ text: `+${add}`, color: 'success' }] : []),
-      ...(add > 0 && del > 0 ? [{ text: ' ' }] : []),
+      ...(plus(add, isNew) ? [{ text: plus(add, isNew), color: 'success' }] : []),
+      ...(del > 0 && (plus(add, isNew) || addWidth) ? [{ text: ' '.repeat(Math.max(addWidth - plus(add, isNew).length, 0) + 1) }] : []),
       ...(del > 0 ? [{ text: `−${del}`, color: 'error' }] : []),
-      ...(isNew ? [{ text: ' new' }] : []),
     ]
-    const result = (entry: NonNullable<ReturnType<typeof done.get>>, gap = '  ') => countPieces(entry.summary.add, entry.summary.del, entry.summary.isNew, gap)
+    const result = (entry: NonNullable<ReturnType<typeof done.get>>, gap = '  ', addWidth = 0) =>
+      countPieces(entry.summary.add, entry.summary.del, entry.summary.isNew, gap, addWidth)
     const self = done.get(e.requestId)!
     const diff = (entry: typeof self, hasNext = false) => entry.diff && (
       <Box paddingLeft={2}>
@@ -575,7 +577,7 @@ export const register: Register = on => {
     if (entries.length < 2) {
       return (
         <Box flexDirection="column" marginTop={1}>
-          {row(`fold:${e.requestId}`, [...head('●', 'success', EDIT[tool]!), { text: ' (', color: 'promptBorder' }, ...namePieces(name(self.file)), { text: ')', color: 'promptBorder' }, ...result(self)])}
+          {row(`fold:${e.requestId}`, [...head('●', 'success', self.summary.isNew ? 'Created' : EDIT[tool]!), { text: ' (', color: 'promptBorder' }, ...namePieces(name(self.file)), { text: ')', color: 'promptBorder' }, ...result(self)])}
           {run.isOpen && diff(self)}
         </Box>
       )
@@ -592,8 +594,16 @@ export const register: Register = on => {
     const TREE_INDENT = 4
     const noun = files === 1 ? 'file' : 'files'
     const label = `Edited (${files} ${noun})`
-    const end = Math.max(label.length + 2, ...listed.map(entry => TREE_INDENT + name(entry.file).length))
+    const nameEnd = Math.max(0, ...listed.map(entry => TREE_INDENT + name(entry.file).length))
+    // A new file's "new" sits in its own column between the names and the counts.
+    const NEW = 'new'
+    const hasNew = listed.some(entry => entry.summary.isNew)
+    const end = Math.max(label.length + 2, nameEnd + (hasNew ? NEW.length + 2 : 0))
     const gapAfter = (width: number) => ' '.repeat(end - width + 2)
+    const addWidth = Math.max(plus(add).length, ...listed.map(entry => plus(entry.summary.add, entry.summary.isNew).length))
+    const selfName = name(self.file)
+    const newPieces: Piece[] = at >= 0 && self.summary.isNew ? [{ text: ' '.repeat(nameEnd - TREE_INDENT - selfName.length + 2) }, { text: NEW, color: 'success' }] : []
+    const nameWidth = self.summary.isNew ? nameEnd + 2 + NEW.length : TREE_INDENT + selfName.length
 
     return (
       <Box flexDirection="column" marginTop={isFirst ? 1 : 0}>
@@ -603,12 +613,13 @@ export const register: Register = on => {
           { text: String(files), color: 'claude' },
           { text: ` ${noun}` },
           { text: ')', color: 'promptBorder' },
-          ...countPieces(add, del, false, gapAfter(label.length + 2)),
+          ...countPieces(add, del, false, gapAfter(label.length + 2), listed.length ? addWidth : 0),
         ])}
         {at >= 0 && row(`file:${e.requestId}`, [
           { text: at === listed.length - 1 && !shownDiffs.has(e.requestId) ? '  └ ' : '  ├ ', color: 'promptBorder' },
-          ...namePieces(name(self.file)),
-          ...result(self, gapAfter(TREE_INDENT + name(self.file).length)),
+          ...namePieces(selfName),
+          ...newPieces,
+          ...result(self, gapAfter(nameWidth), addWidth),
         ])}
         {shownDiffs.has(e.requestId) && diff(self, at < listed.length - 1)}
       </Box>
