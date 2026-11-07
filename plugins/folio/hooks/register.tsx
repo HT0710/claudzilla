@@ -1,4 +1,4 @@
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import { href, linked, mentions } from './mentions'
 import { DEFAULTS, readPalette } from './palette'
@@ -68,6 +68,17 @@ const ROWS: Record<string, (input: any, output: any) => [string, string, string]
   Agent: (input, output) => (AGENT_TAIL[output.status] ? ['Agent', String(input.description), AGENT_TAIL[output.status]!] : undefined),
   Skill: (input, output) => output.success ? ['Skill', String(input.skill), output.status === 'forked' ? (output.background ? 'backgrounded' : 'done') : 'loaded'] : undefined,
 }
+// The same rows while the call runs, before any output: label, argument, tail.
+const RUNNING: Record<string, (input: any, name: (file: string) => string) => [string, string, string]> = {
+  WebFetch: input => ['Fetching', host(String(input.url)), ''],
+  WebSearch: input => ['Searching', `"${input.query}"`, ''],
+  Agent: input => ['Agent', String(input.description), 'running'],
+  Skill: input => ['Loading', String(input.skill), ''],
+  Edit: (input, name) => ['Updating', name(String(input.file_path)), ''],
+  Write: (input, name) => ['Writing', name(String(input.file_path)), ''],
+}
+// The engine's own blink rate is not documented.
+const BLINK_MS = 500
 const toolRow = (tool: string, input: any, output: any, isErrored: boolean) =>
   tool in ROWS && !isErrored && output && typeof output === 'object' ? ROWS[tool]!(input ?? {}, output) : undefined
 
@@ -476,6 +487,10 @@ export const register: Register = on => {
   const shownDiffs = new Set<string>()
   let current: Run | undefined
   let shownView: string | undefined
+  // Running rows drawn since the last blink: one timer for all, which stops once a blink finds none.
+  const blinking = new Set<string>()
+  let blink: Timer | undefined
+  let isLit = true
 
   // A run lies in one transcript: an agent's rows must not take in the main chat's.
   on('ui.render', { component: 'AbovePrompt' }, async (_$, e, next) => {
@@ -517,7 +532,26 @@ export const register: Register = on => {
     const run = runs.get(e.requestId)
     // A Client draws nothing on mobile.
     if (!hideEditDiff || e.surface !== 'terminal' || isExpanded) return native
-    const other = !isRunning && !isInterrupted ? toolRow(tool, input, output, isErrored) : undefined
+    const cwd = tool in EDIT ? await $.session.cwd().catch(() => '') : ''
+    // A share of the chat, so a wide terminal shows more of a path; the floor still fits most file names.
+    const nameRoom = Math.max(NAME_FLOOR, Math.floor((e.viewport?.columns ?? 80) * NAME_SHARE))
+    const name = (file: string) => cutPath(cwd && file.startsWith(`${cwd}/`) ? file.slice(cwd.length + 1) : file, nameRoom)
+    const isLive = isRunning && !isInterrupted && !isErrored && tool in RUNNING
+    const other = isLive ? RUNNING[tool]!(input ?? {}, name) : !isRunning && !isInterrupted ? toolRow(tool, input, output, isErrored) : undefined
+    if (isLive) {
+      blinking.add(e.requestId)
+      blink ??= $.clock.every(BLINK_MS, () => {
+        if (!blinking.size) {
+          blink?.cancel()
+          blink = undefined
+          isLit = true
+          return
+        }
+        blinking.clear()
+        isLit = !isLit
+        $.ui.invalidate('ui.render')
+      })
+    }
     if (other) {
       const { Box, Text } = $.ui.resolve(e)
       const [label, arg, tail] = other
@@ -525,7 +559,7 @@ export const register: Register = on => {
       return (
         <Box marginTop={1}>
           <Text wrap="truncate-end">
-            <Text color="success">●</Text> <Text bold>{label}</Text>
+            {isLive ? <Text color="inactive">{isLit ? '●' : ' '}</Text> : <Text color="success">●</Text>} <Text bold>{label}</Text>
             <Text color="promptBorder"> (</Text>{arg}<Text color="promptBorder">)</Text>
             {tail && `  ${tail}`}
           </Text>
@@ -546,10 +580,6 @@ export const register: Register = on => {
     if (!Client) return native
     type Piece = { text: string; color?: string; bold?: boolean }
     const row = (key: string, pieces: Piece[]) => <Client key={key} module="./fold.tsx" width="100%" height={1} props={{ pieces, lit: LIT }} />
-    const cwd = await $.session.cwd().catch(() => '')
-    // A share of the chat, so a wide terminal shows more of a path; the floor still fits most file names.
-    const nameRoom = Math.max(NAME_FLOOR, Math.floor((e.viewport?.columns ?? 80) * NAME_SHARE))
-    const name = (file: string) => cutPath(cwd && file.startsWith(`${cwd}/`) ? file.slice(cwd.length + 1) : file, nameRoom)
     const namePieces = (path: string): Piece[] =>
       path.split(/(\/)/).filter(Boolean).map(text => (text === '/' ? { text, color: 'promptBorder' } : { text }))
     const plus = (add: number, isNew = false) => (add > 0 || isNew ? `+${add}` : '')
