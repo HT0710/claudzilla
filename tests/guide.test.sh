@@ -4,8 +4,7 @@
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 G="$REPO/GUIDE.md"
-pass=0 fail=0
-check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL: $name"; return 1; fi; }
+. "$REPO/tests/lib.sh"
 
 SLUGS="start first words talk replies flow approve skills context undo guard hud margin ballot limits background stuck bugs ref keys customize more news"
 PARTS="Basics|Working|Screen|Own it"

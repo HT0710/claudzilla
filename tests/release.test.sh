@@ -3,8 +3,7 @@
 #   bash tests/release.test.sh
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-pass=0 fail=0
-check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL: $name"; return 1; fi; }
+. "$REPO/tests/lib.sh"
 nv() { printf '%b' "$2" | sh "$REPO/.github/next-version.sh" "$1"; }
 rn() { printf '%b' "$1" | sh "$REPO/.github/release-notes.sh"; }
 
