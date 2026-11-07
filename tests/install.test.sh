@@ -419,6 +419,8 @@ check "update: not a git repo is silent" [ -z "$(clean_env HOME="$U/home" sh "$U
 # autoUpdate on (default): background pull + install.sh, result shown next session
 res="$(git -C "$U/clone" rev-parse --absolute-git-dir)/claudzilla-update.result"
 waitres() { for i in $(seq 60); do [ -f "$res" ] && break; sleep 0.5; done; }
+# Until the hook's background job exits; it writes no result when it skips the update.
+waitjob() { for i in $(seq 60); do pgrep -f "$U/home/.claude/hooks/claudzilla-update.sh" >/dev/null || break; sleep 0.5; done; }
 rm "$U/home/.claude/claudzilla.json"
 printf 'echo ran > "$HOME/ran"\n' > "$U/clone/install.sh"
 out=$(notice); waitres
@@ -435,7 +437,7 @@ printf 'x\n' > "$U/seed/f"; g -C "$U/seed" add f; g -C "$U/seed" commit -m three
 g -C "$U/clone" pull --ff-only; echo local >> "$U/clone/f"
 g -C "$U/seed" commit --allow-empty -m four; g -C "$U/seed" push origin main
 g -C "$U/clone" fetch
-out=$(notice); sleep 1
+out=$(notice); waitjob
 check "auto: local changes skip update" [ "$(git -C "$U/clone" log -1 --format=%s)" = three ]
 check "auto: local changes keep notice" grep -qE 'update [0-9a-f]{7,} available.*local changes' <<<"$out"
 check "events: skipped is a start line" grep -qE $'\tstart\tclaudzilla: update [0-9a-f]{7,} available \\(auto-update skipped: local changes\\) - ' "$ev"
@@ -449,7 +451,7 @@ check "events: consumed failure is a start line" grep -qE $'^[0-9]+\tstart\tclau
 printf 'echo ran > "$HOME/ran"\n' > "$U/clone/install.sh"
 g -C "$U/clone" commit --allow-empty -m mine
 g -C "$U/seed" commit --allow-empty -m five; g -C "$U/seed" push origin main; g -C "$U/clone" fetch
-out=$(notice); sleep 1
+out=$(notice); waitjob
 check "auto: local commit skips update" [ "$(git -C "$U/clone" log -1 --format=%s)" = mine ]
 check "auto: local commit keeps notice" grep -q 'local changes' <<<"$out"
 g -C "$U/clone" reset -q --hard origin/main
