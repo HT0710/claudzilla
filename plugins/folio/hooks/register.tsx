@@ -650,7 +650,8 @@ export const register: Register = on => {
     const bashEdit = bashEdits.get(e.requestId)
     // A Client draws nothing on mobile.
     if (!hideEditDiff || e.surface !== 'terminal' || (isExpanded && !isGroupRow)) return native
-    const cwd = tool in EDIT || isGroupRow || bashEdit ? await $.session.cwd().catch(() => '') : ''
+    // The root, not cwd(): a shell `cd` moves cwd(), and every row would shift with it.
+    const cwd = tool in EDIT || isGroupRow || bashEdit ? await $.session.root().catch(() => '') : ''
     // A share of the chat, so a wide terminal shows more of a path; the floor still fits most file names.
     const nameRoom = Math.max(NAME_FLOOR, Math.floor((e.viewport?.columns ?? 80) * NAME_SHARE))
     const name = (file: string) => cutPath(cwd && file.startsWith(`${cwd}/`) ? file.slice(cwd.length + 1) : file, nameRoom)

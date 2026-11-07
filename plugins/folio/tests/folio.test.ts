@@ -647,9 +647,10 @@ const patch = (...lines: string[]) => ({ type: 'update', filePath: '/p/a.txt', s
 const created = (content: string) => ({ type: 'create', filePath: '/p/b.txt', content, structuredPatch: [] })
 
 // Stands for the engine's own rows; `seen` counts how often the chain below folio ran.
-function native(on: any, cwd: object = { value: '/p' }) {
+function native(on: any, cwd: object = { value: '/p' }, root: object = cwd) {
   const seen = { calls: 0 }
   on('session.cwd', () => cwd)
+  on('session.root', () => root)
   on('ui.render', { component: 'ToolUse' }, () => { seen.calls++; return { type: 'Text' as const, children: ['native'] } })
   on('ui.render', { component: 'ToolResult' }, () => ({ type: 'Text' as const, children: ['native block'] }))
   return seen
@@ -1482,4 +1483,18 @@ test('a session end forgets Bash edits', async ($, on) => {
   await bash($, 'echo b > a.txt')
   await $.session.end({ reason: 'clear' } as any)
   expect(await groupOf($, [call('b1', 'Bash', { command: 'x' })])).toBe('expanded:false')
+})
+
+test('rows name files from the session root, not the folder a shell cd left', async ($, on) => {
+  const live = { value: '/p' }
+  native(on, live, { value: '/p' })
+  const writes = [{ '/p/a.txt': 'x\n' }, { '/p/new.txt': 'n\nm\n' }, { '/p/sub/b.txt': 'b\nc\n' }]
+  bashFs(on, { '/p/a.txt': 'a\n', '/p/sub/b.txt': 'b\n' }, files => Object.assign(files, writes.shift()))
+  const commands = ["sed -i 's/a/x/' a.txt", 'printf "n\\nm\\n" > new.txt', 'cd sub && echo c >> b.txt']
+  for (const [i, command] of commands.entries()) await bash($, command, `b${i}`)
+  live.value = '/p/sub'
+  const rows = []
+  for (const [i, command] of commands.entries()) rows.push(...await rowsOf(await useRow($, call(`b${i}`, 'Bash', { command }))))
+  expect(rows).toEqual(['● Updated (a.txt)  +1 −1', '● Created (new.txt)  +2', '● Updated (sub/b.txt)  +1'])
+  expect(await textOf(await mountRow($, 'Edit', patch('-a', '+b'), {}, '/p/a.txt', 'e1'), 'e1')).toBe('● Updated (a.txt)  +1 −1')
 })
