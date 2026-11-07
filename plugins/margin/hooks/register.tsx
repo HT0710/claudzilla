@@ -2996,9 +2996,9 @@ export const register: Register = (on, options) => {
               {shownChanges.map((c, i) => {
                 // The index's letter dim, the worktree's bright; untracked and conflicted both bright, one colour.
                 const whole = c.xy === '??' || c.words[0] === 'conflict'
-                const letters = [...c.xy].map((l, i) => {
+                const letters = [...c.xy].map((l, side) => {
                   const color = STATUS[c.words[0] === 'conflict' ? 'U' : l] ?? HUD.faint
-                  return <Text color={i || whole ? color : dim(color)}>{l}</Text>
+                  return <Text color={side || whole ? color : dim(color)}>{l}</Text>
                 })
                 // Two columns in, the letters, then the path and counts as every file list draws them.
                 const { left, right } = changeParts([<Text>  </Text>, ...letters], c.path, counts.get(c.path) ?? lineCounts.get(c.path), room - 4, c.dim ? HUD.faint : undefined, changeCols)
