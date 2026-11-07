@@ -1,8 +1,11 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 import { href, linked, mentions } from './mentions'
+import { DEFAULTS } from './palette'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
+
+const LIT = DEFAULTS.shared.lit
 
 // margin's noun, mirrored: listing margin as a dependency would stop this plugin loading without it.
 declare module 'claude-code' {
@@ -504,7 +507,7 @@ export const register: Register = on => {
     const Client = 'Client' in elements ? elements.Client : undefined
     if (!Client) return native
     type Piece = { text: string; color?: string; bold?: boolean }
-    const row = (key: string, pieces: Piece[]) => <Client key={key} module="./fold.tsx" width="100%" height={1} props={{ pieces }} />
+    const row = (key: string, pieces: Piece[]) => <Client key={key} module="./fold.tsx" width="100%" height={1} props={{ pieces, lit: LIT }} />
     const cwd = await $.session.cwd().catch(() => '')
     // A share of the chat, so a wide terminal shows more of a path; the floor still fits most file names.
     const nameRoom = Math.max(NAME_FLOOR, Math.floor((e.viewport?.columns ?? 80) * NAME_SHARE))

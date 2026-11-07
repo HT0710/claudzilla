@@ -154,6 +154,7 @@ test('header shows the version', async ($, on) => {
   const ui = await open($)
   expect(seen.opened[0].title).toBe('Guide')
   expect((await ui.findAll({ type: 'Text' })).slice(0, 2).map(t => t.text)).toEqual(['claudzilla', 'v1.4.0'])
+  expect((await ui.findAll({ type: 'Text' })).slice(0, 2).map(t => t.props.color)).toEqual(['#a396d2', '#a396d2'])
 })
 
 test('no tag, no version', async ($, on) => {

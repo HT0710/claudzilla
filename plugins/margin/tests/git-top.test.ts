@@ -230,6 +230,7 @@ test('branch modal columns: each as wide as its widest cell, 2 columns apart', a
   const modal = await ui.find({ type: 'Box', key: 'modal' })
   const groups = find(await ui.drawn(), n => n.type === 'Box' && n.props?.gap === 2)
   expect(modal).toBeDefined()
+  expect(modal?.props.backgroundColor).toBe('#030507')
   // Every row's name and columns share their widths.
   const widths = groups.map(g => JSON.stringify(find(g.props?.children ?? g.children, n => n.type === 'Box' && n.props?.width !== undefined).map(n => n.props.width))).filter(w => w !== '[]')
   expect(widths.length).toBeGreaterThan(1)
@@ -716,6 +717,7 @@ test('a merged PR row is dimmed with only its pill', async ($, on) => {
   expect((await piece(ui, 'pr', '#168'))?.props.dimColor).toBe(true)
   expect(await piece(ui, 'pr', /CI /)).toBeUndefined()
   expect(await piece(ui, 'pr', 'merged')).toBeDefined()
+  expect((await piece(ui, 'pr', 'merged'))?.props.backgroundColor).toBe('#2e2640')
   // Behind its base no longer matters once merged.
   expect(await piece(ui, 'pr', ' !')).toBeUndefined()
 })

@@ -1068,6 +1068,7 @@ test('a day divider opens each day, once', async ($, on) => {
   const [right] = await ui.findAll({ type: 'Text', text: /^ ─+$/ })
   expect((left?.text.length ?? 0) + 'Today'.length + (right?.text.length ?? 0)).toBe(props.bodyColumns - 4)
   expect(Math.abs((left?.text.length ?? 0) - (right?.text.length ?? 0))).toBeLessThanOrEqual(1)
+  expect(left?.props.color).toBe('#625a7e')
   expect((await ui.findAll({ type: 'Text', text: dayLabel(Date.now() - 3 * day, new Date()) })).length).toBe(1)
 })
 

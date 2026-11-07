@@ -356,6 +356,7 @@ test('one decision: plain rows, no tradeoffs; each drafts its id and option', as
   // The reply's table, just above, already holds them.
   expect(await ui.find({ type: 'Text', text: /CI runs/ })).toBeUndefined()
   expect((await ui.find({ key: 'pick:3' }))?.props.hotkey).toBe('3')
+  expect((await ui.find({ type: 'Text', text: 'go ahead, except…' }))?.props.color).toBe('#808286')
   await ui.press({ key: 'pick:3' })
   expect(filled).toEqual(['3: keep the branch as-is'])
 })

@@ -6,6 +6,8 @@ import { LOG_FORMAT, age, branches, cutMiddle, fileKey, incomingPrs, ownPrs, par
 import { mdRows } from './markdown'
 import { capped, contentFrame, modalFrame, scrollWindow, stackFrame } from './modal'
 import type { Frame } from './modal'
+import { DEFAULTS } from './palette'
+import type { Palette } from './palette'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
@@ -35,29 +37,47 @@ const READ_ONLY = new Set(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'])
 const GONE = "Can't jump: rewound or compacted out of the chat. ↻\u00a0reuses it."
 // HUD colors (claudzilla/claude/hud/hud-filter.pl) the theme has no key for; latest, a lighter
 // dirty yellow, is the panel's own.
-const HUD = { label: '#a396d2', faint: '#4f5c68', idle: '#456186', action: '#5d9678', compacted: '#8c7850', dirty: '#8c7850', churn: '#6e8c6e', latest: '#a8995a' }
+const HUD = {} as Record<'label' | 'faint' | 'idle' | 'action' | 'compacted' | 'dirty' | 'churn' | 'latest', string>
 // Divider lines: their word's HUD color at 60%.
-const DIM = { label: '#625a7e', action: '#385a48', compacted: '#544830' }
+const DIM = {} as Record<'label' | 'action' | 'compacted', string>
 // A commit type (claude/rules/git.md's, plus perf) by what it does, one color each: feat adds (green),
 // fix repairs (red), refactor reshapes (blue), perf speeds up (orange), docs (yellow), test (cyan),
 // chore (the section labels' purple). Any other type stays gray.
-const TYPES: Record<string, string> = { feat: '#98c379', fix: '#e06c75', refactor: '#61afef', perf: '#d19a66', docs: '#e5c07b', test: '#56b6c2', chore: HUD.label }
+const TYPES: Record<string, string> = {}
 // A changed file's git status letter, one color each from TYPES' palette: modified (yellow), added
 // (green), deleted or conflicted (red), renamed or copied (blue), untracked (cyan); any other gray.
-const STATUS: Record<string, string> = { M: '#e5c07b', A: '#98c379', D: '#e06c75', U: '#e06c75', R: '#61afef', C: '#61afef', '?': '#56b6c2' }
+const STATUS: Record<string, string> = {}
 // A local commit's scope: a light gray under the subject.
-const SCOPE = '#808286'
+let SCOPE: string
 // Ahead and behind: a pair of their own, used for nothing else. Cards and modals sit on CARD; a lit row on LIT.
-const AHEAD = '#d4b860'
-const BEHIND = '#b48ead'
-const CARD = '#030507'
-const LIT = '#0f1c28'
+let AHEAD: string
+let BEHIND: string
+let CARD: string
+let LIT: string
 // A pushed commit's, or a staged file's: its color at 60%, as DIM's are.
 // What sits behind an open modal, and the line next to a shown card: text, rules and borders in one dim colour,
 // darker than HUD.faint, so a faint row never goes darker than a plain one (divider.tsx draws its rule in it too).
-const DIMMED = '#3a424a'
+let DIMMED: string
 // A faded background: each colour at half, as an opacity over the black pane; one with no hex to scale, a dark grey.
-const FADED = '#555555'
+let FADED: string
+// A pill's background by its colour's name.
+const PILL_BG = {} as Palette['margin']['pill']
+// Fills the holders above from a palette; DIM and chore follow its final colours.
+function applyPalette(p: Palette): void {
+  const { label, faint, idle, action, dirty, churn } = p.shared
+  Object.assign(HUD, { label, faint, idle, action, dirty, churn, compacted: p.margin.compacted, latest: p.margin.latest })
+  Object.assign(DIM, { label: dim(HUD.label), action: dim(HUD.action), compacted: dim(HUD.compacted) })
+  Object.assign(TYPES, p.margin.types, { chore: p.shared.label })
+  Object.assign(STATUS, p.margin.status)
+  SCOPE = p.shared.muted
+  AHEAD = p.margin.ahead
+  BEHIND = p.margin.behind
+  CARD = p.margin.card
+  LIT = p.shared.lit
+  DIMMED = p.margin.hairline
+  FADED = p.margin.faded
+  Object.assign(PILL_BG, p.margin.pill)
+}
 // The active custom theme's colours by key (claude/themes/<name>.json), read once a session, so a theme key fades by
 // its own hue. A built-in theme, or a key it leaves to its base, has none and fades to FADED.
 // shortcut: a theme switched mid-session fades by the old one until a reload; read again on config.set if it matters.
@@ -129,6 +149,7 @@ const toPieces = (node: unknown, style: Omit<Piece, 'text'> = {}): Piece[] => {
   return toPieces(el.children ?? el.props?.children, { ...style, ...own })
 }
 const dim = (hex: string) => `#${hex.slice(1).replace(/../g, c => Math.round(parseInt(c, 16) * 0.6).toString(16).padStart(2, '0'))}`
+applyPalette(DEFAULTS)
 
 const tab = atom({ plugin: 'margin', key: 'tab' } as const, 'Overview' as Tab)
 // Content hooks flag tabs here.
@@ -1484,7 +1505,7 @@ export const register: Register = (on, options) => {
       if (Client)
         return (
           <Box flexShrink={0} flexDirection="column">
-            <Client key={key} module="./divider.tsx" props={{ top: true, split: 0, min: 0, max: 0, faded: !!faded }} height={1} />
+            <Client key={key} module="./divider.tsx" props={{ top: true, split: 0, min: 0, max: 0, faded: !!faded, hairline: DIMMED }} height={1} />
           </Box>
         )
       // Elsewhere only the symbol is the button, the Button heating the scope and the Text's hover taking the color:
@@ -2154,9 +2175,9 @@ export const register: Register = (on, options) => {
         ]
       }
       const PILL: Record<PrState | Stage | Word, [string, string]> = {
-        open: ['#1d3a2a', 'success'], draft: ['#2a2e33', SCOPE], merged: ['#2e2640', HUD.label], closed: ['#3a2030', 'error'],
-        staged: ['#1d3a2a', 'success'], 'not staged': ['#2a2e33', SCOPE],
-        modified: ['#3a3220', STATUS.M!], added: ['#1d3a2a', STATUS.A!], deleted: ['#3a2030', STATUS.D!], renamed: ['#1c2f44', STATUS.R!], untracked: ['#173538', STATUS['?']!], conflict: ['#3a2030', STATUS.U!],
+        open: [PILL_BG.green, 'success'], draft: [PILL_BG.gray, SCOPE], merged: [PILL_BG.purple, HUD.label], closed: [PILL_BG.red, 'error'],
+        staged: [PILL_BG.green, 'success'], 'not staged': [PILL_BG.gray, SCOPE],
+        modified: [PILL_BG.yellow, STATUS.M!], added: [PILL_BG.green, STATUS.A!], deleted: [PILL_BG.red, STATUS.D!], renamed: [PILL_BG.blue, STATUS.R!], untracked: [PILL_BG.cyan, STATUS['?']!], conflict: [PILL_BG.red, STATUS.U!],
       }
       // A state pill: the rounded ends in its background colour around the word.
       const pill = (state: PrState | Stage | Word) => [
@@ -2945,7 +2966,7 @@ export const register: Register = (on, options) => {
           {/* Only the terminal and desktop draw a Client: elsewhere the rule stays put. */}
           {files.length > 0 &&
             (Client ? (
-              <Client key="divider" module="./divider.tsx" props={{ split: changesRows, min: changesMin, max: changesMax, faded: dimmed, ...(!dimmed && lastChangeLine && { line: lastChangeLine }) }} height={1} />
+              <Client key="divider" module="./divider.tsx" props={{ split: changesRows, min: changesMin, max: changesMax, faded: dimmed, hairline: DIMMED, ...(!dimmed && lastChangeLine && { line: lastChangeLine }) }} height={1} />
             ) : (
               <Text color="promptBorder">{bodyRule}</Text>
             ))}
@@ -3159,7 +3180,7 @@ export const register: Register = (on, options) => {
             {/* Only the terminal and desktop draw a Client: elsewhere the divider stays put. */}
             {zoned &&
               (Client ? (
-                <Client key="now" module="./divider.tsx" props={{ split: topicsRows, min: topicsMin, max: topicsMax }} height={1} />
+                <Client key="now" module="./divider.tsx" props={{ split: topicsRows, min: topicsMin, max: topicsMax, hairline: DIMMED }} height={1} />
               ) : (
                 <Text key="now" color="promptBorder">{'─'.repeat(width)}</Text>
               ))}

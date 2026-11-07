@@ -10,7 +10,7 @@ import type { ClientModule } from 'claude-code'
 // Clicked, a press and release that never left its row, it jumps to the top, or from the top to the bottom.
 // `top`: a scrolled zone's back-to-top line instead, its grip ↑: no drag, a click posts `top`.
 // Faded it takes no grab, as the faded tab presses nothing.
-const Divider: ClientModule<{ split: number; min: number; max: number; faded?: boolean; top?: boolean; line?: string }, { grabbed?: number; by?: number; moved?: boolean; isOver?: boolean }> = ({ split, min, max, faded, top, line }, surface) => {
+const Divider: ClientModule<{ split: number; min: number; max: number; faded?: boolean; top?: boolean; line?: string; hairline: string }, { grabbed?: number; by?: number; moved?: boolean; isOver?: boolean }> = ({ split, min, max, faded, top, line, hairline }, surface) => {
   const { Box, Text } = surface.elements
   // Rows a drag of `d` moves the rule, as far as the zone can go: a zone under `min` never shrinks, and
   // grows to it on any move down.
@@ -40,10 +40,10 @@ const Divider: ClientModule<{ split: number; min: number; max: number; faded?: b
   const by = surface.state?.grabbed === undefined ? 0 : reach(surface.state.by ?? 0)
   const word = top ? '↑' : by ? `${by > 0 ? '↓' : '↑'}${Math.abs(by)}` : '⇕'
   const isLit = surface.state?.isOver && !faded
-  const rule = faded ? '#3a424a' : 'promptBorder'
+  const rule = faded ? hairline : 'promptBorder'
   const side = Math.max(0, surface.columns - word.length - 2)
   // `line`: the last CHANGES row's group; the rule fades while that row's card hangs over it.
-  const dim = line ? { scope: line, color: '#3a424a' } : undefined
+  const dim = line ? { scope: line, color: hairline } : undefined
   // The primer pane's divider colors (plugins/primer/hooks/divider.tsx), as every margin rule but History's day
   // lines.
   return (
