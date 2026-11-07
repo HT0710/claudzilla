@@ -320,6 +320,8 @@ On a narrow terminal, the top row drops the version first, then drops the email'
 
 To use fewer rows, set `{"hud":{"compact":true}}` in `~/.claude/claudzilla.json`. The two thin lines go, the time and date move to the right side of the bottom row, and all four meters sit on one row with `cch` first, for 3 rows in total. Under about 109 columns the meters keep their two columns or stack as usual. The change shows within a second.
 
+To change the status line colours, see *Customize claudzilla* (`/claudzilla customize`).
+
 The installer offers the MesloLGS NF font, which draws the symbols. If you said no, the status line uses basic symbols every font has: `■ □` instead of `▰ ▱` in the meters, `›` instead of `⎇` for the branch, and `▸` instead of `⚑` for the skill. To switch later, run `CLAUDZILLA_FONT=yes ~/claudzilla/install.sh`, then set MesloLGS NF as your terminal font. If you see boxes instead of symbols, see *Fix common problems* (`/claudzilla stuck`).
 
 What to do with it:

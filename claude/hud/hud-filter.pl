@@ -30,7 +30,8 @@ my ($G_ON, $G_OFF, $G_BRANCH, $G_SKILL, $G_CACHE) =
 my %f = map { /^([^\t]+)\t(.*)$/ ? ($1, $2) : () } split /\n/, $txt;
 # hud-data.mjs pal_<table>_<key> lines: "<table>_<key>" -> [r, g, b]
 my %PAL = map { $f{$_} =~ /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i ? (substr($_, 4) => [map { hex } $1, $2, $3]) : () } grep { /^pal_/ } keys %f;
-sub fg { "\e[38;2;" . join(';', @{ $PAL{$_[0]} }) . "m" }
+sub pal { $PAL{$_[0]} // [128,128,128] }
+sub fg { "\e[38;2;" . join(';', @{ pal($_[0]) }) . "m" }
 my ($id, $META_CWD, $EFFORT, $SID) = @f{qw(id cwd effort sid)};
 # session name (/rename, or derived like "maxis-24") - the handle peers message us by.
 # Not in the statusline JSON, so look it up in the per-pid session registry.
@@ -107,8 +108,8 @@ sub paint {                     # [char, r, g, b] cells -> string, colour code o
     return $out . "\e[0m";
 }
 my $WID = 10;   # highlight half-width in cells
-my @A = @{ $PAL{hud_rampLow} }; my @B = @{ $PAL{hud_rampHigh} };   # blue ramp, dark -> bright
-my @O = @{ $PAL{hud_rampHot} };                                     # ...then warm over the last 30% of the track
+my @A = @{ pal('hud_rampLow') }; my @B = @{ pal('hud_rampHigh') };  # blue ramp, dark -> bright
+my @O = @{ pal('hud_rampHot') };                                     # ...then warm over the last 30% of the track
 sub ramp {
     my $x = shift;                                    # 0..1, already eased
     return $x < 0.7 ? [ map { $A[$_] + ($B[$_]-$A[$_]) * ($x/0.7) } 0..2 ]
@@ -124,17 +125,17 @@ sub meter_line {
     my $cc = $label eq 'cch' ? [map { int($_+0.5) } @{ ramp(0.1 + 0.9 * ($pct/100) ** 0.85) }] : undef;
     $f = $n if $cc;
     my @cell;
-    push @cell, [$_, $PAL{shared_label}] for split //, sprintf('%-*s ', $lw, $label); # title
+    push @cell, [$_, pal('shared_label')] for split //, sprintf('%-*s ', $lw, $label); # title
     for my $i (0 .. $n-1) {                                                   # bar
         my $on = $i < $f;
         push @cell, [$cc ? $G_CACHE : $on ? $G_ON : $G_OFF,
-                     $on ? $cc // [map { int($_+0.5) } @{ ramp(($n > 1 ? $i/($n-1) : 1) ** 0.85) }] : $PAL{hud_track},
+                     $on ? $cc // [map { int($_+0.5) } @{ ramp(($n > 1 ? $i/($n-1) : 1) ** 0.85) }] : pal('hud_track'),
                      $on ? 0.65 : 0.30];
     }
     my $x = ($pct/100) ** 0.85; $x = 0.4 if $x < 0.4;                         # figure
-    my $fc = $wait ? $PAL{hud_note} : $cc // [map { int($_+0.5) } @{ ramp($x) }];
+    my $fc = $wait ? pal('hud_note') : $cc // [map { int($_+0.5) } @{ ramp($x) }];
     push @cell, [$_, $fc] for split //, sprintf(' %*s%%  ', $pw, $wait ? '--' : $pct);
-    push @cell, [$_, $PAL{hud_note}] for split //, sprintf("%*s", $tw, $note);    # note
+    push @cell, [$_, pal('hud_note')] for split //, sprintf("%*s", $tw, $note);    # note
     my @px;
     for my $i (0 .. $#cell) {
         my ($ch,$c,$w) = @{$cell[$i]};
@@ -164,7 +165,7 @@ sub cwd_str {
     my $text = shift;
     my @ch = split //, $text;
     my $ph = (time() + $OFF) / $DRIFT;
-    my ($lo, $hi) = @PAL{qw(hud_cwdLow hud_cwdHigh)};
+    my ($lo, $hi) = (pal('hud_cwdLow'), pal('hud_cwdHigh'));
     my $s = "";
     for my $i (0 .. $#ch) {
         my $t = (1 - cos(6.283185307 * (($i + $ph) / $PERIOD)) ) / 2;
@@ -284,13 +285,13 @@ sub rule {
         my $g = 0;
         for my $h (@hs) { my $v = glow($i - $h, $CWID, 2); $g = $v if $v > $g }
         my $ch = "\x{2501}";
-        my @b  = @{ $PAL{hud_divider} }; my $w = 0.75;      # hairline
+        my @b  = @{ pal('hud_divider') }; my $w = 0.75;      # hairline
         if (length $label && $i >= $start && $i < $start + length $label) {
             $ch = substr($label, $i - $start, 1);
-            @b  = $ch eq ' ' ? (13,18,24) : @{ $PAL{hud_clock} };  # inset clock / date
+            @b  = $ch eq ' ' ? (13,18,24) : @{ pal('hud_clock') };  # inset clock / date
             $w  = $ch eq ' ' ? 0 : 0.9;
         }
-        push @px, [$ch, $g > 0 ? (map { $b[$_] + ($PAL{hud_sweep}[$_] - $b[$_]) * ($g*$w) } 0..2) : @b];
+        push @px, [$ch, $g > 0 ? (map { $b[$_] + (pal('hud_sweep')->[$_] - $b[$_]) * ($g*$w) } 0..2) : @b];
     }
     return paint(@px);
 }

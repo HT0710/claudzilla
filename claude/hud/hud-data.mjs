@@ -136,16 +136,16 @@ if (cfg.hud?.compact === true) out.compact = 1;
 
 // shared and hud tables of plugins/margin/hooks/palette.ts DEFAULTS, kept equal by tests/hud.test.sh
 const PALETTE = {
-  shared: { label: '#a396d2', faint: '#4f5c68', idle: '#456186', action: '#5d9678', dirty: '#8c7850', churn: '#6e8c6e', muted: '#808286', lit: '#0f1c28' },
+  shared: { label: "#a396d2", faint: "#4f5c68", idle: "#456186", action: "#5d9678", dirty: "#8c7850", churn: "#6e8c6e", muted: "#808286", lit: "#0f1c28" },
   hud: {
-    rampLow: '#0e2042', rampHigh: '#a8d6ff', rampHot: '#ffaa5a', track: '#1e2a3a', note: '#404750', cwdLow: '#4a6b8a', cwdHigh: '#93b4e0',
-    profile: '#5f9ea8', version: '#9d6554', divider: '#263240', sweep: '#ffecc8', model: '#7fb6d9', skill: '#93b4e0', thinking: '#a98fd9',
-    clock: '#8da6c2', session: null,
+    rampLow: "#0e2042", rampHigh: "#a8d6ff", rampHot: "#ffaa5a", track: "#1e2a3a", note: "#404750", cwdLow: "#4a6b8a", cwdHigh: "#93b4e0",
+    profile: "#5f9ea8", version: "#9d6554", divider: "#263240", sweep: "#ffecc8", model: "#7fb6d9", skill: "#93b4e0", thinking: "#a98fd9",
+    clock: "#8da6c2", session: null,
   },
 };
 for (const [table, keys] of Object.entries(PALETTE)) for (const [key, v] of Object.entries(keys)) {
   const set = cfg.palette?.[table]?.[key];
-  // hud-filter.pl dies on a malformed colour, so anything but #rrggbb keeps the default
+  // hud-filter.pl draws a missing or dropped colour grey, so anything but #rrggbb sends the default to keep the colour right
   out[`pal_${table}_${key}`] = typeof set === "string" && /^#[0-9a-f]{6}$/i.test(set) ? set : v;
 }
 
