@@ -1566,6 +1566,29 @@ test('file row: letter, middle-cut path, counts at right', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: '−4', in: `row:${fileKey(path)}` })).toBeDefined()
 })
 
+test('file rows: + and − counts each in a right-aligned column', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(changesRepo(' M a.ts\n M b.ts\n M c.ts\n', '21\t0\ta.ts\x0019\t2\tb.ts\x0029\t25\tc.ts\x00'))(e.argv) ?? ''))
+  const ui = await mount($)
+  expect([await rowText(ui, /^\+21/), await rowText(ui, /^\+19/), await rowText(ui, /^\+29/)]).toEqual(['+21    ', '+19  −2', '+29 −25'])
+})
+
+test('file rows: bin right-aligned in the count column, which widens to fit it', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(changesRepo(' M a.ts\n M b.png\n', '1\t0\ta.ts\x00-\t-\tb.png\x00'))(e.argv) ?? ''))
+  const ui = await mount($)
+  expect([await rowText(ui, /^ *\+1$/), await rowText(ui, /^bin$/)]).toEqual([' +1', 'bin'])
+})
+
+test('PR modal: FILES counts line up in columns', async ($, on) => {
+  quiet(on)
+  const f = (path: string, additions: number, deletions: number) => ({ path, additions, deletions, changeType: 'MODIFIED' })
+  withPr(on, repoOn('a'), [prJson()], viewJson({ files: [f('a.ts', 5, 0), f('b.ts', 120, 3)] }))
+  const ui = await openPr($)
+  await wheel($, 20, 10)
+  expect([await rowText(ui, /^ *\+5/), await rowText(ui, /^\+120/)]).toEqual(['  +5   ', '+120 −3'])
+})
+
 test('staged row: dim letter and faint path', async ($, on) => {
   quiet(on)
   on('process.run', (_, e) => ran(git(changesRepo('M  GUIDE.md\n', '3\t1\tGUIDE.md\0'))(e.argv) ?? ''))
@@ -1828,7 +1851,7 @@ test('commit modal: FILES with N total and counts, middle-cut paths', async ($, 
   expect(await ui.find({ type: 'Text', text: 'FILES' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '2 total  ' })).toBeDefined()
   expect(await rowText(ui, /…\/register\.tsx$/)).toBeDefined()
-  expect(await rowText(ui, /^\+8$/)).toBeDefined()
+  expect(await rowText(ui, /^\+8   $/)).toBeDefined()
 })
 
 test('commit modal: a file row lights under the pointer and opens the file in the File tab', async ($, on) => {
@@ -1880,15 +1903,15 @@ test('a file row whose file left the working tree toasts instead of opening an e
   expect(await ui.find({ key: 'modal' })).toBeDefined()
 })
 
-test('a modal file row with one side 0 gives the path the columns the absent side would take', async ($, on) => {
+test('a modal file list gives every path the same columns: the counts take the widest', async ($, on) => {
   quiet(on)
   const path = (name: string) => `plugins/margin/${'deep/'.repeat(12)}${name}.tsx`
   on('process.run', (_, e) => ran(showRepo([A], undefined, `A\0${path('one')}\0M\0${path('two')}\0`, `8\t0\t${path('one')}\0` + `8\t1\t${path('two')}\0`)(e.argv) ?? ''))
   const ui = await mount($)
   await tap(ui, `c:${A}`)
   const cut = async (name: string) => (await rowText(ui, new RegExp(`…/${name}\\.tsx$`))) ?? ''
-  // "+8" against "+8 −1": 3 columns more for the path.
-  expect((await cut('one')).length - (await cut('two')).length).toBe(3)
+  // "+8" padded to "+8 −1", so both paths are cut to the same width.
+  expect((await cut('one')).length).toBe((await cut('two')).length)
 })
 
 test('show all FILES: the stacked rows light and open; the modal under them stays dark', async ($, on) => {
