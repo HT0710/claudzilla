@@ -534,7 +534,7 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     // A /clear or resume goes on under a new session id, which needs its own cols file.
     wroteColumns = 0
-    for (const rows of [runs, done, placed, shownDiffs, agents, bashEdits, unfolded]) rows.clear()
+    for (const rows of [runs, done, placed, shownDiffs, agents, spawned, bashEdits, unfolded]) rows.clear()
     current = undefined
     await t.flush(traceIo($))
     return next(e)
@@ -554,22 +554,44 @@ export const register: Register = on => {
   const blinking = new Set<string>()
   let blink: Timer | undefined
   let isLit = true
-  // Agent calls' descriptions by tool_use_id: a finish notification names only the call.
-  const agents = new Map<string, string>()
+  // Agent calls by tool_use_id: a finish notification names only the call. Model and effort as the spawn and the
+  // agent's own requests report them, which an agent definition or a fork may set apart from the call's input.
+  type AgentRow = { description?: string; model?: string; effort?: string }
+  const agents = new Map<string, AgentRow>()
+  // Agent calls' tool_use_id by agentId, which their requests carry.
+  const spawned = new Map<string, string>()
+  const agentTag = ({ model, effort }: AgentRow) => [/opus|sonnet|haiku|fable/.exec(model ?? '')?.[0], effort].filter(Boolean).join(' · ')
   // Files each Bash call changed, by tool_use_id; and the calls of groups unfolded to show them.
   const bashEdits = new Map<string, { file: string; add: number; del: number; isNew: boolean }[]>()
   const unfolded = new Set<string>()
   // Plain text, not the fold's Client: nothing opens on a press, so nothing lights under the pointer.
-  const textLine = ({ Text }: Elements['terminal'], dot: RenderNode, [label, arg, tail]: [string, string, RenderNode]) => (
+  const textLine = ({ Text }: Elements['terminal'], dot: RenderNode, [label, arg, tail]: [string, string, RenderNode], tag = '') => (
     <Text wrap="truncate-end">
       {dot} <Text bold>{label}</Text>
       <Text color="promptBorder"> (</Text>{arg}<Text color="promptBorder">)</Text>
+      {tag && <Text color="inactive"> [{tag}]</Text>}
       {tail && '  '}{tail}
     </Text>
   )
-  const textRow = (elements: Elements['terminal'], dot: RenderNode, row: [string, string, RenderNode]) => (
-    <elements.Box marginTop={1}>{textLine(elements, dot, row)}</elements.Box>
+  const textRow = (elements: Elements['terminal'], dot: RenderNode, row: [string, string, RenderNode], tag?: string) => (
+    <elements.Box marginTop={1}>{textLine(elements, dot, row, tag)}</elements.Box>
   )
+
+  on('agent.spawn', async ($, e, next) => {
+    const result = await next(e)
+    if (!result.deny && result.agentId && e.tool_use_id) {
+      if (spawned.size > 500) spawned.clear()
+      spawned.set(result.agentId, e.tool_use_id)
+      agents.set(e.tool_use_id, { ...agents.get(e.tool_use_id), description: e.description, model: result.model })
+    }
+    return result
+  })
+
+  on('turn.step', async function* ($, e, next) {
+    const id = e.agentId && spawned.get(e.agentId)
+    if (id && typeof e.effort === 'string') agents.set(id, { ...agents.get(id), effort: e.effort })
+    return yield* next(e)
+  })
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const targets = hideEditDiff ? writeTargets(e.command) : []
@@ -642,7 +664,10 @@ export const register: Register = on => {
     const run = runs.get(e.requestId)
     if (tool === 'Agent') {
       if (agents.size > 500) agents.clear()
-      agents.set(e.requestId, String((input as { description?: string } | undefined)?.description))
+      const args = (input ?? {}) as AgentRow
+      const known = agents.get(e.requestId)
+      const resolved = (output as { resolvedModel?: string } | undefined)?.resolvedModel
+      agents.set(e.requestId, { description: args.description ?? known?.description, model: resolved ?? known?.model ?? args.model, effort: known?.effort ?? args.effort })
     }
     // shortcut: fullscreen ctrl+o draws a call of an unfolded group as a ToolUse with isExpanded true and no ToolGroup,
     // just like the unfolded group's own rows, so there it keeps the one-line row; upgrade once the props tell the views apart.
@@ -699,7 +724,7 @@ export const register: Register = on => {
     if (other) {
       const elements = $.ui.resolve(e)
       const { Text } = elements
-      return textRow(elements, isLive ? <Text color="inactive">{isLit ? '●' : ' '}</Text> : <Text color="success">●</Text>, other)
+      return textRow(elements, isLive ? <Text color="inactive">{isLit ? '●' : ' '}</Text> : <Text color="success">●</Text>, other, tool === 'Agent' ? agentTag(agents.get(e.requestId)!) : '')
     }
     if (!run) return native
     const summary = !isRunning && !isInterrupted ? editSummary(tool, output, isErrored) : undefined
@@ -808,13 +833,14 @@ export const register: Register = on => {
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     const native = await next(e)
     const { origin, isExpanded, task } = e.props
-    const arg = task?.toolUseId && agents.get(task.toolUseId)
+    const agent = task?.toolUseId ? agents.get(task.toolUseId) : undefined
+    const arg = agent?.description
     const ended = task?.status && ENDED[task.status]
     if (!hideEditDiff || e.surface !== 'terminal' || isExpanded || origin.kind !== 'task-notification' || !arg || !ended) return native
     const elements = $.ui.resolve(e)
     const { Text } = elements
     const [tail, color] = ended
-    return textRow(elements, <Text color={color}>●</Text>, ['Agent', arg, task.durationMs === undefined ? tail : `${tail} · ${took(task.durationMs)}`])
+    return textRow(elements, <Text color={color}>●</Text>, ['Agent', arg, task.durationMs === undefined ? tail : `${tail} · ${took(task.durationMs)}`], agentTag(agent!))
   })
 
   // A reply still streaming skips the hook below, so md-display.pl draws its lines from this width.
