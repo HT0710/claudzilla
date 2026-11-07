@@ -24,7 +24,6 @@ check "formatFlags: emoji" [ "$(js 'm.formatFlags("Shipped 🚀", {rules: m.DEFA
 check "gitParse: -C and sub" [ "$(js 'm.gitParse(["git","-C","x","push","-f"], "/r").sub')" = '"push"' ]
 check "forceFlag: +refspec" [ "$(js 'm.forceFlag(["origin","+main"])')" = true ]
 check "prDescribes: label edit" [ "$(js 'm.prDescribes(["gh","pr","edit","1","--add-label","x"])')" = false ]
-check "hooks: suite unchanged" bash -c "bash '$REPO/tests/hooks.test.sh' | tail -1 | grep -q ' 0 failed'"
 
 # --- scanner ---
 SCAN="$REPO/claude/skills/rule-review/scan.mjs"
