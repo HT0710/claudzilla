@@ -1913,7 +1913,7 @@ export const register: Register = (on, options) => {
       // The CHANGES rows drawn: a deleted file has nothing to open, so no act; untracked ones count their lines.
       const shownChanges = changes.slice(changesFrom, changesFrom + changesShown)
       const root = gitDir?.root ?? ''
-      const untrackedShown = shownChanges.filter(c => c.letter === '?').map(c => c.path)
+      const untrackedShown = shownChanges.filter(c => c.xy === '??').map(c => c.path)
       const wcKey = `${key}:${untrackedShown.join('\0')}`
       if (untrackedShown.length && wcRead?.key !== wcKey) wcRead = { key: wcKey, run: readWc($, root, untrackedShown) }
       const lineCounts = untrackedShown.length ? await wcRead!.run : new Map<string, Counts>()
@@ -1929,7 +1929,7 @@ export const register: Register = (on, options) => {
         ? { [openRow!]: () => setModal($, () => null) }
         : {
             branch: () => openModal('branch'), fetch: () => !isFetching && fetchNow(), rebase: () => openModal('rebase'), pr: () => openModal('pr'), prs: () => openModal('prs'),
-            ...Object.fromEntries(shownChanges.filter(c => c.word !== 'deleted').map(c => [fileKey(c.path), () => openFile(c.path)])),
+            ...Object.fromEntries(shownChanges.filter(c => !c.words.includes('deleted')).map(c => [fileKey(c.path), () => openFile(c.path)])),
             ...Object.fromEntries(shownCommits.map(c => [commitKey(c.full), () => openModal('commit', c)])),
           }
       // A top row: a row Client where the surface draws one, else a Button whose card shows on hover. `width`: a row
@@ -1963,11 +1963,17 @@ export const register: Register = (on, options) => {
       const topLines = [['branch', 'fetch'], ...(op ? [['rebase']] : []), ...(pr ? [['pr']] : summary ? [['prs']] : [])]
       // The CHANGES and COMMITS rows drawn, each a line of its own: its tab row and its card's rows. A card that would
       // pass the tab's bottom opens upward, so the line above it dims instead of the line below.
-      // A file card's status row too wide for the pane moves its last pill to a second row: the 8-column label, each
-      // pill its word and 2 caps, a space between, and the card's border and padding.
-      const fileWraps = (c: (typeof shownChanges)[number]) => c.stage.length > 0 && 8 + [c.word, ...c.stage].reduce((n, s) => n + s.length + 3, -1) + 4 > e.props.bodyColumns - 4
+      // A file card's status pills, packed into as many rows as the pane needs: the 8-column label, each pill its word
+      // and 2 caps, a space between, and the card's border and padding. A pill too wide for any row gets its own.
+      const pillRows = (c: (typeof shownChanges)[number]) =>
+        [...c.words, ...c.stage].reduce<(Stage | Word)[][]>((rows, w) => {
+          const last = rows.at(-1)
+          if (last && 8 + [...last, w].reduce((n, s) => n + s.length + 3, -1) + 4 <= e.props.bodyColumns - 4) last.push(w)
+          else rows.push([w])
+          return rows
+        }, [])
       const lower = [
-        ...shownChanges.map((c, i) => ({ key: fileKey(c.path), zone: 'changes', at: topRows + 2 + (changesShown < changesRows ? 1 : 0) + i, n: fileWraps(c) ? 2 : 1 })),
+        ...shownChanges.map((c, i) => ({ key: fileKey(c.path), zone: 'changes', at: topRows + 2 + (changesShown < changesRows ? 1 : 0) + i, n: pillRows(c).length })),
         ...shownCommits.map((c, j) => ({ key: commitKey(c.full), zone: 'commits', at: commitsAt0 + j, n: 1 + (c.refs.length || c.tags.length ? 1 : 0) + (commitStats.has(c.full) ? 1 : 0) })),
       ]
       const upOf = (at: number, n: number) => at + 4 + n > tabRows
@@ -2982,9 +2988,14 @@ export const register: Register = (on, options) => {
             <Box flexDirection="column" height={changesRows}>
               {changesShown < changesRows && topLine('top:changes', () => update($, scrolled, top => ({ ...top, changes: 0 })), dimmed)}
               {shownChanges.map((c, i) => {
-                const color = STATUS[c.letter] ?? HUD.faint
-                // Two columns in, the letter, then the path and counts as every file list draws them.
-                const { left, right } = changeParts([<Text>  </Text>, <Text color={c.dim ? dim(color) : color}>{c.letter}</Text>], c.path, counts.get(c.path) ?? lineCounts.get(c.path), room - 3, c.dim ? HUD.faint : undefined, changeCols)
+                // The index's letter dim, the worktree's bright; untracked and conflicted both bright, one colour.
+                const whole = c.xy === '??' || c.words[0] === 'conflict'
+                const letters = [...c.xy].map((l, i) => {
+                  const color = STATUS[c.words[0] === 'conflict' ? 'U' : l] ?? HUD.faint
+                  return <Text color={i || whole ? color : dim(color)}>{l}</Text>
+                })
+                // Two columns in, the letters, then the path and counts as every file list draws them.
+                const { left, right } = changeParts([<Text>  </Text>, ...letters], c.path, counts.get(c.path) ?? lineCounts.get(c.path), room - 4, c.dim ? HUD.faint : undefined, changeCols)
                 // Plain rows, not kv: a kv value stops at the 75% cap, which would cut the pills.
                 const statusRow = (label: string, words: (Stage | Word)[]) => (
                   <Text wrap="truncate-end">
@@ -2992,8 +3003,7 @@ export const register: Register = (on, options) => {
                     {words.flatMap((s, j) => [...(j ? [<Text> </Text>] : []), ...pill(s)])}
                   </Text>
                 )
-                const words = [c.word, ...c.stage]
-                const status = fileWraps(c) ? [statusRow('status', words.slice(0, -1)), statusRow('', words.slice(-1))] : [statusRow('status', words)]
+                const status = pillRows(c).map((words, j) => statusRow(j ? '' : 'status', words))
                 return topRow(
                   fileKey(c.path),
                   left,

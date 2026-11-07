@@ -2438,6 +2438,17 @@ test('at 40 columns a file card keeps its label and moves the last pill to a sec
   expect(find(card, n => n.props?.wrap === 'truncate-end').length).toBe(2)
 })
 
+test('at 40 columns a staged-then-edited new file packs its four pills into rows that fit', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(changesRepo('AM new.ts\n', '2\t0\tnew.ts\0'))(e.argv) ?? ''))
+  const ui = await narrow($)
+  await hover(ui, fileKey('new.ts'))
+  const { card, find } = await cardTexts(ui, fileKey('new.ts'))
+  // Rows: added and modified, then staged and not staged under them; the wider second row sets the width.
+  expect(find(card, n => n.props?.wrap === 'truncate-end').length).toBe(2)
+  expect(card.props.width).toBe(33)
+})
+
 test('at 40 columns a two-row file card near the bottom opens upward, and the row above dims', async ($, on) => {
   quiet(on)
   const names = Array.from({ length: 30 }, (_, i) => `f${String(i).padStart(2, '0')}.ts`)

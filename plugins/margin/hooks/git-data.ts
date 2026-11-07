@@ -245,18 +245,17 @@ export const cutMiddle = (path: string, room: number) => {
 
 const WORD: Record<string, Word> = { M: 'modified', T: 'modified', A: 'added', C: 'added', D: 'deleted', R: 'renamed', U: 'conflict', '?': 'untracked' }
 
-// One `status --porcelain -z` record. A conflict is U whatever git pairs it with (UU,
-// AA, DD, UD...); else the worktree's letter while it has unstaged changes, bright, else the index letter, staged,
-// dim. A rename shows its new name.
+// One `status --porcelain -z` record: git's two letters, index then worktree. A conflict is any pair with U, or AA
+// or DD; else a card word per side that changed, once. Dim when only staged. A rename shows its new name.
 export const changeOf = (line: string): Change => {
   const xy = line.slice(0, 2)
   const path = line.slice(3)
   const conflict = xy.includes('U') || xy === 'AA' || xy === 'DD'
   const untracked = xy === '??'
   const staged = !conflict && !untracked && line[1] === ' '
-  const letter = conflict ? 'U' : untracked ? '?' : staged ? line[0]! : line[1]!
+  const words = conflict ? ['conflict' as const] : [...new Set([...xy.trim()].map(l => WORD[l] ?? 'modified'))]
   const stage = conflict || untracked ? [] : (['staged', 'not staged'] as const).filter((_, i) => line[i] !== ' ')
-  return { path, letter, dim: staged, word: WORD[letter] ?? 'modified', stage }
+  return { path, xy, dim: staged, words, stage }
 }
 
 // `git diff --numstat -z -M`: "a\td\tpath\0", or for a rename "a\td\t\0old\0new\0"; a binary file counts "-".

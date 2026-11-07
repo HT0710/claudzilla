@@ -370,7 +370,7 @@ In a details panel, a long list shows three rows and `show all`, which opens the
 
 Next come the changed files under CHANGES and recent commits under COMMITS. The tab redraws after each tool call and each prompt. Scrolled, a `↑` line goes back to the top of CHANGES or COMMITS.
 
-Each changed file shows its status letter and line counts. Hover it to see whether it is staged, and click it to open the file in the File tab.
+Each changed file shows git's two status letters and its line counts: the first, dim, is what is staged, and the second, bright, is what is not. Hover it for the same in words, and click it to open the file in the File tab.
 
 Each commit shows its subject and age; unpushed commits are bright and counted as `↑N` in the header. Hover one for its id, author, branches, tags and size. Click it for its message and files, with `copy` for its id and, once pushed, `github` for its page on GitHub, GitLab, Codeberg or SourceHut.
 
