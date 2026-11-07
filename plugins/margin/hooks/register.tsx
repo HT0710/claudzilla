@@ -1967,16 +1967,16 @@ export const register: Register = (on, options) => {
       // many rows as the pane needs, so a stage pill never reads as one word's. A row: the 8-column label, each pill its
       // word and 2 caps, a space between, and the card's border and padding. A pill too wide for any row gets its own.
       const pillRows = (c: (typeof shownChanges)[number]) => {
-        const fits = (row: (Stage | Word)[]) => 8 + row.reduce((n, s) => n + s.length + 3, -1) + 4 <= e.props.bodyColumns - 4
+        const fitsRow = (row: (Stage | Word)[]) => 8 + row.reduce((n, s) => n + s.length + 3, -1) + 4 <= e.props.bodyColumns - 4
         const pack = (pills: (Stage | Word)[]) =>
           pills.reduce<(Stage | Word)[][]>((rows, w) => {
             const last = rows.at(-1)
-            if (last && fits([...last, w])) last.push(w)
+            if (last && fitsRow([...last, w])) last.push(w)
             else rows.push([w])
             return rows
           }, [])
         const all = [...c.words, ...c.stage]
-        return fits(all) ? [all] : [...pack(c.words), ...pack(c.stage)]
+        return fitsRow(all) ? [all] : [...pack(c.words), ...pack(c.stage)]
       }
       const lower = [
         ...shownChanges.map((c, i) => ({ key: fileKey(c.path), zone: 'changes', at: topRows + 2 + (changesShown < changesRows ? 1 : 0) + i, n: pillRows(c).length })),
