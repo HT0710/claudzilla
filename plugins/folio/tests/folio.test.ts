@@ -1498,3 +1498,47 @@ test('rows name files from the session root, not the folder a shell cd left', as
   expect(rows).toEqual(['● Updated (a.txt)  +1 −1', '● Created (new.txt)  +2', '● Updated (sub/b.txt)  +1'])
   expect(await textOf(await mountRow($, 'Edit', patch('-a', '+b'), {}, '/p/a.txt', 'e1'), 'e1')).toBe('● Updated (a.txt)  +1 −1')
 })
+
+// Core's spawn of Agent call a1 as agent g1 on `model`; then g1's first request, at `effort`.
+async function spawnAgent($: any, on: any, model: string, effort?: string) {
+  on('agent.spawn', () => ({ model, agentId: 'g1' }) as any)
+  on('turn.step', async function* (_: any, e: any) { return { turnId: e.turnId, index: e.index, answer: '', toolUses: [] } } as any)
+  await $.agent.spawn({ prompt: 'p', description: 'Slow task', tool_use_id: 'a1' } as any)
+  if (effort) for await (const _ of $.turn.step({ turnId: 't', index: 0, model, effort, messageCount: 1, agentId: 'g1' } as any));
+}
+
+test('a running agent row tags the model it spawned on and the effort its requests ask', async ($, on) => {
+  native(on)
+  await spawnAgent($, on, 'claude-opus-5-5', 'high')
+  const ui = await mountRow($, 'Agent', undefined, { input: { description: 'Fix login bug', effort: 'max' }, isRunning: true }, '/p/a.txt', 'a1')
+  expect(await textOf(ui, 'a1')).toBe('● Agent (Fix login bug) [opus · high]  running')
+  expect((await ui.find({ type: 'Text', text: /^ \[opus · high\]$/ }))?.props.color).toBe('inactive')
+})
+
+for (const [name, input, output, want] of [
+  ['a finished agent takes its resolved model over the input one', { description: 'Find callers', model: 'haiku', effort: 'medium' },
+    { ...agentDone, resolvedModel: 'claude-sonnet-5-5' }, '● Agent (Find callers) [sonnet · medium]  done'],
+  ['a finished agent with only an input model', { description: 'd', model: 'haiku' }, agentDone, '● Agent (d) [haiku]  done'],
+  ['a backgrounded agent with only an effort', { description: 'Review diff', effort: 'low' },
+    { status: 'async_launched', agentId: 'a1', description: 'Review diff', prompt: 'p', outputFile: '/o' }, '● Agent (Review diff) [low]  backgrounded'],
+] as const) {
+  test(`${name}: ${want}`, async ($, on) => {
+    native(on)
+    expect(await drawn($, 'Agent', output, { input })).toBe(want)
+  })
+}
+
+test("a background agent's finish row keeps its tag", async ($, on) => {
+  finished(on)
+  await spawnAgent($, on, 'claude-haiku-5-5', 'medium')
+  expect(await textOf(await notice($, { status: 'completed', durationMs: 9_000 }))).toBe('● Agent (Slow task) [haiku · medium]  done · 9s')
+})
+
+test("a finish row takes the spawn's description when the call's row drew none", async ($, on) => {
+  finished(on)
+  await spawnAgent($, on, 'claude-haiku-5-5', 'medium')
+  await mountRow($, 'Agent', launched, { input: {} }, '/p/a.txt', 'a1')
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
+    props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 'a1', status: 'completed', durationMs: 1_000 } }, viewport: VIEW })
+  expect(await textOf(ui)).toBe('● Agent (Slow task) [haiku · medium]  done · 1s')
+})
