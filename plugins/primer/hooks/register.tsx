@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { DEFAULTS } from './palette'
+import { DEFAULTS, readPalette } from './palette'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
@@ -255,6 +255,7 @@ async function snapshot($: EngineInterface, columns: number | undefined) {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await t.start(traceIo($))
+    HUD.label = (await readPalette($)).palette.shared.label
     await $.command.register({ name: 'claudzilla', description: 'The claudzilla guide, one section at a time', argumentHint: '[topic | report [what happened] | compact]', immediate: true })
     await $.tool.register(COMPACT_SPEC).catch(() => undefined)
 

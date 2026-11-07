@@ -591,6 +591,7 @@ In this list, `env`, `permissions` and `model` go in `~/.claude/settings.overrid
 - **Commit to `main` in a solo repository:** put `{"rulesGuard":{"allowMain":true}}` in `<repo>/.claude/claudzilla.local.json`.
 - **Stop auto-update:** put `{"rulesGuard":{"autoUpdate":false}}` in `~/.claude/claudzilla.json`; you still get the notice.
 - **Change other guard settings:** `compactNudge` (the context size, in tokens, at which Claude suggests compacting; `0` turns it off), `coldCompact` (how many times `compactNudge` the context must reach before claudzilla compacts by itself while you are away, `2` by default; `0` never), `reviewNudge`, `autoUpdate` and `trace` (`false` stops the local trace; machine file only) sit next to `rules`, not inside it.
+- **Recolour claudzilla:** put a `palette` key in `~/.claude/claudzilla.json`. Each colour is `#rrggbb`; any other value keeps its default. The status line changes at once, the plugins after `/reload-plugins` or in a new session. The margin names each ignored key in a toast.
 - **Add your own instructions:** write them in `~/.claude/CLAUDE.local.md`. claudzilla's rules load it in every session on this machine.
 - **Change keys:** run `/keybindings` to open `~/.claude/keybindings.json`. To free **alt+q**, **alt+o**, **alt+h**, **alt+l**, **alt+g** or **alt+k**, set it to `null` in the `Chat` block. Changes apply without a restart.
 
@@ -611,6 +612,24 @@ A guard file, such as `~/.claude/claudzilla.json`. If the file already has other
 ```json
 { "rulesGuard": { "rules": { "pushVerify": "remind", "doneClaim": "flag" }, "compactNudge": 300000 } }
 ```
+
+A palette in `~/.claude/claudzilla.json`. Every table and every key is optional.
+
+```json
+{
+  "palette": {
+    "shared": { "label": "#a396d2", "action": "#5d9678" },
+    "hud": { "rampHot": "#ffaa5a" },
+    "margin": { "ahead": "#d4b860", "types": { "fix": "#e06c75" } }
+  }
+}
+```
+
+The key names in each table:
+
+- `shared`, colours that two or more parts use: `label`, `faint`, `idle`, `action`, `dirty`, `churn`, `muted`, `lit`. Folio, primer and ballot read only this table.
+- `hud`, the status line: `rampLow`, `rampHigh`, `rampHot`, `track`, `note`, `cwdLow`, `cwdHigh`, `profile`, `version`, `divider`, `sweep`, `model`, `skill`, `thinking`, `clock`, `session`.
+- `margin`: `compacted`, `latest`, `ahead`, `behind`, `card`, `hairline`, `faded`, and three tables: `pill` (`green`, `gray`, `purple`, `red`, `yellow`, `blue`, `cyan`), `types` (`feat`, `fix`, `refactor`, `perf`, `docs`, `test`) and `status` (`M`, `A`, `D`, `U`, `R`, `C`, `?`).
 
 ### Update and get help
 <!-- topic: more -->

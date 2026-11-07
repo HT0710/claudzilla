@@ -127,10 +127,12 @@ if (d.transcript_path) {
 // logged in, no reply yet: limits arrive with the first one, so hold their slots
 if (out.profile && last === undefined && out["5h"] === undefined && out.wk === undefined) out.lim_wait = 1;
 
+let cfg = {};
 try {
   const dir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
-  if (JSON.parse(readFileSync(join(dir, "claudzilla.json"), "utf8")).hud?.compact === true) out.compact = 1;
-} catch { /* no config: the default layout */ }
+  cfg = JSON.parse(readFileSync(join(dir, "claudzilla.json"), "utf8")) ?? {};
+} catch { /* no config: the default layout and colours */ }
+if (cfg.hud?.compact === true) out.compact = 1;
 
 // shared and hud tables of plugins/margin/hooks/palette.ts DEFAULTS, kept equal by tests/hud.test.sh
 const PALETTE = {
@@ -141,7 +143,11 @@ const PALETTE = {
     clock: '#8da6c2', session: null,
   },
 };
-for (const [table, keys] of Object.entries(PALETTE)) for (const [key, v] of Object.entries(keys)) out[`pal_${table}_${key}`] = v;
+for (const [table, keys] of Object.entries(PALETTE)) for (const [key, v] of Object.entries(keys)) {
+  const set = cfg.palette?.[table]?.[key];
+  // hud-filter.pl dies on a malformed colour, so anything but #rrggbb keeps the default
+  out[`pal_${table}_${key}`] = typeof set === "string" && /^#[0-9a-f]{6}$/i.test(set) ? set : v;
+}
 
 process.stdout.write(
   Object.entries(out)

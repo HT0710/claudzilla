@@ -1,6 +1,6 @@
 import type { Register } from 'claude-code'
 
-import { DEFAULTS } from './palette'
+import { DEFAULTS, readPalette } from './palette'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
@@ -11,7 +11,7 @@ export type Offer = { title: string; rows: Row[]; why: string; go: string }
 // Bare digits are the only hotkeys the band arms; one goes to the draft row.
 const MAX_ROWS = 8
 // The panel's secondary gray; dimColor barely shows in some terminals.
-const FAINT = DEFAULTS.shared.muted
+let FAINT = DEFAULTS.shared.muted
 
 // Null hides the band.
 let offer: Offer | null = null
@@ -216,6 +216,7 @@ export function compactCommand(answer: string): string | null {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await t.start(traceIo($))
+    FAINT = (await readPalette($)).palette.shared.muted
     return next(e)
   })
 

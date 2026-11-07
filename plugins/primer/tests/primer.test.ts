@@ -38,6 +38,11 @@ function host(on: Parameters<TestBody>[1], { stdout = '/repo\nv1.4.0\n', exitCod
   on('process.run', (_, e: any) => proc?.(e.argv.join(' ')) ?? ran(exitCode, stdout))
   on('fs.read', (_, e: any) => {
     if (e.path.endsWith('/.off')) throw new Error('ENOENT')
+    if (e.path.endsWith('/claudzilla.json')) {
+      const c = files?.(e.path)
+      if (c === undefined) throw new Error('ENOENT')
+      return { value: c }
+    }
     seen.read.push(e.path)
     const f = files?.(e.path)
     if (f !== undefined) return { value: f }
@@ -443,4 +448,11 @@ test("compact_draft's chat rows draw nothing; other tools' rows still draw", asy
   }
   const other = await $.ui.mount({ plugin: 'primer', surface: 'terminal', component: 'ToolUse', props: { ...props, tool: 'Bash' }, requestId: 'u2' } as any)
   expect(await other.find({ type: 'Text', text: 'engine row' })).toBeDefined()
+})
+
+test('a palette label colours the header', async ($, on) => {
+  host(on, { files: p => (p === '/cfg/claudzilla.json' ? JSON.stringify({ palette: { shared: { label: '#112233' } } }) : undefined) })
+  on('env.get', (_, e: any) => ({ value: e.name === 'CLAUDE_CONFIG_DIR' ? '/cfg' : undefined }) as any)
+  const ui = await open($)
+  expect((await ui.findAll({ type: 'Text' })).slice(0, 2).map(t => t.props.color)).toEqual(['#112233', '#112233'])
 })

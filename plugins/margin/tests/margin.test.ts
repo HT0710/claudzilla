@@ -3594,3 +3594,86 @@ test('fileWindow puts the clicked line in the middle, clamped to the slice', () 
   const end = fileWindow(fileView('/a', 50, lines(50))!, 17)
   expect([end.first, end.mark]).toEqual([34, 16])
 })
+
+// History and claudzilla.json answers from /home/me, a session.start host; the returned array gathers the toasts.
+const paletteHost = (on: Parameters<TestBody>[1], config: string, history = '') => {
+  const toasts: string[] = []
+  on('clock.now', () => ({ value: 0 }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('fs.read', (_, e) => ({ value: e.path === '/home/me/claudzilla.json' ? config : history }))
+  on('store.keys', () => ({ value: [] }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  return toasts
+}
+const paletteStart = ($: Parameters<TestBody>[0]) => $.session.start({ cwd: '/proj', surface: null, isInteractive: false })
+const GIT_REPO = {
+  status: '## main...origin/main [ahead 1, behind 2]\n M hooks/register.tsx\nA  new.ts\n?? notes.md\n',
+  log: 'abc1234ffff abc1234 feat: add thing\nghi9012ffff ghi9012 chore(ci): tidy\njkl3456ffff jkl3456 wip: try\ndef5678ffff def5678 fix(core): old bug\n',
+  diff: '80\t4\thooks/register.tsx\0' + '6\t2\tnew.ts\0',
+  '--remotes': 'abc1234ffff\nghi9012ffff\njkl3456ffff\n',
+  '--count': '142\n',
+}
+const paletteGitTab = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]) => {
+  on('process.run', (_, e) => ran(git(GIT_REPO)(e.argv) ?? ''))
+  await paletteStart($)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'Git' })
+  return ui
+}
+
+test('a palette recolours the Git tab; chore follows shared.label', async ($, on) => {
+  const config = { palette: { shared: { faint: '#112233', label: '#445566' }, margin: { ahead: '#778899', types: { feat: '#aabbcc' } } } }
+  const toasts = paletteHost(on, JSON.stringify(config))
+  const ui = await paletteGitTab($, on)
+  expect((await ui.find({ type: 'Text', text: '3 files' }))?.props.color).toBe('#112233')
+  expect((await ui.find({ type: 'Text', text: '↑3' }))?.props.color).toBe('#778899')
+  expect((await ui.find({ type: 'Text', text: /^feat$/, in: 'row:c:abc1234ffff' }))?.props.color).toBe('#aabbcc')
+  expect((await ui.find({ type: 'Text', text: /^chore$/, in: 'row:c:ghi9012ffff' }))?.props.color).toBe('#445566')
+  expect(toasts).toEqual([])
+})
+
+test('a palette label dims the History day line at 60%', async ($, on) => {
+  const day = 24 * 60 * 60 * 1000
+  const history = [Date.now() - 3 * day, Date.now()].map((timestamp, i) => JSON.stringify({ display: `p${i}`, timestamp, sessionId: 'chat-1' })).join('\n')
+  paletteHost(on, JSON.stringify({ palette: { shared: { label: '#ffffff' } } }), history)
+  await paletteStart($)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await ui.redraw()
+  expect((await ui.find({ type: 'Text', text: 'Today' }))?.props.color).toBe('#ffffff')
+  const [left] = await ui.findAll({ type: 'Text', text: /^─+ $/ })
+  expect(left?.props.color).toBe('#999999')
+})
+
+test('bad palette entries: one toast names each, defaults kept', async ($, on) => {
+  const config = { palette: { shared: { lable: '#112233' }, margin: { label: '#112233', ahead: 'gold' }, hud: { rampHot: '#ffaa5' } } }
+  const toasts = paletteHost(on, JSON.stringify(config))
+  const ui = await paletteGitTab($, on)
+  expect(toasts).toEqual(['claudzilla.json: ignored palette.shared.lable, palette.margin.label, palette.margin.ahead, palette.hud.rampHot'])
+  expect((await ui.find({ type: 'Text', text: '↑3' }))?.props.color).toBe('#d4b860')
+  expect((await ui.find({ type: 'Text', text: /^chore$/, in: 'row:c:ghi9012ffff' }))?.props.color).toBe('#a396d2')
+})
+
+test('an ignored key with control characters shows in the toast without them', async ($, on) => {
+  const toasts = paletteHost(on, JSON.stringify({ palette: { shared: { 'bad\u001b[31mkey': '#112233' } } }))
+  await paletteStart($)
+  expect(toasts).toEqual(['claudzilla.json: ignored palette.shared.bad[31mkey'])
+})
+
+test('no palette key: no toast', async ($, on) => {
+  const toasts = paletteHost(on, '{}')
+  await paletteStart($)
+  expect(toasts).toEqual([])
+})
+
+test('a broken claudzilla.json: no toast', async ($, on) => {
+  const toasts = paletteHost(on, '{ nope')
+  await paletteStart($)
+  expect(toasts).toEqual([])
+})

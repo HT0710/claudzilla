@@ -1108,3 +1108,34 @@ test('a bad config file or value leaves the default', async ($, on) => {
   await $.session.start(start)
   expect(await drawn($, 'Edit', patch('-a', '+b'))).toBe('● Updated (a.txt)  +1 −1')
 })
+
+const lit = async ($: any) => {
+  const ui = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
+  await ui.resize({ columns: 60, rows: 1, in: 'fold:e1' })
+  await ui.pointer({ type: 'enter', x: 0, y: 0, in: 'fold:e1' })
+  return (await ui.find({ type: 'Box', in: 'fold:e1' }))?.props.backgroundColor
+}
+
+test('a palette lit colours the fold row under the pointer', async ($, on) => {
+  native(on)
+  configured(on, { '/cfg/claudzilla.json': JSON.stringify({ palette: { shared: { lit: '#112233' } } }) })
+  await $.session.start(start)
+  expect(await lit($)).toBe('#112233')
+})
+
+test('a palette in a repo file is not read', async ($, on) => {
+  native(on)
+  configured(on, { '/repo/.claude/claudzilla.json': JSON.stringify({ palette: { shared: { lit: '#112233' } } }) })
+  await $.session.start(start)
+  expect(await lit($)).toBe('#0f1c28')
+})
+
+test('a bad palette value keeps the default, silently', async ($, on) => {
+  const toasts: string[] = []
+  native(on)
+  configured(on, { '/cfg/claudzilla.json': JSON.stringify({ palette: { shared: { lit: 'red' } } }) })
+  on('ui.toast', (_: any, e: any) => { toasts.push(e.text); return { value: undefined } })
+  await $.session.start(start)
+  expect(await lit($)).toBe('#0f1c28')
+  expect(toasts).toEqual([])
+})

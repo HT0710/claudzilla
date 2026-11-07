@@ -1,11 +1,11 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 import { href, linked, mentions } from './mentions'
-import { DEFAULTS } from './palette'
+import { DEFAULTS, readPalette } from './palette'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
-const LIT = DEFAULTS.shared.lit
+let LIT = DEFAULTS.shared.lit
 
 // margin's noun, mirrored: listing margin as a dependency would stop this plugin loading without it.
 declare module 'claude-code' {
@@ -426,6 +426,7 @@ async function links($: EngineInterface, text: string): Promise<Map<string, Link
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await t.start(traceIo($))
+    LIT = (await readPalette($)).palette.shared.lit
     hideEditDiff = await readHideEditDiff($, e.cwd)
     return next(e)
   })
