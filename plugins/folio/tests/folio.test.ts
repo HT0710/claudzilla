@@ -1136,6 +1136,25 @@ for (const [name, tool, input, output, extra] of [
   })
 }
 
+test('a running write stays native', async ($, on) => {
+  native(on)
+  expect(await drawn($, 'Write', undefined, { isRunning: true })).toBe('native')
+})
+
+for (const [tool, output, input] of [
+  ['Edit', patch('-a', '+b'), undefined],
+  ['Write', created('a\n'), undefined],
+  ['WebFetch', fetched, { url: 'https://example.com' }],
+  ['WebSearch', searched, { query: 'q' }],
+  ['Agent', agentDone, { description: 'd' }],
+  ['Skill', { success: true, commandName: 's' }, { skill: 's' }],
+] as const) {
+  test(`an interrupted ${tool} with output, not errored, stays native`, async ($, on) => {
+    native(on)
+    expect(await drawn($, tool, output, { isInterrupted: true, ...(input && { input }) })).toBe('native')
+  })
+}
+
 test('a fetch between edits starts a new run, and takes no part in it', async ($, on) => {
   native(on)
   const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
