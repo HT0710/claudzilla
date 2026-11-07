@@ -1121,6 +1121,9 @@ for (const [name, tool, input, output, want] of [
 for (const [name, tool, input, output, extra] of [
   ['a failed fetch', 'WebFetch', { url: 'https://x.y' }, 'Error: refused', { isErrored: true }],
   ['a running fetch', 'WebFetch', { url: 'https://x.y' }, undefined, { isRunning: true }],
+  ['a running search', 'WebSearch', { query: 'q' }, undefined, { isRunning: true }],
+  ['a running agent', 'Agent', { description: 'd' }, undefined, { isRunning: true }],
+  ['a running skill', 'Skill', { skill: 's' }, undefined, { isRunning: true }],
   ['an expanded search', 'WebSearch', { query: 'q' }, searched, { isExpanded: true }],
   ['an interrupted agent', 'Agent', { description: 'd' }, 'Error: cut.', { isErrored: true, isInterrupted: true }],
   ['an agent of unknown shape', 'Agent', { description: 'd' }, { status: 'teammate_spawned' }, {}],
