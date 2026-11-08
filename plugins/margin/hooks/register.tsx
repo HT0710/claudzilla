@@ -172,6 +172,10 @@ const historyTop = atom({ plugin: 'margin', key: 'historyTop' } as const, 0)
 // Rows the Overview's TOPICS take, as their divider was dragged; -1 until it is. Then the first topic shown.
 const topicsSplit = atom({ plugin: 'margin', key: 'topicsSplit' } as const, -1)
 const topicsTop = atom({ plugin: 'margin', key: 'topicsTop' } as const, 0)
+// The first STEPS row shown, and whether it follows the step in progress: the wheel or a cue there stops that until
+// the next prompt.
+const stepsTop = atom({ plugin: 'margin', key: 'stepsTop' } as const, 0)
+const stepsFollow = atom({ plugin: 'margin', key: 'stepsFollow' } as const, true)
 
 const EMPTY_INTENT: Intent = { wants: '', steps: [], at: 0, ended: false }
 // Claude's last intent report.
@@ -697,6 +701,9 @@ let historyEnd: number | undefined
 // offset `end`; `offset`, the engine's window then, as a pointer's row counts from it.
 // Its divider is row `to`.
 let topicsZone: { from: number; to: number; end: number; offset: number; divider: Split } | undefined
+// The Overview's STEPS as last drawn: rows `from` to `to`, the first shown `top`, up to offset `end`; `offset` as
+// topicsZone's.
+let stepsZone: { from: number; to: number; top: number; end: number; offset: number } | undefined
 // A list zone's window over `n` rows, its cues as a modal's: a zone too short for them still scrolls, bare.
 // Its last offset: the window at `top` Infinity.
 const zoneWindow = (n: number, top: number, rows: number) =>
@@ -1218,6 +1225,8 @@ export const register: Register = (on, options) => {
     // The new prompt lists first: back to the top to show it.
     await update($, historyTop, () => 0)
     await update($, topicsTop, () => 0)
+    await update($, stepsTop, () => 0)
+    await update($, stepsFollow, () => true)
     await update($, submitted, n => n + 1)
     // A background task's result carries the last request on: Claude pings its report, not a new one, so it reopens.
     if (e.origin.kind === 'task-notification') {
@@ -1430,6 +1439,14 @@ export const register: Register = (on, options) => {
       await update($, topicsTop, top => Math.max(0, Math.min(Math.min(top, topics.end) + e.by, topics.end)))
       return {}
     }
+    // From the row drawn: following may have scrolled past the offset stored.
+    const steps = stepsZone
+    const stepRow = (e.pointer?.row ?? -Infinity) + (steps?.offset ?? 0)
+    if (steps && stepRow >= steps.from && stepRow < steps.to) {
+      await update($, stepsFollow, () => false)
+      await update($, stepsTop, () => Math.max(0, Math.min(steps.top + e.by, steps.end)))
+      return {}
+    }
     const zones = gitZones
     if (!zones) return next(e)
     if (zones.commitsAt && (e.pointer?.row === zones.commitsAt || held('git'))) {
@@ -1606,7 +1623,7 @@ export const register: Register = (on, options) => {
       modalZone = undefined
     }
     if (current !== 'History') historyEnd = undefined
-    if (current !== 'Overview') topicsZone = undefined
+    if (current !== 'Overview') topicsZone = stepsZone = undefined
     if (current === 'Decisions') {
       body = emptyNote(
         e.props.scroll.bodyRows - BAR_ROWS - 2,
@@ -3209,13 +3226,20 @@ export const register: Register = (on, options) => {
           }
           return sum + rows
         }, 0)
-      // The body never scrolls (its bars stay pinned): STEPS gets the rows left under TAKE, the last one a "… N more"
-      // when they run out. TOPICS' header, zone and divider, the status row and its rule, ASK, TAKE and their rules.
+      // The body never scrolls (its bars stay pinned): STEPS gets the rows left under TAKE, its cues included.
+      // TOPICS' header, zone and divider, the status row and its rule, ASK, TAKE and their rules.
       const take = shown.take
       const takeText = take ? `${TAKE_MARK[take.stance][0]} ${fit(take.label, 16)}${take.why ? `: ${take.why}` : ''}` : ''
       const stepRoom =
         e.props.scroll.bodyRows - 2 - BAR_ROWS - (hasReport ? 2 : 0) - (zoned ? 2 + topicsRows : 0) -
         wrapRows(shown.wants, Math.max(1, width - LABEL)) - (take ? 1 + wrapRows(takeText, Math.max(1, width - LABEL)) : 0) - 1
+      const following = await read($, stepsFollow)
+      const storedSteps = await read($, stepsTop)
+      if (!next.signal.aborted) stepsZone = undefined
+      const setSteps = async (to: number) => {
+        await update($, stepsFollow, () => false)
+        await update($, stepsTop, () => to)
+      }
       const topicRows = shownTopics.map(({ topic, i }) => (
         <Box key={`topic:${i}`} paddingLeft={2} flexShrink={0}>
           <Text wrap="wrap" color={i === about.topics.length - 1 ? 'claude' : SCOPE}>{topic}</Text>
@@ -3291,13 +3315,23 @@ export const register: Register = (on, options) => {
                     <Text bold color={HUD.label}>STEPS</Text>
                   </Box>
                   <Box flexDirection="column">
-                    {((rows: unknown[]) =>
-                      rows.length <= stepRoom
-                        ? rows
-                        : [
-                            ...rows.slice(0, Math.max(0, stepRoom - 1)),
-                            <Text key="cut" color={shade(HUD.faint)}>{`… ${rows.length - Math.max(0, stepRoom - 1)} more`}</Text>,
-                          ])(shown.steps.flatMap((step, i) => {
+                    {((perStep: unknown[][]) => {
+                      const rows = perStep.flat()
+                      // Following, the step in progress kept in view, scrolled as little as that takes.
+                      const doing = following ? shown.steps.findIndex(step => step.status === 'in_progress') : -1
+                      const at = doing < 0 ? -1 : perStep.slice(0, doing).reduce((n, one) => n + one.length, 0)
+                      let w = zoneWindow(rows.length, at < 0 ? storedSteps : Math.min(storedSteps, at), stepRoom)
+                      while (at >= w.top + w.shown) {
+                        const down = zoneWindow(rows.length, w.top + 1, stepRoom)
+                        if (down.top === w.top) break
+                        w = down
+                      }
+                      const from = e.props.scroll.bodyRows - BAR_ROWS - stepRoom
+                      if (!next.signal.aborted)
+                        stepsZone = { from, to: from + Math.min(rows.length, stepRoom), top: w.top, end: zoneWindow(rows.length, Infinity, stepRoom).top, offset: e.props.scroll.offset }
+                      const stepCues = cues('steps', width - LABEL, w, setSteps)
+                      return [w.above > 0 && stepCues.up, ...rows.slice(w.top, w.top + w.shown), w.below > 0 && stepCues.down]
+                    })(shown.steps.map((step, i) => {
                       const all = agentRows[i] ?? []
                       // Past 3, the rest fold into a count, so a fan-out does not push later steps out of view.
                       const folds = all.length > 3
