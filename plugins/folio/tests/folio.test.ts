@@ -1863,6 +1863,13 @@ test('a group with no Bash write folds too, one part per tool kind in first-call
   expect(await groupOf($, calls)).toBe('● Read (2 files) · Searched (2 patterns) · Ran (1 command) · WebFetch (1)')
 })
 
+test('a group names its edits and writes in the past tense', async ($, on) => {
+  native(on)
+  bashFs(on, {})
+  const calls = [call('e1', 'Edit', { file_path: '/p/a.txt' }), call('e2', 'Edit', { file_path: '/p/b.txt' }), call('w1', 'Write', { file_path: '/p/c.txt' })]
+  expect(await groupOf($, calls)).toBe('● Edited (2 files) · Wrote (1 file)')
+})
+
 test('a live read-only group reads each kind in its running form', async ($, on) => {
   native(on)
   blinks(on)

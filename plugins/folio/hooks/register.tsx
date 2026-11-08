@@ -809,6 +809,7 @@ export const register: Register = on => {
   // A group's header part per tool kind: done label, running label, noun counted.
   const GROUP_KINDS: Record<string, [string, string, string]> = {
     Read: ['Read', 'Reading', 'file'], Grep: ['Searched', 'Searching', 'pattern'], Glob: ['Searched', 'Searching', 'pattern'], Bash: ['Ran', 'Running', 'command'],
+    Edit: ['Edited', 'Editing', 'file'], Write: ['Wrote', 'Writing', 'file'],
   }
   // A group folds into a row of its own, like a run of edits; a click opens a tree of its calls.
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
