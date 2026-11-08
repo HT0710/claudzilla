@@ -305,7 +305,7 @@ test('the rules behind an open modal fade too, the ⇕ divider included', async 
   expect(JSON.stringify((await ui.find({ key: 'divider' }))?.props)).toContain('"faded":true')
 })
 
-test('a back-to-top line behind an open modal fades and takes no click', async ($, on) => {
+test('a list cue behind an open modal fades and takes no press', async ($, on) => {
   quiet(on)
   const files = Array.from({ length: 30 }, (_, i) => ` M f${i}.ts\n`).join('')
   on('process.run', (_, e) => ran(git(repoOn('b20', { status: `## b20...origin/b20\n${files}` }))(e.argv) ?? ''))
@@ -313,10 +313,9 @@ test('a back-to-top line behind an open modal fades and takes no click', async (
   await wheel($, 5, 6)
   expect(await ui.find({ type: 'Text', text: /f0\.ts/ })).toBeUndefined()
   await tap(ui, 'branch')
-  expect(JSON.stringify((await ui.find({ key: 'top:changes' }))?.props)).toContain('"faded":true')
-  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'top:changes' })
-  await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: 'top:changes' })
-  expect(await ui.find({ type: 'Text', text: /f0\.ts/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'changes:up' })).toBeUndefined()
+  // The modal's own ↑ stays lit; the CHANGES one, behind it, fades.
+  expect((await ui.findAll({ type: 'Text', text: '↑' })).map(t => t.props.color)).toContain('#3a424a')
 })
 
 test('under a PR modal the branch row fades; the PR row keeps its colours on the lit row', async ($, on) => {

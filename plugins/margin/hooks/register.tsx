@@ -670,8 +670,6 @@ type Layer = { frame: Frame; top: number; end: number }
 let modalZone: { m: Layer; s?: Layer } | undefined
 // What a press on each top row's Client does, as the last Git tab draw set it.
 let rowActs: Record<string, () => unknown> = {}
-// What a click on each back-to-top line does, as the last draw set it.
-const topActs: Record<string, () => unknown> = {}
 // The tab rows each top row's card spans, from its top to its end, and each top row's own, as the last Git tab draw set them.
 let cardSpan: Record<string, [number, number]> = {}
 let rowLines: Record<string, number> = {}
@@ -699,9 +697,10 @@ let historyEnd: number | undefined
 // offset `end`; `offset`, the engine's window then, as a pointer's row counts from it.
 // Its divider is row `to`.
 let topicsZone: { from: number; to: number; end: number; offset: number; divider: Split } | undefined
-// The last offset of a zone `rows` tall over `n` rows: one more as, once scrolled, the back-to-top line
-// takes a row, unless it would be the zone's only one.
-const zoneEnd = (n: number, rows: number) => (n > rows ? n - rows + (rows > 1 ? 1 : 0) : 0)
+// A list zone's window over `n` rows, its cues as a modal's: a zone too short for them still scrolls, bare.
+// Its last offset: the window at `top` Infinity.
+const zoneWindow = (n: number, top: number, rows: number) =>
+  rows < 3 ? { top: Math.max(0, Math.min(top, n - rows)), shown: Math.min(rows, n), above: 0, below: 0 } : scrollWindow(n, top, rows, false)
 // Counts UTF-16 units, not cells: a wide glyph (CJK, emoji) can still overflow by one.
 // A commit row's key: hover scopes take at most 64 characters, so a SHA-256 id goes by its first 40.
 const commitKey = (sha: string) => `c:${sha.slice(0, 40)}`
@@ -1355,7 +1354,7 @@ export const register: Register = (on, options) => {
     return { element: e.element }
   })
 
-  // A divider, dragged or clicked, or a back-to-top line clicked: the render clamps a divider to keep 1 row on either side.
+  // A divider, dragged or clicked: the render clamps a divider to keep 1 row on either side.
   on('ui.message', async ($, e, next) => {
     // A row Client: the pointer entered or left it, or it was pressed.
     if (e.requestId === PANE && typeof e.element === 'string' && e.element.startsWith('row:')) {
@@ -1385,10 +1384,6 @@ export const register: Register = (on, options) => {
         await update($, rowPointer, () => ({ left: null, at: null }))
         await rowActs[row]?.()
       }
-      return {}
-    }
-    if (e.requestId === PANE && (e.data as { top?: unknown } | undefined)?.top) {
-      await topActs[e.element]?.()
       return {}
     }
     const rows = (e.data as { split?: unknown } | undefined)?.split
@@ -1525,29 +1520,32 @@ export const register: Register = (on, options) => {
     const elements = $.ui.resolve(e)
     const { Box, Button, Code, Link, Text } = elements
     const Client = 'Client' in elements ? elements.Client : undefined
-    // A rule with ↑ in it: back to a scrolled zone's top. Drawn by the divider's Client, so the whole row is the
-    // target and only ↑ lights. Unshrunk, as the topics under it: a zone's last row wrapping past its edge would
-    // squeeze it out. A column, as a row Box sizes the Client to its content: ↑ alone, no rule.
-    const topLine = (key: string, onPress: () => unknown, faded?: boolean) => {
-      topActs[key] = onPress
-      if (Client)
-        return (
-          <Box flexShrink={0} flexDirection="column">
-            <Client key={key} module="./divider.tsx" props={{ top: true, split: 0, min: 0, max: 0, faded: !!faded, hairline: DIMMED }} height={1} />
+    // The Git modal's scroll cues, `inner` columns wide. `up`: ── ↑ N more ──, back to the top; the arrow bold in the
+    // border colour, the count faint. `down`: ↓ N more turns the page, the first row not shown becoming the top row;
+    // uncounted, as COMMITS' past the pages read. Unshrunk: a zone's last row wrapping past its edge would squeeze them out.
+    const cues = (key: string, inner: number, w: { top: number; shown: number; above: number; below: number }, setTop: (to: number) => unknown, counted = true) => {
+      const mid = ` ${w.above} more `
+      const fill = Math.max(0, inner - 2 - mid.length)
+      return {
+        up: (
+          <Box flexShrink={0}>
+            <Text color="promptBorder">{`${'─'.repeat(Math.floor(fill / 2))} `}</Text>
+            <Button key={`${key}:up`} plain onPress={() => setTop(0)}>
+              <Text bold color="promptBorder">↑</Text>
+            </Button>
+            <Text color={HUD.faint}>{mid}</Text>
+            <Text color="promptBorder">{'─'.repeat(Math.ceil(fill / 2))}</Text>
           </Box>
-        )
-      // Elsewhere only the symbol is the button, the Button heating the scope and the Text's hover taking the color:
-      // a Button lights as wide as it draws.
-      const fill = Math.max(0, e.props.bodyColumns - 2 * PAD - 3)
-      return (
-        <Box flexShrink={0}>
-          <Text color="promptBorder">{'─'.repeat(Math.floor(fill / 2))} </Text>
-          <Button key={key} plain hover={{ scope: key, color: 'claude' }} onPress={onPress}>
-            <Text bold color="promptBorder" hover={{ scope: key, color: 'claude' }}>↑</Text>
-          </Button>
-          <Text color="promptBorder"> {'─'.repeat(Math.ceil(fill / 2))}</Text>
-        </Box>
-      )
+        ),
+        down: (
+          <Box flexShrink={0} justifyContent="center">
+            <Button key={`${key}:down`} plain onPress={() => setTop(w.top + w.shown)}>
+              <Text bold color="promptBorder">↓</Text>
+            </Button>
+            <Text color={HUD.faint}>{counted ? ` ${w.below} more` : ' more'}</Text>
+          </Box>
+        ),
+      }
     }
     // A tab saved before it was hidden falls back to the first shown.
     const saved = await read($, tab)
@@ -1724,15 +1722,14 @@ export const register: Register = (on, options) => {
           </Button>
         </Box>,
       ])
-      // The rows under the tabs, their rule and the header, less the back-to-top line once scrolled.
+      // The rows under the tabs, their rule and the header, cues included.
       // Clamped: the list shrinks after a rewind.
       const listRows = Math.max(0, e.props.scroll.bodyRows - BAR_ROWS - 3)
-      const end = zoneEnd(lines.length, listRows)
-      const from = Math.min(await read($, historyTop), end)
-      const hasTop = from > 0 && listRows > 1
-      if (!next.signal.aborted) historyEnd = end
+      const w = zoneWindow(lines.length, await read($, historyTop), listRows)
+      const listCues = cues('history', e.props.bodyColumns - 2 * PAD, w, to => update($, historyTop, () => to))
+      if (!next.signal.aborted) historyEnd = zoneWindow(lines.length, Infinity, listRows).top
       zones = { zones: prompts.length ? 'list' : 'empty', prompts: prompts.length, rows: lines.length, listRows }
-      scroll = { from, backToTop: hasTop }
+      scroll = { from: w.top, above: w.above, below: w.below }
       body = (
         <Box flexDirection="column">
           {prompts.length > 0 && (
@@ -1761,8 +1758,9 @@ export const register: Register = (on, options) => {
                 <Text color={HUD.faint}> to reuse.</Text>
               </Box>,
             )}
-          {hasTop && topLine('top', () => update($, historyTop, () => 0))}
-          {lines.slice(from, from + listRows - (hasTop ? 1 : 0))}
+          {w.above > 0 && listCues.up}
+          {lines.slice(w.top, w.top + w.shown)}
+          {w.below > 0 && listCues.down}
         </Box>
       )
     } else if (current === 'Git') {
@@ -1861,11 +1859,9 @@ export const register: Register = (on, options) => {
       const commitsRows = Math.max(1, files.length ? free - changesRows : free + 2)
       // Clamped here too: a list shrinks, or the divider grows its zone, after the wheel moved it.
       const top = await read($, scrolled)
-      const changesFrom = Math.min(top.changes, zoneEnd(files.length, changesRows))
-      const commitsFrom = Math.min(top.commits, total ? zoneEnd(Number(total), commitsRows) : Infinity)
-      // Rows each zone lists under its back-to-top line, there once scrolled.
-      const changesShown = changesRows - (changesFrom > 0 && changesRows > 1 ? 1 : 0)
-      const commitsShown = commitsRows - (commitsFrom > 0 && commitsRows > 1 ? 1 : 0)
+      const changesW = zoneWindow(files.length, top.changes, changesRows)
+      // With no total, clamped once the pages read count the commits.
+      const commitsFrom = total ? zoneWindow(Number(total), top.commits, commitsRows).top : top.commits
       const page = Math.floor(commitsFrom / PAGE)
       const logKey = `${key}:${page}`
       if (head && logRead?.key !== logKey) logRead = { key: logKey, signal: next.signal, run: readLog($, page) }
@@ -1877,6 +1873,8 @@ export const register: Register = (on, options) => {
       }
       // An empty repo's log fails: no commits to list.
       const commits = log?.exitCode === 0 ? parseLog(log.stdout) : []
+      const commitsN = Number(total) || page * PAGE + commits.length
+      const commitsW = zoneWindow(commitsN, commitsFrom, commitsRows)
       // CHANGES' rows end under its last file: the tabs, their rule, the branch, its rule and the header.
       // Only a live draw sets them: a dropped one finishing after another tab drew would take its wheel.
       if (!next.signal.aborted)
@@ -1884,8 +1882,8 @@ export const register: Register = (on, options) => {
           ? undefined
           : {
               commitsAt: files.length && changesRows ? 4 + topRows + changesRows : 0,
-              changes: zoneEnd(files.length, changesRows),
-              commits: zoneEnd(Number(total) || page * PAGE + commits.length, commitsRows),
+              changes: zoneWindow(files.length, Infinity, changesRows).top,
+              commits: zoneWindow(commitsN, Infinity, commitsRows).top,
               divider: { rows: changesRows, min: changesMin, max: changesMax },
             }
       zones = {
@@ -1928,12 +1926,14 @@ export const register: Register = (on, options) => {
       }
       // Behind a modal only the row that opened it presses, and closes it.
       // The COMMITS rows drawn, and the tab row the first of them sits on: under CHANGES, its divider and the COMMITS
-      // header, past the back-to-top line once scrolled.
-      const shownCommits = commits.slice(commitsFrom - page * PAGE, commitsFrom - page * PAGE + commitsShown)
-      const commitsAt0 = topRows + 2 + (files.length ? changesRows + 2 : 0) + (commitsShown < commitsRows ? 1 : 0)
+      // header, past the top cue once scrolled.
+      const shownCommits = commits.slice(Math.max(0, commitsW.top - page * PAGE), commitsW.top - page * PAGE + commitsW.shown)
+      const commitsAt0 = topRows + 2 + (files.length ? changesRows + 2 : 0) + (commitsW.above ? 1 : 0)
       const commitStats = shownCommits.length ? await readStats($, shownCommits.map(c => c.full)) : stats
       // The CHANGES rows drawn: a deleted file has nothing to open, so no act; untracked ones count their lines.
-      const shownChanges = changes.slice(changesFrom, changesFrom + changesShown)
+      const shownChanges = changes.slice(changesW.top, changesW.top + changesW.shown)
+      const changesCues = cues('changes', room + 3, changesW, to => update($, scrolled, top => ({ ...top, changes: to })))
+      const commitsCues = cues('commits', room + 3, commitsW, to => update($, scrolled, top => ({ ...top, commits: to })), false)
       const root = gitDir?.root ?? ''
       const untrackedShown = shownChanges.filter(c => c.xy === '??').map(c => c.path)
       const wcKey = `${key}:${untrackedShown.join('\0')}`
@@ -2001,7 +2001,7 @@ export const register: Register = (on, options) => {
         return fitsRow(all) ? [all] : [...pack(c.words), ...pack(c.stage)]
       }
       const lower = [
-        ...shownChanges.map((c, i) => ({ key: fileKey(c.path), zone: 'changes', at: topRows + 2 + (changesShown < changesRows ? 1 : 0) + i, n: pillRows(c).length })),
+        ...shownChanges.map((c, i) => ({ key: fileKey(c.path), zone: 'changes', at: topRows + 2 + (changesW.above ? 1 : 0) + i, n: pillRows(c).length })),
         ...shownCommits.map((c, j) => ({ key: commitKey(c.full), zone: 'commits', at: commitsAt0 + j, n: 1 + (c.refs.length || c.tags.length ? 1 : 0) + (commitStats.has(c.full) ? 1 : 0) })),
       ]
       const upOf = (at: number, n: number) => at + 4 + n > tabRows
@@ -2157,28 +2157,7 @@ export const register: Register = (on, options) => {
         layers[layer] = { frame: f, top: w.top, end: scrollWindow(rows.length, Infinity, room, merged).top }
         const setTop = (to: number) =>
           update($, modal, m => (!m ? m : layer === 's' ? (m.sub ? { ...m, sub: { ...m.sub, top: to } } : m) : { ...m, top: to }))
-        const mid = ` ${w.above} more `
-        const fill = Math.max(0, inner - 2 - mid.length)
-        // ── ↑ N more ──: back to the top; the arrow bold in the border colour, the count faint.
-        const up = (
-          <Box>
-            <Text color="promptBorder">{`${'─'.repeat(Math.floor(fill / 2))} `}</Text>
-            <Button key={`${layer}:up`} plain onPress={() => setTop(0)}>
-              <Text bold color="promptBorder">↑</Text>
-            </Button>
-            <Text color={HUD.faint}>{mid}</Text>
-            <Text color="promptBorder">{'─'.repeat(Math.ceil(fill / 2))}</Text>
-          </Box>
-        )
-        // ↓ N more turns the page: the first row not shown becomes the top row.
-        const down = (
-          <Box justifyContent="center">
-            <Button key={`${layer}:down`} plain onPress={() => setTop(w.top + w.shown)}>
-              <Text bold color="promptBorder">↓</Text>
-            </Button>
-            <Text color={HUD.faint}>{` ${w.below} more`}</Text>
-          </Box>
-        )
+        const { up, down } = cues(layer, inner, w, setTop)
         const close = () => setModal($, m => (layer === 's' && m ? { ...m, sub: undefined } : null))
         // Every row one row tall, as the window counts them: a row too wide is cut, never wrapped.
         const one = (row: JSX.Element) => (
@@ -3014,7 +2993,7 @@ export const register: Register = (on, options) => {
           )}
           {files.length > 0 && changesRows > 0 && (
             <Box flexDirection="column" height={changesRows}>
-              {changesShown < changesRows && topLine('top:changes', () => update($, scrolled, top => ({ ...top, changes: 0 })), dimmed)}
+              {changesW.above > 0 && changesCues.up}
               {shownChanges.map((c, i) => {
                 // The index's letter dim, the worktree's bright; untracked and conflicted both bright, one colour.
                 const whole = c.xy === '??' || c.words[0] === 'conflict'
@@ -3036,9 +3015,10 @@ export const register: Register = (on, options) => {
                   fileKey(c.path),
                   left,
                   right ? [right] : [],
-                  card(`card:${fileKey(c.path)}`, topRows + 2 + (changesShown < changesRows ? 1 : 0) + i, 'center', ...status),
+                  card(`card:${fileKey(c.path)}`, topRows + 2 + (changesW.above ? 1 : 0) + i, 'center', ...status),
                 )
               })}
+              {changesW.below > 0 && changesCues.down}
             </Box>
           )}
           {/* Only the terminal and desktop draw a Client: elsewhere the rule stays put. */}
@@ -3058,7 +3038,7 @@ export const register: Register = (on, options) => {
               </Box>
             </Box>
           )}
-          {commitsShown < commitsRows && topLine('top:commits', () => update($, scrolled, top => ({ ...top, commits: 0 })), dimmed)}
+          {commitsW.above > 0 && commitsCues.up}
           {/* Local commits bright, pushed ones dim; the type colored by what it does (TYPES). */}
           {shownCommits.map(({ full, short, author, at, refs, tags, subject: text }, j) => {
             const isLocal = !!local?.has(full)
@@ -3095,6 +3075,7 @@ export const register: Register = (on, options) => {
               ),
             )
           })}
+          {commitsW.below > 0 && commitsCues.down}
           {cards}
           {modalBox}
         </Box>
@@ -3172,15 +3153,29 @@ export const register: Register = (on, options) => {
       const topicsMax = Math.max(0, free - 1)
       const topicsMin = Math.min(1, topicsMax)
       const topicsRows = draggedTopics >= 0 ? Math.max(topicsMin, Math.min(draggedTopics, topicsMax)) : Math.min(needed, Math.ceil(free / 2), topicsMax)
-      // The last offset: the fewest oldest topics that fill the zone, less the back-to-top line once scrolled.
-      const endRows = needed > topicsRows && topicsRows > 1 ? topicsRows - 1 : topicsRows
+      const zoned = !!shown.wants && hasAbout
+      // The modal's cues, each a row, where the zone has 3 rows for them: one each and one to list.
+      const cued = zoned && needed > topicsRows && topicsRows >= 3
+      // The last offset: the fewest oldest topics that fill the zone under the top cue, there once scrolled.
+      const endRows = cued ? topicsRows - 1 : topicsRows
       let topicsEnd = topics.length
       for (let rows = 0; topicsEnd > 0 && rows + lines(topics[topicsEnd - 1]!.topic) <= endRows; topicsEnd--) rows += lines(topics[topicsEnd - 1]!.topic)
       // The oldest alone may take more rows than the zone: it still shows, cut by its edge.
       topicsEnd = Math.min(topicsEnd, Math.max(0, topics.length - 1))
-      const zoned = !!shown.wants && hasAbout
       const topicsFrom = zoned ? Math.min(await read($, topicsTop), topicsEnd) : 0
-      const hasTopicsTop = topicsFrom > 0 && topicsRows > 1
+      // The topics from the offset that fit whole in `rows`; the cues count topics, a cut one among those below.
+      const whole = (rows: number) => {
+        let used = 0
+        const past = topics.slice(topicsFrom).findIndex(one => (used += lines(one.topic)) > rows)
+        return past < 0 ? topics.length - topicsFrom : past
+      }
+      const upRows = cued && topicsFrom > 0 ? 1 : 0
+      const rest = topics.length - topicsFrom
+      const hasDown = cued && Math.max(1, whole(topicsRows - upRows)) < rest
+      const topicsRoom = topicsRows - upRows - (hasDown ? 1 : 0)
+      const topicsW = { top: topicsFrom, shown: Math.max(1, whole(topicsRoom)), above: upRows && topicsFrom, below: 0 }
+      topicsW.below = hasDown ? rest - topicsW.shown : 0
+      const topicsCues = cues('topics', width, topicsW, to => update($, topicsTop, () => to))
       if (!next.signal.aborted) topicsZone = zoned
           ? { from: 3, to: 3 + topicsRows, end: topicsEnd, offset: e.props.scroll.offset, divider: { rows: topicsRows, min: topicsMin, max: topicsMax } }
           : undefined
@@ -3189,7 +3184,7 @@ export const register: Register = (on, options) => {
       if (zoned) {
         let used = 0
         shownTopics = shownTopics.filter(one => {
-          const starts = used < topicsRows - (hasTopicsTop ? 1 : 0)
+          const starts = used < topicsRoom
           used += lines(one.topic)
           return starts
         })
@@ -3257,8 +3252,11 @@ export const register: Register = (on, options) => {
               ...(zoned
                 ? [
                     <Box key="topics" flexDirection="column" height={topicsRows} overflow="hidden">
-                      {hasTopicsTop && topLine('top:topics', () => update($, topicsTop, () => 0))}
-                      {topicRows}
+                      {topicsW.above > 0 && topicsCues.up}
+                      <Box flexDirection="column" height={topicsRoom} overflow="hidden" flexShrink={0}>
+                        {topicRows}
+                      </Box>
+                      {topicsW.below > 0 && topicsCues.down}
                     </Box>,
                   ]
                 : topicRows),
