@@ -1744,7 +1744,7 @@ export const register: Register = (on, options) => {
         </Box>
       )
     } else if (current === 'Git') {
-      const key = `${await read($, submitted)}:${await read($, toolCalls)}`
+      const key = `${await $.session.id()}:${await read($, submitted)}:${await read($, toolCalls)}`
       if (gitRead?.key !== key) gitRead = { key, signal: next.signal, runs: readGit($) }
       let runs = await gitRead.runs
       // A draw dropped mid-read (a newer one began, the pane closed) takes the git runs still going down

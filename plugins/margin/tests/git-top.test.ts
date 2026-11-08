@@ -49,10 +49,11 @@ const NOW = 1_800_000_000_000
 // `dir`: the git dir's files; fs.read answers from it by path under /repo/.git.
 // `clock`: a mock clock the test drives, which answers clock.now itself.
 // `dir`: file text by path; null, a file that is gone, so its read fails.
-const quiet = (on: Parameters<TestBody>[1], fetched = 5 * MIN, basic = false, dir: Record<string, string | null> = {}, clock = false) => {
+// `session`: the session id each read answers, so a test can start a new one.
+const quiet = (on: Parameters<TestBody>[1], fetched = 5 * MIN, basic = false, dir: Record<string, string | null> = {}, clock = false, session = () => 'chat-1') => {
   if (!clock) on('clock.now', () => ({ value: NOW }))
   on('env.get', () => ({ value: '/home/me' }))
-  on('session.id', () => ({ value: 'chat-1' }))
+  on('session.id', () => ({ value: session() }))
   on('fs.read', (_, e) => {
     const text = dir[String((e as any).path).replace('/repo/.git/', '')]
     if (text === null) throw new Error('ENOENT')
@@ -408,6 +409,19 @@ test('a tool call keeps the open modal and its offset', async ($, on) => {
   await wheel($, 1, 10)
   await $.tool.call({ tool: 'Bash', command: 'true' })
   expect(await firstListed(ui)).toBe('b15')
+})
+
+test('a new session, as /clear starts, reads git afresh before any prompt or tool call', async ($, on) => {
+  let session = 'chat-1'
+  quiet(on, 5 * MIN, false, {}, false, () => session)
+  const repo = repoOn('a')
+  on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
+  const ui = await mount($)
+  expect(await piece(ui, 'branch', '⎇ a')).toBeDefined()
+  repo.status = '## b...origin/b\n'
+  session = 'chat-2'
+  await wheel($, 1, 10)
+  expect(await piece(ui, 'branch', '⎇ b')).toBeDefined()
 })
 
 const treeRepo = (current: string) => repoOn(current, {
