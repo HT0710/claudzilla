@@ -362,7 +362,7 @@ async function press($: EngineInterface, cmd: string, block: string) {
 }
 
 type Paint = { color?: string; backgroundColor?: string; bold?: boolean; dimColor?: boolean; italic?: boolean; underline?: boolean; inverse?: boolean; strikethrough?: boolean }
-type Span = { text: string; paint: Paint }
+type Span = { text: string; paint: Paint; href?: string }
 // CSI, OSC (links, titles) and the two-byte escapes (charset, cursor save).
 const ESC = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[ -/]*[0-~]/g
 const NAMES = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']
@@ -419,38 +419,75 @@ function paintLine(line: string, paint: Paint): [Span[], Paint] {
   put(l.slice(at))
   return [spans, paint]
 }
-// A Run card shows every character it runs: a cut line could hide part of the command.
-// shortcut: counts code points, so a line of wide glyphs or tabs still cuts; measure cells if one shows up.
-const cut = (body: string, room: number) =>
-  body.split('\n').flatMap(l => {
-    const cs = Array.from(l)
-    return rowEnds(cs, room).map((e, i, ends) => cs.slice(ends[i - 1] ?? 0, e).join(''))
+// [start, end) code-point offsets of each URL in `s`, with the URL itself.
+const urlRanges = (s: string) => {
+  let [unit, point] = [0, 0]
+  // Low surrogates are not code points of their own.
+  const at = (i: number) => {
+    for (; unit < i; unit++) if ((s.charCodeAt(unit) & 0xfc00) !== 0xdc00) point++
+    return point
+  }
+  return [...s.matchAll(/https?:\/\/\S+/g)].map(m => {
+    // Closing quotes and brackets and sentence punctuation after a URL are not part of it.
+    const url = m[0].replace(/["'),\].;>]+$/, '')
+    return [at(m.index), at(m.index + url.length), url] as const
   })
+}
 
-// End offset of each row: after the last space that fits `width`, else a hard cut; the space stays on its row.
-const rowEnds = (cs: unknown[], width: number) => {
+// End offset of each row, at most `max`: after the last space that fits `width`, else a hard cut; the space stays on its row.
+// A URL that fits `width` is never split: a break inside it moves to its start unless that empties the row.
+const rowEnds = (cs: string[], width: number, urls: ReturnType<typeof urlRanges>, max = Infinity) => {
   const w = Math.max(width, 1)
   const ends: number[] = []
   let at = 0
-  while (cs.length - at > w) {
-    const sp = cs.lastIndexOf(' ', at + w - 1)
-    ends.push((at = sp >= at ? sp + 1 : at + w))
+  while (cs.length - at > w && ends.length < max) {
+    let sp = cs.lastIndexOf(' ', at + w - 1)
+    // Break after the first space of a run, never right after the row's leading spaces.
+    while (sp > at && cs[sp - 1] === ' ') sp = cs.lastIndexOf(' ', sp - 1)
+    let end = sp > at ? sp + 1 : at + w
+    const u = urls.find(([s, e]) => s > at && s < end && end < e && e - s <= w)
+    ends.push((at = u ? u[0] : end))
   }
-  return [...ends, cs.length]
+  return ends.length < max ? [...ends, cs.length] : ends
 }
 
-// One output row as rows of `width` code points; each piece keeps its span's paint.
-const cutSpans = (spans: Span[], width: number): Span[][] => {
-  const cs = spans.flatMap(s => Array.from(s.text, c => ({ c, paint: s.paint })))
-  return rowEnds(cs.map(x => x.c), width).map((e, i, ends) => {
+// shortcut: counts code points, so a line of wide glyphs or tabs still cuts; measure cells if one shows up.
+// One output row as rows of `width` code points; each piece keeps its span's paint, and a split URL's pieces keep its full href.
+// With `max`, only the first `max` rows are cut, then one row counting the rest; shortcut: a URL running past them is read in full, and the count is UTF-16 units over `width`.
+const cutSpans = (spans: Span[], width: number, max = Infinity): Span[][] => {
+  const w = Math.max(width, 1)
+  function* points() { for (const s of spans) for (const c of s.text) yield { c, paint: s.paint } }
+  const it = points()
+  const cs: { c: string; paint: Paint }[] = []
+  const limit = max * w + 1
+  for (let n = it.next(); !n.done; n = it.next()) {
+    cs.push(n.value)
+    if (cs.length >= limit) break
+  }
+  // A URL cut by the limit is read to its end so its pieces keep the full href.
+  if (/https?:\/\/\S*$/.test(cs.map(x => x.c).join(''))) for (let n = it.next(); !n.done && /\S/.test(n.value.c); n = it.next()) cs.push(n.value)
+  const chars = cs.map(x => x.c)
+  const urls = urlRanges(chars.join(''))
+  const ends = rowEnds(chars, w, urls, max)
+  const last = ends.at(-1)!
+  const total = spans.reduce((sum, s) => sum + s.text.length, 0)
+  const left = total - chars.slice(0, last).join('').length
+  let ui = 0
+  const rows = ends.map((e, i) => {
+    const from = ends[i - 1] ?? 0
     const row: Span[] = []
-    for (const { c, paint } of cs.slice(ends[i - 1] ?? 0, e)) {
-      const last = row[row.length - 1]
-      if (last?.paint === paint) last.text += c
-      else row.push({ text: c, paint })
+    for (let k = from; k < e; k++) {
+      const { c, paint } = cs[k]!
+      while (urls[ui] && k >= urls[ui]![1]) ui++
+      const u = urls[ui]
+      const h = u && k >= u[0] && (u[0] < from || u[1] > e) ? u[2] : undefined
+      const prev = row[row.length - 1]
+      if (prev?.paint === paint && prev.href === h) prev.text += c
+      else row.push({ text: c, paint, href: h })
     }
     return row
   })
+  return left > 0 && max < Infinity ? [...rows, [{ text: `… +${Math.ceil(left / w)} rows`, paint: {} }]] : rows
 }
 
 const text = (spans: Span[]) => spans.map(s => s.text).join('')
@@ -1069,7 +1106,7 @@ export const register: Register = on => {
     }
     if (rules) note(e.requestId, 'split', { split: true, rules, chunks: parts.length - rules, columns: e.viewport?.columns ?? 80, first: !!e.props.isFirstOfReply })
     else note(e.requestId, codes ? 'fenced' : 'linked', { split: false, reason: codes ? 'code blocks' : 'file links', codes, links: found.filter(f => f?.size).length })
-    const { Box, Text, Markdown, Button, Code } = $.ui.resolve(e)
+    const { Box, Text, Markdown, Button, Code, Link } = $.ui.resolve(e)
     // The engine indents only the block that draws the bullet, so later chunks take its two columns here.
     const indent = e.props.isFirstOfReply ? 2 : 0
     const room = Math.max((e.viewport?.columns ?? 80) - indent - 2, 4)
@@ -1140,7 +1177,17 @@ export const register: Register = on => {
                 {copyButton(`copy:${block}`, body)}
               </Box>,
             )}
-            {(cmd || isWrapped ? cut(body, room - 4) : body.split('\n')).map((l, n) => side(<Code source={l || ' '} language={lang || undefined} wrap="truncate-end" />, `c${n}`))}
+            {(cmd || isWrapped ? body.split('\n').flatMap(l => cutSpans([{ text: l, paint: {} }], room - 4)) : body.split('\n').map(l => [{ text: l, paint: {} }])).map((r, n) =>
+              side(
+                r.some(s => s.href) ? (
+                  // Link takes inline children only, so a row with a split URL drops Code's syntax colour.
+                  <Text color="text" wrap="truncate-end">{r.map(s => (s.href ? <Link href={s.href}>{s.text}</Link> : s.text))}</Text>
+                ) : (
+                  <Code source={r.map(s => s.text).join('') || ' '} language={lang || undefined} wrap="truncate-end" />
+                ),
+                `c${n}`,
+              ),
+            )}
             {shown
               ? line(
                   '├─ ',
@@ -1158,8 +1205,8 @@ export const register: Register = on => {
                   ),
                 )
               : null}
-            {(cmd && isWrapped ? output.flatMap(l => cutSpans(l, room - 4)) : output).map((l, n) =>
-              side(<Text wrap="truncate-end">{l.length ? l.map(s => (Object.keys(s.paint).length ? <Text {...s.paint}>{s.text}</Text> : s.text)) : ' '}</Text>, `o${n}`),
+            {(cmd && isWrapped ? output.flatMap(l => cutSpans(l, room - 4, SHOWN)) : output).map((l, n) =>
+              side(<Text wrap="truncate-end">{l.length ? l.map(s => { const t = Object.keys(s.paint).length ? <Text {...s.paint}>{s.text}</Text> : s.text; return s.href ? <Link href={s.href}>{t}</Link> : t }) : ' '}</Text>, `o${n}`),
             )}
             {line(
               '╰',

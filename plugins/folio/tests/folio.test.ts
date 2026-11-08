@@ -634,6 +634,18 @@ test('a word longer than the card still hard-cuts and rejoins', async ($, on) =>
   expect(rows.join('')).toBe(long)
 })
 
+test('leading indentation does not become a row of its own', async ($, on) => {
+  fenced(on)
+  const long = `${' '.repeat(4)}${'x'.repeat(200)}`
+  const ui = await mount($, 'w15', { text: `\`\`\`\n${long}\n\`\`\``, isFirstOfReply: true })
+  await ui.press(WRAP('w15', 0))
+  await ui.redraw()
+  const rows = await codes(ui)
+  expect(rows.length).toBeGreaterThan(1)
+  expect(rows.join('')).toBe(long)
+  expect(rows.every((r: string) => r.trim() !== '')).toBe(true)
+})
+
 test('wrapped output breaks at a space and keeps colour on both rows', async ($, on) => {
   const w = fenced(on)
   const words = `\x1b[31m${'redish '.repeat(6)}\x1b[32m${'greenish '.repeat(6)}\x1b[0m\n`
@@ -650,6 +662,110 @@ test('wrapped output breaks at a space and keeps colour on both rows', async ($,
   expect(green.length).toBeGreaterThan(0)
   expect(red.join('') + green.join('')).toBe('redish '.repeat(6) + 'greenish '.repeat(6))
   expect(red.slice(0, -1).every((t: string) => t.endsWith(' '))).toBe(true)
+})
+
+test('a URL that fits the card moves whole to the next row', async ($, on) => {
+  fenced(on)
+  const url = 'https://example.com/path/ab'
+  const long = `${'p'.repeat(30)}${url} ${'q'.repeat(10)}${url}`
+  const ui = await mount($, 'w8', { text: `\`\`\`\n${long}\n\`\`\``, isFirstOfReply: true })
+  await ui.press(WRAP('w8', 0))
+  await ui.redraw()
+  const rows = await codes(ui)
+  expect(rows.length).toBeGreaterThan(1)
+  expect(rows.join('')).toBe(long)
+  expect(rows.filter((r: string) => r.includes('https://')).every((r: string) => r.includes(url))).toBe(true)
+})
+
+test('a URL longer than the card splits and each output piece links the whole URL', async ($, on) => {
+  const w = fenced(on)
+  const url = `https://example.com/${'x'.repeat(80)}`
+  shell(on, { exitCode: 0, stdout: `\x1b[31mgo ${url}\x1b[0m end\n`, stderr: '' })
+  const ui = await mount($, 'w9', { text: SHELL, isFirstOfReply: true })
+  await twice(ui, w, 'run:w9:1')
+  await ui.redraw()
+  await ui.press(WRAP('w9'))
+  await ui.redraw()
+  const links = await ui.findAll({ type: 'Link' })
+  expect(links.length).toBeGreaterThan(1)
+  expect(links.every((l: any) => l.props.href === url)).toBe(true)
+  expect(links.map((l: any) => l.children.map((c: any) => (typeof c === 'string' ? c : c.children.join(''))).join('')).join('')).toBe(url)
+})
+
+const URL_ = `https://example.com/${'x'.repeat(80)}`
+const str = (n: any): string => (typeof n === 'string' ? n : n.type === 'Code' ? n.props.source : (n.children ?? []).map(str).join(''))
+// Draw-order text of every Code row and every Text row that holds a Link.
+const cardRows = async (ui: any) =>
+  (await ui.findAll({})).filter((n: any) => n.type === 'Code' || (n.type === 'Text' && n.props.wrap === 'truncate-end')).map(str)
+const linksOk = async (ui: any) => {
+  const links = await ui.findAll({ type: 'Link' })
+  expect(links.length).toBeGreaterThan(1)
+  expect(links.every((l: any) => l.props.href === URL_)).toBe(true)
+  expect(links.map(str).join('')).toBe(URL_)
+}
+
+test('a wrapped text card links each piece of a split URL and keeps every character', async ($, on) => {
+  fenced(on)
+  const long = `see ${URL_} end`
+  const ui = await mount($, 'w10', { text: `\`\`\`\n${long}\n\`\`\``, isFirstOfReply: true })
+  await ui.press(WRAP('w10', 0))
+  await ui.redraw()
+  await linksOk(ui)
+  expect((await cardRows(ui)).join('')).toBe(long)
+  const rows = (await ui.findAll({ type: 'Text' })).filter((n: any) => n.props.wrap === 'truncate-end' && n.children.some((c: any) => c.type === 'Link'))
+  expect(rows.length).toBeGreaterThan(0)
+  expect(rows.every((n: any) => n.props.color === 'text')).toBe(true)
+})
+
+test('a URL in quotes and a call keeps its closing punctuation out of the link', async ($, on) => {
+  fenced(on)
+  const long = `fetch("${URL_}"), x`
+  const ui = await mount($, 'w14', { text: `\`\`\`\n${long}\n\`\`\``, isFirstOfReply: true })
+  await ui.press(WRAP('w14', 0))
+  await ui.redraw()
+  const links = await ui.findAll({ type: 'Link' })
+  expect(links.length).toBeGreaterThan(1)
+  expect(links.every((l: any) => l.props.href === URL_)).toBe(true)
+  expect(links.map(str).join('')).toBe(URL_)
+  expect((await cardRows(ui)).join('')).toBe(long)
+})
+
+test('a wrapped python card keeps Code on rows without the URL', async ($, on) => {
+  fenced(on)
+  const long = `x = 1\n# ${URL_}\ny = 2`
+  const ui = await mount($, 'w11', { text: `\`\`\`python\n${long}\n\`\`\``, isFirstOfReply: true })
+  await ui.press(WRAP('w11', 0))
+  await ui.redraw()
+  await linksOk(ui)
+  expect((await cardRows(ui)).join('')).toBe(long.replace(/\n/g, ''))
+  const srcs = await codes(ui)
+  expect(srcs).toContain('x = 1')
+  expect(srcs).toContain('y = 2')
+  expect(srcs.some((c: string) => c.includes('https://'))).toBe(false)
+})
+
+test('a shell card links the pieces of a split URL in its command', async ($, on) => {
+  fenced(on)
+  const long = `curl ${URL_} -o /tmp/f`
+  const ui = await mount($, 'w12', { text: `\`\`\`bash\n${long}\n\`\`\``, isFirstOfReply: true })
+  await linksOk(ui)
+  expect((await cardRows(ui)).join('')).toBe(long)
+})
+
+test('a wrapped long output line shows 20 rows and a count of the rest', async ($, on) => {
+  const w = fenced(on)
+  const long = 'x'.repeat(30_000)
+  shell(on, { exitCode: 0, stdout: `${long}\n`, stderr: '' })
+  const ui = await mount($, 'w13', { text: SHELL, isFirstOfReply: true })
+  await twice(ui, w, 'run:w13:1')
+  await ui.redraw()
+  await ui.press(WRAP('w13'))
+  await ui.redraw()
+  const rows = (await ui.findAll({ type: 'Text' })).filter((x: any) => x.props.wrap === 'truncate-end' && /^x+$/.test(x.text)).map((x: any) => x.text)
+  expect(rows.length).toBe(20)
+  expect(rows.join('')).toBe(long.slice(0, rows.join('').length))
+  const width = rows[0].length
+  expect((await ui.find({ type: 'Text', text: /^… \+\d+ rows$/ }))?.text).toBe(`… +${Math.ceil(long.length / width) - 20} rows`)
 })
 
 test('the Wrap button shows while the command still runs', async ($, on) => {
