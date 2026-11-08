@@ -330,6 +330,8 @@ const SHOWN = 20
 const CAP = 4_000_000
 // Blocks whose output Hide took off the card; the block still counts as run.
 const hidden = new Set<string>()
+// Blocks whose long lines wrap instead of cutting; kept across Run again and resizes.
+const wrapped = new Set<string>()
 
 async function press($: EngineInterface, cmd: string, block: string) {
   const now = await $.clock.now()
@@ -421,10 +423,35 @@ function paintLine(line: string, paint: Paint): [Span[], Paint] {
 // shortcut: counts code points, so a line of wide glyphs or tabs still cuts; measure cells if one shows up.
 const cut = (body: string, room: number) =>
   body.split('\n').flatMap(l => {
-    const width = Math.max(room, 1)
     const cs = Array.from(l)
-    return cs.length <= width ? [l] : Array.from({ length: Math.ceil(cs.length / width) }, (_, i) => cs.slice(i * width, (i + 1) * width).join(''))
+    return rowEnds(cs, room).map((e, i, ends) => cs.slice(ends[i - 1] ?? 0, e).join(''))
   })
+
+// End offset of each row: after the last space that fits `width`, else a hard cut; the space stays on its row.
+const rowEnds = (cs: unknown[], width: number) => {
+  const w = Math.max(width, 1)
+  const ends: number[] = []
+  let at = 0
+  while (cs.length - at > w) {
+    const sp = cs.lastIndexOf(' ', at + w - 1)
+    ends.push((at = sp >= at ? sp + 1 : at + w))
+  }
+  return [...ends, cs.length]
+}
+
+// One output row as rows of `width` code points; each piece keeps its span's paint.
+const cutSpans = (spans: Span[], width: number): Span[][] => {
+  const cs = spans.flatMap(s => Array.from(s.text, c => ({ c, paint: s.paint })))
+  return rowEnds(cs.map(x => x.c), width).map((e, i, ends) => {
+    const row: Span[] = []
+    for (const { c, paint } of cs.slice(ends[i - 1] ?? 0, e)) {
+      const last = row[row.length - 1]
+      if (last?.paint === paint) last.text += c
+      else row.push({ text: c, paint })
+    }
+    return row
+  })
+}
 
 const text = (spans: Span[]) => spans.map(s => s.text).join('')
 const plain = (s: string) => s.split('\n').map(l => text(paintLine(l, {})[0])).join('\n')
@@ -1087,6 +1114,11 @@ export const register: Register = on => {
             <Text color={copied.has(k) ? 'success' : 'text'}>{copied.has(k) ? '✓ Copied' : '⧉ Copy'}</Text>
           </Button>
         )
+        const wide = (l: string) => Array.from(l).length > room - 4
+        const isWrapped = wrapped.has(block)
+        const cutNow = cmd ? output.some(l => wide(text(l))) : body.split('\n').some(wide)
+        const wrapKey = `wrap:${block}`
+        const wrapHover = { scope: wrapKey, color: 'text' }
         const runLabel = live.has(block) ? '■ Stop' : armed.has(block) ? '▶ Run? click again' : ran ? '▶ Run again' : '▶ Run'
         const runColor = live.has(block) ? 'error' : armed.has(block) ? 'warning' : 'success'
         const card = (
@@ -1108,7 +1140,7 @@ export const register: Register = on => {
                 {copyButton(`copy:${block}`, body)}
               </Box>,
             )}
-            {(cmd ? cut(body, room - 4) : body.split('\n')).map((l, n) => side(<Code source={l || ' '} language={lang || undefined} wrap="truncate-end" />, `c${n}`))}
+            {(cmd || isWrapped ? cut(body, room - 4) : body.split('\n')).map((l, n) => side(<Code source={l || ' '} language={lang || undefined} wrap="truncate-end" />, `c${n}`))}
             {shown
               ? line(
                   '├─ ',
@@ -1126,10 +1158,22 @@ export const register: Register = on => {
                   ),
                 )
               : null}
-            {output.map((l, n) =>
+            {(cmd && isWrapped ? output.flatMap(l => cutSpans(l, room - 4)) : output).map((l, n) =>
               side(<Text wrap="truncate-end">{l.length ? l.map(s => (Object.keys(s.paint).length ? <Text {...s.paint}>{s.text}</Text> : s.text)) : ' '}</Text>, `o${n}`),
             )}
-            {line('╰', '╯', null, null)}
+            {line(
+              '╰',
+              cutNow ? ' ─╯' : '╯',
+              null,
+              cutNow ? (
+                <Box>
+                  <Text>{' '}</Text>
+                  <Button key={wrapKey} plain hover={wrapHover} onPress={() => { isWrapped ? wrapped.delete(block) : wrapped.add(block); $.ui.invalidate('ui.render') }}>
+                    <Text color="inactive" hover={wrapHover}>{isWrapped ? '→ Unwrap' : '↩ Wrap'}</Text>
+                  </Button>
+                </Box>
+              ) : null,
+            )}
           </Box>
         )
         // A reply that opens with a block carries its bullet on the card, not on the next text.
