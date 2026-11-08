@@ -419,7 +419,7 @@ check "prompt: intent called, panel reminder" has "$(hook UserPromptSubmit promp
 check "prompt: panel reminder kept once seen" has "$(hook UserPromptSubmit prompt=q "transcript_path=$IX")" 'call `mcp__margin__intent`'
 out=$(hook UserPromptSubmit 'prompt=<task-notification>x</task-notification>' "transcript_path=$IX")
 check "prompt: task notification, panel ping reminder" has "$out" 'n the 1-based step you are working on'
-check "prompt: task notification, no full report reminder" [ "${out#*wants, plan and steps}" = "$out" ]
+check "prompt: task notification, no full report reminder" [ "${out#*wants, take and steps}" = "$out" ]
 out=$(hook UserPromptSubmit 'prompt=[Cross-session idle notice] x' "transcript_path=$IX")
 check "prompt: cross-session message, no panel reminder" [ "${out#*Side panel}" = "$out" ]
 SETTINGS="$CLAUDE_CONFIG_DIR/settings.json"

@@ -274,11 +274,11 @@ function onPrompt(d) {
   if (s.panel && !MACHINE_PROMPT.test(p)) {
     // Stop checks the transcript from here for this turn's report.
     try { s.reportFrom = statSync(d.transcript_path).size; } catch { s.reportFrom = 0; /* not written yet */ }
-    lines.push(`Side panel: call \`${INTENT_TOOL}\` with wants, plan and steps as this reply's first block, even if you call no other tool.`);
+    lines.push(`Side panel: call \`${INTENT_TOOL}\` with wants, take and steps as this reply's first block, even if you call no other tool.`);
   }
   // A background agent's result carries the last request on: the panel keeps its report and follows pings.
   else if (s.panel && p.startsWith("<task-notification>"))
-    lines.push(`Side panel: before this reply's next tool call, ping \`${INTENT_TOOL}\` {"now": n}, n the 1-based step you are working on; full report only if the plan changed.`);
+    lines.push(`Side panel: before this reply's next tool call, ping \`${INTENT_TOOL}\` {"now": n}, n the 1-based step you are working on; full report only if the reading or steps changed.`);
   const typed = p.match(/^\/([\w:-]+)/);
   if (typed) s.skills.push(typed[1]);
   else if (!MACHINE_PROMPT.test(p)) {

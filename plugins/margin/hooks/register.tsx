@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AgentRow, Check, CheckState, CommitView, Counts, FileView, LogRow, Gh, Intent, Modal, ModalKey, Op, Overview, Pr, PrState, PrView, Spawn, Stage, Step, Tab, Word } from '../types'
+import type { AgentRow, Check, CheckState, CommitView, Counts, FileView, LogRow, Gh, Intent, Modal, ModalKey, Op, Overview, Pr, PrState, PrView, Spawn, Stage, Step, Tab, Take, Word } from '../types'
 import { LOG_FORMAT, age, branches, cutMiddle, fileKey, incomingPrs, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseStatusZ, parseMerge, parsePrView, parsePrs, parseRebase, printable, sortChecks, stashCount, syncMark, treeRows, worktrees, worst } from './git-data'
 import { mdRows } from './markdown'
 import { capped, contentFrame, modalFrame, scrollWindow, stackFrame } from './modal'
@@ -173,7 +173,7 @@ const historyTop = atom({ plugin: 'margin', key: 'historyTop' } as const, 0)
 const topicsSplit = atom({ plugin: 'margin', key: 'topicsSplit' } as const, -1)
 const topicsTop = atom({ plugin: 'margin', key: 'topicsTop' } as const, 0)
 
-const EMPTY_INTENT: Intent = { wants: '', plan: '', steps: [], at: 0, ended: false }
+const EMPTY_INTENT: Intent = { wants: '', steps: [], at: 0, ended: false }
 // Claude's last intent report.
 const intent = atom({ plugin: 'margin', key: 'intent' } as const, EMPTY_INTENT)
 // Agents the main loop started, kept past their end: no event says one finished, the list does.
@@ -208,12 +208,16 @@ const overview = atom({ plugin: 'margin', key: 'overview' } as const, EMPTY_OVER
 // Claude reports its own intent through this tool; the rule says when.
 const INTENT_TOOL = 'mcp__margin__intent'
 const INTENT_RULE = [
-  'Intent reporting: the user watches a side panel showing your reading of their request and your plan.',
-  `Call the \`${INTENT_TOOL}\` tool with wants, plan and steps at the start of every turn that answers a user prompt, as the first block of your message, before any other tool call in it.`,
+  'Intent reporting: the user watches a side panel showing your reading of their request and your take on it.',
+  `Call the \`${INTENT_TOOL}\` tool with wants, take and steps at the start of every turn that answers a user prompt, as the first block of your message, before any other tool call in it.`,
   'Then ping it as {"now": n}, n the 1-based step, as the first block of the message that starts a new step, and only then, as a ping splits the chat\'s tool rows;',
-  'send wants, plan and steps again only when your plan changes. Never call it alone just to mark the last step done:',
-  'your answer closes it. Do not mention the tool in your reply. Write wants, plan and steps in the language the user writes in.',
+  'send wants, take and steps again only when your reading or steps change. Never call it alone just to mark the last step done:',
+  'your answer closes it. Do not mention the tool in your reply. Write wants, take and steps in the language the user writes in.',
   "When a step spawns agents, list each Agent call's description in that step's agents, exactly as you pass it, and keep listing them when you redraft.",
+  'take is your reaction to the ask, given before any work; never the answer. On a work ask: your stance on doing it as asked. On a question with no work: how the question strikes you, such as how sure you are or a premise you doubt.',
+  "stance: fine = you would do it as asked; concern = you would do it but see a real risk or a better way; against = you'd want the user to reconsider before you act: the ask as stated is irreversible, bypasses a safeguard (review, CI, backup, confirmation), or breaks a stated rule. Pick against over concern whenever one of these holds, even if you would still do it after confirming; unsure = you cannot judge yet.",
+  'label: required, 1 to 3 words, at most 16 characters. Examples: fine "clear", "small fix"; concern "risky", "overkill", "check first"; against "breaks rule", "data loss"; unsure "needs repro", "unclear goal". No mood words such as "excited" or "happy".',
+  'why: optional, one clause, about 60 characters at most: the reason.',
 ].join(' ')
 // An answer closed every step; an interrupt left some open, for pings to pick back up.
 const isAnswered = (now: Intent) => now.ended && now.steps.every(step => step.status === 'completed')
@@ -234,13 +238,22 @@ const refreshSpawns = async ($: EngineInterface) => {
 const INTENT_SPEC = {
   name: 'intent',
   // The rule rides here, not in prompt.compose: the sec-default guard skips a user mod's system prompt edits.
-  description: `Report how you read the user request and your plan, for the side panel. Returns nothing useful. ${INTENT_RULE}`,
+  description: `Report how you read the user request and your take on it, for the side panel. Returns nothing useful. ${INTENT_RULE}`,
   isDeferred: false,
   inputSchema: {
     type: 'object',
     properties: {
       wants: { type: 'string', description: 'what the user wants, 1-2 lines; full report only' },
-      plan: { type: 'string', description: 'your approach, 1-2 lines; full report only' },
+      take: {
+        type: 'object',
+        description: 'your reaction to the ask, before any work; full report only',
+        properties: {
+          stance: { enum: ['fine', 'concern', 'against', 'unsure'] },
+          label: { type: 'string' },
+          why: { type: 'string' },
+        },
+        required: ['stance', 'label'],
+      },
       now: { type: 'integer', minimum: 1, description: 'progress ping: the 1-based step you are working on' },
       steps: {
         type: 'array',
@@ -414,6 +427,15 @@ const flat = (text: string) =>
     .replace(/<\/?pasted_content[^>]*>/g, '')
     .replace(/[\s\x00-\x1f\x7f]+/g, ' ')
     .trim()
+
+const STANCES = ['fine', 'concern', 'against', 'unsure']
+const readTake = (raw: { stance?: unknown; label?: unknown; why?: unknown } | undefined): Take | undefined => {
+  if (!raw || !STANCES.includes(raw.stance as string)) return undefined
+  const label = typeof raw.label === 'string' ? flat(raw.label) : ''
+  if (!label) return undefined
+  const why = typeof raw.why === 'string' ? flat(raw.why) : ''
+  return { stance: raw.stance as Take['stance'], label, ...(why && { why }) }
+}
 
 // A prompt typed while a turn runs reaches the chat as a queued note, never a user message, so
 // it is remembered here per session: one key each, for the newest MID_TURN_SESSIONS sessions, as
@@ -1251,7 +1273,7 @@ export const register: Register = (on, options) => {
   if (isIntentOn) {
     // A subagent's report is answered, not drawn: the tab follows the main conversation.
     on('tool.call', { tool: new RegExp(`^${INTENT_TOOL}$`) }, async ($, e) => {
-      const report = e as unknown as Partial<Pick<Intent, 'wants' | 'plan' | 'steps'>> & { agentId?: string; now?: unknown }
+      const report = e as unknown as Partial<Pick<Intent, 'wants' | 'steps'>> & { take?: { stance?: unknown; label?: unknown; why?: unknown } } & { agentId?: string; now?: unknown }
       if (report.agentId !== undefined) return { result: 'ok' }
       // A ping moves this turn's marks: done before it, in progress at it. One after an answer, every step
       // done or dimmed for a new prompt, is dropped; one after an interrupt picks the report back up, as Claude carries on with pings alone.
@@ -1264,10 +1286,10 @@ export const register: Register = (on, options) => {
       } else {
         const at = await $.clock.now()
         const turn = await read($, turns)
-        // A report missing ASK or PLAN keeps the last ones, or the tab goes blank.
+        // A report missing ASK or TAKE, or with a bad take, keeps the last ones, or the tab goes blank.
         await update($, intent, now => ({
           wants: flat(String(report.wants ?? now.wants)),
-          plan: flat(String(report.plan ?? now.plan)),
+          take: readTake(report.take) ?? now.take,
           steps: Array.isArray(report.steps)
             ? report.steps.map(step => ({ ...step, text: flat(String(step.text)), agents: Array.isArray(step.agents) ? step.agents.map(one => flat(String(one))) : undefined }))
             : [],
@@ -3111,6 +3133,10 @@ export const register: Register = (on, options) => {
         planned: ['○', HUD.faint], pending: ['◌', HUD.faint], running: ['◌', 'claude'], waiting: ['◌', 'claude'], idle: ['◌', 'claude'],
         completed: ['✓', HUD.action], failed: ['✗', TYPES.fix], killed: ['■', HUD.dirty],
       }
+      // fine is done's green, concern the warning amber, against failed's red, unsure the faint of pending.
+      const TAKE_MARK: Record<Take['stance'], [string, string]> = {
+        fine: ['✓', HUD.action], concern: ['!', 'warning'], against: ['✗', TYPES.fix!], unsure: ['?', HUD.faint],
+      }
       const agentText = (status: AgentRow['status']) => (WORKING.includes(status) ? undefined : status === 'planned' || status === 'pending' ? HUD.faint : SCOPE)
       const shade = (color?: string) => (shown.waiting ? HUD.faint : color)
       const hasAbout = about.topics.length > 0 || about.running || !!about.failed
@@ -3188,11 +3214,13 @@ export const register: Register = (on, options) => {
           }
           return sum + rows
         }, 0)
-      // The body never scrolls (its bars stay pinned): STEPS gets the rows left under PLAN, the last one a "… N more"
-      // when they run out. The status row and its rule, TOPICS' header, zone and divider, ASK, PLAN and their rules.
+      // The body never scrolls (its bars stay pinned): STEPS gets the rows left under TAKE, the last one a "… N more"
+      // when they run out. The status row and its rule, TOPICS' header, zone and divider, ASK, TAKE and their rules.
+      const take = shown.take
+      const takeText = take ? `${TAKE_MARK[take.stance][0]} ${fit(take.label, 16)}${take.why ? `: ${take.why}` : ''}` : ''
       const stepRoom =
         e.props.scroll.bodyRows - 2 - BAR_ROWS - (hasReport ? 2 : 0) - (zoned ? 2 + topicsRows : 0) -
-        wrapRows(shown.wants, Math.max(1, width - LABEL)) - wrapRows(shown.plan, Math.max(1, width - LABEL)) - 2
+        wrapRows(shown.wants, Math.max(1, width - LABEL)) - (take ? 1 + wrapRows(takeText, Math.max(1, width - LABEL)) : 0) - 1
       const topicRows = shownTopics.map(({ topic, i }) => (
         <Box key={`topic:${i}`} paddingLeft={2} flexShrink={0}>
           <Text wrap="wrap" color={i === about.topics.length - 1 ? 'claude' : SCOPE}>{topic}</Text>
@@ -3242,8 +3270,19 @@ export const register: Register = (on, options) => {
               ))}
             {shown.wants && [
               labelled('ASK', shown.wants, shade()),
-              partRule('PLAN'),
-              labelled('PLAN', shown.plan, shade()),
+              take && partRule('TAKE'),
+              take && (
+                <Box key="TAKE">
+                  <Box width={LABEL} flexShrink={0}>
+                    <Text bold color={HUD.label}>TAKE</Text>
+                  </Box>
+                  <Text wrap="wrap">
+                    <Text color={shade(TAKE_MARK[take.stance][1])}>{`${TAKE_MARK[take.stance][0]} `}</Text>
+                    <Text bold color={shade(TAKE_MARK[take.stance][1])}>{fit(take.label, 16)}</Text>
+                    {take.why && <Text color={shade()}>{`: ${take.why}`}</Text>}
+                  </Text>
+                </Box>
+              ),
               shown.steps.length > 0 && partRule('STEPS'),
               shown.steps.length > 0 && (
                 <Box key="steps">
