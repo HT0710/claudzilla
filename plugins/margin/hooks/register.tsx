@@ -3160,7 +3160,7 @@ export const register: Register = (on, options) => {
       )
       // Newest first, the newest lit as History lights the prompt in view. With a report under them, TOPICS
       // take a zone of their own: the rows their wrapped lines need up to half of those left once the tabs,
-      // their rule, the status row, its rule, the TOPICS header and their divider are drawn, or what the
+      // their rule, the TOPICS header, their divider, the status row and its rule are drawn, or what the
       // divider was dragged to, keeping 1 row on either side; the wheel scrolls them in it.
       const topics = about.topics.map((topic, i) => ({ topic, i })).reverse()
       // shortcut: counts cells as if the text filled each row; a word wrap or a wide glyph takes more, so at
@@ -3182,7 +3182,7 @@ export const register: Register = (on, options) => {
       const topicsFrom = zoned ? Math.min(await read($, topicsTop), topicsEnd) : 0
       const hasTopicsTop = topicsFrom > 0 && topicsRows > 1
       if (!next.signal.aborted) topicsZone = zoned
-          ? { from: 5, to: 5 + topicsRows, end: topicsEnd, offset: e.props.scroll.offset, divider: { rows: topicsRows, min: topicsMin, max: topicsMax } }
+          ? { from: 3, to: 3 + topicsRows, end: topicsEnd, offset: e.props.scroll.offset, divider: { rows: topicsRows, min: topicsMin, max: topicsMax } }
           : undefined
       // In a zone, the topics that start in it, the last one cut by its edge.
       let shownTopics = topics.slice(topicsFrom)
@@ -3215,7 +3215,7 @@ export const register: Register = (on, options) => {
           return sum + rows
         }, 0)
       // The body never scrolls (its bars stay pinned): STEPS gets the rows left under TAKE, the last one a "… N more"
-      // when they run out. The status row and its rule, TOPICS' header, zone and divider, ASK, TAKE and their rules.
+      // when they run out. TOPICS' header, zone and divider, the status row and its rule, ASK, TAKE and their rules.
       const take = shown.take
       const takeText = take ? `${TAKE_MARK[take.stance][0]} ${fit(take.label, 16)}${take.why ? `: ${take.why}` : ''}` : ''
       const stepRoom =
@@ -3226,6 +3226,16 @@ export const register: Register = (on, options) => {
           <Text wrap="wrap" color={i === about.topics.length - 1 ? 'claude' : SCOPE}>{topic}</Text>
         </Box>
       ))
+      // A TOPICS read in progress takes the step count's place: the TOPICS header counts them instead.
+      // Before Claude's report, planning… holds it, and the TOPICS header keeps the hint.
+      // Under TOPICS and their divider when they show, else first.
+      const statusRow = [
+        <Box key="state" justifyContent="space-between">
+          <Text color={stateColor}>{state}</Text>
+          <Text color={HUD.faint}>{shown.waiting ? (shown.agents ? '' : 'planning…') : about.running ? aboutHint : stepCount}</Text>
+        </Box>,
+        <Text key="rule" color="promptBorder">{'─'.repeat(width)}</Text>,
+      ]
       body =
         !hasReport && !hasAbout ? (
           // The rows under the tabs and their rule.
@@ -3237,15 +3247,7 @@ export const register: Register = (on, options) => {
           )
         ) : (
           <Box flexDirection="column">
-            {hasReport && [
-              // A TOPICS read in progress takes the step count's place: the TOPICS header counts them instead.
-              // Before Claude's report, planning… holds it, and the TOPICS header keeps the hint.
-              <Box key="state" justifyContent="space-between">
-                <Text color={stateColor}>{state}</Text>
-                <Text color={HUD.faint}>{shown.waiting ? (shown.agents ? '' : 'planning…') : about.running ? aboutHint : stepCount}</Text>
-              </Box>,
-              <Text key="rule" color="promptBorder">{'─'.repeat(width)}</Text>,
-            ]}
+            {hasReport && !hasAbout && statusRow}
             {hasAbout && [
               <Box key="session" justifyContent="space-between">
                 <Text bold color={HUD.label}>TOPICS</Text>
@@ -3268,6 +3270,7 @@ export const register: Register = (on, options) => {
               ) : (
                 <Text key="now" color="promptBorder">{'─'.repeat(width)}</Text>
               ))}
+            {hasReport && hasAbout && statusRow}
             {shown.wants && [
               labelled('ASK', shown.wants, shade()),
               take && partRule('TAKE'),

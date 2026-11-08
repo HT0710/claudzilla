@@ -2857,13 +2857,13 @@ test('the TOPICS divider keeps 1 row on either side', async ($, on) => {
 
 test('the wheel over TOPICS scrolls them under a divider that stays put; ↑ brings them back up', async ($, on) => {
   const ui = await twelveTopics($, on)
-  // TOPICS starts on row 5, under the tabs, their rule, the status row, its rule and the header; once
-  // scrolled, the back-to-top line takes its first row.
+  // TOPICS starts on row 3, under the tabs, their rule and the header; once scrolled, the back-to-top line
+  // takes its first row.
   const wheel = (by: number, row: number) =>
     $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
 
   expect(await ui.find({ key: 'top:topics' })).toBeUndefined()
-  await wheel(3, 6)
+  await wheel(3, 4)
   expect(await topicShown(ui, 9)).toBe(false)
   expect(await topicShown(ui, 8)).toBe(true)
   expect(await topicShown(ui, 3)).toBe(true)
@@ -2871,7 +2871,7 @@ test('the wheel over TOPICS scrolls them under a divider that stays put; ↑ bri
   expect(await ui.find({ type: 'Text', text: '↑', in: 'top:topics' })).toBeDefined()
 
   // To the oldest and no further.
-  await wheel(100, 6)
+  await wheel(100, 4)
   expect(await topicShown(ui, 0)).toBe(true)
   expect(await topicShown(ui, 5)).toBe(true)
   expect(await topicShown(ui, 6)).toBe(false)
@@ -2884,22 +2884,36 @@ test('the wheel over TOPICS scrolls them under a divider that stays put; ↑ bri
 
 test('the wheel over the TOPICS divider moves it, keeping 1 row on either side', async ($, on) => {
   const ui = await twelveTopics($, on)
-  // 7 rows of TOPICS from row 5: the divider is row 12, then 14 once moved.
+  // 7 rows of TOPICS from row 3: the divider is row 10, then 13 once moved.
   const wheel = (by: number, row: number) =>
     $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
 
-  await wheel(-2, 12)
+  await wheel(-2, 10)
   expect(await topicShown(ui, 3)).toBe(true)
   expect(await topicShown(ui, 2)).toBe(false)
   expect(await ui.find({ key: 'top:topics' })).toBeUndefined()
   // Off the pointer now, a notch right after still moves it.
-  await wheel(-1, 12)
+  await wheel(-1, 10)
   expect(await topicShown(ui, 2)).toBe(true)
   expect(await ui.find({ key: 'top:topics' })).toBeUndefined()
 
-  await wheel(100, 15)
+  await wheel(100, 13)
   expect(await topicShown(ui, 11)).toBe(true)
   expect(await topicShown(ui, 10)).toBe(false)
+})
+
+test('the status row sits under the TOPICS divider; with no topics it leads', async ($, on) => {
+  const ui = await twelveTopics($, on)
+  const order = async () => (await ui.findAll({ type: 'Text' })).map((t: any) => t.text as string)
+  let all = await order()
+  expect(all.indexOf('TOPICS')).toBeLessThan(all.indexOf('topic 5'))
+  expect(all.indexOf('topic 5')).toBeLessThan(all.indexOf('● working'))
+  expect(all.indexOf('● working')).toBeLessThan(all.indexOf('a third tab'))
+  await $.session.end({ reason: 'clear', sessionId: 'chat-1' } as any)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  all = await order()
+  expect(all.includes('TOPICS')).toBe(false)
+  expect(all.indexOf('● working')).toBeLessThan(all.indexOf('a third tab'))
 })
 
 test('a report missing ASK or TAKE keeps the last ones', async ($, on) => {
@@ -2984,17 +2998,17 @@ test('with a report, updating… takes the step count\'s place until TOPICS are 
   await ui.drawn()
   const right = async () => (await ui.findAll({ type: 'Text', text: /^(reading…|updating…|0\/2 steps|\d+ topics|couldn't read.*)$/ })).map(found => found.props.text ?? found.text)
   // Topics already shown: the read updates them.
-  expect(await right()).toEqual(['updating…', '2 topics'])
+  expect(await right()).toEqual(['2 topics', 'updating…'])
   answer({ isAnswered: false, reason: 'api-error', usage: {} })
   await clock.settle()
   await ui.drawn()
   // A failed read keeps the steps in place and says so on the TOPICS header.
-  expect(await right()).toEqual(['0/2 steps', "couldn't read: api-error"])
+  expect(await right()).toEqual(["couldn't read: api-error", '0/2 steps'])
   // The next read: its state on the status row, the count back on the header.
   await send($, 'another thing')
   await clock.advance(0)
   await ui.drawn()
-  expect(await right()).toEqual(['updating…', '2 topics'])
+  expect(await right()).toEqual(['2 topics', 'updating…'])
 })
 
 test('the first TOPICS read, with none shown yet, says reading…', async ($, on) => {
@@ -3027,7 +3041,7 @@ test('TOPICS scrolled to the end still shows the oldest topic, though it wraps p
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'now' })
   await ui.pointer({ type: 'move', x: 0, y: -3, button: 'left', in: 'now' })
   await ui.pointer({ type: 'up', x: 0, y: -3, button: 'left', in: 'now' })
-  await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 100, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 5 } })
+  await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 100, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 3 } })
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: /^x+$/ })).toBeDefined()
 })
@@ -3044,7 +3058,7 @@ test('the wheel finds TOPICS by the row drawn, once the engine scrolled the Over
   // Row 6 of the window, 10 rows down: the report, not TOPICS.
   await wheel(10, 6)
   expect(await topicShown(ui, 11)).toBe(true)
-  // Row 3 of the window, 3 rows down: TOPICS' second row.
+  // Row 3 of the window, 3 rows down: TOPICS' fourth row.
   await wheel(3, 3)
   expect(await topicShown(ui, 11)).toBe(false)
 })
