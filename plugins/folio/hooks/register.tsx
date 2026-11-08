@@ -632,7 +632,7 @@ export const register: Register = on => {
     <Text wrap="truncate-end">
       {dot} <Text bold>{label}</Text>
       <Text color="promptBorder"> (</Text>{arg}<Text color="promptBorder">)</Text>
-      {tag && <Text color="inactive"> [{tag}]</Text>}
+      {tag && <Text><Text color="promptBorder"> [</Text><Text color="inactive">{tag}</Text><Text color="promptBorder">]</Text></Text>}
       {tail && '  '}{tail}
     </Text>
   )
