@@ -2,7 +2,7 @@
 
 Toasts claudzilla's update progress: an update is available, it is installing, it installed (restart to apply; `/claudzilla news` lists the changes), it was skipped for local changes (ask Claude to update), or it failed (ask Claude to debug it). A failure also reaches Claude with your next prompt, with the log path and the retry command.
 
-It reads the lines `claude/hooks/claudzilla-update.sh` appends to `.git/claudzilla-update.events` in the claudzilla clone.
+It reads the lines `claude/hooks/claudzilla-update.sh` appends to `.git/claudzilla-update.events` in the claudzilla clone. Every 15 minutes it runs that hook again, so a session left open also hears of a new release. The hook still fetches at most once an hour per clone, however many sessions are open.
 
 It also toasts when the 5-hour or weekly usage limit passes 50%, 75% or 90%, such as `5-hour usage 77% · resets in 2h10m`. Each point toasts once per limit window: the highest point toasted and the window's reset time are kept in the plugin's store, which outlives the session. Claude Code reports these limits only on a Claude subscription login, such as Pro, Max or Team.
 

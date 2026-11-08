@@ -9,6 +9,8 @@ repo=$(git -C "$here" rev-parse --show-toplevel 2>/dev/null) || exit 0
 gd=$(git -C "$repo" rev-parse --absolute-git-dir)
 log=$gd/claudzilla-update.log res=$gd/claudzilla-update.result lock=$gd/claudzilla-update.lock
 ev=$gd/claudzilla-update.events
+# Set by herald's timer in an open session: no SessionStart notices, which belong to the next session.
+timer=${CLAUDZILLA_UPDATE_TIMER:-}
 # Local trace line for this stage; no session id, since reading stdin would hang a caller that keeps it open; never changes output or exit code.
 trace() { perl "$here/trace.pl" nosession update "$@" >/dev/null 2>&1 </dev/null || true; }
 
@@ -44,7 +46,7 @@ pull="${sw:+git $sw && }git merge --ff-only $to" cpull="${sw:+git -C $repo $sw &
 [ -f "$ev" ] && [ $(wc -l < "$ev") -gt 100 ] && tail -n 20 "$ev" > "$ev.tmp" && mv "$ev.tmp" "$ev"
 
 user="" claude="" why=""
-if [ -f "$res" ]; then
+if [ -z "$timer" ] && [ -f "$res" ]; then
   user=$(cat "$res"); rm -f "$res"
   # Added on read: the job that wrote it ran the hook from before the update.
   case $user in *": updated to "*) user="$user - for changes: /claudzilla news" ;; esac
@@ -55,7 +57,7 @@ if [ -f "$res" ]; then
 fi
 n=$(behind)
 trace update.check info "behind=${n:-0}" "auto=$auto" "target=$to"
-if [ "${n:-0}" -gt 0 ]; then
+if [ -z "$timer" ] && [ "${n:-0}" -gt 0 ]; then
   [ "$auto" = true ] && why=$(blocked)
   if [ "$auto" = true ] && [ -z "$why" ]; then
     user="${user:+$user | }claudzilla: updating to $(ver --match 'v[0-9]*' "$to") in background - restart Claude to apply"
@@ -85,8 +87,17 @@ find "$lock" -maxdepth 0 -mmin +60 -exec rmdir {} \; 2>/dev/null   # left by a k
   trap '' HUP   # Claude exiting mid-install must not leave a half install and a stuck lock
   trap 'rmdir "$lock"' EXIT
   # A curl install is a --depth 1 clone: no tags until its history is fetched.
+  was=$(git -C "$repo" rev-parse -q --verify "$(rel)^{commit}")
   [ -z "$stale" ] || GIT_TERMINAL_PROMPT=0 git -C "$repo" fetch -q $([ -f "$gd/shallow" ] && echo --unshallow --tags)
-  [ "$auto" = true ] && [ "$(behind)" -gt 0 ] 2>/dev/null && [ -z "$(blocked)" ] || exit 0
+  [ "$(behind)" -gt 0 ] 2>/dev/null || exit 0
+  moved=$([ "$(git -C "$repo" rev-parse -q --verify "$(rel)^{commit}")" = "$was" ] || echo 1)
+  # A release this fetch brought: open sessions hear of it now, not only the next session.
+  if [ "$auto" != true ] || [ -n "$(blocked)" ]; then
+    [ -z "$moved" ] || emit live "claudzilla: $(ver --match 'v[0-9]*' "$(rel)") released - ask Claude to update"
+    exit 0
+  fi
+  # A failed update retries at the next session start, not on every timer tick.
+  [ -z "$timer" ] || [ -n "$moved" ] || exit 0
   to=$(ver --match 'v[0-9]*' "$(rel)"); emit live "claudzilla: updating to $to"
   if { git -C "$repo" merge -q --ff-only "$to" && bash "$repo/install.sh"; } >"$log" 2>&1
   then kept=$(git -C "$repo" diff --no-renames --name-only HEAD); msg="claudzilla: updated to $(ver)${kept:+, your edits kept}"; emit live "$msg - restart Claude to apply"

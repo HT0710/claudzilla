@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import type { On } from 'claude-code'
 
-import { AUTO_MS, contextToast, crossed, due, EVERY_MS, FILL_MS, HOUR, parse, ttlOf } from '../hooks/register'
+import { AUTO_MS, CHECK_MS, contextToast, crossed, due, EVERY_MS, FILL_MS, HOUR, parse, ttlOf } from '../hooks/register'
 
 const S = 1_000_000
 const ran = (exitCode: number, stdout: string) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -97,6 +97,36 @@ test('a line tail re-reads after a trim toasts once', async ($, on) => {
   await $.session.start(start)
   await until(() => seen.toasts.includes('end'))
   expect(seen.toasts).toEqual(['claudzilla: updated to v1.2.0 - restart Claude to apply', 'end'])
+})
+
+test('re-runs the update hook in timer mode every CHECK_MS', async ($, on) => {
+  const runs: (readonly string[])[] = []
+  const clock = mock.clock(on, { now: S * 1000 })
+  on('process.run', (_, e) => {
+    runs.push(e.argv)
+    return FOUND
+  })
+  on('process.spawn', async function* () {
+    return { value: { code: 0, signal: null } }
+  })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  const hook = ['env', 'CLAUDZILLA_UPDATE_TIMER=1', 'sh', '/repo/claude/hooks/claudzilla-update.sh']
+  const hooks = () => runs.filter(argv => argv[0] === 'env')
+  await $.session.start(start)
+  await until(() => runs.some(argv => argv[0] === 'sh'))
+  await tick()
+  expect(hooks()).toEqual([])
+  await clock.advance(CHECK_MS)
+  expect(hooks()).toEqual([hook])
+  await clock.advance(CHECK_MS)
+  expect(hooks()).toEqual([hook, hook])
+  // A second session.start in the same module keeps one timer.
+  const finds = runs.filter(argv => argv[0] === 'sh').length
+  await $.session.start(start)
+  await until(() => runs.filter(argv => argv[0] === 'sh').length > finds)
+  await tick()
+  await clock.advance(CHECK_MS)
+  expect(hooks()).toHaveLength(3)
 })
 
 test('ignores stderr, such as tail waiting for a missing file', async ($, on) => {

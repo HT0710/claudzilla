@@ -9,6 +9,8 @@ const t = tracer('herald')
 export type Event = { at: number; kind: 'start' | 'live' | 'fail'; text: string }
 
 const KINDS = ['start', 'live', 'fail']
+export const CHECK_MS = 15 * 60 * 1000
+let checks: { cancel: () => void } | undefined
 // The update hook is linked into ~/.claude from the claudzilla clone; the mod itself runs from the plugin cache.
 // No link, no lookup: a git -C on an empty path would find the session's own repo.
 const FIND = 'f=$(readlink -f "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/claudzilla-update.sh") && [ -f "$f" ] && git -C "${f%/*}" rev-parse --show-toplevel --absolute-git-dir'
@@ -30,6 +32,16 @@ export async function watch($: EngineInterface, startedS: number, onFail: (note:
   const [repo, gd] = found.exitCode === 0 ? found.stdout.trim().split('\n') : []
   t.event('update.watch', { found: !!repo && !!gd, exitCode: found.exitCode }, repo && gd ? 'info' : 'debug')
   if (!repo || !gd) return
+  // The hook fetches at most hourly per clone, so every session checking often only makes the toast come sooner.
+  // A second session.start in this module replaces the timer instead of adding one.
+  checks?.cancel()
+  try {
+    checks = $.clock.every(CHECK_MS, () => {
+      void $.process.run(['env', 'CLAUDZILLA_UPDATE_TIMER=1', 'sh', `${repo}/claude/hooks/claudzilla-update.sh`]).catch(err => t.error('update.check.failed', err))
+    })
+  } catch (err) {
+    t.error('update.check.failed', err)
+  }
   let rest = ''
   // tail -F reads a trimmed file again from the top.
   const shown = new Set<string>()
