@@ -1391,16 +1391,67 @@ const rowsOf = async (ui: any) => (await ui.findAll({ type: 'Text', text: /^● 
 for (const [name, command, before, after, want] of [
   ['an edit', "sed -i 's/a/b/' a.txt", { '/p/a.txt': 'a\nc\n' }, { '/p/a.txt': 'b\nc\n' }, ['● Updated (a.txt)  +1 −1']],
   ['a new file', 'printf "x\\ny\\n" > new.txt', {}, { '/p/new.txt': 'x\ny\n' }, ['● Created (new.txt)  +2']],
-  ['two files', 'echo x | tee a.txt sub/b.txt', { '/p/a.txt': 'a\n' }, { '/p/a.txt': 'a\nx\n', '/p/sub/b.txt': 'x\n' }, ['● Updated (a.txt)  +1', '● Created (sub/b.txt)  +1']],
+  ['two files', 'echo x | tee a.txt sub/b.txt', { '/p/a.txt': 'a\n' }, { '/p/a.txt': 'a\nx\n', '/p/sub/b.txt': 'x\n' }, ['● Ran (echo x | tee a.txt sub/b.txt)  +2']],
   ['a cd first', 'cd sub && echo x >> b.txt', { '/p/sub/b.txt': 'a\nb\n' }, { '/p/sub/b.txt': 'x\n' }, ['● Updated (sub/b.txt)  +1 −2']],
 ] as const) {
   test(`a Bash call that writes ${name} draws its edit rows`, async ($, on) => {
     native(on)
     bashFs(on, { ...before }, files => Object.assign(files, after))
     await bash($, command)
-    expect(await rowsOf(await useRow($, call('b1', 'Bash', { command })))).toEqual([...want])
+    expect([await textOf(await useRow($, call('b1', 'Bash', { command })), 'fold:b1')]).toEqual([...want])
   })
 }
+
+// A standalone Bash call that wrote two files, folded.
+async function twoWrites($: any, on: any, viewport: object = VIEW) {
+  native(on)
+  bashFs(on, { '/p/a.txt': 'a\n' }, files => Object.assign(files, { '/p/a.txt': 'a\nx\n', '/p/sub/b.txt': 'x\n' }))
+  await bash($, 'echo x | tee a.txt sub/b.txt')
+  return $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolUse', requestId: 'b1', props: call('b1', 'Bash', { command: 'echo x | tee a.txt sub/b.txt' }), viewport })
+}
+
+test('a press on a standalone Bash write of two files opens a tree of them, and a file row its diff', async ($, on) => {
+  const ui = await twoWrites($, on)
+  expect(await treeOf(ui)).toEqual([])
+  await click(ui, 'fold:b1')
+  expect(await textOf(ui, 'fold:b1')).toBe('○ Ran (echo x | tee a.txt sub/b.txt)  +2')
+  expect(await treeOf(ui)).toEqual(['  ├ Updated (a.txt)  +1', '  └ Created (sub/b.txt)  +1'])
+  await click(ui, 'file:b1:0')
+  expect(await diffOf(ui)).toBe('@@ -1,1 +1,2 @@\n a\n+x')
+  await click(ui, 'fold:b1')
+  expect(await treeOf(ui)).toEqual([])
+})
+
+test('a press on a standalone Bash write of one file opens its diff, with no tree', async ($, on) => {
+  native(on)
+  bashFs(on, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))
+  await bash($, 'echo b > a.txt')
+  const ui = await useRow($, call('b1', 'Bash', { command: 'echo b > a.txt' }))
+  await click(ui, 'fold:b1')
+  expect(await textOf(ui, 'fold:b1')).toBe('○ Updated (a.txt)  +1 −1')
+  expect(await treeOf(ui)).toEqual([])
+  expect(await diffOf(ui)).toBe('@@ -1,1 +1,1 @@\n-a\n+b')
+})
+
+test('a standalone Bash write title cuts its command to the width, keeping the counts', async ($, on) => {
+  const ui = await twoWrites($, on, { ...VIEW, columns: 20 })
+  expect(await textOf(ui, 'fold:b1')).toBe('● Ran (echo x …)  +2')
+  await ui.unmount()
+  const narrow = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolUse', requestId: 'b1', props: call('b1', 'Bash', { command: 'echo x | tee a.txt sub/b.txt' }), viewport: { ...VIEW, columns: 8 } })
+  expect(await textOf(narrow, 'fold:b1')).toBe('● Ran (…)  +2')
+})
+
+test('a standalone Bash write of one file too big for a diff keeps a plain row', async ($, on) => {
+  native(on)
+  bashFs(on, { '/p/a.txt': lines(2100) }, files => (files['/p/a.txt'] = lines(2100, 4)))
+  await bash($, "sed -i 's/l5/X/' a.txt")
+  expect(await rowsOf(await useRow($, call('b1', 'Bash', { command: "sed -i 's/l5/X/' a.txt" })))).toEqual(['● Updated (a.txt)  +1 −1'])
+})
+
+test('off the fullscreen layout a standalone Bash write keeps a plain row per file', async ($, on) => {
+  const ui = await twoWrites($, on, { columns: 80, rows: 20 })
+  expect(await rowsOf(ui)).toEqual(['● Updated (a.txt)  +1', '● Created (sub/b.txt)  +1'])
+})
 
 // A group holding a recorded Bash write, as folio's fold draws it: the header's text, and the tree's rows once open.
 // A file row that opens a diff is a Client, read once sized.
@@ -1675,7 +1726,7 @@ test('rows name files from the session root, not the folder a shell cd left', as
   for (const [i, command] of commands.entries()) await bash($, command, `b${i}`)
   live.value = '/p/sub'
   const rows = []
-  for (const [i, command] of commands.entries()) rows.push(...await rowsOf(await useRow($, call(`b${i}`, 'Bash', { command }))))
+  for (const [i, command] of commands.entries()) rows.push(await textOf(await useRow($, call(`b${i}`, 'Bash', { command })), `fold:b${i}`))
   expect(rows).toEqual(['● Updated (a.txt)  +1 −1', '● Created (new.txt)  +2', '● Updated (sub/b.txt)  +1'])
   expect(await textOf(await mountRow($, 'Edit', patch('-a', '+b'), {}, '/p/a.txt', 'e1'), 'e1')).toBe('● Updated (a.txt)  +1 −1')
 })
