@@ -2857,23 +2857,89 @@ test("a step's mark is colored apart from its text", async ($, on) => {
 })
 
 // 20 body rows: the status row, its rule, ASK, TAKE's rule, TAKE and STEPS' rule leave 12 for steps.
-test('steps past the body end in a dim "… N more" row; steps that fit get none', async ($, on) => {
+test('steps past the body end in the ↓ N more cue; steps that fit get none', async ($, on) => {
   const ui = await intentPane($, on)
   const steps = Array.from({ length: 25 }, (_, i) => ({ text: `step ${i + 1}`, status: 'pending' }))
   await $.tool.call({ tool: INTENT, ...REPORT, steps } as any)
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: 'step 11' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'step 12' })).toBeUndefined()
-  expect(await colorOf(ui, '… 14 more')).toBe('#4f5c68')
+  expect(await colorOf(ui, ' 14 more')).toBe('#4f5c68')
+  expect(await ui.find({ type: 'Button', key: 'steps:down' })).toBeDefined()
   // An ASK wrapping to 3 rows at the 29-column text width takes 2 of them.
   await $.tool.call({ tool: INTENT, ...REPORT, wants: Array(7).fill('abcdefghi').join(' '), steps } as any)
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: 'step 9' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'step 10' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: '… 16 more' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' 16 more' })).toBeDefined()
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: /more$/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'steps:down' })).toBeUndefined()
+})
+
+// 14 body rows: STEPS gets 6, from row 8, under the tabs, their rule, the status row, its rule, ASK, TAKE's rule,
+// TAKE and STEPS' rule.
+const stepsPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], doing: number) => {
+  noHistory(on)
+  on('session.end', (_, e) => ({ sessionId: e.sessionId }) as any)
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  on('ui.scroll', () => ({}) as any)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll: { offset: 0, bodyRows: 14 + BAR_ROWS } }, requestId: 'margin' })
+  const steps = Array.from({ length: 12 }, (_, i) => ({ text: `step ${i + 1}`, status: i < doing - 1 ? 'completed' : i === doing - 1 ? 'in_progress' : 'pending' }))
+  await $.tool.call({ tool: INTENT, ...REPORT, steps } as any)
+  await ui.drawn()
+  const wheel = (by: number, row = 9) =>
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 14 + BAR_ROWS, contentRows: 14 + BAR_ROWS, origin: { kind: 'person' }, pointer: { column: 0, row } })
+  const shown = async (n: number) => (await ui.find({ type: 'Text', text: `step ${n}` })) !== undefined
+  return { ui, wheel, shown }
+}
+
+test('STEPS follow the step in progress; the wheel over them stops that until the next prompt', async ($, on) => {
+  const { ui, wheel, shown } = await stepsPane($, on, 9)
+  // Scrolled just enough to show step 9 last: ↑, steps 6 to 9, ↓.
+  expect(await shown(9)).toBe(true)
+  expect(await shown(5)).toBe(false)
+  expect(await shown(10)).toBe(false)
+  expect(await ui.find({ type: 'Text', text: ' 5 more ' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' 3 more' })).toBeDefined()
+
+  await wheel(-2)
+  expect(await shown(4)).toBe(true)
+  expect(await shown(9)).toBe(false)
+  await $.tool.call({ tool: INTENT, now: 11 } as any)
+  await ui.drawn()
+  expect(await shown(4)).toBe(true)
+  expect(await shown(11)).toBe(false)
+
+  await send($, 'next thing')
+  await $.tool.call({ tool: INTENT, now: 11 } as any)
+  await ui.drawn()
+  expect(await shown(11)).toBe(true)
+  expect(await shown(4)).toBe(false)
+})
+
+test('a press on a STEPS cue stops following; the wheel keeps within the steps', async ($, on) => {
+  const { ui, wheel, shown } = await stepsPane($, on, 9)
+  await ui.press({ key: 'steps:up' })
+  expect(await shown(1)).toBe(true)
+  expect(await shown(9)).toBe(false)
+  await $.tool.call({ tool: INTENT, now: 10 } as any)
+  await ui.drawn()
+  expect(await shown(1)).toBe(true)
+  expect(await shown(10)).toBe(false)
+
+  // Past the end: ↑ and the last 5, no ↓.
+  await wheel(100)
+  expect(await shown(8)).toBe(true)
+  expect(await shown(7)).toBe(false)
+  expect(await ui.find({ type: 'Button', key: 'steps:down' })).toBeUndefined()
+  // Back past the top: no ↑.
+  await wheel(-100)
+  expect(await shown(1)).toBe(true)
+  expect(await ui.find({ type: 'Button', key: 'steps:up' })).toBeUndefined()
+  // Over ASK, not STEPS: the engine's own scroll, the steps stay.
+  await wheel(3, 4)
+  expect(await shown(1)).toBe(true)
 })
 
 const THREE = { ...REPORT, steps: [{ text: 'spec', status: 'in_progress' }, { text: 'plan', status: 'pending' }, { text: 'ship', status: 'pending' }] }
