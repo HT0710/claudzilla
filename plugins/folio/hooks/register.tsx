@@ -89,16 +89,20 @@ const BLINK_MS = 500
 const toolRow = (tool: string, input: any, output: any, isErrored: boolean) =>
   tool in ROWS && !isErrored && output && typeof output === 'object' ? ROWS[tool]!(input ?? {}, output) : undefined
 
-// An Edit or Write result as unified-diff hunks, for the Code element: tab and newline its only control characters,
-// and over its size limit it refuses the row, so such a diff stays in ctrl+o. A new file has no patch: all added.
+// Diff lines as the Code element's source: tab and newline its only control characters, and over its size limit
+// it refuses the row, so such a diff stays in ctrl+o.
+function codeDiff(lines: string[]) {
+  const text = lines.join('\n').replace(CODE_CONTROLS, '')
+  return text && text.length <= CODE_MAX ? text : undefined
+}
+
+// An Edit or Write result as unified-diff hunks. A new file has no patch: all added.
 function diffText(output: any) {
   const lines = newFileLines(output)
   type Hunk = { oldStart: number; oldLines: number; newStart: number; newLines: number; lines: string[] }
-  const text = (output.type === 'create'
+  return codeDiff(output.type === 'create'
     ? [`@@ -0,0 +1,${lines.length} @@`, ...lines.map(line => `+${line}`)]
-    : (output.structuredPatch as Hunk[]).flatMap(h => [`@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`, ...h.lines])
-  ).join('\n').replace(CODE_CONTROLS, '')
-  return text.length <= CODE_MAX ? text : undefined
+    : (output.structuredPatch as Hunk[]).flatMap(h => [`@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`, ...h.lines]))
 }
 
 // Cells a string takes in a Code element, per grapheme: a tab, and a wide East Asian or emoji one, take two.
@@ -154,25 +158,55 @@ export function writeTargets(command: string): string[] {
   return [...out].filter(f => !f.startsWith('/dev/')).map(f => resolve(dir ? word(dir) : '', f))
 }
 
-// Lines added and removed between two texts: an LCS line diff, or for big files a multiset count.
-function diffCount(before: string | undefined, after: string) {
+// Lines added and removed between two texts, and their unified-diff hunks with 3 lines of context: an LCS line
+// diff, or for big files a multiset count and no hunks.
+function diffCount(before: string | undefined, after: string): { add: number; del: number; diff?: string } {
   const lines = (s: string | undefined) => (s ? s.replace(/\n$/, '').split('\n') : [])
   const [a, b] = [lines(before), lines(after)]
-  let same = 0
-  if (a.length * b.length > 4_000_000) {
+  // An empty side makes the product 0, so a long side alone also takes the cheap count.
+  if (a.length * b.length > 4_000_000 || Math.max(a.length, b.length) > 20_000) {
+    let same = 0
     const left = new Map<string, number>()
     a.forEach(l => left.set(l, (left.get(l) ?? 0) + 1))
     for (const l of b) if ((left.get(l) ?? 0) > 0) { left.set(l, left.get(l)! - 1); same++ }
-  } else {
-    let prev = new Array(b.length + 1).fill(0)
-    for (let i = 1; i <= a.length; i++) {
-      const cur = new Array(b.length + 1).fill(0)
-      for (let j = 1; j <= b.length; j++) cur[j] = a[i - 1] === b[j - 1] ? prev[j - 1] + 1 : Math.max(prev[j], cur[j - 1])
-      prev = cur
-    }
-    same = prev[b.length]
+    return { add: b.length - same, del: a.length - same }
   }
-  return { add: b.length - same, del: a.length - same }
+  // The shorter side stays under 2001 lines here, so an LCS length fits 16 bits.
+  const table = [new Uint16Array(b.length + 1)]
+  for (let i = 1; i <= a.length; i++) {
+    const [prev, cur] = [table[i - 1]!, new Uint16Array(b.length + 1)]
+    for (let j = 1; j <= b.length; j++) cur[j] = a[i - 1] === b[j - 1] ? prev[j - 1]! + 1 : Math.max(prev[j]!, cur[j - 1]!)
+    table.push(cur)
+  }
+  // Walked from the end, an add before a remove, so each change reads removes first.
+  const ops: string[] = []
+  for (let i = a.length, j = b.length; i || j;) {
+    if (i && j && a[i - 1] === b[j - 1]) { ops.push(` ${a[--i]}`); j-- }
+    else if (j && (!i || table[i]![j - 1]! >= table[i - 1]![j]!)) ops.push(`+${b[--j]}`)
+    else ops.push(`-${a[--i]}`)
+  }
+  ops.reverse()
+  const CONTEXT = 3
+  const isChange = (op = ' ') => op[0] !== ' '
+  const out: string[] = []
+  let [oldNo, newNo, k] = [0, 0, 0]
+  while (k < ops.length) {
+    const first = ops.findIndex((op, i) => i >= k && isChange(op))
+    if (first < 0) break
+    let last = first
+    for (let i = first + 1; i < ops.length && i - last <= 2 * CONTEXT; i++) if (isChange(ops[i])) last = i
+    const from = Math.max(first - CONTEXT, k)
+    oldNo += from - k
+    newNo += from - k
+    const body = ops.slice(from, Math.min(last + CONTEXT + 1, ops.length))
+    const olds = body.filter(op => op[0] !== '+').length
+    const news = body.filter(op => op[0] !== '-').length
+    out.push(`@@ -${oldNo + (olds ? 1 : 0)},${olds} +${newNo + (news ? 1 : 0)},${news} @@`, ...body)
+    oldNo += olds
+    newNo += news
+    k = from + body.length
+  }
+  return { add: ops.filter(op => op[0] === '+').length, del: ops.filter(op => op[0] === '-').length, diff: codeDiff(out) }
 }
 
 export function cutPath(path: string, max: number) {
@@ -572,9 +606,10 @@ export const register: Register = on => {
   // Agent calls' tool_use_id by agentId, which their requests carry.
   const spawned = new Map<string, string>()
   const agentTag = ({ model, effort }: AgentRow) => [/opus|sonnet|haiku|fable/.exec(model ?? '')?.[0], effort].filter(Boolean).join(' · ')
-  // Files each Bash call changed, by tool_use_id; and the Bash groups a click opened, by requestId.
-  const bashEdits = new Map<string, { file: string; add: number; del: number; isNew: boolean }[]>()
-  const openGroups = new Set<string>()
+  // Files each Bash call changed, by tool_use_id; and the Bash groups a click opened, by requestId, to the file rows
+  // whose diff a click opened.
+  const bashEdits = new Map<string, { file: string; add: number; del: number; isNew: boolean; diff?: string }[]>()
+  const openGroups = new Map<string, Set<string>>()
   // A file's name from the session root, cut to a share of the chat, so a wide terminal shows more of a path.
   const namer = (cwd: string, columns = 80) => {
     const room = Math.max(NAME_FLOOR, Math.floor(columns * NAME_SHARE))
@@ -603,6 +638,16 @@ export const register: Register = on => {
   )
   const textRow = (elements: Elements['terminal'], dot: RenderNode, row: [string, string, RenderNode], tag?: string) => (
     <elements.Box marginTop={1}>{textLine(elements, dot, row, tag)}</elements.Box>
+  )
+  // An opened file's diff under its tree row, the tree line beside it; `hasNext` runs the line on to the next row.
+  const diffBox = ({ Box, Code, Text }: Elements['terminal'], columns: number, entry: { file: string; diff?: string }, hasNext = false) => entry.diff && (
+    <Box paddingLeft={2}>
+      {/* Counted, not clipped: a clipped box scrolled past its top draws from the screen's top row and overruns. */}
+      <Text color="promptBorder">{Array(diffRows(entry.diff, columns - 4) + (hasNext ? 1 : 0)).fill('│').join('\n')}</Text>
+      <Box paddingLeft={1} flexGrow={1}>
+        <Code source={entry.diff} path={entry.file} format="diff" />
+      </Box>
+    </Box>
   )
 
   on('agent.spawn', async ($, e, next) => {
@@ -665,28 +710,31 @@ export const register: Register = on => {
       { text: ` command${calls.length === 1 ? '' : 's'}` }, { text: ')', color: 'promptBorder' }, ...(add + del ? countPieces(add, del) : [])]
     const TREE_INDENT = 4
     const cut = (text: string, room: number) => (text.length > room ? `${text.slice(0, room - 1)}…` : text)
-    const rows = isOpen ? calls.flatMap((c): Piece[][] => {
+    // A file row with a diff is the fold's Client, keyed by call and file, so a press opens the diff under it.
+    type Row = { pieces: Piece[]; key?: string; edit?: { file: string; diff?: string } }
+    const rows = isOpen ? calls.flatMap((c): Row[] => {
       const edits = (c.tool_use_id && !c.isErrored && bashEdits.get(c.tool_use_id)) || []
-      if (edits.length) return edits.map(f => [{ text: f.isNew ? 'Created' : EDIT.Edit!, bold: true }, { text: ' (', color: 'promptBorder' },
-        ...namePieces(name(f.file)), { text: ')', color: 'promptBorder' }, ...countPieces(f.add, f.del, f.isNew)])
+      if (edits.length) return edits.map((f, i) => ({ key: f.diff && `file:${c.tool_use_id}:${i}`, edit: f, pieces: [{ text: f.isNew ? 'Created' : EDIT.Edit!, bold: true },
+        { text: ' (', color: 'promptBorder' }, ...namePieces(name(f.file)), { text: ')', color: 'promptBorder' }, ...countPieces(f.add, f.del, f.isNew)] }))
       const tail: Piece[] = c.isErrored ? [{ text: '  ' }, { text: 'failed', color: 'error' }] : c.isInterrupted ? [{ text: '  ' }, { text: 'interrupted', color: 'inactive' }] : []
       const room = columns - TREE_INDENT - tail.reduce((sum, p) => sum + p.text.length, 0)
       // The call's main argument: its path, pattern, command or address.
       const args = (c.input ?? {}) as Record<string, unknown>
-      if (c.tool === 'Bash') return [[{ text: cut(String(args.command ?? '').split('\n')[0]!, room) }, ...tail]]
+      if (c.tool === 'Bash') return [{ pieces: [{ text: cut(String(args.command ?? '').split('\n')[0]!, room) }, ...tail] }]
       const key = ['file_path', 'pattern', 'path', 'command', 'url', 'query'].find(k => typeof args[k] === 'string')
       const arg = !key ? '' : key === 'file_path' || key === 'path' ? name(String(args[key])) : String(args[key]).split('\n')[0]!
-      return [[{ text: c.tool, bold: true }, ...(arg ? [{ text: ' (', color: 'promptBorder' }, { text: cut(arg, room - c.tool.length - 3) }, { text: ')', color: 'promptBorder' }] : []), ...tail]]
+      return [{ pieces: [{ text: c.tool, bold: true }, ...(arg ? [{ text: ' (', color: 'promptBorder' }, { text: cut(arg, room - c.tool.length - 3) }, { text: ')', color: 'promptBorder' }] : []), ...tail] }]
     }) : []
 
     return (
       <Box flexDirection="column" marginTop={1}>
         <Client key={`fold:${e.requestId}`} module="./fold.tsx" width="100%" height={1} props={{ pieces: header, lit: LIT }} />
-        {rows.map((pieces, i) => (
-          <Text wrap="truncate-end">
-            {[{ text: i === rows.length - 1 ? '  └ ' : '  ├ ', color: 'promptBorder' }, ...pieces].map(({ text, color, bold }) => <Text color={color} bold={bold}>{text}</Text>)}
-          </Text>
-        ))}
+        {rows.flatMap(({ pieces, key, edit }, i) => {
+          const isShown = !!key && !!openGroups.get(e.requestId)?.has(key)
+          const line = [{ text: i === rows.length - 1 && !isShown ? '  └ ' : '  ├ ', color: 'promptBorder' }, ...pieces]
+          return key ? [<Client key={key} module="./fold.tsx" width="100%" height={1} props={{ pieces: line, lit: LIT }} />, isShown && diffBox(elements, columns, edit!, i < rows.length - 1)]
+            : [<Text wrap="truncate-end">{line.map(({ text, color, bold }) => <Text color={color} bold={bold}>{text}</Text>)}</Text>]
+        })}
       </Box>
     )
   })
@@ -776,22 +824,14 @@ export const register: Register = on => {
     }
     if (!summary) return native
     const elements = $.ui.resolve(e)
-    const { Box, Code, Text } = elements
+    const { Box, Text } = elements
     const Client = 'Client' in elements ? elements.Client : undefined
     if (!Client) return native
     const row = (key: string, pieces: Piece[]) => <Client key={key} module="./fold.tsx" width="100%" height={1} props={{ pieces, lit: LIT }} />
     const result = (entry: NonNullable<ReturnType<typeof done.get>>, gap = '  ', addWidth = 0) =>
       countPieces(entry.summary.add, entry.summary.del, entry.summary.isNew, gap, addWidth)
     const self = done.get(e.requestId)!
-    const diff = (entry: typeof self, hasNext = false) => entry.diff && (
-      <Box paddingLeft={2}>
-        {/* Counted, not clipped: a clipped box scrolled past its top draws from the screen's top row and overruns. */}
-        <Text color="promptBorder">{Array(diffRows(entry.diff, (e.viewport?.columns ?? 80) - 4) + (hasNext ? 1 : 0)).fill('│').join('\n')}</Text>
-        <Box paddingLeft={1} flexGrow={1}>
-          <Code source={entry.diff} path={entry.file} format="diff" />
-        </Box>
-      </Box>
-    )
+    const diff = (entry: typeof self, hasNext = false) => diffBox(elements, e.viewport?.columns ?? 80, entry, hasNext)
     const entries = run.ids.flatMap(id => done.get(id) ?? [])
     if (entries.length < 2) {
       return (
@@ -849,8 +889,12 @@ export const register: Register = on => {
     const run = runs.get(e.requestId)
     const element = typeof e.element === 'string' ? e.element : ''
     const isPress = !!(e.data as { press?: boolean } | undefined)?.press
+    const shown = openGroups.get(e.requestId)
     if (!run && isPress && element === `fold:${e.requestId}`) {
-      if (!openGroups.delete(e.requestId)) openGroups.add(e.requestId)
+      if (!openGroups.delete(e.requestId)) openGroups.set(e.requestId, new Set())
+      $.ui.invalidate('ui.render')
+    } else if (!run && isPress && shown && element.startsWith('file:')) {
+      if (!shown.delete(element)) shown.add(element)
       $.ui.invalidate('ui.render')
     }
     if (run && isPress) {
