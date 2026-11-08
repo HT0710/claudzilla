@@ -339,7 +339,7 @@ If you installed the margin, it is a pane with two tab bars. The top bar is abou
 
 To open or close the margin, type `/margin`, or press a tab's key (see the key table). A new session opens it if you left it open, and the first session opens it too; on a terminal under 144 columns it waits for room (110 once you have opened it yourself); a tab key shows it at any width. In the fullscreen layout, on a terminal 110 columns or wider, it docks beside the chat; otherwise it opens over the prompt. It opens on the Overview tab; click a tab name or press its key to switch. Each tab key opens the margin on that tab, switches to it when another tab shows, and closes the margin when that tab already shows. The key letter is underlined in the tab name; Decisions and Tree have none yet. On macOS, alt is the Option key, and your terminal must send it as Meta; see [Option key shortcuts on macOS](https://code.claude.com/docs/en/terminal-config#enable-option-key-shortcuts-on-macos).
 
-**Overview** shows, at the top, whether Claude is `● working`, `✓ done` or `■ stopped`, or, when its turn ended with background agents still running, `◌ waiting on N agents`, then:
+**Overview** shows a status row: whether Claude is `● working`, `✓ done` or `■ stopped`, or, when its turn ended with background agents still running, `◌ waiting on N agents`. When TOPICS show, the status row sits under them and their `⇕` rule; otherwise it is the first row. The tab holds:
 
 - **TOPICS:** what this chat is about. After each prompt, while the tab shows, Opus groups your prompts, and only your prompts, into topics.
 - **ASK:** how Claude read your request.
@@ -347,7 +347,7 @@ To open or close the margin, type `/margin`, or press a tab's key (see the key t
 - **STEPS:** its steps: `✓` done, `●` in progress, `○` pending.
   - Agents Claude starts hang under their step: `○` planned, `◌` working, `✓` done, `✗` failed, `■` stopped. Past 3, the rest fold into `… N more`; click it to see them all, `… less` to fold them. Click an agent to open its transcript (its row lights blue); click it again, click its step, or press **Esc** to go back.
 
-From the moment you submit until Claude reports, the header shows `planning…` over last turn's dimmed report. The current step is lit blue. When STEPS runs past the pane's last row, a dim `… N more` counts the rows left out; the `⇕` rule under TOPICS gives them more rows. Claude fills ASK, TAKE and STEPS by calling a hidden `intent` tool at the start of each turn. TOPICS, ASK, TAKE and STEPS are written in the language you write in; the labels stay in English. Check ASK first: if Claude misread you, press **Esc** and correct it. Each report and each topics read uses a little of your usage limits; see *Usage and cost* (`/claudzilla limits`). To turn the reports off, set the margin's `intent` option to off in `/config`; it applies from the next session.
+From the moment you submit until Claude reports, the status row shows `planning…` over last turn's dimmed report. The current step is lit blue. When STEPS runs past the pane's last row, it scrolls in place: the wheel moves it, and the list follows the step in progress until you wheel it yourself. The next prompt starts it at the top again, and the `⇕` rule under TOPICS gives it more rows. Claude fills ASK, TAKE and STEPS by calling a hidden `intent` tool at the start of each turn. TOPICS, ASK, TAKE and STEPS are written in the language you write in; the labels stay in English. Check ASK first: if Claude misread you, press **Esc** and correct it. Each report and each topics read uses a little of your usage limits; see *Usage and cost* (`/claudzilla limits`). To turn the reports off, set the margin's `intent` option to off in `/config`; it applies from the next session.
 
 **History** lists this chat's prompts, newest first:
 
@@ -368,7 +368,7 @@ When `gh` is set up for a GitHub repo, the next row shows the branch's pull requ
 
 In a details panel, a long list shows three rows and `show all`, which opens the whole list over it. Click a file in a panel's list to open it in the File tab. Press Esc, click its `✕`, or click the row that opened it to close it.
 
-Next come the changed files under CHANGES and recent commits under COMMITS. The tab redraws after each tool call and each prompt. Scrolled, a `↑` line goes back to the top of CHANGES or COMMITS.
+Next come the changed files under CHANGES and recent commits under COMMITS. The tab redraws after each tool call and each prompt. A list with more rows than fit shows `── ↑ N more ──` at its top, which goes back to the start, and `↓ N more` at its end, which turns the page. COMMITS shows `↓ more` without a count, because it loads in pages.
 
 Each changed file shows git's two status letters and its line counts: the first, dim, is what is staged, and the second, bright, is what is not; untracked and conflicted files show both bright, in one colour. Hover it for the same in words, and click it to open the file in the File tab.
 
