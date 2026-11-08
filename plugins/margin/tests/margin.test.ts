@@ -2223,7 +2223,7 @@ test('/margin runs at once, even while Claude is working', async ($, on) => {
 })
 
 const INTENT = 'mcp__margin__intent'
-const REPORT = { wants: 'a third tab', plan: 'write the spec', steps: [{ text: 'spec', status: 'in_progress' }, { text: 'plan', status: 'pending' }] }
+const REPORT = { wants: 'a third tab', take: { stance: 'concern', label: 'clear', why: 'small and scoped' }, steps: [{ text: 'spec', status: 'in_progress' }, { text: 'plan', status: 'pending' }] }
 // History empty, the pane mounted on the Overview tab.
 const intentPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], now?: () => number) => {
   noHistory(on, now)
@@ -2252,7 +2252,7 @@ test("Claude's intent report draws on the Overview tab", async ($, on) => {
   expect(await ui.find({ type: 'Text', text: '● working' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '0/2 steps' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'write the spec' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'clear' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^STEPS/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^ASK$/ })).toBeDefined()
   // No TOPICS read yet: no divider to tie the report to a topic.
@@ -2439,7 +2439,7 @@ test("the next prompt dims an answered report, not a stopped one", async ($, on)
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: '● working' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'planning…' })).toBeDefined()
-  for (const text of ['a third tab', 'write the spec', /^✓ $/, /^spec$/]) expect(await colorOf(ui, text)).toBe('#4f5c68')
+  for (const text of ['a third tab', /^clear$/, /^! $/, /^spec$/]) expect(await colorOf(ui, text)).toBe('#4f5c68')
 })
 
 test("a dimmed report waits for Claude's next one: a ping leaves it, a turn without a report drops it", async ($, on) => {
@@ -2736,11 +2736,11 @@ test('TOPICS keeps its wording: later reads see the current topics', async ($, o
   expect(asks[1]!.prompt).toContain('- Intent tab for the panel\n- shipping the branch')
 })
 
-test('a rule from the text column sets PLAN and STEPS apart', async ($, on) => {
+test('a rule from the text column sets TAKE and STEPS apart', async ($, on) => {
   const ui = await intentPane($, on)
   await $.tool.call({ tool: INTENT, ...REPORT, steps: [] } as any)
   await ui.drawn()
-  expect(await ui.find({ key: 'rule:PLAN' })).toBeDefined()
+  expect(await ui.find({ key: 'rule:TAKE' })).toBeDefined()
   // No steps, no STEPS block, no rule for it.
   expect(await ui.find({ key: 'rule:STEPS' })).toBeUndefined()
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
@@ -2774,7 +2774,7 @@ test("a step's mark is colored apart from its text", async ($, on) => {
   expect(await colorOf(ui, /^○ $/)).toBe('#4f5c68')
 })
 
-// 20 body rows: the status row, its rule, ASK, PLAN's rule, PLAN and STEPS' rule leave 12 for steps.
+// 20 body rows: the status row, its rule, ASK, TAKE's rule, TAKE and STEPS' rule leave 12 for steps.
 test('steps past the body end in a dim "… N more" row; steps that fit get none', async ($, on) => {
   const ui = await intentPane($, on)
   const steps = Array.from({ length: 25 }, (_, i) => ({ text: `step ${i + 1}`, status: 'pending' }))
@@ -2902,14 +2902,52 @@ test('the wheel over the TOPICS divider moves it, keeping 1 row on either side',
   expect(await topicShown(ui, 10)).toBe(false)
 })
 
-test('a report missing ASK or PLAN keeps the last ones', async ($, on) => {
+test('a report missing ASK or TAKE keeps the last ones', async ($, on) => {
   const ui = await intentPane($, on)
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await $.tool.call({ tool: INTENT, steps: THREE.steps } as any)
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'write the spec' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'clear' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '0/3 steps' })).toBeDefined()
+})
+
+test('TAKE shows a stance mark, the label and the why', async ($, on) => {
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT, take: { stance: 'against', label: 'data loss', why: 'x' } } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'TAKE' })).toBeDefined()
+  expect(await colorOf(ui, /^✗ $/)).toBe('#e06c75')
+  expect(await ui.find({ type: 'Text', text: 'data loss' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ': x' })).toBeDefined()
+})
+
+test('TAKE without a why has no colon', async ($, on) => {
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT, take: { stance: 'concern', label: 'risky' } } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'risky' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^: / })).toBeUndefined()
+})
+
+test('a report without a take, or with an invalid one, keeps the last take', async ($, on) => {
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT, take: { stance: 'unsure', label: 'needs repro' } } as any)
+  await $.tool.call({ tool: INTENT, wants: 'again', steps: [] } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'needs repro' })).toBeDefined()
+  await $.tool.call({ tool: INTENT, wants: 'again', take: { stance: 'happy', label: 'yay' }, steps: [] } as any)
+  await $.tool.call({ tool: INTENT, wants: 'again', take: { stance: 'fine', label: '' }, steps: [] } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'needs repro' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'yay' })).toBeUndefined()
+})
+
+test('a TAKE label past 16 characters is cut', async ($, on) => {
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT, take: { stance: 'fine', label: 'abcdefghijklmnopqrst' } } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'abcdefghijklmno…' })).toBeDefined()
 })
 
 test('a now ping with no report this turn is ignored', async ($, on) => {

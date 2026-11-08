@@ -5,7 +5,8 @@ export type Step = { text: string; status: 'pending' | 'in_progress' | 'complete
 // An agent the main loop started: the step in progress then, and the turn (user prompt) it came in.
 export type Spawn = { id: string; description: string; step: string; turn: number; status: AgentStatus }
 export type AgentRow = { id?: string; description: string; status: AgentStatus | 'planned' }
-export type Intent = { wants: string; plan: string; steps: Step[]; at: number; ended: boolean; waiting?: boolean; agents?: number; turn?: number }
+export type Take = { stance: 'fine' | 'concern' | 'against' | 'unsure'; label: string; why?: string }
+export type Intent = { wants: string; take?: Take; steps: Step[]; at: number; ended: boolean; waiting?: boolean; agents?: number; turn?: number }
 export type Overview = { topics: string[]; running: boolean; failed?: string }
 export type PanelShow = { path: string; line: number }
 export type Panel = { show: (at: PanelShow) => Promise<void> }
