@@ -671,18 +671,55 @@ export const register: Register = on => {
     return yield* next(e)
   })
 
+  const tops = new Map<string, string>()
+  // Bash calls whose writes git status found, as a script's: they keep their command and output.
+  const scripts = new Set<string>()
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    const targets = hideEditDiff ? writeTargets(e.command) : []
-    if (!targets.length) return next(e)
+    if (!hideEditDiff) return next(e)
+    const targets = writeTargets(e.command)
     const cwd = await $.session.cwd().catch(() => '')
-    const files = targets.map(f => resolve(cwd, f))
     const read = (f: string) => $.fs.read(f).then(text => text as string, () => undefined)
+    const git = (dir: string, ...args: string[]) => $.process.run(['git', '--no-optional-locks', '-C', dir, ...args], { timeoutMs: 5000 })
+      .then(r => (r.exitCode === 0 ? r.stdout : undefined), () => undefined)
+    // Dirty files by path, from git status, for commands whose writes the parse can't see.
+    const dirty = async (top: string) => {
+      const out = await git(top, 'status', '--porcelain', '-z', '--no-renames', '--untracked-files=all')
+      return out === undefined ? undefined : new Map(out.split('\0').filter(Boolean).map(r => [`${top}/${r.slice(3)}`, r.slice(0, 2)]))
+    }
+    const cd = e.command.match(/^\s*cd\s+([^\s;&|]+)\s*&&/)?.[1]
+    const dir = cd ? resolve(cwd, cd) : cwd
+    // Only under the session root: git status runs a repo's config (core.fsmonitor, filters), and this runs before approval.
+    const root = targets.length ? '' : await $.session.root().catch(() => '')
+    const isTrusted = !!root && (dir === root || dir.startsWith(`${root}/`))
+    if (isTrusted && !tops.has(dir)) {
+      const found = (await git(dir, 'rev-parse', '--show-toplevel'))?.trim()
+      // Not cached when missing, so a later `git init` counts.
+      if (found) tops.set(dir, found)
+    }
+    const top = isTrusted ? tops.get(dir) ?? '' : ''
+    const was = top ? await dirty(top) : undefined
+    // shortcut: a tree with over 100 dirty files skips script writes, as reading each on every call costs too much; upgrade by hashing with git hash-object.
+    if (!targets.length && (!was || was.size > 100)) return next(e)
+    let files = targets.map(f => resolve(cwd, f))
+    if (was) files = [...was.keys()]
     const before = await Promise.all(files.map(read))
     const ran = await next(e)
     if (ran.deny || ran.isError) return ran
+    if (was) {
+      // shortcut: another session or a parallel Bash call writing at the same time counts as this call's write.
+      const fresh = [...((await dirty(top)) ?? new Map<string, string>())].filter(([f]) => !was.has(f))
+      if (fresh.length > 100) return ran
+      files.push(...fresh.map(([f]) => f))
+      before.push(...await Promise.all(fresh.map(([f, code]) => (code === '??' ? undefined : git(top, 'show', `HEAD:${f.slice(top.length + 1)}`)))))
+    }
     const after = await Promise.all(files.map(read))
-    const found = files.flatMap((file, i) =>
-      after[i] === undefined || after[i] === before[i] ? [] : [{ file, isNew: before[i] === undefined, ...diffCount(before[i], after[i]!) }])
+    // A NUL byte marks a binary file, which has no line diff to show.
+    const found = files.flatMap((file, i) => after[i] === undefined || after[i] === before[i] || `${before[i] ?? ''}${after[i]}`.includes('\0')
+      ? [] : [{ file, isNew: before[i] === undefined, ...diffCount(before[i], after[i]!) }])
+    // An unparsed command that changed nothing is a plain command, not a write.
+    if (was && !found.length) return ran
+    if (scripts.size > 500) scripts.clear()
+    if (was) scripts.add(e.tool_use_id)
     // A write that changed nothing still unfolds its group, so a rerun looks like the first run.
     if (bashEdits.size > 500) bashEdits.clear()
     bashEdits.set(e.tool_use_id, found)
@@ -793,7 +830,7 @@ export const register: Register = on => {
   // Each hook runs next even when dropping it: margin tracks the row in view on this chain.
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
     const native = await next(e)
-    const isEdit = (runs.has(e.requestId) && editSummary(e.props.tool, e.props.output, e.props.isErrored)) || (!!bashEdits.get(e.requestId)?.length && !e.props.isErrored) || lostWrites.has(e.requestId)
+    const isEdit = (runs.has(e.requestId) && editSummary(e.props.tool, e.props.output, e.props.isErrored)) || (!!bashEdits.get(e.requestId)?.length && !e.props.isErrored && !scripts.has(e.requestId)) || lostWrites.has(e.requestId)
     if (!hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || !(isEdit || toolRow(e.props.tool, {}, e.props.output, e.props.isErrored))) return native
     const { Box } = $.ui.resolve(e)
 
@@ -818,17 +855,21 @@ export const register: Register = on => {
     const name = namer(tool in EDIT || bashEdit ? await $.session.root().catch(() => '') : '', e.viewport?.columns)
     if (bashEdit) {
       if (isRunning || isErrored || isInterrupted) return native
+      // A script's title names its command even for one file; off the fullscreen layout it keeps the engine row.
+      const isScript = scripts.has(e.requestId)
+      if (isScript && !e.viewport?.isFullscreen) return native
       // Off the fullscreen layout a printed row cannot open, so each file keeps a plain row; so does a lone file with no diff to open.
-      if (e.viewport?.isFullscreen && (bashEdit.length > 1 || bashEdit[0]!.diff)) {
+      if (e.viewport?.isFullscreen && (isScript || bashEdit.length > 1 || bashEdit[0]!.diff)) {
         const command = String((input as { command?: unknown } | undefined)?.command ?? '').split('\n')[0]!
         const add = bashEdit.reduce((sum, c) => sum + c.add, 0)
         const del = bashEdit.reduce((sum, c) => sum + c.del, 0)
         const room = (e.viewport.columns ?? 80) - 8 - countPieces(add, del).reduce((sum, p) => sum + p.text.length, 0)
         const title: Piece[] = [{ text: 'Ran', bold: true }, { text: ' (', color: 'promptBorder' }, { text: clip(command, room) }, { text: ')', color: 'promptBorder' }]
         const call = { tool_use_id: e.requestId, tool, input, isRunning, isErrored, isInterrupted, output }
-        const folded = foldCalls($.ui.resolve(e), e.requestId, e.viewport.columns ?? 80, await $.session.root().catch(() => ''), [call], false, title, bashEdit.length === 1 ? bashEdit[0] : undefined)
+        const folded = foldCalls($.ui.resolve(e), e.requestId, e.viewport.columns ?? 80, await $.session.root().catch(() => ''), [call], false, title, !isScript && bashEdit.length === 1 ? bashEdit[0] : undefined)
         if (folded) return folded
       }
+      if (isScript) return native
       const elements = $.ui.resolve(e)
       const { Box, Text } = elements
       const dot = <Text color="success">●</Text>
