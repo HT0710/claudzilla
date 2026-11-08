@@ -703,11 +703,15 @@ let historyEnd: number | undefined
 let topicsZone: { from: number; to: number; end: number; offset: number; divider: Split } | undefined
 // The Overview's STEPS as last drawn: rows `from` to `to`, the first shown `top`, up to offset `end`; `offset` as
 // topicsZone's.
+// The top STEPS last drew, kept once the run ends and no step is in progress; a new prompt clears it.
+let stepsHeld: number | undefined
 let stepsZone: { from: number; to: number; top: number; end: number; offset: number } | undefined
 // A list zone's window over `n` rows, its cues as a modal's: a zone too short for them still scrolls, bare.
 // Its last offset: the window at `top` Infinity.
-const zoneWindow = (n: number, top: number, rows: number) =>
-  rows < 3 ? { top: Math.max(0, Math.min(top, n - rows)), shown: Math.min(rows, n), above: 0, below: 0 } : scrollWindow(n, top, rows, false)
+export const zoneWindow = (n: number, top: number, room: number) => {
+  const rows = Math.max(0, room)
+  return rows < 3 ? { top: Math.max(0, Math.min(top, n - rows)), shown: Math.min(rows, n), above: 0, below: 0 } : scrollWindow(n, top, rows, false)
+}
 // Counts UTF-16 units, not cells: a wide glyph (CJK, emoji) can still overflow by one.
 // A commit row's key: hover scopes take at most 64 characters, so a SHA-256 id goes by its first 40.
 const commitKey = (sha: string) => `c:${sha.slice(0, 40)}`
@@ -1227,6 +1231,7 @@ export const register: Register = (on, options) => {
     await update($, topicsTop, () => 0)
     await update($, stepsTop, () => 0)
     await update($, stepsFollow, () => true)
+    stepsHeld = undefined
     await update($, submitted, n => n + 1)
     // A background task's result carries the last request on: Claude pings its report, not a new one, so it reopens.
     if (e.origin.kind === 'task-notification') {
@@ -1543,9 +1548,10 @@ export const register: Register = (on, options) => {
     const cues = (key: string, inner: number, w: { top: number; shown: number; above: number; below: number }, setTop: (to: number) => unknown, counted = true) => {
       const mid = ` ${w.above} more `
       const fill = Math.max(0, inner - 2 - mid.length)
+      const tail = counted ? ` ${w.below} more` : ' more'
       return {
         up: (
-          <Box flexShrink={0}>
+          <Box key={`${key}:up-row`} flexShrink={0}>
             <Text color="promptBorder">{`${'─'.repeat(Math.floor(fill / 2))} `}</Text>
             <Button key={`${key}:up`} plain onPress={() => setTop(0)}>
               <Text bold color="promptBorder">↑</Text>
@@ -1555,11 +1561,13 @@ export const register: Register = (on, options) => {
           </Box>
         ),
         down: (
-          <Box flexShrink={0} justifyContent="center">
+          // Centred by a pad, not justifyContent: beside the STEPS label a centred Button was not drawn.
+          <Box key={`${key}:down-row`} flexShrink={0}>
+            <Text>{' '.repeat(Math.max(0, Math.floor((inner - 1 - tail.length) / 2)))}</Text>
             <Button key={`${key}:down`} plain onPress={() => setTop(w.top + w.shown)}>
               <Text bold color="promptBorder">↓</Text>
             </Button>
-            <Text color={HUD.faint}>{counted ? ` ${w.below} more` : ' more'}</Text>
+            <Text color={HUD.faint}>{tail}</Text>
           </Box>
         ),
       }
@@ -3314,18 +3322,21 @@ export const register: Register = (on, options) => {
                   <Box width={LABEL} flexShrink={0}>
                     <Text bold color={HUD.label}>STEPS</Text>
                   </Box>
-                  <Box flexDirection="column">
+                  <Box flexDirection="column" width={width - LABEL}>
                     {((perStep: unknown[][]) => {
                       const rows = perStep.flat()
                       // Following, the step in progress kept in view, scrolled as little as that takes.
                       const doing = following ? shown.steps.findIndex(step => step.status === 'in_progress') : -1
-                      const at = doing < 0 ? -1 : perStep.slice(0, doing).reduce((n, one) => n + one.length, 0)
-                      let w = zoneWindow(rows.length, at < 0 ? storedSteps : Math.min(storedSteps, at), stepRoom)
+                      const first = doing < 0 ? -1 : perStep.slice(0, doing).reduce((n, one) => n + one.length, 0)
+                      // Its last row too, its agents with it; a step taller than the zone keeps its first row.
+                      const at = first < 0 ? -1 : Math.min(first + perStep[doing]!.length - 1, first + Math.max(0, stepRoom - 3))
+                      let w = zoneWindow(rows.length, at < 0 ? (following ? (stepsHeld ?? storedSteps) : storedSteps) : Math.min(storedSteps, at), stepRoom)
                       while (at >= w.top + w.shown) {
                         const down = zoneWindow(rows.length, w.top + 1, stepRoom)
                         if (down.top === w.top) break
                         w = down
                       }
+                      if (!next.signal.aborted) stepsHeld = w.top
                       const from = e.props.scroll.bodyRows - BAR_ROWS - stepRoom
                       if (!next.signal.aborted)
                         stepsZone = { from, to: from + Math.min(rows.length, stepRoom), top: w.top, end: zoneWindow(rows.length, Infinity, stepRoom).top, offset: e.props.scroll.offset }

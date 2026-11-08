@@ -4,7 +4,7 @@ import type { AgentStatus, Register } from 'claude-code'
 import type { Spawn, Step } from '../types'
 import { fileKey } from '../hooks/git-data'
 
-import { dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseTopics, pinHolds, readStamps, stampPattern } from '../hooks/register'
+import { dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseTopics, pinHolds, readStamps, stampPattern, zoneWindow } from '../hooks/register'
 
 // A process.run result with `stdout`.
 const ran = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -2916,6 +2916,43 @@ test('STEPS follow the step in progress; the wheel over them stops that until th
   await ui.drawn()
   expect(await shown(11)).toBe(true)
   expect(await shown(4)).toBe(false)
+})
+
+test('STEPS keep their window when the run ends; the next prompt starts at the top', async ($, on) => {
+  const { ui, shown } = await stepsPane($, on, 10)
+  expect(await shown(10)).toBe(true)
+  await $.tool.call({ tool: INTENT, ...REPORT, steps: Array.from({ length: 12 }, (_, i) => ({ text: `step ${i + 1}`, status: 'completed' })) } as any)
+  await ui.drawn()
+  expect(await shown(10)).toBe(true)
+  expect(await shown(2)).toBe(false)
+  expect(await ui.find({ type: 'Button', key: 'steps:up' })).toBeDefined()
+
+  await send($, 'next thing')
+  await ui.drawn()
+  expect(await shown(2)).toBe(true)
+  expect(await shown(10)).toBe(false)
+})
+
+test('a zone with negative room shows no rows', () => {
+  expect(zoneWindow(10, 0, -4)).toMatchObject({ top: 0, shown: 0 })
+  expect(zoneWindow(10, 0, 0)).toMatchObject({ top: 0, shown: 0 })
+})
+
+test("STEPS follow to the last row of the step in progress: its agents show", async ($, on) => {
+  const ui = await intentPane($, on)
+  const steps = Array.from({ length: 14 }, (_, i) => ({ text: `step ${i + 1}`, status: i < 9 ? 'completed' : i === 9 ? 'in_progress' : 'pending', ...(i === 9 && { agents: ['agent a', 'agent b'] }) }))
+  await $.tool.call({ tool: INTENT, ...REPORT, steps } as any)
+  await ui.drawn()
+  expect(await ui.find({ key: 'agent:9:0' })).toBeDefined()
+  expect(await ui.find({ key: 'agent:9:1' })).toBeDefined()
+})
+
+test('a step taller than the zone keeps its first row in view when followed', async ($, on) => {
+  const ui = await intentPane($, on)
+  const steps = Array.from({ length: 8 }, (_, i) => ({ text: `step ${i + 1}`, status: i < 6 ? 'completed' : i === 6 ? 'in_progress' : 'pending', ...(i === 6 && { agents: ['a', 'b', 'c'] }) }))
+  await $.tool.call({ tool: INTENT, ...REPORT, wants: Array(15).fill('abcdefghi').join(' '), steps } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'step 7' })).toBeDefined()
 })
 
 test('a press on a STEPS cue stops following; the wheel keeps within the steps', async ($, on) => {
