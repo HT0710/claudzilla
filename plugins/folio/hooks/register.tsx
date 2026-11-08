@@ -874,7 +874,7 @@ export const register: Register = on => {
     const gapAfter = (width: number) => ' '.repeat(end - width + 2)
     const addWidth = Math.max(plus(add).length, ...listed.map(entry => plus(entry.summary.add, entry.summary.isNew).length))
     const selfName = name(self.file)
-    const newPieces: Piece[] = at >= 0 && self.summary.isNew ? [{ text: ' '.repeat(nameEnd - TREE_INDENT - selfName.length + 2) }, { text: NEW, color: 'success' }] : []
+    const newPieces: Piece[] = at >= 0 && self.summary.isNew ? [{ text: ' '.repeat(nameEnd - TREE_INDENT - selfName.length + 2) }, { text: NEW }] : []
     const nameWidth = self.summary.isNew ? nameEnd + 2 + NEW.length : TREE_INDENT + selfName.length
 
     return (
