@@ -433,15 +433,24 @@ check "events: background update is no line" bash -c '! grep -q "updating in bac
 check "auto: next session reports update" grep -q "updated to [0-9a-f]\\{7,\\} - for changes: /claudzilla news\"" <<<"$(notice)"
 check "events: consumed result is a start line" grep -qE $'^[0-9]+\tstart\tclaudzilla: updated to [0-9a-f]{7,} - for changes: /claudzilla news$' "$ev"
 check "auto: report shown once" [ -z "$(notice)" ]
-printf 'x\n' > "$U/seed/f"; g -C "$U/seed" add f; g -C "$U/seed" commit -m three; g -C "$U/seed" push origin main
+printf 'x\n' > "$U/seed/f"; mkdir -p "$U/seed/p/x"; printf 'a\n' > "$U/seed/p/x/a"; printf 'b\n' > "$U/seed/p/x/b"
+g -C "$U/seed" add f p; g -C "$U/seed" commit -m three; g -C "$U/seed" push origin main
 g -C "$U/clone" pull --ff-only; echo local >> "$U/clone/f"
-g -C "$U/seed" commit --allow-empty -m four; g -C "$U/seed" push origin main
+mkdir -p "$U/seed/q/y"; printf 'z\n' > "$U/seed/q/y/z"; g -C "$U/seed" add q; g -C "$U/seed" commit -m four; g -C "$U/seed" push origin main
+g -C "$U/clone" fetch
+notice >/dev/null; waitres; out=$(notice)
+check "auto: edit the update leaves alone still updates" [ "$(git -C "$U/clone" log -1 --format=%s)" = four ]
+check "auto: edit kept through update" grep -q local "$U/clone/f"
+check "auto: updated notice says edits kept" grep -q 'updated to [0-9a-f]\{7,\}, your edits kept - for changes: /claudzilla news' <<<"$out"
+g -C "$U/clone" mv p/x/a r; printf 'y\n' > "$U/seed/p/x/b"; g -C "$U/seed" commit -am edit-b; g -C "$U/seed" push origin main
 g -C "$U/clone" fetch
 out=$(notice); waitjob
-check "auto: local changes skip update" [ "$(git -C "$U/clone" log -1 --format=%s)" = three ]
-check "auto: local changes keep notice" grep -qE 'update [0-9a-f]{7,} available.*local changes' <<<"$out"
-check "events: skipped is a start line" grep -qE $'\tstart\tclaudzilla: update [0-9a-f]{7,} available \\(auto-update skipped: local changes\\) - ' "$ev"
-g -C "$U/clone" checkout f; printf 'exit 3\n' > "$U/clone/install.sh"
+check "auto: rename next to a changed file skips update" [ "$(git -C "$U/clone" log -1 --format=%s)" = four ]
+check "auto: skip keeps the edit" [ -f "$U/clone/r" ]
+check "auto: skip notice says local changes" grep -qE 'update [0-9a-f]{7,} skipped \(local changes\) - ask Claude to update"' <<<"$out"
+check "auto: Claude gets the part to resolve" node -e 'const h=JSON.parse(process.argv[1]).hookSpecificOutput;if(!/local changes in p\/x/.test(h.additionalContext)||!/install\.sh/.test(h.additionalContext))process.exit(1)' "$out"
+check "events: skipped is a start line" grep -qE $'\tstart\tclaudzilla: update [0-9a-f]{7,} skipped \\(local changes\\) - ask Claude to update$' "$ev"
+g -C "$U/clone" reset -q --hard; printf 'exit 3\n' > "$U/clone/install.sh"
 notice >/dev/null; waitres
 check "events: failure is a fail line" grep -qE $'^[0-9]+\tfail\tclaudzilla: auto-update to [0-9a-f]{7,} failed - ask Claude to debug it \\(log: .*claudzilla-update\\.log\\)$' "$ev"
 out=$(notice)
@@ -453,7 +462,7 @@ g -C "$U/clone" commit --allow-empty -m mine
 g -C "$U/seed" commit --allow-empty -m five; g -C "$U/seed" push origin main; g -C "$U/clone" fetch
 out=$(notice); waitjob
 check "auto: local commit skips update" [ "$(git -C "$U/clone" log -1 --format=%s)" = mine ]
-check "auto: local commit keeps notice" grep -q 'local changes' <<<"$out"
+check "auto: local commit keeps notice" grep -qE 'update [0-9a-f]{7,} skipped \(local commits\) - ask Claude to update' <<<"$out"
 g -C "$U/clone" reset -q --hard origin/main
 printf 'up\n' > "$U/seed/u"; g -C "$U/seed" add u; g -C "$U/seed" commit -m six; g -C "$U/seed" push origin main
 g -C "$U/clone" fetch; printf 'mine\n' > "$U/clone/u"

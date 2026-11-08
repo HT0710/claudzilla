@@ -444,7 +444,7 @@ Two parts save tokens: caveman shortens replies, and rtk shortens command output
 
 claudzilla does some things without being asked. This list names each one, so none of them surprises you. Settings named here are explained in *Customize claudzilla* (`/claudzilla customize`).
 
-- **Auto-update:** when a session starts or you run `/clear`, a background job checks for a new claudzilla release, at most once an hour. If there is one, it updates the clone at `~/claudzilla` and runs the installer again; restart Claude to apply it. If the clone has uncommitted edits or local commits, it skips the update and shows a notice instead. To get only the notice, put `{"rulesGuard":{"autoUpdate":false}}` in `~/.claude/claudzilla.json`.
+- **Auto-update:** when a session starts or you run `/clear`, a background job checks for a new claudzilla release, at most once an hour. If there is one, it updates the clone at `~/claudzilla` and runs the installer again; restart Claude to apply it. Your own edits in the clone stay through the update, and the notice after it says so. If the release changes a file in the same part as one you edited, such as the same plugin or `claude/hud`, or the clone has local commits, it skips the update and shows a notice instead. To get only the notice, put `{"rulesGuard":{"autoUpdate":false}}` in `~/.claude/claudzilla.json`.
 - **Transcript reads by the guard:** the guard reads the end of the current session's transcript, the saved file of the session, to measure context and to see whether a check ran. It keeps its notes in a temporary file for each session.
 - **Rule counts:** at startup, if the last `/rule-review` report is missing or a week old, a background job scans your transcripts in `~/.claude/projects/` and saves counts in `~/.claude/claudzilla-reports/`. When rules slipped, the next session shows a one-line summary once. The counts leave your machine only if you say yes in `/rule-review`. To stop the scan and the summary, put `{"rulesGuard":{"reviewNudge":false}}` in `~/.claude/claudzilla.json`.
 - **Command rewriting:** if you installed rtk, a hook passes each shell command Claude runs through rtk, which shortens the output Claude reads. Run `rtk gain` in a terminal to see the tokens it saved.
@@ -471,7 +471,7 @@ Claude said "done", "fixed" or "passing" with no check after its last edit, so t
 
 #### An update failed
 
-The notice reads `claudzilla: auto-update to <version> failed - ask Claude to debug it`, with the path of the log. Ask Claude to debug the claudzilla update: it gets the log path and the command to try again. A notice that says `auto-update skipped: local changes` means the clone at `~/claudzilla` has edits; see *Customize claudzilla* (`/claudzilla customize`).
+The notice reads `claudzilla: auto-update to <version> failed - ask Claude to debug it`, with the path of the log. Ask Claude to debug the claudzilla update: it gets the log path and the command to try again. A notice that says `update <version> skipped (local changes)` means the release changes files next to ones you edited in the clone at `~/claudzilla`, and `(local commits)` means the clone has commits of its own. Ask Claude to update: it brings your changes onto the release; see *Customize claudzilla* (`/claudzilla customize`).
 
 #### Boxes instead of symbols
 
@@ -579,7 +579,7 @@ You change claudzilla through a few files of your own.
 #### Two rules first
 
 - **Which file wins.** For settings, `~/.claude/settings.overrides.json` wins over claudzilla's settings and over `~/.claude/settings.json`. The installer merges it, so run `~/claudzilla/install.sh` after you edit it. For the guard, a later file wins: `~/.claude/claudzilla.json` (this machine), then `<repo>/.claude/claudzilla.json` (shared, commit it), then `<repo>/.claude/claudzilla.local.json` (yours only). The guard reads them on each prompt. It skips a bad value and tells Claude about it on your next prompt.
-- **Never edit the linked files.** `~/.claude/CLAUDE.md`, `~/.claude/rules/`, the hooks and claudzilla's skills are links into the clone at `~/claudzilla`. An edit there is an uncommitted change in the clone, so auto-update stops and you get only a notice.
+- **Never edit the linked files.** `~/.claude/CLAUDE.md`, `~/.claude/rules/`, the hooks and claudzilla's skills are links into the clone at `~/claudzilla`. An edit there is an uncommitted change in the clone, so any release that changes the same part waits, and you get only a notice.
 
 #### What to change
 
@@ -638,7 +638,7 @@ The key names in each table:
 
 #### How updates arrive
 
-Each feature, fix or refactor pushed to claudzilla's `main` branch ships as a release once its tests pass. At most once an hour, a new session or `/clear` installs the newest release in the background. A notice appears when a session starts; if you installed the herald plugin, a toast also tells you when an update is available, installing, installed, or failed. Restart Claude to apply an update; `/claudzilla news` lists what changed. If the clone has local changes, the update waits and the notice gives the command to run. Auto-update is described in *What runs on its own* (`/claudzilla background`).
+Each feature, fix or refactor pushed to claudzilla's `main` branch ships as a release once its tests pass. At most once an hour, a new session or `/clear` installs the newest release in the background. A notice appears when a session starts; if you installed the herald plugin, a toast also tells you when an update is available, installing, installed, or failed. Restart Claude to apply an update; `/claudzilla news` lists what changed. If the release changes a part you edited in the clone, the update waits and the notice asks you to let Claude update. Auto-update is described in *What runs on its own* (`/claudzilla background`).
 
 #### Update by hand
 
