@@ -791,6 +791,21 @@ export const register: Register = on => {
     return ran
   })
 
+  // With no record of a Bash call's writes, as after a reload, takes them from the engine's bashEditDiff; a command the parse sees no write in is a script.
+  const adopt = (id: string, output: unknown, command: string) => {
+    type Hunk = { oldStart: number; oldLines: number; newStart: number; newLines: number; lines: string[] }
+    const files = (output as { bashEditDiff?: { files?: { filePath: string; hunks: Hunk[] }[] } } | undefined)?.bashEditDiff?.files
+    if (bashEdits.has(id) || !files?.length) return false
+    const count = (hunks: Hunk[], sign: string) => hunks.flatMap(h => h.lines).filter(line => line[0] === sign).length
+    if (scripts.size > 500) scripts.clear()
+    if (bashEdits.size > 500) bashEdits.clear()
+    if (!writeTargets(command).length) scripts.add(id)
+    // The engine writes a new file as one hunk with no old lines (@@ -1,0 +1,N @@); an existing file's hunk has context.
+    bashEdits.set(id, files.map(({ filePath, hunks }) => ({ file: filePath, add: count(hunks, '+'), del: count(hunks, '-'),
+      isNew: hunks.length === 1 && !hunks[0]!.oldLines, diff: diffText({ structuredPatch: hunks }) })))
+    return true
+  }
+
   // A group's header part per tool kind: done label, running label, noun counted.
   const GROUP_KINDS: Record<string, [string, string, string]> = {
     Read: ['Read', 'Reading', 'file'], Grep: ['Searched', 'Searching', 'pattern'], Glob: ['Searched', 'Searching', 'pattern'], Bash: ['Ran', 'Running', 'command'],
@@ -903,10 +918,12 @@ export const register: Register = on => {
 
   // Each hook runs next even when dropping it: margin tracks the row in view on this chain.
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
+    const isFolded = hideEditDiff && e.surface === 'terminal' && !e.props.isExpanded
     const edits = bashEdits.get(e.requestId)
-    // The engine draws bashEditDiff under the row; folio's own row already shows the edit.
+    // The engine draws bashEditDiff under the row; folio's own row already shows the edit, where it draws one.
     const { bashEditDiff, ...rest } = (e.props.output ?? {}) as { bashEditDiff?: unknown }
-    const native = await next(edits?.length && bashEditDiff && typeof e.props.output === 'object' ? { ...e, props: { ...e.props, output: rest } } : e)
+    const isStripped = isFolded && (scripts.has(e.requestId) ? !!e.viewport?.isFullscreen : true)
+    const native = await next(isStripped && edits?.length && bashEditDiff && typeof e.props.output === 'object' ? { ...e, props: { ...e.props, output: rest } } : e)
     const isEdit = (runs.has(e.requestId) && editSummary(e.props.tool, e.props.output, e.props.isErrored)) || (!!bashEdits.get(e.requestId)?.length && !e.props.isErrored && !scripts.has(e.requestId)) || lostWrites.has(e.requestId)
     const isScriptRow = scripts.has(e.requestId) && !e.props.isErrored && !!e.viewport?.isFullscreen
     if (!hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || !(isEdit || isScriptRow || toolRow(e.props.tool, {}, e.props.output, e.props.isErrored))) return native
@@ -926,9 +943,11 @@ export const register: Register = on => {
       const resolved = (output as { resolvedModel?: string } | undefined)?.resolvedModel
       agents.set(e.requestId, { description: args.description ?? known?.description, model: resolved ?? known?.model ?? args.model, effort: known?.effort ?? args.effort })
     }
-    const bashEdit = bashEdits.get(e.requestId)?.length ? bashEdits.get(e.requestId) : undefined
     // A Client draws nothing on mobile.
     if (!hideEditDiff || e.surface !== 'terminal' || isExpanded) return native
+    // A result drawn first shows the engine diff until this row records the edit.
+    if (!isRunning && !isErrored && !isInterrupted && adopt(e.requestId, output, String((input as { command?: unknown } | undefined)?.command ?? ''))) $.ui.invalidate('ui.render')
+    const bashEdit = bashEdits.get(e.requestId)?.length ? bashEdits.get(e.requestId) : undefined
     // The root, not cwd(): a shell `cd` moves cwd(), and every row would shift with it.
     const name = namer(tool in EDIT || bashEdit ? await $.session.root().catch(() => '') : '', e.viewport?.columns)
     if (bashEdit) {
