@@ -685,12 +685,16 @@ export const register: Register = on => {
     return ran
   })
 
-  // A group holding a Bash write folds into a row of its own, like a run of edits; a click opens a tree of its calls.
+  // A group's header part per tool kind: done label, running label, noun counted.
+  const GROUP_KINDS: Record<string, [string, string, string]> = {
+    Read: ['Read', 'Reading', 'file'], Grep: ['Searched', 'Searching', 'pattern'], Glob: ['Searched', 'Searching', 'pattern'], Bash: ['Ran', 'Running', 'command'],
+  }
+  // A group folds into a row of its own, like a run of edits; a click opens a tree of its calls.
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
     const native = await next(e)
     const { calls, isActive, isExpanded } = e.props
     // Off the fullscreen layout a printed row cannot change: a live header would stay Running.
-    if (!hideEditDiff || e.surface !== 'terminal' || isExpanded || !e.viewport?.isFullscreen || !calls.some(c => c.tool_use_id && bashEdits.has(c.tool_use_id))) return native
+    if (!hideEditDiff || e.surface !== 'terminal' || isExpanded || !e.viewport?.isFullscreen || !calls.length) return native
     const elements = $.ui.resolve(e)
     const { Box, Text } = elements
     const Client = 'Client' in elements ? elements.Client : undefined
@@ -706,8 +710,17 @@ export const register: Register = on => {
     const add = changed.reduce((sum, c) => sum + c.add, 0)
     const del = changed.reduce((sum, c) => sum + c.del, 0)
     const isOpen = openGroups.has(e.requestId)
-    const header = [...(isLive ? head(isLit ? '●' : ' ', 'inactive', 'Running') : head(isOpen ? '○' : '●', 'success', 'Ran')), { text: ' (', color: 'promptBorder' }, { text: String(calls.length), color: 'claude' },
-      { text: ` command${calls.length === 1 ? '' : 's'}` }, { text: ')', color: 'promptBorder' }, ...(add + del ? countPieces(add, del) : [])]
+    const kinds = new Map<string, { live: string; noun: string; n: number }>()
+    for (const c of calls) {
+      const [done, live, noun] = GROUP_KINDS[c.tool] ?? [c.tool, c.tool, '']
+      const kind = kinds.get(done) ?? kinds.set(done, { live, noun, n: 0 }).get(done)!
+      kind.n++
+    }
+    const parts = [...kinds].flatMap(([done, { live, noun, n }], i): Piece[] => [...(i ? [{ text: ' · ' }] : []),
+      { text: isLive ? live : done, bold: true }, { text: ' (', color: 'promptBorder' }, { text: String(n), color: 'claude' },
+      ...(noun ? [{ text: ` ${noun}${n === 1 ? '' : 's'}` }] : []), { text: ')', color: 'promptBorder' }])
+    const [mark, color] = isLive ? [isLit ? '●' : ' ', 'inactive'] : [isOpen ? '○' : '●', 'success']
+    const header = [{ text: mark, color }, { text: ' ' }, ...parts, ...(add + del ? countPieces(add, del) : [])]
     const TREE_INDENT = 4
     const cut = (text: string, room: number) => (text.length > room ? `${text.slice(0, room - 1)}…` : text)
     // A file row with a diff is the fold's Client, keyed by call and file, so a press opens the diff under it.
