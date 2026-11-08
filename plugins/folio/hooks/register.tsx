@@ -534,7 +534,7 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     // A /clear or resume goes on under a new session id, which needs its own cols file.
     wroteColumns = 0
-    for (const rows of [runs, done, placed, shownDiffs, agents, spawned, bashEdits, unfolded]) rows.clear()
+    for (const rows of [runs, done, placed, shownDiffs, agents, spawned, bashEdits, openGroups]) rows.clear()
     current = undefined
     await t.flush(traceIo($))
     return next(e)
@@ -554,6 +554,17 @@ export const register: Register = on => {
   const blinking = new Set<string>()
   let blink: Timer | undefined
   let isLit = true
+  const toggleBlink = (redraw: () => void) => {
+    if (!blinking.size) {
+      blink?.cancel()
+      blink = undefined
+      isLit = true
+      return
+    }
+    blinking.clear()
+    isLit = !isLit
+    redraw()
+  }
   // Agent calls by tool_use_id: a finish notification names only the call. Model and effort as the spawn and the
   // agent's own requests report them, which an agent definition or a fork may set apart from the call's input.
   type AgentRow = { description?: string; model?: string; effort?: string }
@@ -561,9 +572,26 @@ export const register: Register = on => {
   // Agent calls' tool_use_id by agentId, which their requests carry.
   const spawned = new Map<string, string>()
   const agentTag = ({ model, effort }: AgentRow) => [/opus|sonnet|haiku|fable/.exec(model ?? '')?.[0], effort].filter(Boolean).join(' · ')
-  // Files each Bash call changed, by tool_use_id; and the calls of groups unfolded to show them.
+  // Files each Bash call changed, by tool_use_id; and the Bash groups a click opened, by requestId.
   const bashEdits = new Map<string, { file: string; add: number; del: number; isNew: boolean }[]>()
-  const unfolded = new Set<string>()
+  const openGroups = new Set<string>()
+  // A file's name from the session root, cut to a share of the chat, so a wide terminal shows more of a path.
+  const namer = (cwd: string, columns = 80) => {
+    const room = Math.max(NAME_FLOOR, Math.floor(columns * NAME_SHARE))
+    return (file: string) => cutPath(cwd && file.startsWith(`${cwd}/`) ? file.slice(cwd.length + 1) : file, room)
+  }
+  type Piece = { text: string; color?: string; bold?: boolean }
+  const namePieces = (path: string): Piece[] =>
+    path.split(/(\/)/).filter(Boolean).map(text => (text === '/' ? { text, color: 'promptBorder' } : { text }))
+  const plus = (add: number, isNew = false) => (add > 0 || isNew ? `+${add}` : '')
+  // addWidth lines up a tree's − counts; a row with none keeps no trailing pad.
+  const countPieces = (add: number, del: number, isNew = false, gap = '  ', addWidth = 0): Piece[] => [
+    { text: gap },
+    ...(plus(add, isNew) ? [{ text: plus(add, isNew), color: 'success' }] : []),
+    ...(del > 0 && (plus(add, isNew) || addWidth) ? [{ text: ' '.repeat(Math.max(addWidth - plus(add, isNew).length, 0) + 1) }] : []),
+    ...(del > 0 ? [{ text: `−${del}`, color: 'error' }] : []),
+  ]
+  const head = (mark: string, color: string, label: string): Piece[] => [{ text: mark, color }, { text: ' ' }, { text: label, bold: true }]
   // Plain text, not the fold's Client: nothing opens on a press, so nothing lights under the pointer.
   const textLine = ({ Text }: Elements['terminal'], dot: RenderNode, [label, arg, tail]: [string, string, RenderNode], tag = '') => (
     <Text wrap="truncate-end">
@@ -605,23 +633,62 @@ export const register: Register = on => {
     const after = await Promise.all(files.map(read))
     const found = files.flatMap((file, i) =>
       after[i] === undefined || after[i] === before[i] ? [] : [{ file, isNew: before[i] === undefined, ...diffCount(before[i], after[i]!) }])
-    if (found.length) {
-      if (bashEdits.size > 500) bashEdits.clear()
-      bashEdits.set(e.tool_use_id, found)
-      $.ui.invalidate('ui.render')
-    }
+    // A write that changed nothing still unfolds its group, so a rerun looks like the first run.
+    if (bashEdits.size > 500) bashEdits.clear()
+    bashEdits.set(e.tool_use_id, found)
+    $.ui.invalidate('ui.render')
     return ran
   })
 
-  // A group holding a Bash edit unfolds, so the edit gets its own row.
-  on('ui.render', { component: 'ToolGroup' }, async (_$, e, next) => {
-    const ids = e.props.calls.flatMap(c => c.tool_use_id ?? [])
-    // Already unfolded: the non-fullscreen ctrl+o transcript or --verbose, whose rows stay native.
-    if (e.props.isExpanded) ids.forEach(id => unfolded.delete(id))
-    if (!hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || !ids.some(id => bashEdits.has(id))) return next(e)
-    if (unfolded.size > 500) unfolded.clear()
-    ids.forEach(id => unfolded.add(id))
-    return next({ ...e, props: { ...e.props, isExpanded: true } })
+  // A group holding a Bash write folds into a row of its own, like a run of edits; a click opens a tree of its calls.
+  on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
+    const native = await next(e)
+    const { calls, isActive, isExpanded } = e.props
+    // Off the fullscreen layout a printed row cannot change: a live header would stay Running.
+    if (!hideEditDiff || e.surface !== 'terminal' || isExpanded || !e.viewport?.isFullscreen || !calls.some(c => c.tool_use_id && bashEdits.has(c.tool_use_id))) return native
+    const elements = $.ui.resolve(e)
+    const { Box, Text } = elements
+    const Client = 'Client' in elements ? elements.Client : undefined
+    if (!Client) return native
+    const isLive = isActive || calls.some(c => c.isRunning)
+    if (isLive) {
+      blinking.add(e.requestId)
+      blink ??= $.clock.every(BLINK_MS, () => toggleBlink(() => $.ui.invalidate('ui.render')))
+    }
+    const columns = e.viewport.columns ?? 80
+    const name = namer(await $.session.root().catch(() => ''), columns)
+    const changed = calls.flatMap(c => (c.tool_use_id && !c.isErrored && bashEdits.get(c.tool_use_id)) || [])
+    const add = changed.reduce((sum, c) => sum + c.add, 0)
+    const del = changed.reduce((sum, c) => sum + c.del, 0)
+    const isOpen = openGroups.has(e.requestId)
+    const header = [...(isLive ? head(isLit ? '●' : ' ', 'inactive', 'Running') : head(isOpen ? '○' : '●', 'success', 'Ran')), { text: ' (', color: 'promptBorder' }, { text: String(calls.length), color: 'claude' },
+      { text: ` command${calls.length === 1 ? '' : 's'}` }, { text: ')', color: 'promptBorder' }, ...(add + del ? countPieces(add, del) : [])]
+    const TREE_INDENT = 4
+    const cut = (text: string, room: number) => (text.length > room ? `${text.slice(0, room - 1)}…` : text)
+    const rows = isOpen ? calls.flatMap((c): Piece[][] => {
+      const edits = (c.tool_use_id && !c.isErrored && bashEdits.get(c.tool_use_id)) || []
+      if (edits.length) return edits.map(f => [{ text: f.isNew ? 'Created' : EDIT.Edit!, bold: true }, { text: ' (', color: 'promptBorder' },
+        ...namePieces(name(f.file)), { text: ')', color: 'promptBorder' }, ...countPieces(f.add, f.del, f.isNew)])
+      const tail: Piece[] = c.isErrored ? [{ text: '  ' }, { text: 'failed', color: 'error' }] : c.isInterrupted ? [{ text: '  ' }, { text: 'interrupted', color: 'inactive' }] : []
+      const room = columns - TREE_INDENT - tail.reduce((sum, p) => sum + p.text.length, 0)
+      // The call's main argument: its path, pattern, command or address.
+      const args = (c.input ?? {}) as Record<string, unknown>
+      if (c.tool === 'Bash') return [[{ text: cut(String(args.command ?? '').split('\n')[0]!, room) }, ...tail]]
+      const key = ['file_path', 'pattern', 'path', 'command', 'url', 'query'].find(k => typeof args[k] === 'string')
+      const arg = !key ? '' : key === 'file_path' || key === 'path' ? name(String(args[key])) : String(args[key]).split('\n')[0]!
+      return [[{ text: c.tool, bold: true }, ...(arg ? [{ text: ' (', color: 'promptBorder' }, { text: cut(arg, room - c.tool.length - 3) }, { text: ')', color: 'promptBorder' }] : []), ...tail]]
+    }) : []
+
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        <Client key={`fold:${e.requestId}`} module="./fold.tsx" width="100%" height={1} props={{ pieces: header, lit: LIT }} />
+        {rows.map((pieces, i) => (
+          <Text wrap="truncate-end">
+            {[{ text: i === rows.length - 1 ? '  └ ' : '  ├ ', color: 'promptBorder' }, ...pieces].map(({ text, color, bold }) => <Text color={color} bold={bold}>{text}</Text>)}
+          </Text>
+        ))}
+      </Box>
+    )
   })
 
   // A run lies in one transcript: an agent's rows must not take in the main chat's.
@@ -651,7 +718,7 @@ export const register: Register = on => {
   // Each hook runs next even when dropping it: margin tracks the row in view on this chain.
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
     const native = await next(e)
-    const isEdit = (runs.has(e.requestId) && editSummary(e.props.tool, e.props.output, e.props.isErrored)) || (bashEdits.has(e.requestId) && !e.props.isErrored)
+    const isEdit = (runs.has(e.requestId) && editSummary(e.props.tool, e.props.output, e.props.isErrored)) || (!!bashEdits.get(e.requestId)?.length && !e.props.isErrored)
     if (!hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || !(isEdit || toolRow(e.props.tool, {}, e.props.output, e.props.isErrored))) return native
     const { Box } = $.ui.resolve(e)
 
@@ -669,57 +736,31 @@ export const register: Register = on => {
       const resolved = (output as { resolvedModel?: string } | undefined)?.resolvedModel
       agents.set(e.requestId, { description: args.description ?? known?.description, model: resolved ?? known?.model ?? args.model, effort: known?.effort ?? args.effort })
     }
-    // shortcut: fullscreen ctrl+o draws a call of an unfolded group as a ToolUse with isExpanded true and no ToolGroup,
-    // just like the unfolded group's own rows, so there it keeps the one-line row; upgrade once the props tell the views apart.
-    const isGroupRow = unfolded.has(e.requestId)
-    const bashEdit = bashEdits.get(e.requestId)
+    const bashEdit = bashEdits.get(e.requestId)?.length ? bashEdits.get(e.requestId) : undefined
     // A Client draws nothing on mobile.
-    if (!hideEditDiff || e.surface !== 'terminal' || (isExpanded && !isGroupRow)) return native
+    if (!hideEditDiff || e.surface !== 'terminal' || isExpanded) return native
     // The root, not cwd(): a shell `cd` moves cwd(), and every row would shift with it.
-    const cwd = tool in EDIT || isGroupRow || bashEdit ? await $.session.root().catch(() => '') : ''
-    // A share of the chat, so a wide terminal shows more of a path; the floor still fits most file names.
-    const nameRoom = Math.max(NAME_FLOOR, Math.floor((e.viewport?.columns ?? 80) * NAME_SHARE))
-    const name = (file: string) => cutPath(cwd && file.startsWith(`${cwd}/`) ? file.slice(cwd.length + 1) : file, nameRoom)
-    if (isGroupRow || bashEdit) {
+    const name = namer(tool in EDIT || bashEdit ? await $.session.root().catch(() => '') : '', e.viewport?.columns)
+    if (bashEdit) {
       if (isRunning || isErrored || isInterrupted) return native
       const elements = $.ui.resolve(e)
       const { Box, Text } = elements
       const dot = <Text color="success">●</Text>
-      if (bashEdit) {
-        return (
-          <Box flexDirection="column" marginTop={1}>
-            {bashEdit.map(c => textLine(elements, dot, [c.isNew ? 'Created' : EDIT.Edit!, name(c.file), <Text>
-              {(c.add > 0 || c.isNew) && <Text color="success">+{c.add}</Text>}
-              {(c.add > 0 || c.isNew) && c.del > 0 && ' '}
-              {c.del > 0 && <Text color="error">−{c.del}</Text>}
-            </Text>]))}
-          </Box>
-        )
-      }
-      // The call's main argument: its path, pattern, command or address.
-      const args = (input ?? {}) as Record<string, unknown>
-      const key = ['file_path', 'pattern', 'path', 'command', 'url', 'query'].find(k => typeof args[k] === 'string')
-      if (!key) return native
-      const label = tool === 'Bash' ? 'Ran' : tool
-      const arg = key === 'file_path' || key === 'path' ? name(String(args[key])) : String(args[key]).split('\n')[0]!
-      const room = Math.max((e.viewport?.columns ?? 80) - label.length - 8, NAME_FLOOR)
-      return textRow(elements, dot, [label, arg.length > room ? `${arg.slice(0, room - 1)}…` : arg, ''])
+      return (
+        <Box flexDirection="column" marginTop={1}>
+          {bashEdit.map(c => textLine(elements, dot, [c.isNew ? 'Created' : EDIT.Edit!, name(c.file), <Text>
+            {(c.add > 0 || c.isNew) && <Text color="success">+{c.add}</Text>}
+            {(c.add > 0 || c.isNew) && c.del > 0 && ' '}
+            {c.del > 0 && <Text color="error">−{c.del}</Text>}
+          </Text>]))}
+        </Box>
+      )
     }
     const isLive = isRunning && !isInterrupted && !isErrored && tool in RUNNING
     const other = isLive ? RUNNING[tool]!(input ?? {}, name) : !isRunning && !isInterrupted ? toolRow(tool, input, output, isErrored) : undefined
     if (isLive) {
       blinking.add(e.requestId)
-      blink ??= $.clock.every(BLINK_MS, () => {
-        if (!blinking.size) {
-          blink?.cancel()
-          blink = undefined
-          isLit = true
-          return
-        }
-        blinking.clear()
-        isLit = !isLit
-        $.ui.invalidate('ui.render')
-      })
+      blink ??= $.clock.every(BLINK_MS, () => toggleBlink(() => $.ui.invalidate('ui.render')))
     }
     if (other) {
       const elements = $.ui.resolve(e)
@@ -738,18 +779,7 @@ export const register: Register = on => {
     const { Box, Code, Text } = elements
     const Client = 'Client' in elements ? elements.Client : undefined
     if (!Client) return native
-    type Piece = { text: string; color?: string; bold?: boolean }
     const row = (key: string, pieces: Piece[]) => <Client key={key} module="./fold.tsx" width="100%" height={1} props={{ pieces, lit: LIT }} />
-    const namePieces = (path: string): Piece[] =>
-      path.split(/(\/)/).filter(Boolean).map(text => (text === '/' ? { text, color: 'promptBorder' } : { text }))
-    const plus = (add: number, isNew = false) => (add > 0 || isNew ? `+${add}` : '')
-    // addWidth lines up a tree's − counts; a row with none keeps no trailing pad.
-    const countPieces = (add: number, del: number, isNew = false, gap = '  ', addWidth = 0): Piece[] => [
-      { text: gap },
-      ...(plus(add, isNew) ? [{ text: plus(add, isNew), color: 'success' }] : []),
-      ...(del > 0 && (plus(add, isNew) || addWidth) ? [{ text: ' '.repeat(Math.max(addWidth - plus(add, isNew).length, 0) + 1) }] : []),
-      ...(del > 0 ? [{ text: `−${del}`, color: 'error' }] : []),
-    ]
     const result = (entry: NonNullable<ReturnType<typeof done.get>>, gap = '  ', addWidth = 0) =>
       countPieces(entry.summary.add, entry.summary.del, entry.summary.isNew, gap, addWidth)
     const self = done.get(e.requestId)!
@@ -762,7 +792,6 @@ export const register: Register = on => {
         </Box>
       </Box>
     )
-    const head = (mark: string, color: string, label: string): Piece[] => [{ text: mark, color }, { text: ' ' }, { text: label, bold: true }]
     const entries = run.ids.flatMap(id => done.get(id) ?? [])
     if (entries.length < 2) {
       return (
@@ -819,7 +848,12 @@ export const register: Register = on => {
   on('ui.message', async ($, e, next) => {
     const run = runs.get(e.requestId)
     const element = typeof e.element === 'string' ? e.element : ''
-    if (run && (e.data as { press?: boolean } | undefined)?.press) {
+    const isPress = !!(e.data as { press?: boolean } | undefined)?.press
+    if (!run && isPress && element === `fold:${e.requestId}`) {
+      if (!openGroups.delete(e.requestId)) openGroups.add(e.requestId)
+      $.ui.invalidate('ui.render')
+    }
+    if (run && isPress) {
       if (element.startsWith('fold:')) {
         run.isOpen = !run.isOpen
         for (const id of run.ids) shownDiffs.delete(id)
