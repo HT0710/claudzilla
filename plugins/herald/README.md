@@ -1,6 +1,6 @@
 # herald
 
-Toasts claudzilla's update progress: an update is available, it is installing, it installed (restart to apply; `/claudzilla news` lists the changes), or it failed (ask Claude to debug it). A failure also reaches Claude with your next prompt, with the log path and the retry command.
+Toasts claudzilla's update progress: an update is available, it is installing, it installed (restart to apply; `/claudzilla news` lists the changes), it was skipped for local changes (ask Claude to update), or it failed (ask Claude to debug it). A failure also reaches Claude with your next prompt, with the log path and the retry command.
 
 It reads the lines `claude/hooks/claudzilla-update.sh` appends to `.git/claudzilla-update.events` in the claudzilla clone.
 
