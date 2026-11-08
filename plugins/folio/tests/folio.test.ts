@@ -555,6 +555,142 @@ test('Hide takes the output off the card, and the block stays run', async ($, on
   expect(await ui.find({ type: 'Text', text: 'main' })).toBeDefined()
 })
 
+const LONGOUT = `\x1b[31m${'r'.repeat(30)}\x1b[32m${'g'.repeat(30)}\x1b[0m\n`
+const WRAP = (id: string, i = 1) => ({ key: `wrap:${id}:${i}` })
+const joined = async (ui: any) => (await ui.findAll({ type: 'Text' })).filter((x: any) => x.text.includes('r'.repeat(30) + 'g'.repeat(30))).length
+const codes = async (ui: any) => (await ui.findAll({ type: 'Code' })).map((c: any) => c.props.source)
+
+test('no Wrap button when every line fits', async ($, on) => {
+  const w = fenced(on)
+  shell(on)
+  const ui = await mount($, 'w1', { text: SHELL, isFirstOfReply: true })
+  expect(await ui.find(WRAP('w1'))).toBeUndefined()
+  await twice(ui, w, 'run:w1:1')
+  await ui.redraw()
+  expect(await ui.find(WRAP('w1'))).toBeUndefined()
+})
+
+test('Wrap rejoins a long code line on a plain card, and Unwrap puts it back', async ($, on) => {
+  fenced(on)
+  const long = `echo ${'x'.repeat(80)}`
+  const ui = await mount($, 'w2', { text: `\`\`\`\n${long}\n\`\`\``, isFirstOfReply: true })
+  expect(await codes(ui)).toEqual([long])
+  expect((await ui.find(WRAP('w2', 0)))?.text).toBe('↩ Wrap')
+  await ui.press(WRAP('w2', 0))
+  await ui.redraw()
+  const rows = await codes(ui)
+  expect(rows.length).toBeGreaterThan(1)
+  expect(rows.join('')).toBe(long)
+  expect((await ui.find(WRAP('w2', 0)))?.text).toBe('→ Unwrap')
+  await ui.press(WRAP('w2', 0))
+  await ui.redraw()
+  expect(await codes(ui)).toEqual([long])
+  expect((await ui.find(WRAP('w2', 0)))?.text).toBe('↩ Wrap')
+})
+
+test('Wrap splits a long output line and both pieces keep their colour', async ($, on) => {
+  const w = fenced(on)
+  shell(on, { exitCode: 0, stdout: LONGOUT, stderr: '' })
+  const ui = await mount($, 'w3', { text: SHELL, isFirstOfReply: true })
+  await twice(ui, w, 'run:w3:1')
+  await ui.redraw()
+  expect((await ui.find(WRAP('w3')))?.text).toBe('↩ Wrap')
+  expect(await joined(ui)).toBe(1)
+  await ui.press(WRAP('w3'))
+  await ui.redraw()
+  expect(await joined(ui)).toBe(0)
+  expect((await ui.find(WRAP('w3')))?.text).toBe('→ Unwrap')
+  const colored = async (color: string) => (await ui.findAll({ type: 'Text' })).filter((x: any) => x.props.color === color && x.children.every((c: unknown) => typeof c === 'string')).map((x: any) => x.text)
+  const red = await colored('red')
+  const green = await colored('green')
+  expect(red.length).toBeGreaterThan(0)
+  expect(green.length).toBeGreaterThan(0)
+  expect(red.join('') + green.join('')).toBe('r'.repeat(30) + 'g'.repeat(30))
+  expect(red.concat(green).every((t: string) => t.length <= 38)).toBe(true)
+})
+
+test('a wrapped row breaks at a space and rows rejoin to the input', async ($, on) => {
+  fenced(on)
+  const long = Array.from({ length: 30 }, (_, i) => `word${i}`).join(' ')
+  const ui = await mount($, 'w5', { text: `\`\`\`\n${long}\n\`\`\``, isFirstOfReply: true })
+  await ui.press(WRAP('w5', 0))
+  await ui.redraw()
+  const rows = await codes(ui)
+  const room = (await ui.findAll({ type: 'Box' })).map((b: any) => b.props.width).find((w: unknown) => typeof w === 'number' && w > 4) - 4
+  expect(rows.length).toBeGreaterThan(1)
+  expect(rows.join('')).toBe(long)
+  expect(rows.every((r: string) => Array.from(r).length <= room)).toBe(true)
+  expect(rows.slice(0, -1).every((r: string) => r.endsWith(' '))).toBe(true)
+})
+
+test('a word longer than the card still hard-cuts and rejoins', async ($, on) => {
+  fenced(on)
+  const long = `ab ${'x'.repeat(120)} cd`
+  const ui = await mount($, 'w6', { text: `\`\`\`\n${long}\n\`\`\``, isFirstOfReply: true })
+  await ui.press(WRAP('w6', 0))
+  await ui.redraw()
+  const rows = await codes(ui)
+  expect(rows.length).toBeGreaterThan(2)
+  expect(rows.join('')).toBe(long)
+})
+
+test('wrapped output breaks at a space and keeps colour on both rows', async ($, on) => {
+  const w = fenced(on)
+  const words = `\x1b[31m${'redish '.repeat(6)}\x1b[32m${'greenish '.repeat(6)}\x1b[0m\n`
+  shell(on, { exitCode: 0, stdout: words, stderr: '' })
+  const ui = await mount($, 'w7', { text: SHELL, isFirstOfReply: true })
+  await twice(ui, w, 'run:w7:1')
+  await ui.redraw()
+  await ui.press(WRAP('w7'))
+  await ui.redraw()
+  const colored = async (color: string) => (await ui.findAll({ type: 'Text' })).filter((x: any) => x.props.color === color && x.children.every((c: unknown) => typeof c === 'string')).map((x: any) => x.text)
+  const red = await colored('red')
+  const green = await colored('green')
+  expect(red.length).toBeGreaterThan(1)
+  expect(green.length).toBeGreaterThan(0)
+  expect(red.join('') + green.join('')).toBe('redish '.repeat(6) + 'greenish '.repeat(6))
+  expect(red.slice(0, -1).every((t: string) => t.endsWith(' '))).toBe(true)
+})
+
+test('the Wrap button shows while the command still runs', async ($, on) => {
+  const clock = fenced(on).clock
+  slow(on, LONGOUT)
+  const ui = await mount($, 'w4', { text: SHELL, isFirstOfReply: true })
+  await ui.press({ key: 'run:w4:1' })
+  await clock.advance(300)
+  void ui.press({ key: 'run:w4:1' })
+  await clock.advance(300)
+  await ui.redraw()
+  expect((await ui.find({ key: 'run:w4:1' }))?.text).toBe('■ Stop')
+  expect((await ui.find(WRAP('w4')))?.text).toBe('↩ Wrap')
+})
+
+test('no Wrap button once Hide took the output off', async ($, on) => {
+  const w = fenced(on)
+  shell(on, { exitCode: 0, stdout: LONGOUT, stderr: '' })
+  const ui = await mount($, 'w5', { text: SHELL, isFirstOfReply: true })
+  await twice(ui, w, 'run:w5:1')
+  await ui.redraw()
+  expect(await ui.find(WRAP('w5'))).toBeDefined()
+  await ui.press({ key: 'hide:w5:1' })
+  await ui.redraw()
+  expect(await ui.find(WRAP('w5'))).toBeUndefined()
+})
+
+test('a wrapped card stays wrapped when Run goes again', async ($, on) => {
+  const w = fenced(on)
+  shell(on, { exitCode: 0, stdout: LONGOUT, stderr: '' })
+  const ui = await mount($, 'w6', { text: SHELL, isFirstOfReply: true })
+  await twice(ui, w, 'run:w6:1')
+  await ui.redraw()
+  await ui.press(WRAP('w6'))
+  await ui.press({ key: 'run:w6:1' })
+  await w.clock.advance(1000)
+  await ui.redraw()
+  expect((await ui.find(WRAP('w6')))?.text).toBe('→ Unwrap')
+  expect(await joined(ui)).toBe(0)
+})
+
 test('colour codes draw as coloured text, and Claude and Copy get it plain', async ($, on) => {
   const w = fenced(on)
   const envs: unknown[] = []
