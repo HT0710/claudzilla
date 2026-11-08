@@ -343,11 +343,11 @@ To open or close the margin, type `/margin`, or press a tab's key (see the key t
 
 - **TOPICS:** what this chat is about. After each prompt, while the tab shows, Opus groups your prompts, and only your prompts, into topics.
 - **ASK:** how Claude read your request.
-- **PLAN:** its approach.
+- **TAKE:** Claude's reaction to your ask before it starts: `✓` fine, `!` concern, `✗` against, `?` unsure, a short label, and a reason when it has one.
 - **STEPS:** its steps: `✓` done, `●` in progress, `○` pending.
   - Agents Claude starts hang under their step: `○` planned, `◌` working, `✓` done, `✗` failed, `■` stopped. Past 3, the rest fold into `… N more`; click it to see them all, `… less` to fold them. Click an agent to open its transcript (its row lights blue); click it again, click its step, or press **Esc** to go back.
 
-From the moment you submit until Claude reports, the header shows `planning…` over last turn's dimmed report. The current step is lit blue. When STEPS runs past the pane's last row, a dim `… N more` counts the rows left out; the `⇕` rule under TOPICS gives them more rows. Claude fills ASK, PLAN and STEPS by calling a hidden `intent` tool at the start of each turn. TOPICS, ASK, PLAN and STEPS are written in the language you write in; the labels stay in English. Check ASK first: if Claude misread you, press **Esc** and correct it. Each report and each topics read uses a little of your usage limits; see *Usage and cost* (`/claudzilla limits`). To turn the reports off, set the margin's `intent` option to off in `/config`; it applies from the next session.
+From the moment you submit until Claude reports, the header shows `planning…` over last turn's dimmed report. The current step is lit blue. When STEPS runs past the pane's last row, a dim `… N more` counts the rows left out; the `⇕` rule under TOPICS gives them more rows. Claude fills ASK, TAKE and STEPS by calling a hidden `intent` tool at the start of each turn. TOPICS, ASK, TAKE and STEPS are written in the language you write in; the labels stay in English. Check ASK first: if Claude misread you, press **Esc** and correct it. Each report and each topics read uses a little of your usage limits; see *Usage and cost* (`/claudzilla limits`). To turn the reports off, set the margin's `intent` option to off in `/config`; it applies from the next session.
 
 **History** lists this chat's prompts, newest first:
 
@@ -698,7 +698,7 @@ Headline features of recent versions. Restart Claude after an update to use them
 #### v1.5.0
 
 - The margin opens at the start of each session as you left it, open the first time. Its tabs sit in two bars: Overview, Decisions and History at the top; File, Tree and Git at the bottom.
-- Overview writes TOPICS, ASK, PLAN and STEPS in the language you write in.
+- Overview writes TOPICS, ASK, TAKE and STEPS in the language you write in.
 - Agents Claude starts show as rows under the step that started them, and Overview shows `◌ waiting on N agents` while they run. Click one to open its transcript; click it again or press Esc to go back.
 - A file path in Claude's reply is a link: click it to see those lines in the margin's new File tab, ctrl+click to open the file.
 - In the Git tab, a pushed commit or branch links to its GitHub, GitLab, Codeberg or SourceHut page: alt+click opens it.

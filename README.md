@@ -123,9 +123,9 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 - **Margin:** `/margin` shows what Claude plans and does, lists this chat's prompts, previews files and shows git; click to jump, reuse or rewind ([details](plugins/margin/README.md)).
 - **Git tab:** the branch with a mark only when it needs you, a rebase or merge in progress with continue, skip and abort, the branch's pull request with its CI checks and description, a tree of every branch with its worktrees, then changed files and recent commits. Hover a row for a card, click it for details.
 
-  <img src=".github/assets/overview.gif" alt="The margin's Overview tab during a fix: planning, then ASK, PLAN and steps that tick off one by one until done" width="720">
+  <img src=".github/assets/overview.gif" alt="The margin's Overview tab during a fix: planning, then ASK, TAKE and steps that tick off one by one until done" width="720">
 
-  *2× speed. After `planning…`, Claude's reading of the request (ASK, PLAN) fills in, and each step goes ○ → ● → ✓ until the header reads `✓ done`. Docks beside the chat in the fullscreen layout, from 110 columns. Costs: a short tool call per report (the margin's `intent` option in `/config` turns it off), and while the Overview tab shows, an Opus request at low effort after each prompt to sort topics.*
+  *2× speed. After `planning…`, Claude's reading of the request (ASK, TAKE) fills in, and each step goes ○ → ● → ✓ until the header reads `✓ done`. Docks beside the chat in the fullscreen layout, from 110 columns. Costs: a short tool call per report (the margin's `intent` option in `/config` turns it off), and while the Overview tab shows, an Opus request at low effort after each prompt to sort topics.*
 - **Toasts:** updates install in the background and say so; a toast also shows when the 5-hour or weekly limit passes 50%, 75% and 90%, and when context is worth compacting, including before the prompt cache goes cold while you are away ([details](plugins/herald/README.md)).
 - **Theme + settings:** muted dark truecolor theme, `opus[1m]`, normal permission prompts.
 - **Local trace:** a record of what claudzilla's parts did, kept in `~/.claude/claudzilla-trace/`, never uploaded; `{"rulesGuard":{"trace":false}}` in `~/.claude/claudzilla.json` turns it off. See the guide topic `bugs` (`/claudzilla bugs`).
