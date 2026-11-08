@@ -1708,6 +1708,123 @@ test('a Bash call with no write target reads no file', async ($, on) => {
   expect(seen.reads).toBe(0)
 })
 
+// Git repos at /p and /q: `head` is HEAD's text per file; status and show answer from it and the live files.
+function gitFs(on: any, head: Record<string, string>, files: Record<string, string>, run: (files: Record<string, string>) => void = () => {}) {
+  const seen = bashFs(on, files, run)
+  const git = { statuses: 0, noRepo: false }
+  on('process.run', (_: any, e: any) => {
+    const argv: string[] = e.argv
+    const top = argv[argv.indexOf('-C') + 1]!.startsWith('/q') ? '/q' : '/p'
+    const ok = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '' } })
+    if (argv.includes('rev-parse')) return git.noRepo ? { value: { exitCode: 128, stdout: '', stderr: 'not a git repository' } } : ok(`${top}\n`)
+    if (argv.includes('status')) {
+      git.statuses++
+      const rel = (f: string) => f.slice(top.length + 1)
+      const rows = [...new Set([...Object.keys(head), ...Object.keys(files)])].filter(f => f.startsWith(`${top}/`)).flatMap(f =>
+        !(f in head) ? [`?? ${rel(f)}`] : !(f in files) ? [` D ${rel(f)}`] : head[f] !== files[f] ? [` M ${rel(f)}`] : [])
+      return ok(rows.map(r => `${r}\0`).join(''))
+    }
+    const shown = argv.find(a => a.startsWith('HEAD:'))
+    if (shown) return `${top}/${shown.slice(5)}` in head ? ok(head[`${top}/${shown.slice(5)}`]!) : { value: { exitCode: 128, stdout: '', stderr: 'bad' } }
+    return { value: { exitCode: 1, stdout: '', stderr: '' } }
+  })
+  return { seen, git }
+}
+
+test('a script that edits a clean tracked file keeps its command and output, and a press opens the file and its diff from HEAD', async ($, on) => {
+  native(on)
+  gitFs(on, { '/p/a.txt': 'a\n' }, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))
+  await bash($, 'python fix.py')
+  const ui = await useRow($, call('b1', 'Bash', { command: 'python fix.py' }))
+  expect(await textOf(ui, 'fold:b1')).toBe('● Ran (python fix.py)  +1 −1')
+  await click(ui, 'fold:b1')
+  expect(await treeOf(ui)).toEqual(['  └ Updated (a.txt)  +1 −1'])
+  await click(ui, 'file:b1:0')
+  expect(await diffOf(ui)).toBe('@@ -1,1 +1,1 @@\n-a\n+b')
+  const result = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolResult', requestId: 'b1',
+    props: { tool_use_id: 'b1', tool: 'Bash', output: { stdout: 'ok' }, isErrored: false }, viewport: VIEW })
+  expect((await result.find({ type: 'Text' }))?.text).toBe('native block')
+})
+
+test('off the fullscreen layout a script write keeps the engine row', async ($, on) => {
+  native(on)
+  gitFs(on, { '/p/a.txt': 'a\n' }, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))
+  await bash($, 'python fix.py')
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolUse', requestId: 'b1',
+    props: call('b1', 'Bash', { command: 'python fix.py' }), viewport: { columns: 80, rows: 20 } })
+  expect((await ui.find({ type: 'Text' }))?.text).toBe('native')
+})
+
+test('a script after a leading cd into a subfolder is checked in the repo', async ($, on) => {
+  native(on)
+  gitFs(on, {}, {}, files => (files['/p/sub/b.txt'] = 'x\n'))
+  await bash($, 'cd sub && ./fix.sh')
+  expect(await textOf(await useRow($, call('b1', 'Bash', { command: 'cd sub && ./fix.sh' })), 'fold:b1')).toBe('● Ran (cd sub && ./fix.sh)  +1')
+})
+
+test('a script after a leading cd into a repo outside the session root runs no git', async ($, on) => {
+  native(on)
+  const { git } = gitFs(on, { '/q/a.txt': 'a\n' }, { '/q/a.txt': 'a\n' }, files => (files['/q/a.txt'] = 'b\n'))
+  await bash($, 'cd /q && ./fix.sh')
+  expect(git.statuses).toBe(0)
+  expect(await textOf(await useRow($, call('b1', 'Bash', { command: 'cd /q && ./fix.sh' })), 'fold:b1')).toBe('native')
+})
+
+test('a script that makes an untracked file draws it as created', async ($, on) => {
+  native(on)
+  gitFs(on, {}, {}, files => (files['/p/new.txt'] = 'x\ny\n'))
+  await bash($, './gen.sh')
+  const ui = await useRow($, call('b1', 'Bash', { command: './gen.sh' }))
+  expect(await textOf(ui, 'fold:b1')).toBe('● Ran (./gen.sh)  +2')
+  await click(ui, 'fold:b1')
+  expect(await treeOf(ui)).toEqual(['  └ Created (new.txt)  +2'])
+})
+
+test('a script counts a file already dirty against its text before the call, and skips dirty files it left alone', async ($, on) => {
+  native(on)
+  gitFs(on, { '/p/a.txt': 'a\n', '/p/b.txt': 'b\n' }, { '/p/a.txt': 'a\nx\n', '/p/b.txt': 'b\ny\n' }, files => (files['/p/a.txt'] = 'a\nx\nz\n'))
+  await bash($, 'node patch.mjs')
+  expect(await textOf(await useRow($, call('b1', 'Bash', { command: 'node patch.mjs' })), 'fold:b1')).toBe('● Ran (node patch.mjs)  +1')
+})
+
+const many = (n: number, text = 'x\n') => Object.fromEntries(Array.from({ length: n }, (_, i) => [`/p/f${i}.txt`, text]))
+for (const [name, files, write] of [
+  ['over 100 files dirty before it', many(101), { '/p/a.txt': 'b\n' }],
+  ['over 100 files it made dirty', {}, many(101)],
+  ['a binary file', {}, { '/p/a.bin': 'a\0b\n' }],
+] as const) {
+  test(`a script with ${name} keeps the engine row`, async ($, on) => {
+    native(on)
+    gitFs(on, {}, { ...files }, f => Object.assign(f, write))
+    await bash($, './s.sh')
+    expect(await textOf(await useRow($, call('b1', 'Bash', { command: './s.sh' })), 'fold:b1')).toBe('native')
+  })
+}
+
+test('a folder that becomes a repo mid-session gets script writes', async ($, on) => {
+  native(on)
+  const { git } = gitFs(on, {}, {}, files => (files['/p/new.txt'] = `${files['/p/new.txt'] ?? ''}x\n`))
+  git.noRepo = true
+  await bash($, 'git init', 'b1')
+  git.noRepo = false
+  await bash($, './gen.sh', 'b2')
+  expect(await textOf(await useRow($, call('b2', 'Bash', { command: './gen.sh' })), 'fold:b2')).toBe('● Ran (./gen.sh)  +1')
+})
+
+test('a command that changes nothing keeps the engine group', async ($, on) => {
+  native(on)
+  gitFs(on, { '/p/a.txt': 'a\n' }, { '/p/a.txt': 'a\nx\n' })
+  await bash($, 'ls -la')
+  expect(await groupOf($, [call('b1', 'Bash', { command: 'ls -la' })])).toBe('● Ran (1 command)')
+})
+
+test('a command with parsed write targets runs no git status', async ($, on) => {
+  native(on)
+  const { git } = gitFs(on, { '/p/a.txt': 'a\n' }, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))
+  await bash($, 'echo b > a.txt')
+  expect(git.statuses).toBe(0)
+})
+
 test('hideEditDiff false keeps Bash edits native and their group folded', async ($, on) => {
   native(on)
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
