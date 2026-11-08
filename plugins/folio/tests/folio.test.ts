@@ -1403,7 +1403,15 @@ for (const [name, command, before, after, want] of [
 }
 
 // A group holding a recorded Bash write, as folio's fold draws it: the header's text, and the tree's rows once open.
-const treeOf = async (ui: any) => (await ui.findAll({ type: 'Text', text: /^  [├└] ./ })).map((t: any) => t.text)
+// A file row that opens a diff is a Client, read once sized.
+const treeOf = async (ui: any) => {
+  const rows: string[] = []
+  for (const x of await ui.findAll({})) {
+    if (x.type === 'Client' && x.key.startsWith('file:')) rows.push(await textOf(ui, x.key))
+    else if (x.type === 'Text' && /^  [├└] ./.test(x.text)) rows.push(x.text)
+  }
+  return rows
+}
 
 test('a group holding a Bash edit folds into one row with its counts', async ($, on) => {
   native(on)
@@ -1449,12 +1457,77 @@ test('a click on the group opens a tree of its calls, and another closes it', as
   const rows = await treeOf(ui)
   expect(rows.slice(0, 6)).toEqual(['  ├ Updated (a.txt)  +1 −1', '  ├ Created (sub/b.txt)  +1', "  ├ sed -i 's/x/y/' c.txt", '  ├ ls -la', '  ├ Read (sub/a.txt)', '  ├ Grep (foo)'])
   expect(rows[6]).toMatch(/^  ├ echo x+…$/)
-  expect(rows[6].length).toBeLessThanOrEqual(VIEW.columns)
+  expect(rows[6]!.length).toBeLessThanOrEqual(VIEW.columns)
   expect(rows.slice(7)).toEqual(['  ├ false  failed', '  └ sleep 9  interrupted'])
   expect((await ui.find({ type: 'Text', text: /^failed$/ }))?.props.color).toBe('error')
   await click(ui, at)
   expect(await textOf(ui, at)).toBe('● Ran (8 commands)  +2 −1')
   expect(await treeOf(ui)).toEqual([])
+})
+
+// A group of a Bash edit of b1 and an ls, folio's fold opened.
+const bashTree = async ($: any, on: any, before: Record<string, string>, command: string, write: Record<string, string>) => {
+  native(on)
+  bashFs(on, { ...before }, files => Object.assign(files, write))
+  await bash($, command, 'b1')
+  const ui = await group($, [call('b2', 'Bash', { command: 'ls' }), call('r1', 'Read', { file_path: '/p/a.txt' }), call('b1', 'Bash', { command })])
+  await click(ui, `fold:g${groups}`)
+  return ui
+}
+const lines = (n: number, at = -1) => Array.from({ length: n }, (_, i) => (i === at ? 'X' : `l${i + 1}`)).join('\n') + '\n'
+
+test('a press on a Bash edit row in a group opens its diff, and another closes it', async ($, on) => {
+  const ui = await bashTree($, on, { '/p/a.txt': lines(9) }, "sed -i 's/l5/X/' a.txt", { '/p/a.txt': lines(9, 4) })
+  expect(await diffOf(ui)).toBeUndefined()
+  await click(ui, 'file:b1:0')
+  expect(await diffOf(ui)).toBe('@@ -2,7 +2,7 @@\n l2\n l3\n l4\n-l5\n+X\n l6\n l7\n l8')
+  expect((await ui.find({ type: 'Text', text: /^│/ }))?.props.color).toBe('promptBorder')
+  await click(ui, 'file:b1:0')
+  expect(await diffOf(ui)).toBeUndefined()
+})
+
+test('a Bash edit diff splits changes far apart into hunks', async ($, on) => {
+  const ui = await bashTree($, on, { '/p/a.txt': lines(20) }, 'x > a.txt', { '/p/a.txt': lines(20).replace('l2\n', 'Y\n').replace('l19\n', '') })
+  await click(ui, 'file:b1:0')
+  expect(await diffOf(ui)).toBe('@@ -1,5 +1,5 @@\n l1\n-l2\n+Y\n l3\n l4\n l5\n@@ -16,5 +16,4 @@\n l16\n l17\n l18\n-l19\n l20')
+})
+
+test('a file a Bash call made opens as all added lines', async ($, on) => {
+  const ui = await bashTree($, on, {}, 'printf "x\\ny\\n" > a.txt', { '/p/a.txt': 'x\ny\n' })
+  await click(ui, 'file:b1:0')
+  expect(await diffOf(ui)).toBe('@@ -0,0 +1,2 @@\n+x\n+y')
+})
+
+test("a group's last Bash edit row turns its corner to a tee while its diff is open", async ($, on) => {
+  const ui = await bashTree($, on, { '/p/a.txt': 'a\n' }, 'echo b > a.txt', { '/p/a.txt': 'b\n' })
+  expect(await treeOf(ui)).toEqual(['  ├ ls', '  ├ Read (a.txt)', '  └ Updated (a.txt)  +1 −1'])
+  await click(ui, 'file:b1:0')
+  expect((await treeOf(ui))[2]).toBe('  ├ Updated (a.txt)  +1 −1')
+})
+
+test('only Bash edit rows in a group take a press: commands and reads stay plain text', async ($, on) => {
+  const ui = await bashTree($, on, { '/p/a.txt': 'a\n' }, 'echo b > a.txt', { '/p/a.txt': 'b\n' })
+  expect((await ui.findAll({ type: 'Client' })).map((x: any) => x.key)).toEqual([`fold:g${groups}`, 'file:b1:0'])
+})
+
+test('closing a group closes its open diffs', async ($, on) => {
+  const ui = await bashTree($, on, { '/p/a.txt': 'a\n' }, 'echo b > a.txt', { '/p/a.txt': 'b\n' })
+  await click(ui, 'file:b1:0')
+  await click(ui, `fold:g${groups}`)
+  await click(ui, `fold:g${groups}`)
+  expect(await diffOf(ui)).toBeUndefined()
+})
+
+test('a Bash edit of a file too big to diff keeps its row, which opens nothing', async ($, on) => {
+  const ui = await bashTree($, on, { '/p/a.txt': lines(2001) }, "sed -i 's/l5$/X/' a.txt", { '/p/a.txt': lines(2001, 4) })
+  expect(await treeOf(ui)).toEqual(['  ├ ls', '  ├ Read (a.txt)', '  └ Updated (a.txt)  +1 −1'])
+  expect((await ui.findAll({ type: 'Client' })).map((x: any) => x.key)).toEqual([`fold:g${groups}`])
+})
+
+test('emptying a long file takes the cheap count, with no line-by-line diff', async ($, on) => {
+  const ui = await bashTree($, on, { '/p/a.txt': 'a\n'.repeat(25_000) }, ': > a.txt', { '/p/a.txt': '' })
+  expect((await treeOf(ui)).at(-1)).toBe('  └ Updated (a.txt)  −25000')
+  expect((await ui.findAll({ type: 'Client' })).map((x: any) => x.key)).toEqual([`fold:g${groups}`])
 })
 
 test('a live group reads Running with a blinking dot, then Ran once done', async ($, on) => {
