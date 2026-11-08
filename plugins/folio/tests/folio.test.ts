@@ -2228,3 +2228,92 @@ test("a finish row takes the spawn's description when the call's row drew none",
     props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 'a1', status: 'completed', durationMs: 1_000 } }, viewport: VIEW })
   expect(await textOf(ui)).toBe('● Agent (Slow task) [haiku · medium]  done · 1s')
 })
+
+const reloaded = (command: string, hunks: object[], output: object = {}) =>
+  call('b1', 'Bash', { command }, { output: { stdout: 'created\n', stderr: '', bashEditDiff: { files: [{ filePath: '/p/f.txt', hunks }] }, ...output } })
+const HUNK = { oldStart: 1, oldLines: 2, newStart: 1, newLines: 1, lines: [' k', '-a', '+b'] }
+
+for (const command of ["python - <<'EOF'\nopen('f.txt','w')\nEOF", 'python fix.py']) {
+  test(`a reloaded Bash edit with an engine diff folds as a script: ${command.split('\n')[0]}`, async ($, on) => {
+    native(on)
+    const ui = await useRow($, reloaded(command, [HUNK]))
+    expect(await textOf(ui, 'b1')).toMatch(/^● Ran \(.*\)  \+1 −1$/)
+    await click(ui, 'fold:b1')
+    expect(await treeOf(ui)).toEqual(['  ├ Updated (f.txt)  +1 −1', '  └ created'])
+    expect(await rowsOf(ui)).toEqual([])
+    const result = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolResult', requestId: 'b1',
+      props: { tool_use_id: 'b1', tool: 'Bash', output: { stdout: 'created\n', bashEditDiff: { files: [{ filePath: '/p/f.txt', hunks: [HUNK] }] } }, isErrored: false }, viewport: VIEW })
+    expect((await result.find({ type: 'Text' }))?.text).toBeUndefined()
+  })
+}
+
+for (const command of ['echo x > f.txt', "sed -i 's/a/b/' f.txt"]) {
+  test(`a reloaded Bash write the parse sees folds as its edit, not a script: ${command}`, async ($, on) => {
+    native(on)
+    const ui = await useRow($, reloaded(command, [HUNK]))
+    expect(await textOf(ui, 'b1')).toBe('● Updated (f.txt)  +1 −1')
+  })
+}
+
+test('a reloaded Bash edit opens its diff on a press of the file row', async ($, on) => {
+  native(on)
+  const ui = await useRow($, reloaded('python fix.py', [HUNK]))
+  await click(ui, 'fold:b1')
+  await click(ui, 'file:b1:0')
+  expect(await diffOf(ui)).toBe('@@ -1,2 +1,1 @@\n k\n-a\n+b')
+})
+
+test('a reloaded Bash edit with one hunk and no old lines is a new file', async ($, on) => {
+  native(on)
+  // The engine's bashEditDiff for a new file: @@ -1,0 +1,N @@.
+  const ui = await useRow($, reloaded('python fix.py', [{ oldStart: 1, oldLines: 0, newStart: 1, newLines: 1, lines: ['+x'] }]))
+  await click(ui, 'fold:b1')
+  expect((await treeOf(ui))[0]).toBe('  ├ Created (f.txt)  +1')
+})
+
+test('a ToolResult drawn first keeps the engine diff until the row records the edit', async ($, on) => {
+  const seen = seenResult(on)
+  await reloadedResult($)
+  expect(seen).toEqual([RELOADED_OUT])
+  expect(await textOf(await useRow($, reloaded('python fix.py', [HUNK])), 'b1')).toMatch(/^● Ran \(.*\)  \+1 −1$/)
+  expect(seen.at(-1)).toEqual({ stdout: 'ok' })
+})
+
+const seenResult = (on: any) => {
+  const seen: any[] = []
+  on('session.cwd', () => ({ value: '/p' }))
+  on('session.root', () => ({ value: '/p' }))
+  on('ui.render', { component: 'ToolUse' }, () => ({ type: 'Text' as const, children: ['native'] }))
+  on('ui.render', { component: 'ToolResult' }, (_: any, e: any) => { seen.push(e.props.output); return { type: 'Text' as const, children: ['native block'] } })
+  return seen
+}
+const RELOADED_OUT = { stdout: 'ok', bashEditDiff: { files: [{ filePath: '/p/f.txt', hunks: [HUNK] }] } }
+const reloadedResult = ($: any, extra: object = {}) =>
+  $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolResult', requestId: 'b1',
+    props: { tool_use_id: 'b1', tool: 'Bash', output: RELOADED_OUT, isErrored: false, ...extra }, viewport: VIEW })
+
+test('with hideEditDiff false a reloaded Bash result keeps the engine diff', async ($, on) => {
+  const seen = seenResult(on)
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('env.get', (_: unknown, e: any) => ({ value: e.name === 'CLAUDE_CONFIG_DIR' ? '/cfg' : undefined }))
+  on('process.run', (() => ({ value: { exitCode: 0, stdout: '/repo\n', stderr: '' } })) as any)
+  on('fs.read', (_: any, e: any) => (e.path === '/cfg/claudzilla.json' ? { value: off } : { deny: 'ENOENT' }))
+  await $.session.start(start)
+  await (await reloadedResult($)).unmount()
+  await useRow($, reloaded('python fix.py', [HUNK]))
+  await reloadedResult($)
+  expect(seen).toEqual([RELOADED_OUT, RELOADED_OUT])
+})
+
+test('an expanded reloaded Bash result keeps the engine diff', async ($, on) => {
+  const seen = seenResult(on)
+  await (await reloadedResult($, { isExpanded: true })).unmount()
+  await useRow($, reloaded('python fix.py', [HUNK]), { isExpanded: true })
+  await reloadedResult($, { isExpanded: true })
+  expect(seen).toEqual([RELOADED_OUT, RELOADED_OUT])
+})
+
+test('a Bash result without bashEditDiff and a record keeps today\'s row', async ($, on) => {
+  native(on)
+  expect(await rowsOf(await useRow($, call('b1', 'Bash', { command: 'python fix.py' })))).toEqual([])
+})
