@@ -136,7 +136,7 @@ const resolve = (base: string, path: string) => {
 }
 
 // Files a Bash command writes, under a leading `cd DIR &&`.
-// shortcut: regex parse of common write forms (sed -i, >, >>, tee), not a shell parser; a false hit costs a read and draws nothing.
+// shortcut: regex parse of common write forms (sed -i, >, >>, tee), not a shell parser; a false hit costs a read, and after a reload hides the command's output.
 export function writeTargets(command: string): string[] {
   const quoted: string[] = []
   // Heredoc bodies hold text, not commands; quoted text holds no redirection.
@@ -570,7 +570,7 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     // A /clear or resume goes on under a new session id, which needs its own cols file.
     wroteColumns = 0
-    for (const rows of [runs, done, placed, shownDiffs, agents, spawned, bashEdits, openGroups]) rows.clear()
+    for (const rows of [runs, done, placed, shownDiffs, agents, spawned, bashEdits, lostWrites, openGroups]) rows.clear()
     current = undefined
     await t.flush(traceIo($))
     return next(e)
@@ -612,6 +612,8 @@ export const register: Register = on => {
   // whose diff a click opened.
   type BashEdit = { file: string; add: number; del: number; isNew: boolean; diff?: string }
   const bashEdits = new Map<string, BashEdit[]>()
+  // Bash writes drawn as a Ran row because folio holds no record of them, as after a reload.
+  const lostWrites = new Set<string>()
   const openGroups = new Map<string, Set<string>>()
   // A file's name from the session root, cut to a share of the chat, so a wide terminal shows more of a path.
   const namer = (cwd: string, columns = 80) => {
@@ -791,7 +793,7 @@ export const register: Register = on => {
   // Each hook runs next even when dropping it: margin tracks the row in view on this chain.
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
     const native = await next(e)
-    const isEdit = (runs.has(e.requestId) && editSummary(e.props.tool, e.props.output, e.props.isErrored)) || (!!bashEdits.get(e.requestId)?.length && !e.props.isErrored)
+    const isEdit = (runs.has(e.requestId) && editSummary(e.props.tool, e.props.output, e.props.isErrored)) || (!!bashEdits.get(e.requestId)?.length && !e.props.isErrored) || lostWrites.has(e.requestId)
     if (!hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || !(isEdit || toolRow(e.props.tool, {}, e.props.output, e.props.isErrored))) return native
     const { Box } = $.ui.resolve(e)
 
@@ -839,6 +841,18 @@ export const register: Register = on => {
           </Text>]))}
         </Box>
       )
+    }
+    // Without a record, as after a reload, a write keeps one row and not the engine's block.
+    const command = tool === 'Bash' && !bashEdits.has(e.requestId) ? String((input as { command?: unknown } | undefined)?.command ?? '') : ''
+    if (command && !isRunning && !isErrored && !isInterrupted && writeTargets(command).length) {
+      if (lostWrites.size > 500) lostWrites.clear()
+      // The result block may have drawn before this row marked it.
+      if (!lostWrites.has(e.requestId)) {
+        lostWrites.add(e.requestId)
+        $.ui.invalidate('ui.render')
+      }
+      const elements = $.ui.resolve(e)
+      return textRow(elements, <elements.Text color="success">●</elements.Text>, ['Ran', command.split('\n')[0]!, ''])
     }
     const isLive = isRunning && !isInterrupted && !isErrored && tool in RUNNING
     const other = isLive ? RUNNING[tool]!(input ?? {}, name) : !isRunning && !isInterrupted ? toolRow(tool, input, output, isErrored) : undefined

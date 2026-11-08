@@ -1673,6 +1673,18 @@ test('a standalone Bash write that changed nothing keeps its native row and engi
   expect((await ui.find({ type: 'Text' }))?.text).toBe('native block')
 })
 
+test('a Bash write folio holds no record of, as after a reload, draws one Ran row and drops the engine block', async ($, on) => {
+  native(on)
+  bashFs(on, {})
+  const command = "sed -i 's/a/b/' a.txt\nmore"
+  expect(await rowsOf(await useRow($, call('b1', 'Bash', { command })))).toEqual(["● Ran (sed -i 's/a/b/' a.txt)"])
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolResult', requestId: 'b1',
+    props: { tool_use_id: 'b1', tool: 'Bash', output: { stdout: '' }, isErrored: false }, viewport: VIEW })
+  expect((await ui.find({ type: 'Text' }))?.text).toBeUndefined()
+  expect(await rowsOf(await useRow($, call('b2', 'Bash', { command: 'ls' })))).toEqual([])
+  expect(await textOf(await useRow($, call('b3', 'Bash', { command }, { isErrored: true })), 'b3')).toBe('native')
+})
+
 test('a Bash edit in ctrl+o outside a group, and its engine block, stay native', async ($, on) => {
   native(on)
   bashFs(on, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))
