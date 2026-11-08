@@ -1995,7 +1995,7 @@ test('a script that edits a clean tracked file keeps its command and output, and
   expect(await diffOf(ui)).toBe('@@ -1,1 +1,1 @@\n-a\n+b')
   const result = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolResult', requestId: 'b1',
     props: { tool_use_id: 'b1', tool: 'Bash', output: { stdout: 'ok' }, isErrored: false }, viewport: VIEW })
-  expect((await result.find({ type: 'Text' }))?.text).toBe('native block')
+  expect((await result.find({ type: 'Text' }))?.text).toBeUndefined()
 })
 
 test('a script row keeps the native result without the engine diff', async ($, on) => {
@@ -2009,6 +2009,65 @@ test('a script row keeps the native result without the engine diff', async ($, o
   await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolResult', requestId: 'b1',
     props: { tool_use_id: 'b1', tool: 'Bash', output: { stdout: 'ok', bashEditDiff: { files: [{ filePath: '/p/a.txt', hunks: [] }] } }, isErrored: false }, viewport: VIEW })
   expect(seen).toEqual([{ stdout: 'ok' }])
+})
+
+const scriptResult = async ($: any, isErrored = false) => {
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolResult', requestId: 'b1',
+    props: { tool_use_id: 'b1', tool: 'Bash', output: { stdout: 'ok' }, isErrored }, viewport: VIEW })
+  const text = (await ui.find({ type: 'Text' }))?.text
+  await ui.unmount()
+  return text
+}
+
+test('a script result draws nothing, closed or open', async ($, on) => {
+  native(on)
+  gitFs(on, { '/p/a.txt': 'a\n' }, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))
+  await bash($, 'python fix.py')
+  const ui = await useRow($, call('b1', 'Bash', { command: 'python fix.py' }))
+  expect(await scriptResult($)).toBeUndefined()
+  await click(ui, 'fold:b1')
+  expect(await scriptResult($)).toBeUndefined()
+})
+
+const openScript = async ($: any, on: any, output: object) => {
+  native(on)
+  gitFs(on, { '/p/a.txt': 'a\n' }, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))
+  await bash($, 'python fix.py')
+  const ui = await useRow($, call('b1', 'Bash', { command: 'python fix.py' }, { output }))
+  await click(ui, 'fold:b1')
+  return ui
+}
+const outRows = async (ui: any) => (await ui.findAll({ type: 'Text' })).filter((x: any) => x.props.wrap === 'truncate-end' && /^ {2,4}[└ ]/.test(x.text))
+
+test('an open script row draws its output as the last branch, and its result draws nothing', async ($, on) => {
+  const ui = await openScript($, on, { stdout: 'created\n' })
+  expect(await treeOf(ui)).toEqual(['  ├ Updated (a.txt)  +1 −1', '  └ created'])
+  expect(await scriptResult($)).toBeUndefined()
+})
+
+test('a script output of six lines shows three and a count of the rest', async ($, on) => {
+  const ui = await openScript($, on, { stdout: '1\n2\n3\n4\n5\n6\n\n' })
+  expect((await outRows(ui)).map((x: any) => x.text)).toEqual(['  └ 1', '    2', '    3', '    … +3 lines'])
+})
+
+test('script stderr draws in the error colour after stdout', async ($, on) => {
+  const ui = await openScript($, on, { stdout: 'out', stderr: 'bad\n' })
+  const rows = await outRows(ui)
+  expect(rows.map((x: any) => x.text)).toEqual(['  └ out', '    bad'])
+  expect(rows[1].children.at(-1).props.color).toBe('error')
+})
+
+test('a script with no output ends its tree on the file row', async ($, on) => {
+  const ui = await openScript($, on, { stdout: '', stderr: '' })
+  expect(await treeOf(ui)).toEqual(['  └ Updated (a.txt)  +1 −1'])
+})
+
+test('an errored script call shows its output while closed', async ($, on) => {
+  native(on)
+  gitFs(on, { '/p/a.txt': 'a\n' }, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))
+  await bash($, 'python fix.py')
+  await useRow($, call('b1', 'Bash', { command: 'python fix.py' }))
+  expect(await scriptResult($, true)).toBe('native block')
 })
 
 test('off the fullscreen layout a script write keeps the engine row', async ($, on) => {

@@ -736,7 +736,7 @@ export const register: Register = on => {
   })
 
   const tops = new Map<string, string>()
-  // Bash calls whose writes git status found, as a script's: they keep their command and output.
+  // Bash calls whose writes git status found, as a script's: they keep their command, and show its output while their row is open.
   const scripts = new Set<string>()
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     if (!hideEditDiff) return next(e)
@@ -838,7 +838,7 @@ export const register: Register = on => {
       : [...(title ?? parts), ...(add + del ? countPieces(add, del) : [])])]
     const TREE_INDENT = 4
     // A file row with a diff is the fold's Client, keyed by call and file, so a press opens the diff under it.
-    type Row = { pieces: Piece[]; key?: string; edit?: { file: string; diff?: string } }
+    type Row = { pieces: Piece[]; key?: string; edit?: { file: string; diff?: string }; out?: 'first' | 'more' }
     const rows = isOpen && !lone ? calls.flatMap((c): Row[] => {
       const edits = (c.tool_use_id && !c.isErrored && bashEdits.get(c.tool_use_id)) || []
       if (edits.length) return edits.map((f, i) => ({ key: f.diff && `file:${c.tool_use_id}:${i}`, edit: f, pieces: [{ text: f.isNew ? 'Created' : EDIT.Edit!, bold: true },
@@ -852,14 +852,24 @@ export const register: Register = on => {
       const arg = !key ? '' : key === 'file_path' || key === 'path' ? name(String(args[key])) : String(args[key]).split('\n')[0]!
       return [{ pieces: [{ text: c.tool, bold: true }, ...(arg ? [{ text: ' (', color: 'promptBorder' }, { text: clip(arg, room - c.tool.length - 3) }, { text: ')', color: 'promptBorder' }] : []), ...tail] }]
     }) : []
+    // A script's output ends its tree: three lines, then a count of the rest.
+    if (isOpen && scripts.has(requestId)) {
+      const { stdout, stderr } = (calls[0]?.output ?? {}) as { stdout?: unknown; stderr?: unknown }
+      const lines = ([[stdout, undefined], [stderr, 'error']] as const).flatMap(([s, color]) => typeof s === 'string' ? plain(s).split('\n').map(l => ({ text: l, color })) : [])
+      while (lines.length && !lines.at(-1)!.text) lines.pop()
+      const shown: Piece[][] = lines.slice(0, 3).map(l => [l])
+      if (lines.length > 3) shown.push([{ text: `… +${lines.length - 3} lines` }])
+      rows.push(...shown.map((pieces, i): Row => ({ pieces, out: i ? 'more' : 'first' })))
+    }
+    const last = rows.findLastIndex(r => r.out !== 'more')
 
     return (
       <Box flexDirection="column" marginTop={1}>
         <Client key={`fold:${requestId}`} module="./fold.tsx" width="100%" height={1} props={{ pieces: header, lit: LIT }} />
         {lone && isOpen && diffBox(elements, columns, lone, false)}
-        {rows.flatMap(({ pieces, key, edit }, i) => {
+        {rows.flatMap(({ pieces, key, edit, out }, i) => {
           const isShown = !!key && !!openGroups.get(requestId)?.has(key)
-          const line = [{ text: i === rows.length - 1 && !isShown ? '  └ ' : '  ├ ', color: 'promptBorder' }, ...pieces]
+          const line = [{ text: out === 'more' ? '    ' : i === last && !isShown ? '  └ ' : '  ├ ', color: 'promptBorder' }, ...pieces]
           return key ? [<Client key={key} module="./fold.tsx" width="100%" height={1} props={{ pieces: line, lit: LIT }} />, isShown && diffBox(elements, columns, edit!, i < rows.length - 1)]
             : [<Text wrap="truncate-end">{line.map(({ text, color, bold }) => <Text color={color} bold={bold}>{text}</Text>)}</Text>]
         })}
@@ -898,7 +908,8 @@ export const register: Register = on => {
     const { bashEditDiff, ...rest } = (e.props.output ?? {}) as { bashEditDiff?: unknown }
     const native = await next(edits?.length && bashEditDiff && typeof e.props.output === 'object' ? { ...e, props: { ...e.props, output: rest } } : e)
     const isEdit = (runs.has(e.requestId) && editSummary(e.props.tool, e.props.output, e.props.isErrored)) || (!!bashEdits.get(e.requestId)?.length && !e.props.isErrored && !scripts.has(e.requestId)) || lostWrites.has(e.requestId)
-    if (!hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || !(isEdit || toolRow(e.props.tool, {}, e.props.output, e.props.isErrored))) return native
+    const isScriptRow = scripts.has(e.requestId) && !e.props.isErrored && !!e.viewport?.isFullscreen
+    if (!hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || !(isEdit || isScriptRow || toolRow(e.props.tool, {}, e.props.output, e.props.isErrored))) return native
     const { Box } = $.ui.resolve(e)
 
     return <Box />
