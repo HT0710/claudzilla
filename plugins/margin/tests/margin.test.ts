@@ -207,19 +207,19 @@ test('dragging the divider gives CHANGES more rows', async ($, on) => {
 
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
-  // 20 body rows less 7 fixed: CHANGES takes up to half of 13, 7 rows.
-  expect(await rowText(ui, /file6\.ts/)).toBeDefined()
-  expect(await rowText(ui, /file7\.ts/)).toBeUndefined()
+  // 20 body rows less 7 fixed: CHANGES takes up to half of 13, 7 rows: 6 files and the ↓ cue.
+  expect(await rowText(ui, /file5\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file6\.ts/)).toBeUndefined()
 
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'up', x: 0, y: 2, button: 'left', in: 'divider' })
 
-  expect(await rowText(ui, /file8\.ts/)).toBeDefined()
-  expect(await rowText(ui, /file9\.ts/)).toBeUndefined()
+  expect(await rowText(ui, /file7\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file8\.ts/)).toBeUndefined()
 })
 
-test('a one-row CHANGES zone scrolls with no back-to-top line', async ($, on) => {
+test('a one-row CHANGES zone scrolls with no cues', async ($, on) => {
   noHistory(on)
   const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
   on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
@@ -230,7 +230,7 @@ test('a one-row CHANGES zone scrolls with no back-to-top line', async ($, on) =>
   await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 100, bodyRows: 9 + BAR_ROWS, contentRows: 9 + BAR_ROWS, origin: { kind: 'person' }, pointer: { column: 0, row: 5 } })
   await ui.drawn()
   expect(await rowText(ui, /file9\.ts/)).toBeDefined()
-  expect(await ui.find({ key: 'top:changes' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'changes:up' })).toBeUndefined()
 })
 
 test('the divider shows how far it is dragged, and resizes once let go', async ($, on) => {
@@ -247,7 +247,7 @@ test('the divider shows how far it is dragged, and resizes once let go', async (
   expect(await rowText(ui, /file7\.ts/)).toBeUndefined()
 
   await ui.pointer({ type: 'up', x: 0, y: 2, button: 'left', in: 'divider' })
-  expect(await rowText(ui, /file8\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file7\.ts/)).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '↓2', in: 'divider' })).toBeUndefined()
 })
 
@@ -264,7 +264,7 @@ test('a release the divider missed ends the drag at the next move', async ($, on
   // No up came: the next move holds no button.
   await ui.pointer({ type: 'move', x: 0, y: 2, in: 'divider' })
 
-  expect(await rowText(ui, /file8\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file7\.ts/)).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '↓2', in: 'divider' })).toBeUndefined()
 })
 
@@ -296,12 +296,6 @@ test('the divider lights its grip while the pointer is over it', async ($, on) =
   expect((await grip())?.inverse).toBe(true)
 })
 
-// A click on a back-to-top row at its left edge, away from the ↑ in its middle: the whole row is the target.
-const click = async (ui: { pointer: (e: any) => Promise<unknown> }, key: string) => {
-  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: key })
-  await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: key })
-}
-
 test('the wheel scrolls CHANGES and COMMITS each on its own, up to their ends; ↑ brings each back up', async ($, on) => {
   noHistory(on)
   const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
@@ -309,40 +303,98 @@ test('the wheel scrolls CHANGES and COMMITS each on its own, up to their ends; �
   on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: `${log}\n` })(e.argv) ?? ''))
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
-  // 7 rows of CHANGES end on row 11, 6 of COMMITS start on row 14; once scrolled, the back-to-top
-  // line takes a zone's first row.
+  // 7 rows of CHANGES end on row 11, 6 of COMMITS start on row 14; once scrolled, the ↑ cue
+  // takes a zone's first row.
   const wheel = (by: number, row: number) =>
     $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
 
-  expect(await ui.find({ key: 'top:changes' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'changes:up' })).toBeUndefined()
   await wheel(5, 8)
   expect(await rowText(ui, /file3\.ts/)).toBeUndefined()
   expect(await rowText(ui, /file4\.ts/)).toBeDefined()
   expect(await rowText(ui, /file9\.ts/)).toBeDefined()
   expect(await rowText(ui, /commit 0$/)).toBeDefined()
-  // Dim as the divider's grip at rest, lit as it is anywhere on its row under the pointer.
-  const arrow = async () => (await ui.find({ type: 'Text', text: '↑', in: 'top:changes' }))?.props
-  expect((await arrow())?.color).toBe('promptBorder')
-  await ui.pointer({ type: 'enter', x: 0, y: 0, in: 'top:changes' })
-  expect(await arrow()).toMatchObject({ color: 'claude', inverse: true })
-  await ui.pointer({ type: 'leave', x: 0, y: 0, in: 'top:changes' })
-  expect((await arrow())?.inverse).toBeUndefined()
-  expect(await ui.find({ key: 'top:commits' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'changes:up' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'commits:up' })).toBeUndefined()
 
   await wheel(100, 16)
   expect(await rowText(ui, /commit 24$/)).toBeUndefined()
   expect(await rowText(ui, /commit 25$/)).toBeDefined()
   expect(await rowText(ui, /commit 29$/)).toBeDefined()
   expect(await rowText(ui, /file4\.ts/)).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '↑', in: 'top:commits' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'commits:up' })).toBeDefined()
 
-  await click(ui, 'top:commits')
+  await ui.press({ key: 'commits:up' })
   expect(await rowText(ui, /commit 0$/)).toBeDefined()
-  expect(await ui.find({ key: 'top:commits' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'commits:up' })).toBeUndefined()
   expect(await rowText(ui, /file4\.ts/)).toBeDefined()
-  await click(ui, 'top:changes')
+  await ui.press({ key: 'changes:up' })
   expect(await rowText(ui, /file0\.ts/)).toBeDefined()
-  expect(await ui.find({ key: 'top:changes' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'changes:up' })).toBeUndefined()
+})
+
+// The Git modal's cues on a list zone: ── ↑ N more ── once scrolled, ↓ N more while rows remain below.
+const cueText = async (ui: { find: (q: any) => Promise<any> }, zone: string) => ({
+  up: !!(await ui.find({ type: 'Button', key: `${zone}:up` })),
+  down: !!(await ui.find({ type: 'Button', key: `${zone}:down` })),
+})
+const wheelAt = ($: Parameters<TestBody>[0], by: number, row: number) =>
+  $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
+
+test('CHANGES shows the modal cues: ↑ N more once scrolled, ↓ N more turns the page', async ($, on) => {
+  noHistory(on)
+  const files = Array.from({ length: 30 }, (_, i) => ` M file${i}.ts`).join('\n')
+  on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'Git' })
+  // 7 rows of CHANGES from row 4: 6 files and ↓ at the top.
+  expect(await cueText(ui, 'changes')).toEqual({ up: false, down: true })
+  expect(await ui.find({ type: 'Text', text: ' 24 more' })).toBeDefined()
+  await wheelAt($, 5, 6)
+  // ↑, 5 files, ↓.
+  expect(await cueText(ui, 'changes')).toEqual({ up: true, down: true })
+  expect(await ui.find({ type: 'Text', text: ' 5 more ' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' 20 more' })).toBeDefined()
+  expect(await rowText(ui, /file9\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file10\.ts/)).toBeUndefined()
+  expect(texts(await ui.find({ type: 'Button', key: 'changes:up' }))[0]?.props).toMatchObject({ bold: true, color: 'promptBorder' })
+  await ui.press({ key: 'changes:down' })
+  expect(await rowText(ui, /file9\.ts/)).toBeUndefined()
+  expect(await rowText(ui, /file10\.ts/)).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' 10 more ' })).toBeDefined()
+  await wheelAt($, 100, 6)
+  expect(await cueText(ui, 'changes')).toEqual({ up: true, down: false })
+  expect(await rowText(ui, /file29\.ts/)).toBeDefined()
+  await ui.press({ key: 'changes:up' })
+  expect(await rowText(ui, /file0\.ts/)).toBeDefined()
+  expect(await cueText(ui, 'changes')).toEqual({ up: false, down: true })
+})
+
+test('COMMITS shows the modal cues; ↓ more counts nothing, as COMMITS reads in pages', async ($, on) => {
+  noHistory(on)
+  const log = Array.from({ length: 60 }, (_, i) => `c${i}ffff c${i} commit ${i}`).join('\n')
+  on('process.run', (_, e) => ran(git({ status: '## main\n', '--count': '60\n', log: `${log}\n` })(e.argv) ?? ''))
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'Git' })
+  // A clean repo: 15 rows of COMMITS, 14 commits and ↓ at the top.
+  expect(await cueText(ui, 'commits')).toEqual({ up: false, down: true })
+  expect(await ui.find({ type: 'Text', text: ' more' })).toBeDefined()
+  expect(await rowText(ui, /commit 13$/)).toBeDefined()
+  expect(await rowText(ui, /commit 14$/)).toBeUndefined()
+  await wheelAt($, 5, 10)
+  expect(await cueText(ui, 'commits')).toEqual({ up: true, down: true })
+  expect(await ui.find({ type: 'Text', text: ' 5 more ' })).toBeDefined()
+  expect(await rowText(ui, /commit 17$/)).toBeDefined()
+  expect(await rowText(ui, /commit 18$/)).toBeUndefined()
+  await ui.press({ key: 'commits:down' })
+  expect(await rowText(ui, /commit 17$/)).toBeUndefined()
+  expect(await rowText(ui, /commit 18$/)).toBeDefined()
+  await wheelAt($, 1000, 10)
+  expect(await cueText(ui, 'commits')).toEqual({ up: true, down: false })
+  expect(await rowText(ui, /commit 59$/)).toBeDefined()
+  await ui.press({ key: 'commits:up' })
+  expect(await rowText(ui, /commit 0$/)).toBeDefined()
+  expect(await cueText(ui, 'commits')).toEqual({ up: false, down: true })
 })
 
 test('the wheel over the divider moves it: up gives CHANGES rows, down takes them, each side keeps 1', async ($, on) => {
@@ -357,10 +409,10 @@ test('the wheel over the divider moves it: up gives CHANGES rows, down takes the
     $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
 
   await wheel(-2, 12)
-  expect(await rowText(ui, /file8\.ts/)).toBeDefined()
-  expect(await rowText(ui, /file9\.ts/)).toBeUndefined()
-  expect(await ui.find({ key: 'top:changes' })).toBeUndefined()
-  expect(await ui.find({ key: 'top:commits' })).toBeUndefined()
+  expect(await rowText(ui, /file7\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file8\.ts/)).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'changes:up' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'commits:up' })).toBeUndefined()
 
   await wheel(100, 14)
   expect(await rowText(ui, /file0\.ts/)).toBeDefined()
@@ -381,13 +433,13 @@ test('notches close together keep moving the divider once it leaves the pointer;
   await wheel(-1)
   now = 300
   await wheel(-1)
-  expect(await rowText(ui, /file8\.ts/)).toBeDefined()
-  expect(await rowText(ui, /file9\.ts/)).toBeUndefined()
-  expect(await ui.find({ key: 'top:changes' })).toBeUndefined()
+  expect(await rowText(ui, /file7\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file8\.ts/)).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'changes:up' })).toBeUndefined()
 
   now = 2000
   await wheel(1)
-  expect(await ui.find({ key: 'top:changes' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'changes:up' })).toBeDefined()
   expect(await rowText(ui, /file9\.ts/)).toBeUndefined()
 })
 
@@ -405,14 +457,14 @@ test('COMMITS reads a page at a time as the wheel goes past it, down to the firs
   })
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
-  // A clean repo: 15 rows of COMMITS, 14 under the back-to-top line once scrolled.
+  // A clean repo: 15 rows of COMMITS, 13 between the cues once scrolled.
   const wheel = (by: number) =>
     $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
 
   await wheel(150)
   expect(await rowText(ui, /commit 149$/)).toBeUndefined()
-  expect(await rowText(ui, /commit 163$/)).toBeDefined()
-  expect(await rowText(ui, /commit 164$/)).toBeUndefined()
+  expect(await rowText(ui, /commit 162$/)).toBeDefined()
+  expect(await rowText(ui, /commit 163$/)).toBeUndefined()
   await wheel(1)
   await wheel(1000)
   expect(await rowText(ui, /commit 234$/)).toBeUndefined()
@@ -488,8 +540,8 @@ test('the divider drags down to 1 row of COMMITS, and no further', async ($, on)
   expect(await ui.find({ type: 'Text', text: '↓5', in: 'divider' })).toBeDefined()
   await ui.pointer({ type: 'up', x: 0, y: 9, button: 'left', in: 'divider' })
 
-  expect(await rowText(ui, /file11\.ts/)).toBeDefined()
-  expect(await rowText(ui, /file12\.ts/)).toBeUndefined()
+  expect(await rowText(ui, /file10\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file11\.ts/)).toBeUndefined()
   expect(await rowText(ui, /commit0/)).toBeDefined()
   expect(await rowText(ui, /commit1/)).toBeUndefined()
 })
@@ -501,19 +553,19 @@ test('a one-row CHANGES zone stays put dragged up, and grows dragged down', asyn
 
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
-  // 1 row of CHANGES, 12 of COMMITS.
+  // 1 row of CHANGES, 12 of COMMITS: 11 commits and the ↓ cue.
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'move', x: 0, y: -2, button: 'left', in: 'divider' })
   expect(await ui.find({ type: 'Text', text: '⇕', in: 'divider' })).toBeDefined()
   await ui.pointer({ type: 'up', x: 0, y: -2, button: 'left', in: 'divider' })
-  expect(await rowText(ui, /commit11/)).toBeDefined()
+  expect(await rowText(ui, /commit10/)).toBeDefined()
 
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'move', x: 0, y: 1, button: 'left', in: 'divider' })
   expect(await ui.find({ type: 'Text', text: '↓1', in: 'divider' })).toBeDefined()
   await ui.pointer({ type: 'up', x: 0, y: 1, button: 'left', in: 'divider' })
-  expect(await rowText(ui, /commit10/)).toBeDefined()
-  expect(await rowText(ui, /commit11/)).toBeUndefined()
+  expect(await rowText(ui, /commit9/)).toBeDefined()
+  expect(await rowText(ui, /commit10/)).toBeUndefined()
 })
 
 test('a click on the divider moves it to the top, and from the top to the bottom', async ($, on) => {
@@ -531,8 +583,8 @@ test('a click on the divider moves it to the top, and from the top to the bottom
 
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: 'divider' })
-  expect(await rowText(ui, /file11\.ts/)).toBeDefined()
-  expect(await rowText(ui, /file12\.ts/)).toBeUndefined()
+  expect(await rowText(ui, /file10\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file11\.ts/)).toBeUndefined()
 })
 
 test('a drag back to where it began moves the divider nowhere', async ($, on) => {
@@ -546,8 +598,8 @@ test('a drag back to where it began moves the divider nowhere', async ($, on) =>
   await ui.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'move', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: 'divider' })
-  expect(await rowText(ui, /file6\.ts/)).toBeDefined()
-  expect(await rowText(ui, /file7\.ts/)).toBeUndefined()
+  expect(await rowText(ui, /file5\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file6\.ts/)).toBeUndefined()
 })
 
 test('Git tab reruns git after a tool call, not on every redraw', async ($, on) => {
@@ -568,7 +620,7 @@ test('Git tab reruns git after a tool call, not on every redraw', async ($, on) 
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'divider' })
   await ui.pointer({ type: 'up', x: 0, y: 2, button: 'left', in: 'divider' })
-  expect(await rowText(ui, /file8\.ts/)).toBeDefined()
+  expect(await rowText(ui, /file7\.ts/)).toBeDefined()
   expect(runs).toBe(before)
 
   await $.tool.call({ tool: 'Bash', command: 'touch x' })
@@ -1846,6 +1898,36 @@ test('History shows a prompt as soon as it is sent, inside the second', async ($
   expect((await ui.find({ key: 'jump:0' }))?.text).toContain('second')
 })
 
+test('the History list shows the modal cues: ↑ N more under the header once scrolled, ↓ N more turns the page', async ($, on) => {
+  const start = Date.now() - 120_000
+  const history = Array.from({ length: 60 }, (_, i) => JSON.stringify({ display: `p${i}`, timestamp: start + i * 1000, sessionId: 'chat-1' })).join('\n')
+  on('clock.now', () => ({ value: 0 }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('process.run', (_, e) => ran(isHistoryGrep(e.argv) ? history : ''))
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await ui.redraw()
+  // The day line and 60 prompts in 17 rows: 16 and ↓ at the top.
+  expect(await cueText(ui, 'history')).toEqual({ up: false, down: true })
+  expect(await ui.find({ type: 'Text', text: ' 45 more' })).toBeDefined()
+  await ui.press({ key: 'history:down' })
+  // ↑, 15 rows from the 17th line (prompt 16, key jump:15), ↓.
+  expect(await cueText(ui, 'history')).toEqual({ up: true, down: true })
+  expect(await ui.find({ type: 'Text', text: ' 16 more ' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' 30 more' })).toBeDefined()
+  expect(await ui.find({ key: 'jump:14' })).toBeUndefined()
+  expect(await ui.find({ key: 'jump:15' })).toBeDefined()
+  expect(await ui.find({ key: 'jump:30' })).toBeUndefined()
+  // The header stays on the body's first row.
+  expect(await ui.find({ key: 'rewind' })).toBeDefined()
+  await wheelAt($, 1000, 10)
+  expect(await cueText(ui, 'history')).toEqual({ up: true, down: false })
+  await ui.press({ key: 'history:up' })
+  expect(await ui.find({ type: 'Text', text: 'Today' })).toBeDefined()
+  expect(await cueText(ui, 'history')).toEqual({ up: false, down: true })
+})
+
 test('the wheel scrolls the History list under a fixed header, up to its end; ↑ or a new prompt brings it back up', async ($, on) => {
   const start = Date.now() - 60_000
   let history = Array.from({ length: 30 }, (_, i) => JSON.stringify({ display: `p${i}`, timestamp: start + i * 1000, sessionId: 'chat-1' })).join('\n')
@@ -1857,27 +1939,27 @@ test('the wheel scrolls the History list under a fixed header, up to its end; �
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
-  // The day line and 30 prompts; 17 rows show under the tabs, their rule and the header, 16 once
-  // scrolled: the back-to-top line takes one.
+  // The day line and 30 prompts in 17 rows under the tabs, their rule and the header; the cues take
+  // one each.
   const wheel = (by: number) =>
     $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
 
-  expect(await ui.find({ key: 'top' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'history:up' })).toBeUndefined()
   await wheel(5)
   expect(await ui.find({ type: 'Text', text: 'Today' })).toBeUndefined()
   expect(await ui.find({ key: 'jump:3' })).toBeUndefined()
   expect((await ui.find({ key: 'jump:4' }))?.text).toContain('p25')
   expect(await ui.find({ key: 'jump:20' })).toBeUndefined()
   expect(await ui.find({ key: 'rewind' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '↑', in: 'top' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'history:up' })).toBeDefined()
 
   await wheel(100)
   expect(await ui.find({ key: 'jump:13' })).toBeUndefined()
   expect((await ui.find({ key: 'jump:29' }))?.text).toContain('p0')
 
-  await click(ui, 'top')
+  await ui.press({ key: 'history:up' })
   expect(await ui.find({ type: 'Text', text: 'Today' })).toBeDefined()
-  expect(await ui.find({ key: 'top' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'history:up' })).toBeUndefined()
 
   await wheel(3)
   history += `\n${JSON.stringify({ display: 'new', timestamp: start + 40_000, sessionId: 'chat-1' })}`
@@ -2825,16 +2907,16 @@ const topicShown = async (ui: { find: (q: any) => Promise<any> }, n: number) => 
 
 test('dragging the TOPICS divider gives TOPICS more rows', async ($, on) => {
   const ui = await twelveTopics($, on)
-  // Newest first: topics 11 down to 5.
-  expect(await topicShown(ui, 5)).toBe(true)
-  expect(await topicShown(ui, 4)).toBe(false)
+  // Newest first: topics 11 down to 6, then the ↓ cue.
+  expect(await topicShown(ui, 6)).toBe(true)
+  expect(await topicShown(ui, 5)).toBe(false)
 
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'now' })
   await ui.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'now' })
   await ui.pointer({ type: 'up', x: 0, y: 2, button: 'left', in: 'now' })
 
-  expect(await topicShown(ui, 3)).toBe(true)
-  expect(await topicShown(ui, 2)).toBe(false)
+  expect(await topicShown(ui, 4)).toBe(true)
+  expect(await topicShown(ui, 3)).toBe(false)
   expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
 })
 
@@ -2857,18 +2939,18 @@ test('the TOPICS divider keeps 1 row on either side', async ($, on) => {
 
 test('the wheel over TOPICS scrolls them under a divider that stays put; ↑ brings them back up', async ($, on) => {
   const ui = await twelveTopics($, on)
-  // TOPICS starts on row 3, under the tabs, their rule and the header; once scrolled, the back-to-top line
-  // takes its first row.
+  // TOPICS starts on row 3, under the tabs, their rule and the header; once scrolled, the ↑ cue takes its
+  // first row.
   const wheel = (by: number, row: number) =>
     $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
 
-  expect(await ui.find({ key: 'top:topics' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'topics:up' })).toBeUndefined()
   await wheel(3, 4)
   expect(await topicShown(ui, 9)).toBe(false)
   expect(await topicShown(ui, 8)).toBe(true)
-  expect(await topicShown(ui, 3)).toBe(true)
-  expect(await topicShown(ui, 2)).toBe(false)
-  expect(await ui.find({ type: 'Text', text: '↑', in: 'top:topics' })).toBeDefined()
+  expect(await topicShown(ui, 4)).toBe(true)
+  expect(await topicShown(ui, 3)).toBe(false)
+  expect(await ui.find({ type: 'Button', key: 'topics:up' })).toBeDefined()
 
   // To the oldest and no further.
   await wheel(100, 4)
@@ -2877,9 +2959,34 @@ test('the wheel over TOPICS scrolls them under a divider that stays put; ↑ bri
   expect(await topicShown(ui, 6)).toBe(false)
   expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
 
-  await click(ui, 'top:topics')
+  await ui.press({ key: 'topics:up' })
   expect(await topicShown(ui, 11)).toBe(true)
-  expect(await ui.find({ key: 'top:topics' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'topics:up' })).toBeUndefined()
+})
+
+test('TOPICS show the modal cues: ↑ N more once scrolled, ↓ N more turns the page', async ($, on) => {
+  const ui = await twelveTopics($, on)
+  // 7 rows: 6 topics and ↓ at the top.
+  expect(await cueText(ui, 'topics')).toEqual({ up: false, down: true })
+  expect(await ui.find({ type: 'Text', text: ' 6 more' })).toBeDefined()
+  expect(await topicShown(ui, 6)).toBe(true)
+  expect(await topicShown(ui, 5)).toBe(false)
+  await wheelAt($, 3, 4)
+  // ↑, topics 8 down to 4, ↓.
+  expect(await cueText(ui, 'topics')).toEqual({ up: true, down: true })
+  expect(await ui.find({ type: 'Text', text: ' 3 more ' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' 4 more' })).toBeDefined()
+  expect(await topicShown(ui, 9)).toBe(false)
+  expect(await topicShown(ui, 4)).toBe(true)
+  expect(await topicShown(ui, 3)).toBe(false)
+  await ui.press({ key: 'topics:up' })
+  expect(await topicShown(ui, 11)).toBe(true)
+  await ui.press({ key: 'topics:down' })
+  // The page from topic 5, the oldest 6: the end, so no ↓.
+  expect(await cueText(ui, 'topics')).toEqual({ up: true, down: false })
+  expect(await ui.find({ type: 'Text', text: ' 6 more ' })).toBeDefined()
+  expect(await topicShown(ui, 6)).toBe(false)
+  expect(await topicShown(ui, 0)).toBe(true)
 })
 
 test('the wheel over the TOPICS divider moves it, keeping 1 row on either side', async ($, on) => {
@@ -2889,13 +2996,13 @@ test('the wheel over the TOPICS divider moves it, keeping 1 row on either side',
     $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
 
   await wheel(-2, 10)
-  expect(await topicShown(ui, 3)).toBe(true)
-  expect(await topicShown(ui, 2)).toBe(false)
-  expect(await ui.find({ key: 'top:topics' })).toBeUndefined()
+  expect(await topicShown(ui, 4)).toBe(true)
+  expect(await topicShown(ui, 3)).toBe(false)
+  expect(await ui.find({ type: 'Button', key: 'topics:up' })).toBeUndefined()
   // Off the pointer now, a notch right after still moves it.
   await wheel(-1, 10)
-  expect(await topicShown(ui, 2)).toBe(true)
-  expect(await ui.find({ key: 'top:topics' })).toBeUndefined()
+  expect(await topicShown(ui, 3)).toBe(true)
+  expect(await ui.find({ type: 'Button', key: 'topics:up' })).toBeUndefined()
 
   await wheel(100, 13)
   expect(await topicShown(ui, 11)).toBe(true)
@@ -2906,8 +3013,8 @@ test('the status row sits under the TOPICS divider; with no topics it leads', as
   const ui = await twelveTopics($, on)
   const order = async () => (await ui.findAll({ type: 'Text' })).map((t: any) => t.text as string)
   let all = await order()
-  expect(all.indexOf('TOPICS')).toBeLessThan(all.indexOf('topic 5'))
-  expect(all.indexOf('topic 5')).toBeLessThan(all.indexOf('● working'))
+  expect(all.indexOf('TOPICS')).toBeLessThan(all.indexOf('topic 6'))
+  expect(all.indexOf('topic 6')).toBeLessThan(all.indexOf('● working'))
   expect(all.indexOf('● working')).toBeLessThan(all.indexOf('a third tab'))
   await $.session.end({ reason: 'clear', sessionId: 'chat-1' } as any)
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
@@ -3099,7 +3206,7 @@ test('scrolling the History list alone writes no new pane.draw entry', async ($,
   const before = (await draws()).length
   expect(before).toBeGreaterThan(0)
   for (const by of [2, 3]) await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
-  expect(await ui.find({ key: 'top' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'history:up' })).toBeDefined()
   const after = await draws()
   expect(after.length).toBe(before)
 })

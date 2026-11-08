@@ -8,9 +8,8 @@ import type { ClientModule } from 'claude-code'
 // Dragged, the rule stays put and shows how far (`by`), posting once let go: moved under the pointer, it
 // got rows counted from where the terminal had not yet moved it, and jumped.
 // Clicked, a press and release that never left its row, it jumps to the top, or from the top to the bottom.
-// `top`: a scrolled zone's back-to-top line instead, its grip ↑: no drag, a click posts `top`.
 // Faded it takes no grab, as the faded tab presses nothing.
-const Divider: ClientModule<{ split: number; min: number; max: number; faded?: boolean; top?: boolean; line?: string; hairline: string }, { grabbed?: number; by?: number; moved?: boolean; isOver?: boolean }> = ({ split, min, max, faded, top, line, hairline }, surface) => {
+const Divider: ClientModule<{ split: number; min: number; max: number; faded?: boolean; line?: string; hairline: string }, { grabbed?: number; by?: number; moved?: boolean; isOver?: boolean }> = ({ split, min, max, faded, line, hairline }, surface) => {
   const { Box, Text } = surface.elements
   // Rows a drag of `d` moves the rule, as far as the zone can go: a zone under `min` never shrinks, and
   // grows to it on any move down.
@@ -26,19 +25,15 @@ const Divider: ClientModule<{ split: number; min: number; max: number; faded?: b
     else if (e.type === 'up' || (e.type === 'move' && !e.button && grabbed !== undefined)) {
       surface.setState({ isOver: e.y === 0 && e.x >= 0 && e.x < surface.columns })
       if (grabbed === undefined) return
-      if (top) {
-        if (e.y === grabbed) surface.post({ top: true })
-        return
-      }
       const to = split > min ? min : max
       if (!moved && e.y === grabbed) {
         if (to !== split) surface.post({ split: to })
       } else if (reach(e.y - grabbed)) surface.post({ split: split + reach(e.y - grabbed) })
-    } else if (e.type === 'move' && e.button && grabbed !== undefined && !top && e.y - grabbed !== surface.state?.by)
+    } else if (e.type === 'move' && e.button && grabbed !== undefined && e.y - grabbed !== surface.state?.by)
       surface.setState({ ...surface.state, by: e.y - grabbed, moved: surface.state?.moved || e.y !== grabbed })
   })
   const by = surface.state?.grabbed === undefined ? 0 : reach(surface.state.by ?? 0)
-  const word = top ? '↑' : by ? `${by > 0 ? '↓' : '↑'}${Math.abs(by)}` : '⇕'
+  const word = by ? `${by > 0 ? '↓' : '↑'}${Math.abs(by)}` : '⇕'
   const isLit = surface.state?.isOver && !faded
   const rule = faded ? hairline : 'promptBorder'
   const side = Math.max(0, surface.columns - word.length - 2)
