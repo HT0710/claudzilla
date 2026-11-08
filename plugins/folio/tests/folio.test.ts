@@ -1998,6 +1998,19 @@ test('a script that edits a clean tracked file keeps its command and output, and
   expect((await result.find({ type: 'Text' }))?.text).toBe('native block')
 })
 
+test('a script row keeps the native result without the engine diff', async ($, on) => {
+  const seen: any[] = []
+  on('session.cwd', () => ({ value: '/p' }))
+  on('session.root', () => ({ value: '/p' }))
+  on('ui.render', { component: 'ToolUse' }, () => ({ type: 'Text' as const, children: ['native'] }))
+  on('ui.render', { component: 'ToolResult' }, (_: any, e: any) => { seen.push(e.props.output); return { type: 'Text' as const, children: ['native block'] } })
+  gitFs(on, { '/p/a.txt': 'a\n' }, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))
+  await bash($, 'python fix.py')
+  await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolResult', requestId: 'b1',
+    props: { tool_use_id: 'b1', tool: 'Bash', output: { stdout: 'ok', bashEditDiff: { files: [{ filePath: '/p/a.txt', hunks: [] }] } }, isErrored: false }, viewport: VIEW })
+  expect(seen).toEqual([{ stdout: 'ok' }])
+})
+
 test('off the fullscreen layout a script write keeps the engine row', async ($, on) => {
   native(on)
   gitFs(on, { '/p/a.txt': 'a\n' }, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))

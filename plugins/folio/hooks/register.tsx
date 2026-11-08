@@ -893,7 +893,10 @@ export const register: Register = on => {
 
   // Each hook runs next even when dropping it: margin tracks the row in view on this chain.
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
-    const native = await next(e)
+    const edits = bashEdits.get(e.requestId)
+    // The engine draws bashEditDiff under the row; folio's own row already shows the edit.
+    const { bashEditDiff, ...rest } = (e.props.output ?? {}) as { bashEditDiff?: unknown }
+    const native = await next(edits?.length && bashEditDiff && typeof e.props.output === 'object' ? { ...e, props: { ...e.props, output: rest } } : e)
     const isEdit = (runs.has(e.requestId) && editSummary(e.props.tool, e.props.output, e.props.isErrored)) || (!!bashEdits.get(e.requestId)?.length && !e.props.isErrored && !scripts.has(e.requestId)) || lostWrites.has(e.requestId)
     if (!hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || !(isEdit || toolRow(e.props.tool, {}, e.props.output, e.props.isErrored))) return native
     const { Box } = $.ui.resolve(e)
