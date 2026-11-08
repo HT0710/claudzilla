@@ -506,6 +506,27 @@ for i in $(seq 20); do [ ! -f "$sgd/shallow" ] && [ ! -d "$sgd/claudzilla-update
 check "shallow: background fetch unshallows" [ ! -f "$sgd/shallow" ]
 check "shallow: background fetch gets tags" git -C "$S/clone" rev-parse -q --verify v1.2.0
 check "shallow: untagged commit is no update" [ "$(git -C "$S/clone" log -1 --format=%s)" = nine ]
+# Timer mode (herald, open sessions): fetch only, a new release is a live line, the next session's result stays.
+timer() { clean_env HOME="$U/home" CLAUDZILLA_UPDATE_TIMER=1 sh "$U/home/.claude/hooks/claudzilla-update.sh"; }
+echo '{"rulesGuard":{"autoUpdate":false}}' > "$U/home/.claude/claudzilla.json"; echo keep > "$res"
+g -C "$U/seed" tag v1.3.0; g -C "$U/seed" push origin v1.3.0
+touch -t 200001010000 "$gdir/FETCH_HEAD"
+out=$(timer); waitjob
+check "timer: prints nothing" [ -z "$out" ]
+check "timer: keeps the next session's result" grep -qx keep "$res"
+check "timer: new release is a live line" grep -qE $'^[0-9]+\tlive\tclaudzilla: v1.3.0 released - ask Claude to update$' "$ev"
+check "timer: no start line" bash -c '! grep -q "v1.3.0 available" "$1"' _ "$ev"
+touch -t 200001010000 "$gdir/FETCH_HEAD"; timer >/dev/null; waitjob
+check "timer: known release toasts once" [ "$(grep -c 'v1.3.0 released' "$ev")" = 1 ]
+# autoUpdate on: a release the timer's fetch brings starts the update; a failed one waits for the next session.
+rm -f "$res" "$U/home/.claude/claudzilla.json"; printf 'mine\n' > "$U/clone/w"   # untracked w makes the merge fail
+printf 'up\n' > "$U/seed/w"; g -C "$U/seed" add w; g -C "$U/seed" commit -m eleven; g -C "$U/seed" tag v1.4.0; g -C "$U/seed" push origin main v1.4.0
+touch -t 200001010000 "$gdir/FETCH_HEAD"; timer >/dev/null; waitjob
+check "timer: new release starts the update" grep -qF $'\tfail\tclaudzilla: auto-update to v1.4.0 failed' "$ev"
+timer >/dev/null; waitjob
+check "timer: failed update not retried each tick" [ "$(grep -c 'updating to v1.4.0' "$ev")" = 1 ]
+rm -f "$res" "$U/clone/w"   # autoUpdate off again, so the trim check below starts no update job
+echo '{"rulesGuard":{"autoUpdate":false}}' > "$U/home/.claude/claudzilla.json"
 for i in $(seq 150); do printf '0\tlive\tx%s\n' "$i"; done > "$ev"; notice >/dev/null
 check "events: trimmed past 100 lines" [ "$(wc -l < "$ev" | tr -d ' ')" -le 22 ]
 check "events: trim keeps the newest" grep -qF $'0\tlive\tx150' "$ev"
