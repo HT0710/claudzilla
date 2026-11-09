@@ -3165,10 +3165,30 @@ export const register: Register = (on, options) => {
           <Text color="promptBorder">{'─'.repeat(Math.max(0, width - LABEL))}</Text>
         </Box>
       )
+      // Rows a text takes wrapped at w: words packed greedily, one past the width broken, as Text wraps.
+      // shortcut: counts characters, not cells; CJK and emoji take two, so the count runs short. Upgrade: string-width.
+      const wrapRows = (text: string, w: number) =>
+        text.split('\n').reduce((sum, para) => {
+          let rows = 1
+          let at = 0
+          for (const word of para.split(' ')) {
+            const need = at ? at + 1 + word.length : word.length
+            if (need <= w) at = need
+            else {
+              if (at) rows++
+              for (at = word.length; at > w; at -= w) rows++
+            }
+          }
+          return sum + rows
+        }, 0)
+      const take = shown.take
+      const takeText = take ? `${TAKE_MARK[take.stance][0]} ${fit(take.label, 16)}${take.why ? `: ${take.why}` : ''}` : ''
+      // ASK and TAKE as wrapped: the divider goes no lower than TAKE's last row over the footer.
+      const reportRows = wrapRows(shown.wants, Math.max(1, width - LABEL)) + (take ? 1 + wrapRows(takeText, Math.max(1, width - LABEL)) : 0)
       // Newest first, the newest lit as History lights the prompt in view. With a report under them, TOPICS
       // take a zone of their own: the rows their wrapped lines need up to half of those left once the tabs,
-      // their rule, the TOPICS header, their divider, the status row and its rule are drawn, or what the
-      // divider was dragged to, keeping 1 row on either side; the wheel scrolls them in it.
+      // their rule, the TOPICS header, their divider and the footer are drawn, or what the
+      // divider was dragged to, keeping 1 row of TOPICS above it and ASK and TAKE whole below; the wheel scrolls them in it.
       const topics = about.topics.map((topic, i) => ({ topic, i })).reverse()
       // shortcut: counts cells as if the text filled each row; a word wrap or a wide glyph takes more, so at
       // the scroll's end the oldest topic's last line can sit past the zone. Upgrade: count wrapped words.
@@ -3176,7 +3196,7 @@ export const register: Register = (on, options) => {
       const free = e.props.scroll.bodyRows - BAR_ROWS - 6
       const draggedTopics = await read($, topicsSplit)
       const needed = topics.reduce((sum, one) => sum + lines(one.topic), 0)
-      const topicsMax = Math.max(0, free - 1)
+      const topicsMax = Math.max(0, free - reportRows)
       const topicsMin = Math.min(1, topicsMax)
       const topicsRows = draggedTopics >= 0 ? Math.max(topicsMin, Math.min(draggedTopics, topicsMax)) : Math.min(needed, Math.ceil(free / 2), topicsMax)
       const zoned = !!shown.wants && hasAbout
@@ -3219,29 +3239,10 @@ export const register: Register = (on, options) => {
         zones: !hasReport && !hasAbout ? 'empty' : zoned ? 'report+topics zone' : hasReport ? 'report' : 'topics',
         steps: shown.steps.length, topics: about.topics.length, topicsRows, reading: about.running, failed: about.failed,
       }
-      // Rows a text takes wrapped at w: words packed greedily, one past the width broken, as Text wraps.
-      // shortcut: counts characters, not cells; CJK and emoji take two, so the count runs short. Upgrade: string-width.
-      const wrapRows = (text: string, w: number) =>
-        text.split('\n').reduce((sum, para) => {
-          let rows = 1
-          let at = 0
-          for (const word of para.split(' ')) {
-            const need = at ? at + 1 + word.length : word.length
-            if (need <= w) at = need
-            else {
-              if (at) rows++
-              for (at = word.length; at > w; at -= w) rows++
-            }
-          }
-          return sum + rows
-        }, 0)
       // The body never scrolls (its bars stay pinned): STEPS gets the rows left under TAKE, its cues included.
-      // TOPICS' header, zone and divider, the status row and its rule, ASK, TAKE and their rules.
-      const take = shown.take
-      const takeText = take ? `${TAKE_MARK[take.stance][0]} ${fit(take.label, 16)}${take.why ? `: ${take.why}` : ''}` : ''
+      // TOPICS' header, zone and divider, ASK, TAKE and their rules, the footer.
       const stepRoom =
-        e.props.scroll.bodyRows - 2 - BAR_ROWS - (hasReport ? 2 : 0) - (zoned ? 2 + topicsRows : 0) -
-        wrapRows(shown.wants, Math.max(1, width - LABEL)) - (take ? 1 + wrapRows(takeText, Math.max(1, width - LABEL)) : 0) - 1
+        e.props.scroll.bodyRows - 2 - BAR_ROWS - (hasReport ? 2 : 0) - (zoned ? 2 + topicsRows : 0) - reportRows - 1
       const following = await read($, stepsFollow)
       const storedSteps = await read($, stepsTop)
       if (!next.signal.aborted) stepsZone = undefined
@@ -3256,14 +3257,16 @@ export const register: Register = (on, options) => {
       ))
       // A TOPICS read in progress takes the step count's place: the TOPICS header counts them instead.
       // Before Claude's report, planning… holds it, and the TOPICS header keeps the hint.
-      // Under TOPICS and their divider when they show, else first.
-      const statusRow = [
-        <Box key="state" justifyContent="space-between">
-          <Text color={stateColor}>{state}</Text>
-          <Text color={HUD.faint}>{shown.waiting ? (shown.agents ? '' : 'planning…') : about.running ? aboutHint : stepCount}</Text>
-        </Box>,
-        <Text key="rule" color="promptBorder">{'─'.repeat(width)}</Text>,
-      ]
+      // The footer, pinned over the bottom bar: one place whether a report, TOPICS or both show.
+      const statusRow = (
+        <Box key="footer" flexDirection="column" flexShrink={0}>
+          <Text color="promptBorder">{'─'.repeat(width)}</Text>
+          <Box justifyContent="space-between">
+            <Text color={stateColor}>{state}</Text>
+            <Text color={HUD.faint}>{shown.waiting ? (shown.agents ? '' : 'planning…') : about.running ? aboutHint : stepCount}</Text>
+          </Box>
+        </Box>
+      )
       body =
         !hasReport && !hasAbout ? (
           // The rows under the tabs and their rule.
@@ -3274,136 +3277,141 @@ export const register: Register = (on, options) => {
             <Text color={HUD.faint}>what this chat is about.</Text>,
           )
         ) : (
-          <Box flexDirection="column">
-            {hasReport && !hasAbout && statusRow}
-            {hasAbout && [
-              <Box key="session" justifyContent="space-between">
-                <Text bold color={HUD.label}>TOPICS</Text>
-                {/* Cut to one row beside its title: the zone under it starts on a fixed row. */}
-                <Text color={HUD.faint}>{fit((hasReport && !shown.waiting && about.running ? '' : aboutHint) || topicCount, Math.max(1, width - 7))}</Text>
-              </Box>,
-              ...(zoned
-                ? [
-                    <Box key="topics" flexDirection="column" height={topicsRows} overflow="hidden">
-                      {topicsW.above > 0 && topicsCues.up}
-                      <Box flexDirection="column" height={topicsRoom} overflow="hidden" flexShrink={0}>
-                        {topicRows}
-                      </Box>
-                      {topicsW.below > 0 && topicsCues.down}
-                    </Box>,
-                  ]
-                : topicRows),
-            ]}
-            {/* Only the terminal and desktop draw a Client: elsewhere the divider stays put. */}
-            {zoned &&
-              (Client ? (
-                <Client key="now" module="./divider.tsx" props={{ split: topicsRows, min: topicsMin, max: topicsMax, hairline: DIMMED }} height={1} />
-              ) : (
-                <Text key="now" color="promptBorder">{'─'.repeat(width)}</Text>
-              ))}
-            {hasReport && hasAbout && statusRow}
-            {shown.wants && [
-              labelled('ASK', shown.wants, shade()),
-              take && partRule('TAKE'),
-              take && (
-                <Box key="TAKE">
-                  <Box width={LABEL} flexShrink={0}>
-                    <Text bold color={HUD.label}>TAKE</Text>
-                  </Box>
-                  <Text wrap="wrap">
-                    <Text color={shade(TAKE_MARK[take.stance][1])}>{`${TAKE_MARK[take.stance][0]} `}</Text>
-                    <Text bold color={shade(TAKE_MARK[take.stance][1])}>{fit(take.label, 16)}</Text>
-                    {take.why && <Text color={shade()}>{`: ${take.why}`}</Text>}
-                  </Text>
-                </Box>
-              ),
-              shown.steps.length > 0 && partRule('STEPS'),
-              shown.steps.length > 0 && (
-                <Box key="steps">
-                  <Box width={LABEL} flexShrink={0}>
-                    <Text bold color={HUD.label}>STEPS</Text>
-                  </Box>
-                  <Box flexDirection="column" width={width - LABEL}>
-                    {((perStep: unknown[][]) => {
-                      const rows = perStep.flat()
-                      // Following, the step in progress kept in view, scrolled as little as that takes.
-                      const doing = following ? shown.steps.findIndex(step => step.status === 'in_progress') : -1
-                      const first = doing < 0 ? -1 : perStep.slice(0, doing).reduce((n, one) => n + one.length, 0)
-                      // Its last row too, its agents with it; a step taller than the zone keeps its first row.
-                      const at = first < 0 ? -1 : Math.min(first + perStep[doing]!.length - 1, first + Math.max(0, stepRoom - 3))
-                      let w = zoneWindow(rows.length, at < 0 ? (following ? (stepsHeld ?? storedSteps) : storedSteps) : Math.min(storedSteps, at), stepRoom)
-                      while (at >= w.top + w.shown) {
-                        const down = zoneWindow(rows.length, w.top + 1, stepRoom)
-                        if (down.top === w.top) break
-                        w = down
-                      }
-                      if (!next.signal.aborted) stepsHeld = w.top
-                      const from = e.props.scroll.bodyRows - BAR_ROWS - stepRoom
-                      if (!next.signal.aborted)
-                        stepsZone = { from, to: from + Math.min(rows.length, stepRoom), top: w.top, end: zoneWindow(rows.length, Infinity, stepRoom).top, offset: e.props.scroll.offset }
-                      const stepCues = cues('steps', width - LABEL, w, setSteps)
-                      return [w.above > 0 && stepCues.up, ...rows.slice(w.top, w.top + w.shown), w.below > 0 && stepCues.down]
-                    })(shown.steps.map((step, i) => {
-                      const all = agentRows[i] ?? []
-                      // Past 3, the rest fold into a count, so a fan-out does not push later steps out of view.
-                      const folds = all.length > 3
-                      const rows = folds && open !== i ? all.slice(0, 3) : all
-                      const hidden = all.slice(rows.length)
-                      const counts = ['◌', '✗', '■', '○', '✓']
-                        .map(glyph => [glyph, hidden.filter(row => AGENT_MARK[row.status][0] === glyph).length] as const)
-                        .flatMap(([glyph, n]) => (n ? `${n} ${glyph}` : []))
-                        .join(' ')
-                      // In an agent's transcript, that agent's step leads back to the main conversation.
-                      const stepLine = [
-                        <Text key="mark" color={shade(MARK_SHADE[step.status])}>{MARK[step.status]} </Text>,
-                        <Text key="text" color={shade(TEXT_SHADE[step.status])}>{fit(step.text, width - LABEL - 2)}</Text>,
-                      ]
-                      // A spawned agent's row opens its transcript; the one in view is lit across the row, as the shown tab is.
-                      const agentLine = (row: AgentRow, tree: string) => {
-                        const [glyph, color] = AGENT_MARK[row.status]
-                        const text = fit(row.description, width - LABEL - 4)
-                        const line =
-                          row.id && row.id === viewing
-                            ? <Text bold inverse color={shade('claude')}>{`${tree}${glyph} ${text}`.padEnd(width - LABEL)}</Text>
-                            : [
-                                <Text key="tree" color={shade(HUD.faint)}>{tree}</Text>,
-                                <Text key="mark" color={shade(color)}>{glyph} </Text>,
-                                <Text key="text" color={shade(agentText(row.status))}>{text}</Text>,
-                              ]
-                        return row.id ? (
-                          <Button key={`view:${row.id}`} plain onPress={() => $.ui.view(viewing === row.id ? {} : { agentId: row.id })}>
-                            {line}
-                          </Button>
-                        ) : (
-                          line
-                        )
-                      }
-                      const toggle = (key: string, label: string, to: number) => (
-                        <Button key={key} plain onPress={() => update($, expanded, () => to)}>
-                          <Text color={shade(HUD.faint)}>└ </Text>
-                          <Text color={shade(HUD.faint)}>{label}</Text>
-                        </Button>
-                      )
-                      return [
-                        <Box key={`step:${i}`}>
-                          {all.some(row => row.id && row.id === viewing) ? (
-                            <Button key="main" plain onPress={() => $.ui.view({})}>
-                              {stepLine}
-                            </Button>
-                          ) : (
-                            stepLine
-                          )}
+          <Box flexDirection="column" height={Math.max(0, e.props.scroll.bodyRows - 2 - BAR_ROWS)}>
+            <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden">
+              {/* Unshrinkable: past the footer it is cut at the bottom, not squeezed row by row. */}
+              <Box key="report" flexDirection="column" flexShrink={0}>
+                {hasAbout && [
+                  <Box key="session" justifyContent="space-between">
+                    <Text bold color={HUD.label}>TOPICS</Text>
+                    {/* Cut to one row beside its title: the zone under it starts on a fixed row. */}
+                    <Text color={HUD.faint}>{fit((hasReport && !shown.waiting && about.running ? '' : aboutHint) || topicCount, Math.max(1, width - 7))}</Text>
+                  </Box>,
+                  ...(zoned
+                    ? [
+                        <Box key="topics" flexDirection="column" height={topicsRows} overflow="hidden">
+                          {topicsW.above > 0 && topicsCues.up}
+                          <Box flexDirection="column" height={topicsRoom} overflow="hidden" flexShrink={0}>
+                            {topicRows}
+                          </Box>
+                          {topicsW.below > 0 && topicsCues.down}
                         </Box>,
-                        ...rows.map((row, j) => (
-                          <Box key={`agent:${i}:${j}`}>{agentLine(row, j === rows.length - 1 && !folds ? '└ ' : '├ ')}</Box>
-                        )),
-                        folds && (hidden.length ? toggle(`more:${i}`, `… ${hidden.length} more  ${counts}`, i) : toggle('less', '… less', -1)),
-                      ].filter(Boolean)
-                    }))}
-                  </Box>
-                </Box>
-              ),
-            ]}
+                      ]
+                    : topicRows),
+                ]}
+                {/* Only the terminal and desktop draw a Client: elsewhere the divider stays put. */}
+                {zoned &&
+                  (Client ? (
+                    <Client key="now" module="./divider.tsx" props={{ split: topicsRows, min: topicsMin, max: topicsMax, hairline: DIMMED }} height={1} />
+                  ) : (
+                    <Text key="now" color="promptBorder">{'─'.repeat(width)}</Text>
+                  ))}
+                {shown.wants && [
+                  labelled('ASK', shown.wants, shade()),
+                  take && partRule('TAKE'),
+                  take && (
+                    <Box key="TAKE">
+                      <Box width={LABEL} flexShrink={0}>
+                        <Text bold color={HUD.label}>TAKE</Text>
+                      </Box>
+                      <Text wrap="wrap">
+                        <Text color={shade(TAKE_MARK[take.stance][1])}>{`${TAKE_MARK[take.stance][0]} `}</Text>
+                        <Text bold color={shade(TAKE_MARK[take.stance][1])}>{fit(take.label, 16)}</Text>
+                        {take.why && <Text color={shade()}>{`: ${take.why}`}</Text>}
+                      </Text>
+                    </Box>
+                  ),
+                  shown.steps.length > 0 && partRule('STEPS'),
+                  shown.steps.length > 0 && (
+                    <Box key="steps">
+                      <Box width={LABEL} flexShrink={0}>
+                        <Text bold color={HUD.label}>STEPS</Text>
+                      </Box>
+                      <Box flexDirection="column" width={width - LABEL}>
+                        {((perStep: unknown[][]) => {
+                          const rows = perStep.flat()
+                          // Following, the step in progress kept in view, scrolled as little as that takes.
+                          const doing = following ? shown.steps.findIndex(step => step.status === 'in_progress') : -1
+                          const first = doing < 0 ? -1 : perStep.slice(0, doing).reduce((n, one) => n + one.length, 0)
+                          // Its last row too, its agents with it; a step taller than the zone keeps its first row.
+                          const at = first < 0 ? -1 : Math.min(first + perStep[doing]!.length - 1, first + Math.max(0, stepRoom - 3))
+                          let w = zoneWindow(rows.length, at < 0 ? (following ? (stepsHeld ?? storedSteps) : storedSteps) : Math.min(storedSteps, at), stepRoom)
+                          while (at >= w.top + w.shown) {
+                            const down = zoneWindow(rows.length, w.top + 1, stepRoom)
+                            if (down.top === w.top) break
+                            w = down
+                          }
+                          if (!next.signal.aborted) stepsHeld = w.top
+                          // Over the footer's 2 rows.
+                          const from = e.props.scroll.bodyRows - BAR_ROWS - 2 - stepRoom
+                          if (!next.signal.aborted)
+                            stepsZone = { from, to: from + Math.min(rows.length, stepRoom), top: w.top, end: zoneWindow(rows.length, Infinity, stepRoom).top, offset: e.props.scroll.offset }
+                          const stepCues = cues('steps', width - LABEL, w, setSteps)
+                          return [w.above > 0 && stepCues.up, ...rows.slice(w.top, w.top + w.shown), w.below > 0 && stepCues.down]
+                        })(shown.steps.map((step, i) => {
+                          const all = agentRows[i] ?? []
+                          // Past 3, the rest fold into a count, so a fan-out does not push later steps out of view.
+                          const folds = all.length > 3
+                          const rows = folds && open !== i ? all.slice(0, 3) : all
+                          const hidden = all.slice(rows.length)
+                          const counts = ['◌', '✗', '■', '○', '✓']
+                            .map(glyph => [glyph, hidden.filter(row => AGENT_MARK[row.status][0] === glyph).length] as const)
+                            .flatMap(([glyph, n]) => (n ? `${n} ${glyph}` : []))
+                            .join(' ')
+                          // In an agent's transcript, that agent's step leads back to the main conversation.
+                          const stepLine = [
+                            <Text key="mark" color={shade(MARK_SHADE[step.status])}>{MARK[step.status]} </Text>,
+                            <Text key="text" color={shade(TEXT_SHADE[step.status])}>{fit(step.text, width - LABEL - 2)}</Text>,
+                          ]
+                          // A spawned agent's row opens its transcript; the one in view is lit across the row, as the shown tab is.
+                          const agentLine = (row: AgentRow, tree: string) => {
+                            const [glyph, color] = AGENT_MARK[row.status]
+                            const text = fit(row.description, width - LABEL - 4)
+                            const line =
+                              row.id && row.id === viewing
+                                ? <Text bold inverse color={shade('claude')}>{`${tree}${glyph} ${text}`.padEnd(width - LABEL)}</Text>
+                                : [
+                                    <Text key="tree" color={shade(HUD.faint)}>{tree}</Text>,
+                                    <Text key="mark" color={shade(color)}>{glyph} </Text>,
+                                    <Text key="text" color={shade(agentText(row.status))}>{text}</Text>,
+                                  ]
+                            return row.id ? (
+                              <Button key={`view:${row.id}`} plain onPress={() => $.ui.view(viewing === row.id ? {} : { agentId: row.id })}>
+                                {line}
+                              </Button>
+                            ) : (
+                              line
+                            )
+                          }
+                          const toggle = (key: string, label: string, to: number) => (
+                            <Button key={key} plain onPress={() => update($, expanded, () => to)}>
+                              <Text color={shade(HUD.faint)}>└ </Text>
+                              <Text color={shade(HUD.faint)}>{label}</Text>
+                            </Button>
+                          )
+                          return [
+                            <Box key={`step:${i}`}>
+                              {all.some(row => row.id && row.id === viewing) ? (
+                                <Button key="main" plain onPress={() => $.ui.view({})}>
+                                  {stepLine}
+                                </Button>
+                              ) : (
+                                stepLine
+                              )}
+                            </Box>,
+                            ...rows.map((row, j) => (
+                              <Box key={`agent:${i}:${j}`}>{agentLine(row, j === rows.length - 1 && !folds ? '└ ' : '├ ')}</Box>
+                            )),
+                            folds && (hidden.length ? toggle(`more:${i}`, `… ${hidden.length} more  ${counts}`, i) : toggle('less', '… less', -1)),
+                          ].filter(Boolean)
+                        }))}
+                      </Box>
+                    </Box>
+                  ),
+                ]}
+              </Box>
+            </Box>
+            {hasReport && statusRow}
           </Box>
         )
     }

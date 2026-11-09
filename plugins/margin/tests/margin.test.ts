@@ -2877,8 +2877,8 @@ test('steps past the body end in the ↓ N more cue; steps that fit get none', a
   expect(await ui.find({ type: 'Button', key: 'steps:down' })).toBeUndefined()
 })
 
-// 14 body rows: STEPS gets 6, from row 8, under the tabs, their rule, the status row, its rule, ASK, TAKE's rule,
-// TAKE and STEPS' rule.
+// 14 body rows: STEPS gets 6, from row 6, under the tabs, their rule, ASK, TAKE's rule, TAKE and STEPS' rule,
+// over the footer's rule and status row.
 const stepsPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], doing: number) => {
   noHistory(on)
   on('session.end', (_, e) => ({ sessionId: e.sessionId }) as any)
@@ -2888,7 +2888,7 @@ const stepsPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]
   const steps = Array.from({ length: 12 }, (_, i) => ({ text: `step ${i + 1}`, status: i < doing - 1 ? 'completed' : i === doing - 1 ? 'in_progress' : 'pending' }))
   await $.tool.call({ tool: INTENT, ...REPORT, steps } as any)
   await ui.drawn()
-  const wheel = (by: number, row = 9) =>
+  const wheel = (by: number, row = 6) =>
     $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 14 + BAR_ROWS, contentRows: 14 + BAR_ROWS, origin: { kind: 'person' }, pointer: { column: 0, row } })
   const shown = async (n: number) => (await ui.find({ type: 'Text', text: `step ${n}` })) !== undefined
   return { ui, wheel, shown }
@@ -3023,9 +3023,9 @@ test('dragging the TOPICS divider gives TOPICS more rows', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
 })
 
-test('the TOPICS divider keeps 1 row on either side', async ($, on) => {
+test('the TOPICS divider keeps 1 row of TOPICS above it and ASK and TAKE whole below', async ($, on) => {
   const ui = await twelveTopics($, on)
-  // 14 free rows, 7 of TOPICS: up to 1 of them, down to 1 left for the report.
+  // 14 free rows, 7 of TOPICS: up to 1 of them, down to the report's 3 rows of ASK, TAKE's rule and TAKE.
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'now' })
   await ui.pointer({ type: 'move', x: 0, y: -9, button: 'left', in: 'now' })
   expect(await ui.find({ type: 'Text', text: '↑6', in: 'now' })).toBeDefined()
@@ -3035,9 +3035,25 @@ test('the TOPICS divider keeps 1 row on either side', async ($, on) => {
 
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'now' })
   await ui.pointer({ type: 'move', x: 0, y: 20, button: 'left', in: 'now' })
-  expect(await ui.find({ type: 'Text', text: '↓12', in: 'now' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '↓10', in: 'now' })).toBeDefined()
   await ui.pointer({ type: 'up', x: 0, y: 20, button: 'left', in: 'now' })
-  expect(await topicShown(ui, 0)).toBe(true)
+  expect(await topicShown(ui, 2)).toBe(true)
+})
+
+test("the TOPICS divider goes down only as far as TAKE's last row over the footer", async ($, on) => {
+  const ui = await twelveTopics($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT, wants: 'one two three four five six seven eight' } as any)
+  await ui.drawn()
+  // 18 body rows: the TOPICS header, the divider, 2 of ASK, TAKE's rule, TAKE and the footer's 2 leave 10.
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'now' })
+  await ui.pointer({ type: 'move', x: 0, y: 20, button: 'left', in: 'now' })
+  expect(await ui.find({ type: 'Text', text: '↓3', in: 'now' })).toBeDefined()
+})
+
+test('a report past the footer is cut at the bottom, never squeezed', async ($, on) => {
+  const ui = await twelveTopics($, on)
+  const report = await ui.find({ type: 'Box', key: 'report' })
+  expect(report?.props.flexShrink).toBe(0)
 })
 
 test('the wheel over TOPICS scrolls them under a divider that stays put; ↑ brings them back up', async ($, on) => {
@@ -3112,18 +3128,18 @@ test('the wheel over the TOPICS divider moves it, keeping 1 row on either side',
   expect(await topicShown(ui, 10)).toBe(false)
 })
 
-test('the status row sits under the TOPICS divider; with no topics it leads', async ($, on) => {
+test('the status row is the footer, under TOPICS and the report, with or without topics', async ($, on) => {
   const ui = await twelveTopics($, on)
   const order = async () => (await ui.findAll({ type: 'Text' })).map((t: any) => t.text as string)
   let all = await order()
-  expect(all.indexOf('TOPICS')).toBeLessThan(all.indexOf('topic 6'))
-  expect(all.indexOf('topic 6')).toBeLessThan(all.indexOf('● working'))
-  expect(all.indexOf('● working')).toBeLessThan(all.indexOf('a third tab'))
+  expect(all.indexOf('topic 6')).toBeLessThan(all.indexOf('a third tab'))
+  expect(all.indexOf('plan')).toBeLessThan(all.indexOf('● working'))
+  expect(await ui.find({ type: 'Box', key: 'footer' })).toBeDefined()
   await $.session.end({ reason: 'clear', sessionId: 'chat-1' } as any)
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   all = await order()
   expect(all.includes('TOPICS')).toBe(false)
-  expect(all.indexOf('● working')).toBeLessThan(all.indexOf('a third tab'))
+  expect(all.indexOf('plan')).toBeLessThan(all.indexOf('● working'))
 })
 
 test('a report missing ASK or TAKE keeps the last ones', async ($, on) => {
