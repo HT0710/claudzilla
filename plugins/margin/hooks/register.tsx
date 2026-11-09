@@ -3,16 +3,20 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { AgentRow, Check, CheckState, CommitView, Counts, FileView, LogRow, Gh, Intent, Modal, ModalKey, Op, Overview, Pr, PrState, PrView, Spawn, Stage, Step, Tab, Take, Word } from '../types'
 import { LOG_FORMAT, age, branches, cutMiddle, fileKey, incomingPrs, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseStatusZ, parseMerge, parsePrView, parsePrs, parseRebase, printable, sortChecks, stashCount, syncMark, treeRows, worktrees, worst } from './git-data'
-import { AHEAD, BAR_ROWS, BEHIND, DIM, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, WHEEL_HOLD, applyPalette, card as kitCard, configDir, cues as kitCues, dim, drawLayer as kitDrawLayer, drawnZones, emptyNote as kitEmptyNote, fade, fadeBg, fadeTree, heading as kitHeading, keepZones, kv as kitKv, line as kitLine, modalOpen, modalZone, nudge, readTheme, row as kitRow, rowHover, setZones, textLength, toPieces, zoneWindow } from './kit'
-import type { Layer, LayerCtx, Piece, RowCtx, Win, Zone } from './kit'
+import { AHEAD, BAR_ROWS, BEHIND, DIM, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, WHEEL_HOLD, applyPalette, card as kitCard, configDir, cues as kitCues, clock, dayName, dim, drawLayer as kitDrawLayer, drawnZones, emptyNote as kitEmptyNote, fade, fadeBg, fadeTree, fit, heading as kitHeading, keepZones, kv as kitKv, line as kitLine, modalOpen, modalZone, nudge, readTheme, row as kitRow, rowHover, setZones, textLength, toPieces, zoneWindow } from './kit'
+import type { Layer, LayerCtx, Piece, Prompt, RowCtx, TabCtx, TabDraw, Win, Zone } from './kit'
 import { mdRows } from './markdown'
 import { capped, contentFrame, modalFrame, stackFrame } from './modal'
 import type { Frame } from './modal'
 import { readPalette } from './palette'
+import { draw as drawFile } from './tab-file'
+import { draw as drawHistory } from './tab-history'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
 export { zoneWindow } from './kit'
+export { fileWindow } from './tab-file'
+export { dayLabel, inView, litPrompt } from './tab-history'
 
 const t = tracer('margin')
 // The pane's last traced draw: a draw repeats on every scroll and click, so only a change is traced.
@@ -33,8 +37,6 @@ const MAX_PROMPTS = 100
 const PAGE = 100
 // Built-in tools that never change files: their calls leave the Git tab's reads standing.
 const READ_ONLY = new Set(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'])
-// \u00a0: the toast wraps at spaces; ↻ keeps to its word.
-const GONE = "Can't jump: rewound or compacted out of the chat. ↻\u00a0reuses it."
 
 export type UseKind = 'files' | 'memory' | 'web' | 'docs' | 'skills'
 export const USE_KINDS: UseKind[] = ['files', 'memory', 'web', 'docs', 'skills']
@@ -335,9 +337,6 @@ const readOverview = async ($: EngineInterface) => {
   }
 }
 
-// `typed`: history's own text, set when a paste placeholder in it was swapped for the paste.
-export type Prompt = { display: string; timestamp: number; typed?: string }
-
 const PASTE = /\[Pasted text #(\d+)(?: \+\d+ lines)?\]/g
 // A pasted "/x" is sent as a prompt; only a typed one runs. A path ("/home/…") is a prompt too.
 const isCommand = (prompt: Prompt) => /^\/[\w:-]+(\s|$)/.test(prompt.typed ?? prompt.display)
@@ -396,13 +395,6 @@ const pastPrompts = async ($: EngineInterface): Promise<Prompt[]> => {
   return prompts.reverse()
 }
 
-const clock = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const dayName = (day: Date) => `${DAYS[day.getDay()]} ${day.getDate()} ${MONTHS[day.getMonth()]}`
-// By local calendar day: "Today", else "Sat 10 Oct".
-export const dayLabel = (ms: number, now: Date) =>
-  new Date(ms).toDateString() === now.toDateString() ? 'Today' : dayName(new Date(ms))
 // The chat wraps a paste in <pasted_content> tags; history keeps it bare. A control character (a
 // pasted escape sequence) would get the whole pane refused, so it reads as a space.
 const flat = (text: string) =>
@@ -659,10 +651,8 @@ let opRead: { key: string; signal: AbortSignal; run: Promise<Op | undefined> } |
 let basicGlyphs: Promise<boolean> | undefined
 // The top STEPS last drew, kept once the run ends and no step is in progress; a new prompt clears it.
 let stepsHeld: number | undefined
-// Counts UTF-16 units, not cells: a wide glyph (CJK, emoji) can still overflow by one.
 // A commit row's key: hover scopes take at most 64 characters, so a SHA-256 id goes by its first 40.
 const commitKey = (sha: string) => `c:${sha.slice(0, 40)}`
-const fit = (text: string, room: number) => (text.length > room ? `${text.slice(0, room - 1)}…` : text)
 
 // The chat's own file holds every prompt's message id, drawn or not; searched with grep, as it
 // outgrows what $.fs.read takes whole. A repeated prompt resolves to the copy sent nearest the
@@ -951,9 +941,6 @@ export const keepNewest = <K, V>(map: Map<K, V>, key: K, value: V, max: number) 
   map.set(key, value)
   if (map.size > max) map.delete(map.keys().next().value!)
 }
-// A move redraws every row, each saying where it is now; rows a long jump unmounted say nothing
-// again, so only the rows reported with the newest count.
-const FRESH = 100
 // A clicked prompt, by its time, stays lit through its own jump: until a row moves after `after`.
 let pin: { timestamp: number; after: number } | undefined
 const SETTLE = 300
@@ -1022,17 +1009,6 @@ const rowTimes = async ($: EngineInterface, keys: string[]) => {
   return new Map(keys.flatMap(key => (stamps.has(key) ? [[key, stamps.get(key)!] as const] : [])))
 }
 
-// History stamps a prompt up to ~0.3 s after the chat stamps its row.
-const SLACK = 500
-// The prompt (index, newest first) to light: the newest whose turn the chat rows on screen show.
-// Nothing on screen known: the newest.
-export const inView = (prompts: Prompt[], times: number[]) =>
-  times.length ? prompts.findIndex(prompt => prompt.timestamp <= Math.max(...times) + SLACK) : 0
-// A clicked prompt while its pin holds, else the one in view.
-export const litPrompt = (prompts: Prompt[], times: number[], pinned?: { timestamp: number }) => {
-  const at = pinned ? prompts.findIndex(prompt => prompt.timestamp === pinned.timestamp) : -1
-  return at >= 0 ? at : inView(prompts, times)
-}
 
 const WORKING = ['running', 'waiting', 'idle']
 // Lines kept each side of the clicked one, and each line's length: the draws repeat on every scroll, so they
@@ -1049,12 +1025,6 @@ export const fileView = (raw: string, line: number, read: string | undefined): N
   // Code refuses control characters (ESC in a log, ^L in a source): each shows as a space; tabs stay.
   const kept = all.slice(from, from + 2 * FILE_SPAN + 1).map(one => one.slice(0, FILE_LINE).replace(/[\x00-\x08\x0b-\x1f\x7f]/g, ' '))
   return { path, line, first: from + 1, text: kept.join('\n') }
-}
-// `rows` lines of the view with the clicked one in the middle, clamped to the slice's ends.
-export const fileWindow = (view: { line: number; first: number; text: string }, rows: number) => {
-  const all = view.text.split('\n')
-  const at = Math.max(0, Math.min(view.line - view.first - Math.floor(rows / 2), all.length - rows))
-  return { first: view.first + at, lines: all.slice(at, at + rows), mark: view.line - view.first - at }
 }
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 // Agents under each step: by the description Claude listed, never by position, as a redraft reorders steps.
@@ -1476,10 +1446,6 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => ordered(async () => {
     const draw = t.span('pane.draw')
-    // What the tab drew, or hid and why: set by the tab's branch below.
-    let zones: Record<string, unknown> = {}
-    // Kept in the entry but out of the change key: a wheel tick moves these alone.
-    let scroll: Record<string, unknown> = {}
     const elements = $.ui.resolve(e)
     const { Box, Button, Code, Link, Text } = elements
     const Client = 'Client' in elements ? elements.Client : undefined
@@ -1527,173 +1493,57 @@ export const register: Register = (on, options) => {
       $.ui.toast("Can't scroll to the chat's end.")
     }
 
-    let body
     // Kept while a Git draw reads: a wheel tick meanwhile still scrolls its zone.
     keepZones(current)
-    const drawnNow: Zone[] = []
-    let modalFade: { keep: Set<string>; open?: string } | undefined
-    if (current === 'Decisions') {
-      body = emptyNote(
-        e.props.scroll.bodyRows - BAR_ROWS - 2,
-        'Coming in v1.8',
-        <Text color={HUD.faint}>Choices made in this chat</Text>,
-        <Text color={HUD.faint}>and why they were made.</Text>,
-      )
-    } else if (current === 'Tree') {
-      body = emptyNote(
-        e.props.scroll.bodyRows - BAR_ROWS - 2,
-        'Coming in v1.8',
-        <Text color={HUD.faint}>The repo's files as a tree,</Text>,
-        <Text color={HUD.faint}>each one opens in File.</Text>,
-      )
-    } else if (current === 'File') {
-      const view = await read($, file)
-      const rows = Math.max(0, e.props.scroll.bodyRows - BAR_ROWS - 2)
-      if (!view) {
-        body = emptyNote(rows, 'No file open', <Text color={HUD.faint}>Click a file path in</Text>, <Text color={HUD.faint}>a reply to show it here.</Text>)
-      } else if (!view.text) {
-        // The box's border and padding take 6 columns of the body.
-        body = emptyNote(
-          rows,
-          "Can't show this file",
-          <Text color={HUD.faint}>{fit(view.path, e.props.bodyColumns - 2 * PAD - 6)}</Text>,
-          <Text color={HUD.faint}>It is binary or unreadable.</Text>,
-        )
-      } else {
-        // The header row and its rule, as Overview's and Git's first rows.
-        const room = Math.max(1, rows - 2)
-        const { first, lines, mark } = fileWindow(view, room)
-        const cwd = await $.session.cwd().catch(() => '')
-        const home = await $.env.get('HOME').catch(() => undefined)
-        // As the reply wrote it: from the working directory, else from ~.
-        const shown = cwd && view.path.startsWith(`${cwd}/`) ? view.path.slice(cwd.length + 1) : home && view.path.startsWith(`${home}/`) ? `~/${view.path.slice(home.length + 1)}` : view.path
-        const width = e.props.bodyColumns - 2 * PAD
-        const at = `line ${view.line}`
-        // A cut takes the path's start, never the line beside it.
-        const fits = Math.max(1, width - at.length - 1)
-        const head = shown.length > fits ? `…${shown.slice(1 - fits)}` : shown
-        body = (
-          <Box flexDirection="column" height={rows} flexShrink={0}>
-            {/* As Git's branch row: the path in the action color, the line faint on the right. */}
-            <Box justifyContent="space-between">
-              <Text color={HUD.action}>{head}</Text>
-              <Text color={HUD.faint}>{at}</Text>
-            </Box>
-            <Text color="promptBorder">{'─'.repeat(width)}</Text>
-            <Box height={room} flexShrink={0}>
-              <Text color="claude">{lines.map((_, i) => (i === mark ? '▶' : ' ')).join('\n')}</Text>
-              <Code source={lines.join('\n')} path={view.path} startLine={first} wrap="truncate-end" />
-            </Box>
-          </Box>
-        )
-      }
+    const ctx: TabCtx = { props: e.props, signal: next.signal, el: elements, pick: tab => pick($, tab), setModal: change => setModal($, change) }
+    let out: TabDraw
+    if (current === 'File') {
+      out = await drawFile($, ctx)
     } else if (current === 'History') {
-      const key = `${await $.session.id()}:${await read($, submitted)}`
-      const at = await $.clock.now()
-      if (historyRead?.key !== key || at - historyRead.at >= READ_TTL) historyRead = { key, at, reads: readHistory($) }
-      const { all, prompts, drawnOnly, commands, rows } = await historyRead.reads
-      // "↻ " and "HH:MM  " come before the text; padding it to the edge makes the whole row the jump button.
-      const room = e.props.bodyColumns - 2 * PAD - 9
-      const now = new Date()
-      const days = prompts.map(prompt => dayLabel(prompt.timestamp, now))
-      // The longest count that fits beside "⟲ rewind  ⤓ latest " (19 columns); none in the narrowest pane.
-      const count = `${prompts.length}${all.length > MAX_PROMPTS ? '+' : ''} ${all.length === 1 ? 'prompt' : 'prompts'}`
-      const counted = [`${count} this session`, count, ''].find(text => !text || text.length + 19 <= room + 9)
-      const isReachable = (prompt: Prompt) => {
-        const key = flat(prompt.display)
-        if ((!isCommand(prompt) && !drawnOnly.has(key)) || rowIds.has(key) || commands.has(key)) return true
-        awaited.add(key)
-        return false
-      }
-      // Rows under the Compacted line still jump while the chat shows them, dim as the model lost them.
-      const compacted = rows.findIndex(row => row.marker === 'Compacted')
-      // The prompt being read lights even if compacted: it is on screen.
-      const times = await rowTimes($, [...new Set([...shown.values()].map(row => row.key))])
-      const known = [...shown.values()].filter(row => times.has(row.key))
-      const newest = Math.max(...known.map(row => row.at))
-      const lit = litPrompt(prompts, known.filter(row => row.at >= newest - FRESH).map(row => times.get(row.key)!), pin)
-      // `line` left and right of " label ", across the row (room + 9 columns).
-      const flanks = (label: string, line: string) => {
-        const fill = Math.max(0, room + 7 - label.length)
-        return [line.repeat(Math.floor(fill / 2)), line.repeat(Math.ceil(fill / 2))]
-      }
-      // A day is a plain line; Rewound a broken one, Compacted a pressed-together one.
-      const divider = (label: string, line: string, word: string, dim: string) => (
-        <Box>
-          <Text color={dim}>{flanks(label, line)[0]} </Text>
-          <Text color={word}>{label}</Text>
-          <Text color={dim}> {flanks(label, line)[1]}</Text>
-        </Box>
-      )
-      // One element per row, dividers too, so the list scrolls by rows under the header.
-      // A ! command's ! in the shell prompt's color, faint as its row.
-      const row = (prompt: Prompt, color: string | undefined) => {
-        const text = fit(flat(prompt.display), room).padEnd(room)
-        if (!text.startsWith('!')) return <Text color={color}>{text}</Text>
-        return [<Text color={color === HUD.faint ? color : 'bashBorder'}>!</Text>, <Text color={color}>{text.slice(1)}</Text>]
-      }
-      const lines = prompts.flatMap((prompt, i) => [
-        ...(days[i] !== days[i - 1] ? [divider(days[i] ?? '', '─', HUD.label, DIM.label)] : []),
-        // Rewound shares the rewind button's green.
-        ...(rows[i]?.marker === 'Rewound' ? [divider('Rewound', '~', HUD.action, DIM.action)] : []),
-        ...(rows[i]?.marker === 'Compacted' ? [divider('Compacted', '=', HUD.compacted, DIM.compacted)] : []),
-        <Box>
-          <Button key={`reuse:${i}`} plain onPress={() => reuse(prompt.display)}>
-            <Text color={HUD.idle}>↻ </Text>
-          </Button>
-          <Button key={`jump:${i}`} plain onPress={() => (rows[i]?.isLive ? jump(prompt) : $.ui.toast(GONE))}>
-            <Text color={HUD.faint}>{clock(prompt.timestamp)}  </Text>
-            {row(prompt, !rows[i]?.isLive || !isReachable(prompt) ? HUD.faint : i === lit ? 'claude' : compacted >= 0 && i >= compacted ? HUD.faint : undefined)}
-          </Button>
-        </Box>,
-      ])
-      // The rows under the tabs, their rule and the header, cues included.
-      // Clamped: the list shrinks after a rewind.
-      const listRows = Math.max(0, e.props.scroll.bodyRows - BAR_ROWS - 3)
-      const w = zoneWindow(lines.length, await read($, historyTop), listRows)
-      const listCues = cues('history', e.props.bodyColumns - 2 * PAD, w, to => update($, historyTop, () => to))
-      const historyEnd = zoneWindow(lines.length, Infinity, listRows).top
-      drawnNow.push({
-        tab: 'History', kind: 'list', from: -Infinity, to: Infinity, offset: 0, fallback: true,
-        // From the row drawn: a rewind may have shrunk the list under the offset stored.
-        wheel: by => update($, historyTop, top => Math.max(0, Math.min(Math.min(top, historyEnd) + by, historyEnd))),
+      out = await drawHistory($, {
+        ...ctx,
+        reads: async () => {
+          const key = `${await $.session.id()}:${await read($, submitted)}`
+          const at = await $.clock.now()
+          if (historyRead?.key !== key || at - historyRead.at >= READ_TTL) historyRead = { key, at, reads: readHistory($) }
+          return historyRead.reads
+        },
+        rowTimes: keys => rowTimes($, keys),
+        rowIds,
+        awaited,
+        shown,
+        pin: () => pin,
+        flat,
+        isCommand,
+        jump,
+        reuse,
+        rewind,
+        latest,
       })
-      zones = { zones: prompts.length ? 'list' : 'empty', prompts: prompts.length, rows: lines.length, listRows }
-      scroll = { from: w.top, above: w.above, below: w.below }
-      body = (
-        <Box flexDirection="column">
-          {prompts.length > 0 && (
-            <Box justifyContent="space-between">
-              <Box>
-                <Button key="rewind" plain onPress={rewind}>
-                  <Text color={HUD.action}>⟲ rewind</Text>
-                </Button>
-                <Text>  </Text>
-                <Button key="latest" plain onPress={latest}>
-                  <Text color={HUD.latest}>⤓ latest</Text>
-                </Button>
-              </Box>
-              {counted && <Text color={HUD.faint}>{counted}</Text>}
-            </Box>
-          )}
-          {/* The rows under the tabs and their rule. */}
-          {prompts.length === 0 &&
-            emptyNote(
-              e.props.scroll.bodyRows - BAR_ROWS - 2,
-              'No prompts yet',
-              <Text color={HUD.faint}>What you've asked Claude.</Text>,
-              <Box>
-                <Text color={HUD.faint}>Click to jump, </Text>
-                <Text color={HUD.idle}>↻</Text>
-                <Text color={HUD.faint}> to reuse.</Text>
-              </Box>,
-            )}
-          {w.above > 0 && listCues.up}
-          {lines.slice(w.top, w.top + w.shown)}
-          {w.below > 0 && listCues.down}
-        </Box>
-      )
+    } else if (current === 'Decisions') {
+      out = {
+        body: emptyNote(
+          e.props.scroll.bodyRows - BAR_ROWS - 2,
+          'Coming in v1.8',
+          <Text color={HUD.faint}>Choices made in this chat</Text>,
+          <Text color={HUD.faint}>and why they were made.</Text>,
+        ),
+        zones: [],
+        trace: {},
+      }
+    } else if (current === 'Tree') {
+      out = {
+        body: emptyNote(
+          e.props.scroll.bodyRows - BAR_ROWS - 2,
+          'Coming in v1.8',
+          <Text color={HUD.faint}>The repo's files as a tree,</Text>,
+          <Text color={HUD.faint}>each one opens in File.</Text>,
+        ),
+        zones: [],
+        trace: {},
+      }
     } else if (current === 'Git') {
+      const drawn: Zone[] = []
       const key = `${await $.session.id()}:${await read($, submitted)}:${await read($, toolCalls)}`
       if (gitRead?.key !== key) gitRead = { key, signal: next.signal, runs: readGit($) }
       let runs = await gitRead.runs
@@ -1812,19 +1662,19 @@ export const register: Register = (on, options) => {
         const commitsEnd = zoneWindow(commitsN, Infinity, commitsRows).top
         const divider = { rows: changesRows, min: changesMin, max: changesMax }
         if (commitsAt > 0)
-          drawnNow.push(
+          drawn.push(
             {
               tab: 'Git', kind: 'list', from: -Infinity, to: commitsAt, offset: 0,
               wheel: by => update($, scrolled, top => ({ ...top, changes: Math.max(0, Math.min(top.changes + by, changesEnd)) })),
             },
             { tab: 'Git', kind: 'divider', from: commitsAt, to: commitsAt + 1, offset: 0, hold: 'git', wheel: by => update($, split, rows => nudge(rows, divider, -by)) },
           )
-        drawnNow.push({
+        drawn.push({
           tab: 'Git', kind: 'list', from: commitsAt || -Infinity, to: Infinity, offset: 0, fallback: true,
           wheel: by => update($, scrolled, top => ({ ...top, commits: Math.max(0, Math.min(top.commits + by, commitsEnd)) })),
         })
       }
-      zones = {
+      const trace = {
         zones: !head ? (status ? 'not a repo' : 'no git answer') : !files.length ? 'commits only' : changesRows ? 'changes+commits' : 'changes hidden: no rows',
         changes: files.length, changesRows, commits: commits.length, commitsRows, total: Number(total) || 0,
       }
@@ -2734,8 +2584,8 @@ export const register: Register = (on, options) => {
       }
       const modalBox = !dimmed ? null : open?.key === 'commit' ? commitModal() : open?.key === 'prs' ? summaryModal() : open?.key === 'branch' ? branchModal() : open?.key === 'pr' ? prModal() : open?.key === 'rebase' ? rebaseModal() : null
       const layerZone = modalZone($, current, layers)
-      if (layerZone) drawnNow.push(layerZone)
-      body = !head ? (
+      if (layerZone) drawn.push(layerZone)
+      const body = !head ? (
         // The rows under the tabs and their rule. No answer at all: git is not on PATH, or the surface
         // runs no command.
         status ? (
@@ -2892,8 +2742,9 @@ export const register: Register = (on, options) => {
         </Box>
       )
       // Behind an open modal everything fades but the row that opened it; under a stacked modal the modal fades too.
-      if (head && dimmed) modalFade = { keep: new Set([layers.s ? 'stack' : 'modal']), open: `${Client ? 'row' : 'hov'}:${openRow}` }
+      out = { body, zones: drawn, trace, ...(head && dimmed && { fade: { keep: new Set([layers.s ? 'stack' : 'modal']), open: `${Client ? 'row' : 'hov'}:${openRow}` } }) }
     } else {
+      const drawn: Zone[] = []
       const shown = await read($, intent)
       const about = await read($, overview)
       const agentRows = hang(shown.steps, await read($, spawns), shown.turn ?? -1)
@@ -3015,7 +2866,7 @@ export const register: Register = (on, options) => {
         const to = from + topicsRows
         const offset = e.props.scroll.offset
         const divider = { rows: topicsRows, min: topicsMin, max: topicsMax }
-        drawnNow.push(
+        drawn.push(
           { tab: 'Overview', kind: 'list', from, to, offset, wheel: by => update($, topicsTop, top => Math.max(0, Math.min(Math.min(top, topicsEnd) + by, topicsEnd))) },
           { tab: 'Overview', kind: 'divider', from: to, to: to + 1, offset, hold: 'topics', wheel: by => update($, topicsSplit, rows => nudge(rows, divider, -by)) },
         )
@@ -3030,7 +2881,7 @@ export const register: Register = (on, options) => {
           return starts
         })
       }
-      zones = {
+      const trace = {
         zones: !hasReport && !hasAbout ? 'empty' : zoned ? 'report+topics zone' : hasReport ? 'report' : 'topics',
         steps: shown.steps.length, topics: about.topics.length, topicsRows, reading: about.running, failed: about.failed,
       }
@@ -3066,7 +2917,7 @@ export const register: Register = (on, options) => {
           </Box>
         </Box>
       )
-      body =
+      const body =
         !hasReport && !hasAbout ? (
           // The rows under the tabs and their rule.
           emptyNote(
@@ -3153,7 +3004,7 @@ export const register: Register = (on, options) => {
                           // Over USED and the footer's 2 rows.
                           const from = e.props.scroll.bodyRows - BAR_ROWS - 2 - usedRows - stepRoom
                           const stepsEnd = zoneWindow(rows.length, Infinity, stepRoom).top
-                          drawnNow.push({
+                          drawn.push({
                             tab: 'Overview', kind: 'list', from, to: from + Math.min(rows.length, stepRoom), offset: e.props.scroll.offset,
                             // From the row drawn: following may have scrolled past the offset stored.
                             wheel: async by => {
@@ -3258,8 +3109,14 @@ export const register: Register = (on, options) => {
             {hasReport && statusRow}
           </Box>
         )
+      out = { body, zones: drawn, trace }
     }
-    if (modalFade) body = fadeTree(body, modalFade.keep, () => setModal($, () => null), modalFade.open)
+    if (!next.signal.aborted) setZones(current, out.zones)
+    const body = out.fade ? fadeTree(out.body, out.fade.keep, () => setModal($, () => null), out.fade.open) : out.body
+    // What the tab drew, or hid and why.
+    const zones = out.trace
+    // Kept in the entry but out of the change key: a wheel tick moves these alone.
+    const scroll = out.scroll ?? {}
 
     // Equal slots, the last taking the odd column.
     const bar = (tabs: Tab[]) => (
@@ -3295,7 +3152,6 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
-    if (!next.signal.aborted) setZones(current, drawnNow)
     const key = `${current}|${e.props.bodyColumns}|${e.props.scroll.bodyRows}|${JSON.stringify(zones)}`
     if (key !== lastPane) {
       lastPane = key
