@@ -2647,3 +2647,23 @@ test("picking Git again reads an untracked file's lines afresh", async ($, on) =
   await ui.press({ key: 'Git' })
   expect(await piece(ui, fileKey('new.ts'), '+9')).toBeDefined()
 })
+
+import type { Register } from 'claude-code'
+// Folio's file link, as it calls `$.margin.show` (plugins/folio/hooks/register.tsx:1283): a test's own `$` carries no
+// plugin noun, so a plugin beside margin calls it.
+const shower = { name: 'shower', register: (on => { on('command.run', { command: 'show-file' }, async $ => (await ($ as any).margin.show({ path: '/repo/a.ts', line: 3 }), {})) }) as Register }
+test('a jump to File closes an open Git modal, so Escape and the Git tab find none', { plugins: [shower] }, async ($, on) => {
+  quiet(on, 5 * MIN, false, { '/repo/a.ts': 'one\ntwo\nthree\n' })
+  const opens: unknown[] = []
+  on('ui.open', (_, e) => (opens.push((e as any).closeOnEscape), { value: { isPlaced: true } }) as any)
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }) as any)
+  on('process.run', (_, e) => ran(git(repoOn('b20'))(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, 'branch')
+  expect(opens.at(-1)).toBe(true)
+  await $.command.run({ command: 'show-file', args: '', origin: { kind: 'composer' } } as any)
+  expect(await ui.find({ type: 'Text', text: 'line 3' })).toBeDefined()
+  expect(opens.at(-1)).toBeUndefined()
+  await ui.press({ key: 'Git' })
+  expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
+})

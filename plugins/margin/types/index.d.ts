@@ -44,7 +44,9 @@ export type Op =
   | { kind: 'rebase'; head: string; onto: string; steps: RebaseStep[]; at: number; edit: boolean; conflicts: Conflict[]; resolved: boolean }
   | { kind: 'merge'; verb?: 'cherry-pick' | 'revert'; head: string; from: string; sha: string; incoming: { subject: string; at: number }[]; conflicts: Conflict[]; resolved: boolean }
 export type Branch = { name: string; base?: string; ahead: number; behind: number; upstream: 'ok' | 'local' | 'gone'; pr?: Pr; worktree: boolean; at: number }
-export type ModalKey = 'branch' | 'pr' | 'prs' | 'rebase' | 'commit'
+export type GitModalKey = 'branch' | 'pr' | 'prs' | 'rebase' | 'commit'
+// Each tab's modal keys; a tab adds its own to the union.
+export type ModalKey = GitModalKey
 // `top`: the first list row shown; `sub`: the stacked modal over it, keyed by its section; `sha`: the commit modal's.
 export type Modal = { key: ModalKey; top: number; sub?: { key: string; top: number }; sha?: string; n?: number; armed?: string }
 
