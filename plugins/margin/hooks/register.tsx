@@ -380,7 +380,7 @@ export const parseTopics = (text: string) =>
   text
     .split('\n')
     .flatMap(line => /^\s*[-•*]\s+(.+)$/.exec(line)?.[1]?.trim() ?? [])
-export const parseSummary = (text: string) => /^\s*>\s+(.+)$/m.exec(text)?.[1]?.trim()
+export const parseSummary = (text: string) => /^[ \t]*>[ \t]+(\S.*)$/m.exec(text)?.[1]?.trim()
 // A newer run's seq drops an older answer; stale marks a read the hidden tab still owes, as on load.
 let overviewSeq = 0
 let overviewStale = true
@@ -3279,7 +3279,7 @@ export const register: Register = (on, options) => {
       // the scroll's end the oldest topic's last line can sit past the zone. Upgrade: count wrapped words.
       const lines = (topic: string) => Math.max(1, Math.ceil(topic.length / Math.max(1, width - 2)))
       // SESSION over TOPICS: its header, the summary cut at 4 rows (15 words ask for 2), a rule.
-      const summaryRows = about.summary ? Math.min(4, wrapRows(about.summary, Math.max(1, width - 2))) : 0
+      const summaryRows = about.summary && hasAbout ? Math.min(4, wrapRows(about.summary, Math.max(1, width - 2))) : 0
       const sessionRows = summaryRows && 2 + summaryRows
       const free = e.props.scroll.bodyRows - BAR_ROWS - 6 - sessionRows
       const draggedTopics = await read($, topicsSplit)

@@ -2874,6 +2874,9 @@ test('TOPICS asks for the user\'s language', async ($, on) => {
 test('parseSummary: the first "> " line, or none', () => {
   expect(parseSummary('> Built the tab, then shipped it.\n- a\n> later')).toBe('Built the tab, then shipped it.')
   expect(parseSummary('- a\n- b')).toBeUndefined()
+  // An empty summary line never takes the next line.
+  expect(parseSummary('> \n- a')).toBeUndefined()
+  expect(parseSummary('>\n- a')).toBeUndefined()
 })
 
 const SUMMED = `> Built the intent tab, then shipped it.\n${TOPICS}`
@@ -2926,7 +2929,12 @@ test('SESSION pushes the TOPICS zone down: the wheel finds TOPICS under it', asy
   await ui.drawn()
   const wheel = (by: number, row: number) =>
     $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
-  // SESSION's header, line and rule on rows 2 to 4, TOPICS' header on 5: its 6 rows are 6 to 11.
+  // SESSION's header, line and rule on rows 2 to 4, TOPICS' header on 5: its 6 rows are 6 to 11, the divider 12.
+  const count = async () => (await ui.findAll({ type: 'Text', text: /^topic \d+$/ })).length
+  const before = await count()
+  await wheel(-2, 12)
+  expect(await count()).toBe(before + 2)
+  await wheel(2, 12)
   expect(await ui.find({ type: 'Text', text: 'topic 11' })).toBeDefined()
   await wheel(3, 10)
   expect(await ui.find({ type: 'Text', text: 'topic 11' })).toBeUndefined()
@@ -3174,7 +3182,7 @@ test('a press on a STEPS cue stops following; the wheel keeps within the steps',
   expect(await shown(1)).toBe(true)
   expect(await ui.find({ type: 'Button', key: 'steps:up' })).toBeUndefined()
   // Over ASK, not STEPS: the engine's own scroll, the steps stay.
-  await wheel(3, 4).catch((err: any) => console.log('DBGERR', String(err?.stack ?? err).slice(0, 800)))
+  await wheel(3, 4)
   expect(await shown(1)).toBe(true)
 })
 
@@ -3263,7 +3271,7 @@ test('the wheel over TOPICS scrolls them under a divider that stays put; ↑ bri
     $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
 
   expect(await ui.find({ type: 'Button', key: 'topics:up' })).toBeUndefined()
-  await wheel(3, 4).catch((err: any) => console.log('DBGERR', String(err?.stack ?? err).slice(0, 800)))
+  await wheel(3, 4)
   expect(await topicShown(ui, 9)).toBe(false)
   expect(await topicShown(ui, 8)).toBe(true)
   expect(await topicShown(ui, 4)).toBe(true)
