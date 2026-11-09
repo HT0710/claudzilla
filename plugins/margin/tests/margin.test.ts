@@ -662,12 +662,12 @@ test('useOf names each kind and skips calls it does not know', () => {
 test('a file read 5 times counts 5 and names it once', () => {
   let u = EMPTY_USED
   for (let i = 0; i < 5; i++) u = recordUse(u, { tool: 'Read', file_path: '/r/a.ts' })
-  expect(u.kinds.files).toEqual({ main: 5, agents: 0, names: ['a.ts'] })
+  expect(u.kinds.files).toEqual({ main: 5, agents: 0, names: ['a.ts'], fromAgents: [] })
 })
 
 test('a subagent call counts as agents, not main', () => {
   const u = recordUse(EMPTY_USED, { tool: 'Read', file_path: '/r/a.ts', agentId: 'a1' })
-  expect(u.kinds.files).toEqual({ main: 0, agents: 1, names: ['a.ts'] })
+  expect(u.kinds.files).toEqual({ main: 0, agents: 1, names: ['a.ts'], fromAgents: ['a.ts'] })
   expect(u.seen).toEqual(['a1'])
 })
 
@@ -704,6 +704,12 @@ test('a task notification or a slash command keeps USED', async ($, on) => {
   expect(last.kinds.files.main).toBe(1)
   await $.prompt.submit({ text: 'meta', wait: false, isMeta: true, origin: { kind: 'composer' } } as any)
   expect(last.kinds.files.main).toBe(1)
+})
+
+test('a name Claude used stays out of fromAgents when an agent uses it after', () => {
+  let u = recordUse(EMPTY_USED, { tool: 'Read', file_path: '/r/a.ts' })
+  u = recordUse(u, { tool: 'Read', file_path: '/r/a.ts', agentId: 'a1' })
+  expect(u.kinds.files!.fromAgents).toEqual([])
 })
 
 test('an agent met before the last prompt no longer counts', () => {
@@ -3128,6 +3134,37 @@ test('agent calls show as a dim +N', async ($, on) => {
   await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts', agentId: 'a1' } as any)
   await ui.drawn()
   expect(await colorOf(ui, /\+1/)).toBe('#4f5c68')
+})
+
+test('a name only agents used is dim; one Claude used too is not', async ($, on) => {
+  on('tool.call', () => ({ result: {} }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts', agentId: 'a1' } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/b.ts', agentId: 'a1' } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/b.ts' } as any)
+  await ui.drawn()
+  expect(await colorOf(ui, /a\.ts/)).toBe('#4f5c68')
+  expect(await colorOf(ui, /b\.ts/)).not.toBe('#4f5c68')
+})
+
+test("Claude's names come before names only agents used", async ($, on) => {
+  on('tool.call', () => ({ result: {} }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/b.ts' } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts', agentId: 'a1' } as any)
+  const text: string[] = []
+  const walk = (n: any) => {
+    if (typeof n === 'string') return text.push(n)
+    if (!n || typeof n !== 'object') return
+    if (Array.isArray(n)) return n.forEach(walk)
+    walk([n.children, n.props?.children])
+  }
+  walk(await ui.drawn())
+  const all = text.join('')
+  expect(all.indexOf('b.ts')).toBeGreaterThan(-1)
+  expect(all.indexOf('b.ts')).toBeLessThan(all.indexOf('a.ts'))
 })
 
 test('a turn with only the intent report draws no USED', async ($, on) => {
