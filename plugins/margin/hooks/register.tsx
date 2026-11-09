@@ -1033,7 +1033,7 @@ const readOp = async ($: EngineInterface, dir: string, names: string[], branch: 
   return verb ? { ...op, verb, from: op.sha } : op
 }
 const pick = async ($: EngineInterface, next: Tab) => {
-  if (next !== 'Git' && (await read($, modal))) await setModal($, () => null)
+  if (next !== (await read($, tab)) && (await read($, modal))) await setModal($, () => null)
   // Picking Git reads the repo afresh: it may have changed outside this chat.
   if (next === 'Git') gitRead = logRead = opRead = prRead = wcRead = branchRead = treeRead = undefined
   await update($, tab, () => next)
@@ -1222,8 +1222,14 @@ export const register: Register = (on, options) => {
     const show = async ({ path, line }: { path: string; line: number }) => {
       const text = await built.fs.read(path).then(String, () => undefined)
       await built.state.set({ plugin: 'margin', key: 'file' } as const, fileView(path, line, text))
+      const placed = (await built.ui.panes()).some(pane => pane.id === PANE && pane.isPlaced)
+      // As setModal: the open pane drops closeOnEscape.
+      if ((await built.state.get({ plugin: 'margin', key: 'modal' } as const)).value) {
+        await built.state.set({ plugin: 'margin', key: 'modal' } as const, null)
+        if (placed) await built.ui.open({ id: PANE, title: 'Margin', columns: 40 }).catch(() => undefined)
+      }
       await built.state.set({ plugin: 'margin', key: 'tab' } as const, 'File')
-      if (!(await built.ui.panes()).some(pane => pane.id === PANE && pane.isPlaced)) {
+      if (!placed) {
         await built.store.set('open', true).catch(() => undefined)
         const opened = await built.ui.open({ id: PANE, title: 'Margin', columns: 40 })
         if (!opened.isPlaced) built.ui.toast('Margin waits: terminal too narrow.')
@@ -1697,6 +1703,7 @@ export const register: Register = (on, options) => {
     // Kept while a Git draw reads: a wheel tick meanwhile still scrolls its zone.
     keepZones(current)
     const drawnNow: Zone[] = []
+    let modalFade: { keep: Set<string>; open?: string } | undefined
     if (current === 'Decisions') {
       body = emptyNote(
         e.props.scroll.bodyRows - BAR_ROWS - 2,
@@ -3031,7 +3038,7 @@ export const register: Register = (on, options) => {
         const { frame } = topLayer
         // Rows count under the tabs and their rule.
         drawnNow.push({
-          tab: 'Git', kind: 'modal', from: frame.top + 2, to: frame.top + 2 + frame.height, offset: 0, columns: [frame.left, frame.left + frame.width],
+          tab: current, kind: 'modal', from: frame.top + 2, to: frame.top + 2 + frame.height, offset: 0, columns: [frame.left, frame.left + frame.width],
           wheel: by => {
             const top = Math.max(0, Math.min(topLayer.top + by, topLayer.end))
             return update($, modal, m => (!m ? m : sub ? (m.sub ? { ...m, sub: { ...m.sub, top } } : m) : { ...m, top }))
@@ -3195,7 +3202,7 @@ export const register: Register = (on, options) => {
         </Box>
       )
       // Behind an open modal everything fades but the row that opened it; under a stacked modal the modal fades too.
-      if (head && dimmed) body = fadeTree(body, new Set([layers.s ? 'stack' : 'modal']), () => setModal($, () => null), `${Client ? 'row' : 'hov'}:${openRow}`)
+      if (head && dimmed) modalFade = { keep: new Set([layers.s ? 'stack' : 'modal']), open: `${Client ? 'row' : 'hov'}:${openRow}` }
     } else {
       const shown = await read($, intent)
       const about = await read($, overview)
@@ -3562,6 +3569,7 @@ export const register: Register = (on, options) => {
           </Box>
         )
     }
+    if (modalFade) body = fadeTree(body, modalFade.keep, () => setModal($, () => null), modalFade.open)
 
     // Equal slots, the last taking the odd column.
     const bar = (tabs: Tab[]) => (
