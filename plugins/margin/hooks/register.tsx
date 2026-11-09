@@ -372,18 +372,20 @@ const SESSION_KEEP =
   'Current session line, shown to the user: keep it word for word unless the newest prompts change what the whole session is about; then write a new one:'
 // Bounds the reply on a long chat; replays merged cleanly at 10 and 20.
 const OVERVIEW_CAP = 30
+// Below the cap, so a merge always shrinks the list: asked for at most 30, Opus sent 30 back unmerged.
+const MERGE_TO = 20
 const OVERVIEW_TOKENS = 2000
 // Exact counts: told only "at the limit", Opus sent 32 topics back unchanged.
 const overviewMerge = (count: number) =>
   [
     'Topics are pieces of work, not one-off questions or tool checks.',
-    `There are ${count} current topics, shown to the user; the reply must have at most ${OVERVIEW_CAP} lines,`,
+    `There are ${count} current topics, shown to the user; the reply must have at most ${MERGE_TO} lines,`,
     'so combine the most closely related topics into fewer lines, keep the newest few lines word for word, in order,',
     'and reword the last to fit the newest prompts or add a new last topic when they start a different piece of work:',
   ].join(' ')
 // A merge replaces the list, so one that drops the newest lines the user saw is refused.
 const keptTopics = (shown: string[], topics: string[]) =>
-  topics.length <= OVERVIEW_CAP && shown.slice(-4, -1).every(topic => topics.includes(topic))
+  topics.length <= MERGE_TO && shown.slice(-4, -1).every(topic => topics.includes(topic))
 export const parseTopics = (text: string) =>
   text
     .split('\n')

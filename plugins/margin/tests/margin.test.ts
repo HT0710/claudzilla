@@ -3032,8 +3032,21 @@ test('TOPICS at the cap: the merge read still sends back the whole list', async 
   await clock.settle()
   await ui.drawn()
   expect(asks[1]!.prompt).toContain('combine the most closely related')
+  // At the cap, "at most 30" already holds: Opus sent all 30 back unmerged (replayed 2026-11-09).
+  expect(asks[1]!.prompt).toContain('at most 20 lines')
   expect(asks[1]!.prompt).not.toContain('all but the last stay as they are')
   expect(await ui.find({ type: 'Text', text: '5 topics' })).toBeDefined()
+})
+
+test('TOPICS at the cap: a merge reply past 20 lines is refused', async ($, on) => {
+  const full = Array.from({ length: 30 }, (_, i) => `- topic ${i}`).join('\n')
+  const { ui, clock } = await overviewPane($, on, () => ({ isAnswered: true, text: full, usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await send($, 'next thing')
+  await clock.settle()
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: "couldn't read: dropped topics" })).toBeDefined()
 })
 
 test('a rule from the text column sets TAKE and STEPS apart', async ($, on) => {
