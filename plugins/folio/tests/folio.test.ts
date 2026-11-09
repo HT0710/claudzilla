@@ -2262,6 +2262,14 @@ for (const command of ['echo x > f.txt', "sed -i 's/a/b/' f.txt"]) {
   })
 }
 
+test('a Bash write to a shell variable folds from the engine diff', async ($, on) => {
+  native(on)
+  bashFs(on, {})
+  const command = "f=f.txt && sed -i 's/a/b/' $f"
+  await bash($, command)
+  expect(await textOf(await useRow($, reloaded(command, [HUNK])), 'b1')).toBe('● Updated (f.txt)  +1 −1')
+})
+
 test('a reloaded Bash edit opens its diff on a press of the file row', async ($, on) => {
   native(on)
   const ui = await useRow($, reloaded('python fix.py', [HUNK]))
