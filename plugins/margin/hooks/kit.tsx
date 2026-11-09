@@ -1,7 +1,7 @@
 import { atom, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderPropsOf, RenderSurface } from 'claude-code'
 
-import type { Modal, Tab } from '../types'
+import type { Intent, Modal, Overview, Tab } from '../types'
 import { scrollWindow } from './modal'
 import type { Frame } from './modal'
 import { DEFAULTS } from './palette'
@@ -200,6 +200,12 @@ export type TabDraw = {
   // Behind an open modal: what keeps its colours, and the row that opened it.
   fade?: { keep: Set<string>; open?: string }
 }
+export type UseKind = 'files' | 'memory' | 'web' | 'docs' | 'skills'
+export const USE_KINDS: UseKind[] = ['files', 'memory', 'web', 'docs', 'skills']
+export type Used = { kinds: Partial<Record<UseKind, { main: number; agents: number; names: string[]; fromAgents: string[] }>>; stale: string[]; seen: string[] }
+export const EMPTY_USED: Used = { kinds: {}, stale: [], seen: [] }
+export const EMPTY_INTENT: Intent = { wants: '', steps: [], at: 0, ended: false }
+export const EMPTY_OVERVIEW: Overview = { topics: [], running: false }
 export type Win = { top: number; shown: number; above: number; below: number }
 // The Git modal's scroll cues, `inner` columns wide. `up`: ── ↑ N more ──, back to the top; the arrow bold in the
 // border colour, the count faint. `down`: ↓ N more turns the page, the first row not shown becoming the top row;
