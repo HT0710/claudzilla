@@ -153,7 +153,7 @@ applyPalette(DEFAULTS)
 
 export type UseKind = 'files' | 'memory' | 'web' | 'docs' | 'skills'
 export const USE_KINDS: UseKind[] = ['files', 'memory', 'web', 'docs', 'skills']
-export type Used = { kinds: Partial<Record<UseKind, { main: number; agents: number; names: string[] }>>; stale: string[]; seen: string[] }
+export type Used = { kinds: Partial<Record<UseKind, { main: number; agents: number; names: string[]; fromAgents: string[] }>>; stale: string[]; seen: string[] }
 export const EMPTY_USED: Used = { kinds: {}, stale: [], seen: [] }
 const USE_NAMES = 5
 const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined)
@@ -204,11 +204,17 @@ export const recordUse = (used: Used, call: { tool: string } & Record<string, un
   const use = useOf(call)
   const id = str(call.agentId)
   if (!use || (id && used.stale.includes(id))) return used
-  const was = used.kinds[use.kind] ?? { main: 0, agents: 0, names: [] }
+  const was = used.kinds[use.kind] ?? { main: 0, agents: 0, names: [], fromAgents: [] }
+  // Stored before fromAgents existed.
+  const fromAgents = was.fromAgents ?? []
+  const names = [use.name, ...was.names.filter(n => n !== use.name)].slice(0, USE_NAMES)
+  // A name stays an agent's until Claude uses it too.
+  const agentOnly = id && (!was.names.includes(use.name) || fromAgents.includes(use.name))
   const kind = {
     main: was.main + (id ? 0 : 1),
     agents: was.agents + (id ? 1 : 0),
-    names: [use.name, ...was.names.filter(n => n !== use.name)].slice(0, USE_NAMES),
+    names,
+    fromAgents: [...(agentOnly ? [use.name] : []), ...fromAgents.filter(n => n !== use.name && names.includes(n))],
   }
   return { ...used, kinds: { ...used.kinds, [use.kind]: kind }, seen: id && !used.seen.includes(id) ? [...used.seen, id] : used.seen }
 }
@@ -3529,12 +3535,15 @@ export const register: Register = (on, options) => {
                   ),
                   usedRows > 0 && partRule('USED'),
                   ...(usedRows > 0 ? usedKinds : []).map((kind, i) => {
-                    const { main, agents, names } = usedNow.kinds[kind]!
+                    const { main, agents, names: recent, fromAgents = [] } = usedNow.kinds[kind]!
+                    // Claude's own names first, agents' after, each newest first.
+                    const names = [...recent.filter(n => !fromAgents.includes(n)), ...recent.filter(n => fromAgents.includes(n))]
                     const extra = agents > 0 ? ` +${agents}` : ''
                     // Counts right-aligned, as the Git tab's churn columns; +N in its own column after them.
                     const mainW = Math.max(...usedKinds.map(k => String(usedNow.kinds[k]!.main).length))
                     const extraW = Math.max(...usedKinds.map(k => (usedNow.kinds[k]!.agents > 0 ? ` +${usedNow.kinds[k]!.agents}`.length : 0)))
                     const room = Math.max(1, width - LABEL - 7 - mainW - extraW - 2)
+                    const line = fit(names.join(', '), room)
                     return (
                       <Box key={`used:${kind}`}>
                         <Box width={LABEL} flexShrink={0}>
@@ -3543,7 +3552,13 @@ export const register: Register = (on, options) => {
                         <Text color={HUD.faint}>{kind.padEnd(7)}</Text>
                         <Text color="claude">{String(main).padStart(mainW)}</Text>
                         <Text color={HUD.faint}>{extra.padEnd(extraW)}</Text>
-                        <Text>{`  ${fit(names.join(', '), room)}`}</Text>
+                        <Text>{'  '}</Text>
+                        {/* Cut as one line, then split back per name: an agent's name dims as its +N does. */}
+                        {names.map((name, n) => {
+                          const at = names.slice(0, n).join(', ').length + (n > 0 ? 2 : 0)
+                          const piece = line.slice(at - (n > 0 ? 2 : 0), at + name.length)
+                          return piece ? <Text key={name} color={fromAgents.includes(name) ? HUD.faint : undefined}>{piece}</Text> : null
+                        })}
                       </Box>
                     )
                   }),
