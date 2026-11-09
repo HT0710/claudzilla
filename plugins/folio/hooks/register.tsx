@@ -782,6 +782,8 @@ export const register: Register = on => {
       ? [] : [{ file, isNew: before[i] === undefined, ...diffCount(before[i], after[i]!) }])
     // An unparsed command that changed nothing is a plain command, not a write.
     if (was && !found.length) return ran
+    // No parsed target exists, as with `sed -i ... $f`: the parse misread it, so the engine's bashEditDiff stays adoptable.
+    if (!was && files.every((_, i) => before[i] === undefined && after[i] === undefined)) return ran
     if (scripts.size > 500) scripts.clear()
     if (was) scripts.add(e.tool_use_id)
     // A write that changed nothing still unfolds its group, so a rerun looks like the first run.
