@@ -3,22 +3,22 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { AgentRow, Check, CheckState, CommitView, Counts, FileView, LogRow, Gh, Intent, Modal, ModalKey, Op, Overview, Pr, PrState, PrView, Spawn, Stage, Step, Tab, Take, Word } from '../types'
 import { LOG_FORMAT, age, branches, cutMiddle, fileKey, incomingPrs, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseStatusZ, parseMerge, parsePrView, parsePrs, parseRebase, printable, sortChecks, stashCount, syncMark, treeRows, worktrees, worst } from './git-data'
-import { WHEEL_HOLD, drawnZones, keepZones, modalOpen, nudge, setZones } from './kit'
-import type { Zone } from './kit'
+import { AHEAD, BAR_ROWS, BEHIND, DIM, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, WHEEL_HOLD, applyPalette, card as kitCard, configDir, cues as kitCues, dim, drawLayer as kitDrawLayer, drawnZones, emptyNote as kitEmptyNote, fade, fadeBg, fadeTree, heading as kitHeading, keepZones, kv as kitKv, line as kitLine, modalOpen, modalZone, nudge, readTheme, row as kitRow, rowHover, setZones, textLength, toPieces, zoneWindow } from './kit'
+import type { Layer, LayerCtx, Piece, RowCtx, Win, Zone } from './kit'
 import { mdRows } from './markdown'
-import { capped, contentFrame, modalFrame, scrollWindow, stackFrame } from './modal'
+import { capped, contentFrame, modalFrame, stackFrame } from './modal'
 import type { Frame } from './modal'
-import { DEFAULTS, readPalette } from './palette'
-import type { Palette } from './palette'
+import { readPalette } from './palette'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
+
+export { zoneWindow } from './kit'
 
 const t = tracer('margin')
 // The pane's last traced draw: a draw repeats on every scroll and click, so only a change is traced.
 let lastPane = ''
 
 const PANE = 'margin'
-const PAD = 2
 // Top bar: the chat's own state; bottom bar: the files it touches.
 const TOP: Tab[] = ['Overview', 'Decisions', 'History']
 const BOTTOM: Tab[] = ['File', 'Tree', 'Git']
@@ -27,8 +27,6 @@ const TABS = [...TOP, ...BOTTOM]
 const KEYS: Partial<Record<Tab, string>> = { Overview: 'o', History: 'h', File: 'l', Git: 'g' }
 // Tabs not built yet: drawn dim, their body says when.
 const SOON: Tab[] = ['Decisions', 'Tree']
-// The bottom bar's rows: its rule and its labels.
-const BAR_ROWS = 2
 const MAX_PROMPTS = 100
 // COMMITS reads this many at a time, the next page once scrolled past: git walks every commit it
 // skips (210 ms at 100k), so a read per wheel tick would lag.
@@ -37,121 +35,6 @@ const PAGE = 100
 const READ_ONLY = new Set(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'])
 // \u00a0: the toast wraps at spaces; ↻ keeps to its word.
 const GONE = "Can't jump: rewound or compacted out of the chat. ↻\u00a0reuses it."
-// HUD colors (claudzilla/claude/hud/hud-filter.pl) the theme has no key for; latest, a lighter
-// dirty yellow, is the panel's own.
-const HUD = {} as Record<'label' | 'faint' | 'idle' | 'action' | 'compacted' | 'dirty' | 'churn' | 'latest', string>
-// Divider lines: their word's HUD color at 60%.
-const DIM = {} as Record<'label' | 'action' | 'compacted', string>
-// A commit type (claude/rules/git.md's, plus perf) by what it does, one color each: feat adds (green),
-// fix repairs (red), refactor reshapes (blue), perf speeds up (orange), docs (yellow), test (cyan),
-// chore (the section labels' purple). Any other type stays gray.
-const TYPES: Record<string, string> = {}
-// A changed file's git status letter, one color each from TYPES' palette: modified (yellow), added
-// (green), deleted or conflicted (red), renamed or copied (blue), untracked (cyan); any other gray.
-const STATUS: Record<string, string> = {}
-// A local commit's scope: a light gray under the subject.
-let SCOPE: string
-// Ahead and behind: a pair of their own, used for nothing else. Cards and modals sit on CARD; a lit row on LIT.
-let AHEAD: string
-let BEHIND: string
-let CARD: string
-let LIT: string
-// A pushed commit's, or a staged file's: its color at 60%, as DIM's are.
-// What sits behind an open modal, and the line next to a shown card: text, rules and borders in one dim colour,
-// darker than HUD.faint, so a faint row never goes darker than a plain one (divider.tsx draws its rule in it too).
-let DIMMED: string
-// A faded background: each colour at half, as an opacity over the black pane; one with no hex to scale, a dark grey.
-let FADED: string
-// A pill's background by its colour's name.
-const PILL_BG = {} as Palette['margin']['pill']
-// Fills the holders above from a palette; DIM and chore follow its final colours.
-function applyPalette(p: Palette): void {
-  const { label, faint, idle, action, dirty, churn } = p.shared
-  Object.assign(HUD, { label, faint, idle, action, dirty, churn, compacted: p.margin.compacted, latest: p.margin.latest })
-  Object.assign(DIM, { label: dim(HUD.label), action: dim(HUD.action), compacted: dim(HUD.compacted) })
-  Object.assign(TYPES, p.margin.types, { chore: p.shared.label })
-  Object.assign(STATUS, p.margin.status)
-  SCOPE = p.shared.muted
-  AHEAD = p.margin.ahead
-  BEHIND = p.margin.behind
-  CARD = p.margin.card
-  LIT = p.shared.lit
-  DIMMED = p.margin.hairline
-  FADED = p.margin.faded
-  Object.assign(PILL_BG, p.margin.pill)
-}
-// The active custom theme's colours by key (claude/themes/<name>.json), read once a session, so a theme key fades by
-// its own hue. A built-in theme, or a key it leaves to its base, has none and fades to FADED.
-// shortcut: a theme switched mid-session fades by the old one until a reload; read again on config.set if it matters.
-let themeColors: Record<string, string> = {}
-let themeRead: Promise<unknown> | undefined
-const readTheme = ($: EngineInterface) =>
-  (themeRead ??= (async () => {
-    const theme = (await $.config.list()).find(row => row.key === 'theme')?.value
-    if (typeof theme !== 'string' || !theme.startsWith('custom:')) return
-    themeColors = JSON.parse(String(await $.fs.read(`${await configDir($)}/themes/${theme.slice(7)}.json`))).overrides ?? {}
-  })().catch(() => undefined))
-const fade = (_color?: unknown) => DIMMED
-// A pill's caps are Texts coloured as its background, so they halve with it.
-const PILL_CAPS = new Set(['\ue0b6', '\ue0b4'])
-const fadeBg = (color: unknown) => {
-  const hex = typeof color === 'string' ? (/^#[0-9a-f]{6}$/i.test(color) ? color : themeColors[color]) : undefined
-  return typeof hex === 'string' && /^#[0-9a-f]{6}$/i.test(hex)
-    ? `#${hex.slice(1).replace(/../g, c => Math.round(parseInt(c, 16) * 0.5).toString(16).padStart(2, '0'))}`
-    : FADED
-}
-// A drawn tree behind a modal, copied node by node: Text and Box colours faded, and Buttons swapped for a Text,
-// so nothing there lights or presses. The node keyed `open` (the row that opened the modal) keeps its colours,
-// on the lit row, and its Button only runs `close`; a node keyed in `keep` stays as drawn.
-const fadeTree = (node: unknown, keep: Set<string>, close: () => unknown, open?: string, inverted = false): any => {
-  // Flat: a tree refuses nested arrays.
-  if (Array.isArray(node)) return node.flatMap(child => fadeTree(child, keep, close, open, inverted))
-  if (!node || typeof node !== 'object' || !('type' in node)) return node
-  const el = node as { type: string; key?: string; props?: Record<string, unknown>; children?: unknown }
-  const key = (el.props?.key ?? el.key) as string | undefined
-  if (key && keep.has(key)) return node
-  const invert = inverted || (!!key && key === open)
-  const kids = (children: unknown) => fadeTree(children, keep, close, open, invert)
-  // A row Client fades its pieces itself, or draws lit as the open row.
-  // The engine holds a module path as it resolved it: "hooks/row.tsx".
-  if (el.type === 'Client' && String(el.props?.module).endsWith('row.tsx')) {
-    const p = el.props!.props as { left: Piece[]; right: Piece[] }
-    return { ...el, props: { ...el.props, props: invert ? { ...p, open: LIT } : { ...p, faded: true, left: fadePieces(p.left), right: fadePieces(p.right) } } }
-  }
-  if (el.type === 'Button') {
-    const text = kids(el.children ?? el.props?.children ?? el.props?.label)
-    // A Text in its place, not its Texts loose: in a space-between row they would spread apart.
-    return h(invert ? 'Button' : 'Text', invert ? { key: `open:${key}`, plain: true, onPress: close } : {}, ...[text].flat())
-  }
-  // The engine colours a Code's tokens, so faded it is plain text.
-  if (el.type === 'Code' && !invert) return h('Text', { color: DIMMED, wrap: 'truncate-end' }, String(el.props?.source ?? ''))
-  const props = { ...el.props }
-  if (invert) {
-    if (el.type === 'Text') props.backgroundColor = LIT
-  } else {
-    if (el.type === 'Text') props.color = PILL_CAPS.has(String(props.children ?? el.children)) ? fadeBg(props.color) : fade(props.color)
-    if (props.backgroundColor !== undefined) props.backgroundColor = fadeBg(props.backgroundColor)
-    if (props.borderColor !== undefined) props.borderColor = fade(props.borderColor)
-  }
-  if (props.children !== undefined) props.children = kids(props.children)
-  // Faded, nothing lights: a modal under a stacked one keeps its file rows dark.
-  return { ...el, props, ...(!invert && { hover: undefined }), ...(el.children !== undefined && { children: kids(el.children) }) }
-}
-type Piece = { text: string; color?: string; backgroundColor?: string; dimColor?: boolean; bold?: boolean; hover?: object; under?: object }
-const fadePieces = (pieces: Piece[]) =>
-  pieces.map(x => ({ ...x, color: PILL_CAPS.has(x.text) ? fadeBg(x.color) : fade(x.color), ...(x.backgroundColor && { backgroundColor: fadeBg(x.backgroundColor) }) }))
-// A row's Texts as a row Client's pieces, each with the styles it inherits.
-const toPieces = (node: unknown, style: Omit<Piece, 'text'> = {}): Piece[] => {
-  if (Array.isArray(node)) return node.flatMap(child => toPieces(child, style))
-  if (typeof node === 'string' || typeof node === 'number') return node === '' ? [] : [{ ...style, text: String(node) }]
-  if (!node || typeof node !== 'object' || !('type' in node)) return []
-  const el = node as { type: string; props?: Record<string, any>; children?: unknown }
-  const { color, backgroundColor, dimColor, bold } = el.type === 'Text' ? (el.props ?? {}) : {}
-  const own = Object.fromEntries(Object.entries({ color, backgroundColor, dimColor, bold }).filter(([, v]) => v !== undefined))
-  return toPieces(el.children ?? el.props?.children, { ...style, ...own })
-}
-const dim = (hex: string) => `#${hex.slice(1).replace(/../g, c => Math.round(parseInt(c, 16) * 0.6).toString(16).padStart(2, '0'))}`
-applyPalette(DEFAULTS)
 
 export type UseKind = 'files' | 'memory' | 'web' | 'docs' | 'skills'
 export const USE_KINDS: UseKind[] = ['files', 'memory', 'web', 'docs', 'skills']
@@ -455,10 +338,6 @@ const readOverview = async ($: EngineInterface) => {
 // `typed`: history's own text, set when a paste placeholder in it was swapped for the paste.
 export type Prompt = { display: string; timestamp: number; typed?: string }
 
-// Claude Code's own folder: CLAUDE_CONFIG_DIR moves it.
-const configDir = async ($: EngineInterface) =>
-  (await $.env.get('CLAUDE_CONFIG_DIR')) || `${await $.env.get('HOME')}/.claude`
-
 const PASTE = /\[Pasted text #(\d+)(?: \+\d+ lines)?\]/g
 // A pasted "/x" is sent as a prompt; only a typed one runs. A path ("/home/…") is a prompt too.
 const isCommand = (prompt: Prompt) => /^\/[\w:-]+(\s|$)/.test(prompt.typed ?? prompt.display)
@@ -760,13 +639,6 @@ const readWc = ($: EngineInterface, root: string, paths: string[]) =>
 // The divider the last notch moved, with its pointer row and time: it moves off the pointer, so notches on that
 // row less than WHEEL_HOLD ms apart keep moving it.
 let wheeling: { zone: 'git' | 'topics'; row: number; at: number } | undefined
-// The open modal's layers as last drawn, in tab-body cells: the wheel scrolls the top layer when over it.
-type Layer = { frame: Frame; top: number; end: number }
-// What a press on each top row's Client does, as the last Git tab draw set it.
-let rowActs: Record<string, () => unknown> = {}
-// The tab rows each top row's card spans, from its top to its end, and each top row's own, as the last Git tab draw set them.
-let cardSpan: Record<string, [number, number]> = {}
-let rowLines: Record<string, number> = {}
 // A row's leave, held LEAVE_HOLD ms: a move onto the next row posts its enter just after, and a draw between the two
 // drops the cards under the left row's card for a frame. An enter in time takes it in; else it lands alone.
 const LEAVE_HOLD = 30
@@ -787,12 +659,6 @@ let opRead: { key: string; signal: AbortSignal; run: Promise<Op | undefined> } |
 let basicGlyphs: Promise<boolean> | undefined
 // The top STEPS last drew, kept once the run ends and no step is in progress; a new prompt clears it.
 let stepsHeld: number | undefined
-// A list zone's window over `n` rows, its cues as a modal's: a zone too short for them still scrolls, bare.
-// Its last offset: the window at `top` Infinity.
-export const zoneWindow = (n: number, top: number, room: number) => {
-  const rows = Math.max(0, room)
-  return rows < 3 ? { top: Math.max(0, Math.min(top, n - rows)), shown: Math.min(rows, n), above: 0, below: 0 } : scrollWindow(n, top, rows, false)
-}
 // Counts UTF-16 units, not cells: a wide glyph (CJK, emoji) can still overflow by one.
 // A commit row's key: hover scopes take at most 64 characters, so a SHA-256 id goes by its first 40.
 const commitKey = (sha: string) => `c:${sha.slice(0, 40)}`
@@ -1466,8 +1332,8 @@ export const register: Register = (on, options) => {
       const data = e.data as { hover?: boolean; press?: boolean } | undefined
       // A row under the left row's card is entered as the pointer lands on that card: its card stays undrawn.
       const under = (left: string | null) => {
-        const span = left ? cardSpan[left] : undefined
-        return !!span && rowLines[row]! >= span[0] && rowLines[row]! < span[1]
+        const span = left ? rowHover.spans[left] : undefined
+        return !!span && rowHover.lines[row]! >= span[0] && rowHover.lines[row]! < span[1]
       }
       if (data?.hover) {
         const held = leaving?.row
@@ -1486,7 +1352,7 @@ export const register: Register = (on, options) => {
       if (data?.press) {
         leaving = undefined
         await update($, rowPointer, () => ({ left: null, at: null }))
-        await rowActs[row]?.()
+        await rowHover.acts[row]?.()
       }
       return {}
     }
@@ -1617,52 +1483,14 @@ export const register: Register = (on, options) => {
     const elements = $.ui.resolve(e)
     const { Box, Button, Code, Link, Text } = elements
     const Client = 'Client' in elements ? elements.Client : undefined
-    // The Git modal's scroll cues, `inner` columns wide. `up`: ── ↑ N more ──, back to the top; the arrow bold in the
-    // border colour, the count faint. `down`: ↓ N more turns the page, the first row not shown becoming the top row;
-    // uncounted, as COMMITS' past the pages read. Unshrunk: a zone's last row wrapping past its edge would squeeze them out.
-    const cues = (key: string, inner: number, w: { top: number; shown: number; above: number; below: number }, setTop: (to: number) => unknown, counted = true) => {
-      const mid = ` ${w.above} more `
-      const fill = Math.max(0, inner - 2 - mid.length)
-      const tail = counted ? ` ${w.below} more` : ' more'
-      return {
-        up: (
-          <Box key={`${key}:up-row`} flexShrink={0}>
-            <Text color="promptBorder">{`${'─'.repeat(Math.floor(fill / 2))} `}</Text>
-            <Button key={`${key}:up`} plain onPress={() => setTop(0)}>
-              <Text bold color="promptBorder">↑</Text>
-            </Button>
-            <Text color={HUD.faint}>{mid}</Text>
-            <Text color="promptBorder">{'─'.repeat(Math.ceil(fill / 2))}</Text>
-          </Box>
-        ),
-        down: (
-          // Centred by a pad, not justifyContent: beside the STEPS label a centred Button was not drawn.
-          <Box key={`${key}:down-row`} flexShrink={0}>
-            <Text>{' '.repeat(Math.max(0, Math.floor((inner - 1 - tail.length) / 2)))}</Text>
-            <Button key={`${key}:down`} plain onPress={() => setTop(w.top + w.shown)}>
-              <Text bold color="promptBorder">↓</Text>
-            </Button>
-            <Text color={HUD.faint}>{tail}</Text>
-          </Box>
-        ),
-      }
-    }
+    const cues = (key: string, inner: number, w: Win, setTop: (to: number) => unknown, counted = true) => kitCues(elements, key, inner, w, setTop, counted)
     // A tab saved before it was hidden falls back to the first shown.
     const saved = await read($, tab)
     const current = TABS.includes(saved) ? saved : TABS[0]!
     const flagged = await read($, notices)
     // Divider gets half the side margin on each side.
     const rule = '─'.repeat(e.props.bodyColumns - PAD)
-    // A tab with nothing to list: a framed note, centered in `rows`.
-    const emptyNote = (rows: number, title: string, ...lines: JSX.Element[]) => (
-      <Box height={Math.max(0, rows)} justifyContent="center" alignItems="center">
-        <Box flexDirection="column" alignItems="center" borderStyle="round" borderColor="promptBorder" paddingX={2} paddingY={1}>
-          <Text bold color={HUD.label}>{title}</Text>
-          <Text> </Text>
-          {lines}
-        </Box>
-      </Box>
-    )
+    const emptyNote = (rows: number, title: string, ...lines: JSX.Element[]) => kitEmptyNote(elements, rows, title, ...lines)
 
     // Tries the transcript's id first, then the drawn row's, until one scrolls. The pin's settle
     // starts again once the scroll lands, as the search before it can be slow.
@@ -2057,7 +1885,7 @@ export const register: Register = (on, options) => {
         await update($, file, () => fileView(`${root}/${path}`, 1, text))
         await pick($, 'File')
       }
-      rowActs = dimmed
+      rowHover.acts = dimmed
         ? { [openRow!]: () => setModal($, () => null) }
         : {
             branch: () => openModal('branch'), fetch: () => !isFetching && fetchNow(), rebase: () => openModal('rebase'), pr: () => openModal('pr'), prs: () => openModal('prs'),
@@ -2071,21 +1899,7 @@ export const register: Register = (on, options) => {
       const act = (key: string) => key === 'fetch' && !dimmed
       const piecesOf = (key: string, node: any[]) =>
         act(key) ? toPieces(node).map(x => ({ ...x, hover: { scope: `card:${key}`, inverse: true } })) : dimOn(key, toPieces(node))
-      const topRow = (key: string, left: any[], right: any[], cardEl: null, width?: number) =>
-        Client ? (
-          <Box flexDirection="column" height={1} hover={dimmed ? undefined : { scope: `card:${key}`, ...(!act(key) && key in rowActs && { backgroundColor: LIT }) }} {...(width !== undefined && { width, flexShrink: 0 })}>
-            <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left: piecesOf(key, left), right: piecesOf(key, right), ...(!dimmed && { line: `line:${lineOf(key)}` }) }} />
-            {cardEl}
-          </Box>
-        ) : (
-          <Box key={`hov:${key}`} hover={hoverOf(`card:${key}`)} justifyContent="space-between" height={1} overflow="hidden" {...(width !== undefined && { flexShrink: 0 })}>
-            <Button key={`git:${key}`} plain onPress={() => rowActs[key]?.()}>
-              {left}
-            </Button>
-            <Box flexShrink={0}>{right}</Box>
-            {cardEl}
-          </Box>
-        )
+      const topRow = (key: string, left: any[], right: any[], cardEl: null, width?: number) => kitRow(rc, key, left, right, cardEl, { pieces: piecesOf, line: lineOf(key), act: act(key), width })
       // A row's hover card, drawn last so it paints over the rows under it, and shown while its row's scope is
       // hovered. `row`: the row it hangs under, counted from the tab's top.
       const cards: JSX.Element[] = []
@@ -2136,87 +1950,12 @@ export const register: Register = (on, options) => {
       // Shown on hover, one row below its row: a step down lands on the next row, not on the card. A card under the
       // pointer keeps its group lit, so with row Clients the card of the row last left is not drawn: a jump past the
       // next row onto the card is the row's leave.
-      rowLines = Object.fromEntries([...topLines.flatMap((line, i) => line.map(key => [key, i])), ...lower.map(l => [l.key, l.at])])
-      const spans = cardSpan
-      cardSpan = {}
+      rowHover.lines = Object.fromEntries([...topLines.flatMap((line, i) => line.map(key => [key, i])), ...lower.map(l => [l.key, l.at])])
+      const spans = rowHover.spans
+      rowHover.spans = {}
       const gone = pointer.left && spans[pointer.left]
-      // `anchor`: where its item sits on the row: left, right, or the whole row, centred under it.
-      const card = (scope: string, row: number, anchor: 'left' | 'right' | 'center', ...rows: JSX.Element[]) => {
-        const key = scope.slice(5)
-        // As wide as its widest row, border and padding included, up to the 75% cap.
-        // A file card may pass the cap to show its pills whole.
-        const width = Math.min(key.startsWith('f:') ? e.props.bodyColumns - 4 : cardWidth, cardContent(rows) + 4)
-        const place = anchor === 'left' ? { left: 0 } : anchor === 'right' ? { right: 0 } : { left: Math.floor((e.props.bodyColumns - width) / 2) - PAD }
-        // Its border and rows, from row + 2.
-        const top = upOf(row, rows.length) ? row - rows.length - 3 : row + 2
-        const span = (cardSpan[key] = [top, top + 2 + rows.length])
-        const over = !!gone && span[0] < gone[1] && gone[0] < span[1]
-        if (!dimmed && (!Client || key === pointer.at || (key !== pointer.left && !over)))
-          cards.push(
-            <Box position="absolute" top={top} {...place} width={width} display="none" hover={{ scope, display: 'flex' }} flexDirection="column" borderStyle="round" borderColor="promptBorder" backgroundColor={CARD} paddingX={1}>
-              {kvAligned(rows)}
-            </Box>,
-          )
-        return null
-      }
-      const hoverOf = (scope: string) => (dimmed ? undefined : { scope })
-      // A card row: a faint label, its info, and a count or mark at the far right. Labels take the card's longest
-      // and 2 more; under a title row they sit one column in. One row: the info is kept and the far-right text is cut.
-      const kv = (label: string, info: JSX.Element | string, right?: JSX.Element): JSX.Element => {
-        const row = kvRow(label, info, right)
-        kvArgs.set(row, [label, info, right])
-        return row
-      }
-      // A card's kv rows share one info column, so every far-right text starts past the same column. A row with a
-      // far-right text keeps its info whole; a row with none (refs) widens the column only as far as the 75% cap
-      // leaves room beside the far-right texts, and is cut with … at its end, so a long branch name cuts no count.
-      const kvArgs = new WeakMap<object, [string, JSX.Element | string, JSX.Element | undefined]>()
-      const infoLength = (info: JSX.Element | string) => (typeof info === 'string' ? info : toPieces(info).map(x => x.text).join('')).length
-      const textLength = (node: unknown) => toPieces(node).map(x => x.text).join('').length
-      const insetOf = (rows: JSX.Element[]) => (rows.some(r => !kvArgs.get(r)) ? 1 : 0)
-      const labelOf = (rows: JSX.Element[]) => 2 + Math.max(0, ...rows.map(r => kvArgs.get(r)?.[0].length ?? 0))
-      const sharedInfo = (rows: JSX.Element[]) => {
-        const args = rows.map(r => kvArgs.get(r)).filter(Boolean) as [string, JSX.Element | string, JSX.Element | undefined][]
-        const withRight = args.filter(a => a[2])
-        const kept = Math.max(0, ...withRight.map(a => infoLength(a[1])))
-        const right = withRight.length ? 2 + Math.max(...withRight.map(a => textLength(a[2]))) : 0
-        return Math.max(kept, Math.min(Math.max(0, ...args.map(a => infoLength(a[1]))), cardWidth - 4 - labelOf(rows) - insetOf(rows) - right))
-      }
-      // The widest row: a kv row at the card's shared info width, any other by its text, 2 more when split by
-      // space-between.
-      const cardContent = (rows: JSX.Element[]) => {
-        const info = sharedInfo(rows)
-        const label = labelOf(rows) + insetOf(rows)
-        return Math.max(0, ...rows.map(r => {
-          const args = kvArgs.get(r)
-          if (args) return label + info + (args[2] ? 2 + textLength(args[2]) : 0)
-          return textLength(r) + ((r as any)?.props?.justifyContent === 'space-between' ? 2 : 0)
-        }))
-      }
-      const kvAligned = (rows: JSX.Element[]) => {
-        const width = sharedInfo(rows)
-        const inset = insetOf(rows)
-        const label = labelOf(rows)
-        const room = cardWidth - 4 - label - inset
-        return rows.map(r => {
-          const args = kvArgs.get(r)
-          if (!args) return r
-          // A row short of room for a far-right text that would fit leaves the shared column, down to its own value.
-          const left = args[2] ? room - 2 - textLength(args[2]) : width
-          return kvRow(...args, left >= infoLength(args[1]) ? Math.min(width, left) : width, inset, label)
-        })
-      }
-      const kvRow = (label: string, info: JSX.Element | string, right?: JSX.Element, infoWidth?: number, inset = 1, labelWidth = label.length + 2) => (
-        <Box justifyContent="space-between" gap={2} height={1} overflow="hidden">
-          <Box flexShrink={0} {...(infoWidth !== undefined && { width: labelWidth + inset + infoWidth })}>
-            <Text wrap="truncate-end">
-              <Text color={HUD.faint}>{`${inset ? ' ' : ''}${label.padEnd(labelWidth)}`}</Text>
-              {typeof info === 'string' ? <Text>{info}</Text> : info}
-            </Text>
-          </Box>
-          <Text wrap="truncate-end">{right ?? ' '}</Text>
-        </Box>
-      )
+      const card = (scope: string, at: number, anchor: 'left' | 'right' | 'center', ...rows: JSX.Element[]) => kitCard(rc, scope, at, anchor, ...rows)
+      const kv = (label: string, info: JSX.Element | string, right?: JSX.Element) => kitKv(rc, label, info, right)
       // Against the upstream: ✓ in sync, ↑ unpushed, ↓ unpulled, both when diverged; local never pushed, gone deleted.
       const syncOf = (b: { upstream: string; ahead: number; behind: number }) =>
         b.upstream !== 'ok' ? <Text color={HUD.faint}>{b.upstream}</Text>
@@ -2256,41 +1995,9 @@ export const register: Register = (on, options) => {
       const underLast = lastChange && lastChange.at + 1 === topRows + 2 + changesRows
       const lastChangeLine = lastChange && underLast && !upOf(lastChange.at, lastChange.n) ? `line:${topLines.length + lower.indexOf(lastChange)}` : undefined
       const layers: { m?: Layer; s?: Layer } = {}
-      // One modal layer: actions and ✕, a divider, pinned rows, the list's window with its cues.
-      // A layer with no pinned rows merges its top cue into the divider. `centre`: the row to open on, when top < 0.
-      const drawLayer = (layer: 'm' | 's', f: Frame, at: { top: number; left: number }, acts: JSX.Element[], pin: JSX.Element[], rows: JSX.Element[], top: number, centre = 0) => {
-        const inner = f.width - 4
-        const room = f.height - 4 - pin.length
-        const merged = !pin.length
-        const start = top >= 0 ? top : Math.max(0, centre - Math.floor(scrollWindow(rows.length, 0, room, merged).shown / 2))
-        const w = scrollWindow(rows.length, start, room, merged)
-        layers[layer] = { frame: f, top: w.top, end: scrollWindow(rows.length, Infinity, room, merged).top }
-        const setTop = (to: number) =>
-          update($, modal, m => (!m ? m : layer === 's' ? (m.sub ? { ...m, sub: { ...m.sub, top: to } } : m) : { ...m, top: to }))
-        const { up, down } = cues(layer, inner, w, setTop)
-        const close = () => setModal($, m => (layer === 's' && m ? { ...m, sub: undefined } : null))
-        // Every row one row tall, as the window counts them: a row too wide is cut, never wrapped.
-        const one = (row: JSX.Element) => (
-          <Box flexDirection="column" height={1} overflow="hidden" flexShrink={0}>
-            {row}
-          </Box>
-        )
-        return (
-          <Box key={layer === 'm' ? 'modal' : 'stack'} position="absolute" top={at.top} left={at.left} width={f.width} height={f.height} flexDirection="column" borderStyle="round" borderColor="promptBorder" backgroundColor={CARD} paddingX={1}>
-            <Box justifyContent="space-between">
-              <Box gap={2}>{acts}</Box>
-              <Button key={`${layer}:x`} plain onPress={close}>
-                <Text>✕</Text>
-              </Button>
-            </Box>
-            {merged && w.above ? up : <Text color="promptBorder">{'─'.repeat(inner)}</Text>}
-            {pin.map(one)}
-            {!merged && w.above ? up : null}
-            {rows.slice(w.top, w.top + w.shown).map(one)}
-            {w.below ? down : null}
-          </Box>
-        )
-      }
+      const lc: LayerCtx = { el: elements, layers, setModal: change => setModal($, change) }
+      const drawLayer = (layer: 'm' | 's', f: Frame, at: { top: number; left: number }, acts: JSX.Element[], pin: JSX.Element[], rows: JSX.Element[], top: number, centre?: number) =>
+        kitDrawLayer($, lc, layer, f, at, acts, pin, rows, top, centre)
       // A commit subject as COMMITS colours it: the type in its colour, the scope grey, the rest plain.
       const subjectTexts = (text: string, room = Infinity, bold = false) => {
         const shown = fit(text.replace(/[\x00-\x1f\x7f]/g, ' '), room)
@@ -2373,7 +2080,7 @@ export const register: Register = (on, options) => {
         const { left, right } = changeParts([mark], path, { add, del }, width - 3, undefined, cols)
         if (deleted) return line(left, right)
         const key = `${layer}f:${fileKey(path)}`
-        rowActs[key] = () => openFile(path)
+        rowHover.acts[key] = () => openFile(path)
         return (
           // Keyed, its own hover scope: unkeyed, it would light whenever the pointer is anywhere in the modal.
           // A column, as a CHANGES row's: the Client stretches across, so its counts end at the far right.
@@ -2399,6 +2106,7 @@ export const register: Register = (on, options) => {
       const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
       // A hover card's widest: 75% of the body.
       const cardWidth = Math.floor(e.props.bodyColumns * 0.75)
+      const rc: RowCtx = { el: elements, dimmed, pointer, gone: gone || undefined, cards, columns: e.props.bodyColumns, cardWidth, up: upOf }
       const opRows = op ? 1 : 0
       const prRow = (() => {
         if (!pr) return null
@@ -2676,15 +2384,8 @@ export const register: Register = (on, options) => {
         return drawLayer('m', f, { top: f.top, left: f.left - PAD }, acts, [], rows, open!.top, here)
       }
       const inner = modalRows(0).width - 4
-      // A row too wide for its layer (a stacked modal is narrower than the rows it reuses) is cut at the left side's
-      // end, as one string, 2 columns before the right side: every row breaks at the same column.
-      const line = (left: JSX.Element | JSX.Element[], right?: JSX.Element) => (
-        <Box justifyContent="space-between" gap={2}>
-          <Text wrap="truncate-end">{left}</Text>
-          {right ? <Box flexShrink={0}>{right}</Box> : null}
-        </Box>
-      )
-      const heading = (label: string, right?: JSX.Element) => line(<Text bold color={HUD.label}>{label}</Text>, right)
+      const line = (left: JSX.Element | JSX.Element[], right?: JSX.Element) => kitLine(elements, left, right)
+      const heading = (label: string, right?: JSX.Element) => kitHeading(elements, label, right)
       const rule = <Text color="promptBorder">{'─'.repeat(inner)}</Text>
       const showAll = (label: string) => (
         <Box>
@@ -3032,19 +2733,8 @@ export const register: Register = (on, options) => {
         return [drawLayer('m', f, { top: f.top, left: f.left - PAD }, acts, [], rows, open!.top), stacked ?? null]
       }
       const modalBox = !dimmed ? null : open?.key === 'commit' ? commitModal() : open?.key === 'prs' ? summaryModal() : open?.key === 'branch' ? branchModal() : open?.key === 'pr' ? prModal() : open?.key === 'rebase' ? rebaseModal() : null
-      const topLayer = layers.s ?? layers.m
-      if (topLayer) {
-        const sub = !!layers.s
-        const { frame } = topLayer
-        // Rows count under the tabs and their rule.
-        drawnNow.push({
-          tab: current, kind: 'modal', from: frame.top + 2, to: frame.top + 2 + frame.height, offset: 0, columns: [frame.left, frame.left + frame.width],
-          wheel: by => {
-            const top = Math.max(0, Math.min(topLayer.top + by, topLayer.end))
-            return update($, modal, m => (!m ? m : sub ? (m.sub ? { ...m, sub: { ...m.sub, top } } : m) : { ...m, top }))
-          },
-        })
-      }
+      const layerZone = modalZone($, current, layers)
+      if (layerZone) drawnNow.push(layerZone)
       body = !head ? (
         // The rows under the tabs and their rule. No answer at all: git is not on PATH, or the surface
         // runs no command.
