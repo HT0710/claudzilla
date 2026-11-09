@@ -2951,6 +2951,89 @@ test('TOPICS keeps its wording: later reads see the current topics', async ($, o
   // No cap: the ask never limits how many topics.
   expect(asks[1]!.prompt).not.toMatch(/1-4|with 4 already/)
   expect(asks[1]!.prompt).toContain('- Intent tab for the panel\n- shipping the branch')
+  expect(asks[1]!.prompt).toContain('all but the last stay as they are')
+})
+
+// Later reads: Opus sends back only the last topic, or it and a new one; the code keeps the rest.
+test('TOPICS: a one-line reply rewords the last topic and keeps the rest', async ($, on) => {
+  const { ui, clock } = await overviewPane($, on, n => ({ isAnswered: true, text: n === 1 ? TOPICS : '- shipping and merging', usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await send($, 'next thing')
+  await clock.settle()
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'Intent tab for the panel' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'shipping and merging' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'shipping the branch' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: '2 topics' })).toBeDefined()
+})
+
+test('TOPICS: a two-line reply keeps the last topic and adds a new one', async ($, on) => {
+  const { ui, clock } = await overviewPane($, on, n => ({ isAnswered: true, text: n === 1 ? TOPICS : '- shipping the branch\n- TOPICS latest only', usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await send($, 'next thing')
+  await clock.settle()
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '3 topics' })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: 'TOPICS latest only' }))?.props.color).toBe('claude')
+})
+
+test('TOPICS: a reply echoing kept topics adds no copies', async ($, on) => {
+  const { ui, clock } = await overviewPane($, on)
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await send($, 'next thing')
+  await clock.settle()
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '2 topics' })).toBeDefined()
+})
+
+test('TOPICS: an echoed list with an earlier topic reworded is refused, not added as copies', async ($, on) => {
+  const three = '- Intent tab for the panel\n- model choice\n- shipping the branch'
+  const { ui, clock } = await overviewPane($, on, n => ({ isAnswered: true, text: n === 1 ? three : '- Intent tab for the panel.\n- model choice\n- shipping the branch', usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await send($, 'next thing')
+  await clock.settle()
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: "couldn't read: dropped topics" })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Intent tab for the panel.' })).toBeUndefined()
+})
+
+test('TOPICS: a reply naming its new topic twice adds it once', async ($, on) => {
+  const { ui, clock } = await overviewPane($, on, n => ({ isAnswered: true, text: n === 1 ? TOPICS : '- review fixes\n- review fixes', usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await send($, 'next thing')
+  await clock.settle()
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '2 topics' })).toBeDefined()
+})
+
+test('TOPICS: a later reply with more than two topics is refused and the list stays', async ($, on) => {
+  const { ui, clock } = await overviewPane($, on, n => ({ isAnswered: true, text: n === 1 ? TOPICS : '- a\n- b\n- c', usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await send($, 'next thing')
+  await clock.settle()
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: "couldn't read: dropped topics" })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'shipping the branch' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^a$/ })).toBeUndefined()
+})
+
+test('TOPICS at the cap: the merge read still sends back the whole list', async ($, on) => {
+  const full = Array.from({ length: 30 }, (_, i) => `- topic ${i}`).join('\n')
+  const { ui, clock, asks } = await overviewPane($, on, n => ({ isAnswered: true, text: n === 1 ? full : '- merged early work\n- topic 26\n- topic 27\n- topic 28\n- topic 29', usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await send($, 'next thing')
+  await clock.settle()
+  await ui.drawn()
+  expect(asks[1]!.prompt).toContain('combine the most closely related')
+  expect(asks[1]!.prompt).not.toContain('all but the last stay as they are')
+  expect(await ui.find({ type: 'Text', text: '5 topics' })).toBeDefined()
 })
 
 test('a rule from the text column sets TAKE and STEPS apart', async ($, on) => {

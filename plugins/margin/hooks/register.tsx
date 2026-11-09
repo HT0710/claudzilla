@@ -342,20 +342,30 @@ const INTENT_SPEC = {
     },
   },
 } as const
+const PROMPTS_ARE = 'These are the prompts a user sent in one coding-assistant chat, oldest first.'
+const SESSION_LINE =
+  'Reply with one line starting "> ": what the whole session is about, high level, in one short sentence of at most 15 words, with no file names, branches, PR numbers or step details,'
+const IN_LANGUAGE = 'Write them in the language the user writes in.'
 const OVERVIEW_ASK = [
-  'These are the prompts a user sent in one coding-assistant chat, oldest first.',
+  PROMPTS_ARE,
   'Group them into topics: the pieces of work the chat covered, oldest first, the newest work last.',
-  'Reply with one line starting "> ": what the whole session is about, high level, in one short sentence of at most 15 words,',
-  'with no file names, branches, PR numbers or step details,',
+  SESSION_LINE,
   'then only the topics, one per line, each starting "- ", at most 8 words.',
-  'Write them in the language the user writes in.',
+  IN_LANGUAGE,
 ].join(' ')
 // Regrouped from scratch, every read reworded every line; kept whole, broad topics swallowed new work
-// and went stale. Earlier lines stay, the last one follows the newest prompts (replayed over past chats).
+// and went stale. Sent back whole, Opus could still drop or reword them, so it now answers only the last
+// one and the code keeps the rest: about 70% less output, 0 of 18 bad replies (replayed over past chats).
+const LATEST_ASK = [
+  PROMPTS_ARE,
+  SESSION_LINE,
+  'Reply with only the session line, then the last topic: reworded to fit the newest prompts, or kept word for word',
+  'and followed by a new last topic when they start a different piece of work, so one or two lines each starting "- ", at most 8 words.',
+  IN_LANGUAGE,
+].join(' ')
 const OVERVIEW_KEEP = [
   'Topics are pieces of work, not one-off questions or tool checks.',
-  'Current topics, shown to the user: keep every line but the last word for word, in order.',
-  'The last is the current work: reword it to fit the newest prompts, or keep it and add a new last topic when they start a different piece of work:',
+  'Current topics, shown to the user, oldest first; all but the last stay as they are:',
 ].join(' ')
 // Written fresh, the summary was reworded every read; sent back, it held until the work changed (replayed over past chats).
 const SESSION_KEEP =
@@ -371,11 +381,9 @@ const overviewMerge = (count: number) =>
     'so combine the most closely related topics into fewer lines, keep the newest few lines word for word, in order,',
     'and reword the last to fit the newest prompts or add a new last topic when they start a different piece of work:',
   ].join(' ')
-// A reply replaces the list, so one that drops what the user saw is refused.
-const keptTopics = (shown: string[], topics: string[], merging: boolean) =>
-  merging
-    ? topics.length <= OVERVIEW_CAP && shown.slice(-4, -1).every(topic => topics.includes(topic))
-    : shown.slice(0, -1).every((topic, i) => topics[i] === topic)
+// A merge replaces the list, so one that drops the newest lines the user saw is refused.
+const keptTopics = (shown: string[], topics: string[]) =>
+  topics.length <= OVERVIEW_CAP && shown.slice(-4, -1).every(topic => topics.includes(topic))
 export const parseTopics = (text: string) =>
   text
     .split('\n')
@@ -399,23 +407,30 @@ const readOverview = async ($: EngineInterface) => {
   try {
     const { topics: shown, summary: was } = await read($, overview)
     const merging = shown.length >= OVERVIEW_CAP
+    // The first read and a merge get the whole list back; any other read only the last topic or two.
+    const latest = shown.length > 0 && !merging
     const keep = (was ? `\n${SESSION_KEEP}\n> ${was}` : '') + (shown.length ? `\n${merging ? overviewMerge(shown.length) : OVERVIEW_KEEP}\n${shown.map(topic => `- ${topic}`).join('\n')}` : '')
-    const prompt = `${OVERVIEW_ASK}${keep}\n\nPrompts:\n${prompts.map(one => `- ${flat(one.display).slice(0, 300)}`).join('\n')}`
+    const prompt = `${latest ? LATEST_ASK : OVERVIEW_ASK}${keep}\n\nPrompts:\n${prompts.map(one => `- ${flat(one.display).slice(0, 300)}`).join('\n')}`
     const reply = await $.model.complete({ model: 'opus', prompt, effort: 'low', maxTokens: OVERVIEW_TOKENS, timeoutMs: 20_000 })
     if (seq !== overviewSeq) {
       t.event('overview.read', { dropped: 'newer read started' }, 'debug')
       return
     }
-    const topics = reply.isAnswered ? parseTopics(reply.text) : []
+    const got = reply.isAnswered ? parseTopics(reply.text) : []
+    const kept = latest ? shown.slice(0, -1) : []
+    // An echo of the kept topics is dropped only when exact: one reworded on the way back would add a near-copy.
+    const echoed = kept.length > 0 && kept.every((topic, i) => got[i] === topic)
+    const fresh = [...new Set(echoed ? got.slice(kept.length) : got)]
+    const topics = [...kept, ...fresh]
     const summary = reply.isAnswered ? parseSummary(reply.text) : undefined
     // A cut reply loses its last lines, the current topic among them.
     const failed = !reply.isAnswered
       ? reply.reason
-      : !topics.length
+      : !fresh.length
         ? 'unreadable'
         : reply.usage.output_tokens >= OVERVIEW_TOKENS
           ? 'cut short'
-          : keptTopics(shown, topics, merging)
+          : (latest ? fresh.length <= 2 : !merging || keptTopics(shown, topics))
             ? undefined
             : 'dropped topics'
     t.event('overview.read', { prompts: prompts.length, topics: topics.length, failed })
