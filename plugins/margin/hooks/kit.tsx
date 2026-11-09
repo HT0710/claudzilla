@@ -1,5 +1,5 @@
 import { atom, update } from 'claude-code'
-import type { Elements, EngineInterface, RenderSurface } from 'claude-code'
+import type { Elements, EngineInterface, RenderPropsOf, RenderSurface } from 'claude-code'
 
 import type { Modal, Tab } from '../types'
 import { scrollWindow } from './modal'
@@ -173,6 +173,33 @@ export async function configDir($: EngineInterface): Promise<string> {
 }
 
 export type Els = Elements[RenderSurface]
+// `typed`: history's own text, set when a paste placeholder in it was swapped for the paste.
+export type Prompt = { display: string; timestamp: number; typed?: string }
+// Counts UTF-16 units, not cells: a wide glyph (CJK, emoji) can still overflow by one.
+export const fit = (text: string, room: number) => (text.length > room ? `${text.slice(0, room - 1)}…` : text)
+export const clock = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+export const dayName = (day: Date) => `${DAYS[day.getDay()]} ${day.getDate()} ${MONTHS[day.getMonth()]}`
+// What a tab's draw gets from the Pane draw: values, elements and closures that take no `$` (loader rules).
+export type TabCtx = {
+  props: RenderPropsOf['Pane']
+  signal: AbortSignal
+  el: Els
+  pick: (tab: Tab) => Promise<void>
+  setModal: (change: (m: Modal | null) => Modal | null) => Promise<void>
+}
+export type TabDraw = {
+  body: JSX.Element
+  // Set as the tab's zones when the draw finishes unaborted.
+  zones: Zone[]
+  // Spread into the pane.draw trace entry.
+  trace: Record<string, unknown>
+  // In the trace entry but out of its change key: a wheel tick moves these alone.
+  scroll?: Record<string, unknown>
+  // Behind an open modal: what keeps its colours, and the row that opened it.
+  fade?: { keep: Set<string>; open?: string }
+}
 export type Win = { top: number; shown: number; above: number; below: number }
 // The Git modal's scroll cues, `inner` columns wide. `up`: ── ↑ N more ──, back to the top; the arrow bold in the
 // border colour, the count faint. `down`: ↓ N more turns the page, the first row not shown becoming the top row;
