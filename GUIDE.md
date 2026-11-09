@@ -341,6 +341,7 @@ To open or close the margin, type `/margin`, or press a tab's key (see the key t
 
 **Overview** shows a status row: whether Claude is `● working`, `✓ done` or `■ stopped`, or, when its turn ended with background agents still running, `◌ waiting on N agents`. It sits at the bottom of the tab, over the lower tab bar. The tab holds:
 
+- **SESSION:** the whole chat in one sentence, written by the same Opus read as TOPICS, up to 4 rows.
 - **TOPICS:** what this chat is about. After each prompt, while the tab shows, Opus groups your prompts, and only your prompts, into topics.
 - **ASK:** how Claude read your request.
 - **TAKE:** Claude's reaction to your ask before it starts: `✓` fine, `!` concern, `✗` against, `?` unsure, a short label, and a reason when it has one. On a question, the reason names what Claude will check or doubt, never the answer.
@@ -699,7 +700,7 @@ Headline features of recent versions. Restart Claude after an update to use them
 #### v1.5.0
 
 - The margin opens at the start of each session as you left it, open the first time. Its tabs sit in two bars: Overview, Decisions and History at the top; File, Tree and Git at the bottom.
-- Overview writes TOPICS, ASK, TAKE and STEPS in the language you write in.
+- Overview writes SESSION, TOPICS, ASK, TAKE and STEPS in the language you write in.
 - Agents Claude starts show as rows under the step that started them, and Overview shows `◌ waiting on N agents` while they run. Click one to open its transcript; click it again or press Esc to go back.
 - A file path in Claude's reply is a link: click it to see those lines in the margin's new File tab, ctrl+click to open the file.
 - In the Git tab, a pushed commit or branch links to its GitHub, GitLab, Codeberg or SourceHut page: alt+click opens it.
