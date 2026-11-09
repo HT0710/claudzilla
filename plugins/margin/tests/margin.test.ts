@@ -4,7 +4,7 @@ import type { AgentStatus, Register } from 'claude-code'
 import type { Spawn, Step } from '../types'
 import { fileKey } from '../hooks/git-data'
 
-import { EMPTY_USED, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseTopics, pinHolds, readStamps, recordUse, resetUsed, stampPattern, useOf, zoneWindow } from '../hooks/register'
+import { EMPTY_USED, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, resetUsed, stampPattern, useOf, zoneWindow } from '../hooks/register'
 
 // A process.run result with `stdout`.
 const ran = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -2871,6 +2871,67 @@ test('TOPICS asks for the user\'s language', async ($, on) => {
   expect(asks[0]!.prompt).toContain('language the user writes in')
 })
 
+test('parseSummary: the first "> " line, or none', () => {
+  expect(parseSummary('> Built the tab, then shipped it.\n- a\n> later')).toBe('Built the tab, then shipped it.')
+  expect(parseSummary('- a\n- b')).toBeUndefined()
+})
+
+const SUMMED = `> Built the intent tab, then shipped it.\n${TOPICS}`
+
+test('SESSION: the summary from the TOPICS read draws in its own section above TOPICS', async ($, on) => {
+  const { ui, clock, asks } = await overviewPane($, on, () => ({ isAnswered: true, text: SUMMED, usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await ui.drawn()
+  expect(asks).toHaveLength(1)
+  expect(asks[0]!.prompt).toContain('"> "')
+  expect((await ui.findAll({ type: 'Text', text: /^(SESSION|TOPICS)$/ })).map(found => found.props.text ?? found.text)).toEqual(['SESSION', 'TOPICS'])
+  expect((await ui.find({ type: 'Text', text: 'Built the intent tab, then shipped it.' }))?.props.color).toBe('#808286')
+  expect(await ui.find({ type: 'Box', key: 'sessionRule' })).toBeDefined()
+  // The summary line is no topic.
+  expect(await ui.find({ type: 'Text', text: '2 topics' })).toBeDefined()
+})
+
+test('SESSION keeps its wording: later reads send the current summary back', async ($, on) => {
+  const { ui, clock, asks } = await overviewPane($, on, () => ({ isAnswered: true, text: SUMMED, usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  expect(asks[0]!.prompt).not.toContain('Current session line')
+  await send($, 'next thing')
+  await clock.settle()
+  expect(asks[1]!.prompt).toContain('Current session line')
+  expect(asks[1]!.prompt).toContain('> Built the intent tab, then shipped it.')
+})
+
+test('a read with no summary line keeps the last summary; no summary yet, no SESSION', async ($, on) => {
+  const { ui, clock } = await overviewPane($, on, n => ({ isAnswered: true, text: n === 1 ? TOPICS : n === 2 ? SUMMED : TOPICS, usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'SESSION' })).toBeUndefined()
+  await send($, 'next thing')
+  await clock.settle()
+  await send($, 'another thing')
+  await clock.settle()
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'Built the intent tab, then shipped it.' })).toBeDefined()
+})
+
+test('SESSION pushes the TOPICS zone down: the wheel finds TOPICS under it', async ($, on) => {
+  const text = `> One line on the session.\n${Array.from({ length: 12 }, (_, i) => `- topic ${i}`).join('\n')}`
+  const { ui, clock } = await overviewPane($, on, () => ({ isAnswered: true, text, usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await ui.drawn()
+  const wheel = (by: number, row: number) =>
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
+  // SESSION's header, line and rule on rows 2 to 4, TOPICS' header on 5: its 6 rows are 6 to 11.
+  expect(await ui.find({ type: 'Text', text: 'topic 11' })).toBeDefined()
+  await wheel(3, 10)
+  expect(await ui.find({ type: 'Text', text: 'topic 11' })).toBeUndefined()
+})
+
 test('TOPICS keeps its wording: later reads see the current topics', async ($, on) => {
   const { ui, clock, asks } = await overviewPane($, on)
   await ui.press({ key: 'Overview' })
@@ -3113,7 +3174,7 @@ test('a press on a STEPS cue stops following; the wheel keeps within the steps',
   expect(await shown(1)).toBe(true)
   expect(await ui.find({ type: 'Button', key: 'steps:up' })).toBeUndefined()
   // Over ASK, not STEPS: the engine's own scroll, the steps stay.
-  await wheel(3, 4)
+  await wheel(3, 4).catch((err: any) => console.log('DBGERR', String(err?.stack ?? err).slice(0, 800)))
   expect(await shown(1)).toBe(true)
 })
 
@@ -3202,7 +3263,7 @@ test('the wheel over TOPICS scrolls them under a divider that stays put; ↑ bri
     $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
 
   expect(await ui.find({ type: 'Button', key: 'topics:up' })).toBeUndefined()
-  await wheel(3, 4)
+  await wheel(3, 4).catch((err: any) => console.log('DBGERR', String(err?.stack ?? err).slice(0, 800)))
   expect(await topicShown(ui, 9)).toBe(false)
   expect(await topicShown(ui, 8)).toBe(true)
   expect(await topicShown(ui, 4)).toBe(true)

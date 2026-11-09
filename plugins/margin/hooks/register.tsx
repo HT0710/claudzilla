@@ -345,7 +345,9 @@ const INTENT_SPEC = {
 const OVERVIEW_ASK = [
   'These are the prompts a user sent in one coding-assistant chat, oldest first.',
   'Group them into topics: the pieces of work the chat covered, oldest first, the newest work last.',
-  'Reply with only the topics, one per line, each starting "- ", at most 8 words.',
+  'Reply with one line starting "> ": what the whole session is about, high level, in one short sentence of at most 15 words,',
+  'with no file names, branches, PR numbers or step details,',
+  'then only the topics, one per line, each starting "- ", at most 8 words.',
   'Write them in the language the user writes in.',
 ].join(' ')
 // Regrouped from scratch, every read reworded every line; kept whole, broad topics swallowed new work
@@ -355,6 +357,9 @@ const OVERVIEW_KEEP = [
   'Current topics, shown to the user: keep every line but the last word for word, in order.',
   'The last is the current work: reword it to fit the newest prompts, or keep it and add a new last topic when they start a different piece of work:',
 ].join(' ')
+// Written fresh, the summary was reworded every read; sent back, it held until the work changed (replayed over past chats).
+const SESSION_KEEP =
+  'Current session line, shown to the user: keep it word for word unless the newest prompts change what the whole session is about; then write a new one:'
 // Bounds the reply on a long chat; replays merged cleanly at 10 and 20.
 const OVERVIEW_CAP = 30
 const OVERVIEW_TOKENS = 2000
@@ -375,6 +380,7 @@ export const parseTopics = (text: string) =>
   text
     .split('\n')
     .flatMap(line => /^\s*[-•*]\s+(.+)$/.exec(line)?.[1]?.trim() ?? [])
+export const parseSummary = (text: string) => /^\s*>\s+(.+)$/m.exec(text)?.[1]?.trim()
 // A newer run's seq drops an older answer; stale marks a read the hidden tab still owes, as on load.
 let overviewSeq = 0
 let overviewStale = true
@@ -391,9 +397,9 @@ const readOverview = async ($: EngineInterface) => {
   if (!prompts.length) return
   await update($, overview, now => ({ ...now, running: true }))
   try {
-    const { topics: shown } = await read($, overview)
+    const { topics: shown, summary: was } = await read($, overview)
     const merging = shown.length >= OVERVIEW_CAP
-    const keep = shown.length ? `\n${merging ? overviewMerge(shown.length) : OVERVIEW_KEEP}\n${shown.map(topic => `- ${topic}`).join('\n')}` : ''
+    const keep = (was ? `\n${SESSION_KEEP}\n> ${was}` : '') + (shown.length ? `\n${merging ? overviewMerge(shown.length) : OVERVIEW_KEEP}\n${shown.map(topic => `- ${topic}`).join('\n')}` : '')
     const prompt = `${OVERVIEW_ASK}${keep}\n\nPrompts:\n${prompts.map(one => `- ${flat(one.display).slice(0, 300)}`).join('\n')}`
     const reply = await $.model.complete({ model: 'opus', prompt, effort: 'low', maxTokens: OVERVIEW_TOKENS, timeoutMs: 20_000 })
     if (seq !== overviewSeq) {
@@ -401,6 +407,7 @@ const readOverview = async ($: EngineInterface) => {
       return
     }
     const topics = reply.isAnswered ? parseTopics(reply.text) : []
+    const summary = reply.isAnswered ? parseSummary(reply.text) : undefined
     // A cut reply loses its last lines, the current topic among them.
     const failed = !reply.isAnswered
       ? reply.reason
@@ -412,7 +419,7 @@ const readOverview = async ($: EngineInterface) => {
             ? undefined
             : 'dropped topics'
     t.event('overview.read', { prompts: prompts.length, topics: topics.length, failed })
-    await update($, overview, now => (failed ? { ...now, running: false, failed } : { topics, running: false }))
+    await update($, overview, now => (failed ? { ...now, running: false, failed } : { topics, summary: summary ?? now.summary, running: false }))
   } catch (err) {
     t.error('overview.read', err)
     // complete rejects on a request the engine refuses to send (a blocked model).
@@ -3271,7 +3278,10 @@ export const register: Register = (on, options) => {
       // shortcut: counts cells as if the text filled each row; a word wrap or a wide glyph takes more, so at
       // the scroll's end the oldest topic's last line can sit past the zone. Upgrade: count wrapped words.
       const lines = (topic: string) => Math.max(1, Math.ceil(topic.length / Math.max(1, width - 2)))
-      const free = e.props.scroll.bodyRows - BAR_ROWS - 6
+      // SESSION over TOPICS: its header, the summary cut at 4 rows (15 words ask for 2), a rule.
+      const summaryRows = about.summary ? Math.min(4, wrapRows(about.summary, Math.max(1, width - 2))) : 0
+      const sessionRows = summaryRows && 2 + summaryRows
+      const free = e.props.scroll.bodyRows - BAR_ROWS - 6 - sessionRows
       const draggedTopics = await read($, topicsSplit)
       const needed = topics.reduce((sum, one) => sum + lines(one.topic), 0)
       const topicsMax = Math.max(0, free - reportRows)
@@ -3301,7 +3311,7 @@ export const register: Register = (on, options) => {
       topicsW.below = hasDown ? rest - topicsW.shown : 0
       const topicsCues = cues('topics', width, topicsW, to => update($, topicsTop, () => to))
       if (!next.signal.aborted) topicsZone = zoned
-          ? { from: 3, to: 3 + topicsRows, end: topicsEnd, offset: e.props.scroll.offset, divider: { rows: topicsRows, min: topicsMin, max: topicsMax } }
+          ? { from: 3 + sessionRows, to: 3 + sessionRows + topicsRows, end: topicsEnd, offset: e.props.scroll.offset, divider: { rows: topicsRows, min: topicsMin, max: topicsMax } }
           : undefined
       // In a zone, the topics that start in it, the last one cut by its edge.
       let shownTopics = topics.slice(topicsFrom)
@@ -3320,7 +3330,7 @@ export const register: Register = (on, options) => {
       // The body never scrolls (its bars stay pinned): STEPS gets the rows left under TAKE, its cues included.
       // TOPICS' header, zone and divider, ASK, TAKE and their rules, the footer.
       const roomLeft =
-        e.props.scroll.bodyRows - 2 - BAR_ROWS - (hasReport ? 2 : 0) - (zoned ? 2 + topicsRows : 0) - reportRows - 1
+        e.props.scroll.bodyRows - 2 - BAR_ROWS - (hasReport ? 2 : 0) - (zoned ? 2 + topicsRows : 0) - sessionRows - reportRows - 1
       // USED under STEPS: its rule and a row per kind, only while STEPS keep 3 rows.
       const usedNow = await read($, used)
       const usedKinds = USE_KINDS.filter(kind => usedNow.kinds[kind])
@@ -3365,6 +3375,15 @@ export const register: Register = (on, options) => {
               {/* Unshrinkable: past the footer it is cut at the bottom, not squeezed row by row. */}
               <Box key="report" flexDirection="column" flexShrink={0}>
                 {hasAbout && [
+                  ...(summaryRows
+                    ? [
+                        <Text key="sessionLabel" bold color={HUD.label}>SESSION</Text>,
+                        <Box key="summary" paddingLeft={2} height={summaryRows} overflow="hidden" flexShrink={0}>
+                          <Text wrap="wrap" color={SCOPE}>{about.summary}</Text>
+                        </Box>,
+                        <Box key="sessionRule"><Text color="promptBorder">{'─'.repeat(width)}</Text></Box>,
+                      ]
+                    : []),
                   <Box key="session" justifyContent="space-between">
                     <Text bold color={HUD.label}>TOPICS</Text>
                     {/* Cut to one row beside its title: the zone under it starts on a fixed row. */}

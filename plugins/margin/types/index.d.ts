@@ -7,7 +7,7 @@ export type Spawn = { id: string; description: string; step: string; turn: numbe
 export type AgentRow = { id?: string; description: string; status: AgentStatus | 'planned' }
 export type Take = { stance: 'fine' | 'concern' | 'against' | 'unsure'; label: string; why?: string }
 export type Intent = { wants: string; take?: Take; steps: Step[]; at: number; ended: boolean; waiting?: boolean; agents?: number; turn?: number }
-export type Overview = { topics: string[]; running: boolean; failed?: string }
+export type Overview = { topics: string[]; summary?: string; running: boolean; failed?: string }
 export type PanelShow = { path: string; line: number }
 export type Panel = { show: (at: PanelShow) => Promise<void> }
 // `text`: the lines around `line`, from line number `first`; empty when the file cannot be shown.
