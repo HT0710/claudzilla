@@ -151,6 +151,71 @@ const toPieces = (node: unknown, style: Omit<Piece, 'text'> = {}): Piece[] => {
 const dim = (hex: string) => `#${hex.slice(1).replace(/../g, c => Math.round(parseInt(c, 16) * 0.6).toString(16).padStart(2, '0'))}`
 applyPalette(DEFAULTS)
 
+export type UseKind = 'files' | 'memory' | 'web' | 'docs' | 'skills'
+export const USE_KINDS: UseKind[] = ['files', 'memory', 'web', 'docs', 'skills']
+export type Used = { kinds: Partial<Record<UseKind, { main: number; agents: number; names: string[] }>>; stale: string[]; seen: string[] }
+export const EMPTY_USED: Used = { kinds: {}, stale: [], seen: [] }
+const USE_NAMES = 5
+const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined)
+
+// The kind and name a tool call counts under; none for any other call.
+export const useOf = (call: { tool: string } & Record<string, unknown>): { kind: UseKind; name: string } | undefined => {
+  const { tool } = call
+  const base = (p: string) => p.slice(p.lastIndexOf('/') + 1)
+  if (tool === 'Read') {
+    const path = str(call.file_path)
+    if (!path) return undefined
+    return /\/\.claude\/projects\/[^/]+\/memory\//.test(path) ? { kind: 'memory', name: base(path).replace(/\.md$/, '') } : { kind: 'files', name: base(path) }
+  }
+  if (tool === 'Grep' || tool === 'Glob') {
+    const name = str(call.pattern)
+    return name && { kind: 'files', name }
+  }
+  if (tool === 'WebSearch') {
+    const name = str(call.query)
+    return name && { kind: 'web', name }
+  }
+  if (tool === 'WebFetch') {
+    const url = str(call.url)
+    if (!url) return undefined
+    try {
+      return { kind: 'web', name: new URL(url).host }
+    } catch {
+      return undefined
+    }
+  }
+  if (tool === 'Skill') {
+    const name = str(call.skill)
+    return name && { kind: 'skills', name }
+  }
+  if (tool.startsWith('mcp__context7__')) {
+    const name = str(call.libraryName) ?? str(call.query)
+    return name && { kind: 'docs', name }
+  }
+  if (tool.startsWith('mcp__codegraph__')) {
+    const name = str(call.query)
+    return name && { kind: 'docs', name }
+  }
+  return undefined
+}
+
+// shortcut: an agent spawned before the prompt that first calls after it still counts; read spawn times from `spawns` to fix.
+export const recordUse = (used: Used, call: { tool: string } & Record<string, unknown>): Used => {
+  const use = useOf(call)
+  const id = str(call.agentId)
+  if (!use || (id && used.stale.includes(id))) return used
+  const was = used.kinds[use.kind] ?? { main: 0, agents: 0, names: [] }
+  const kind = {
+    main: was.main + (id ? 0 : 1),
+    agents: was.agents + (id ? 1 : 0),
+    names: [use.name, ...was.names.filter(n => n !== use.name)].slice(0, USE_NAMES),
+  }
+  return { ...used, kinds: { ...used.kinds, [use.kind]: kind }, seen: id && !used.seen.includes(id) ? [...used.seen, id] : used.seen }
+}
+
+// A new prompt: agents met so far become stale, counts restart.
+export const resetUsed = (used: Used): Used => ({ kinds: {}, stale: [...used.stale, ...used.seen], seen: [] })
+
 const tab = atom({ plugin: 'margin', key: 'tab' } as const, 'Overview' as Tab)
 // Content hooks flag tabs here.
 const notices = atom({ plugin: 'margin', key: 'notices' } as const, [] as Tab[])
@@ -177,6 +242,8 @@ const topicsTop = atom({ plugin: 'margin', key: 'topicsTop' } as const, 0)
 const stepsTop = atom({ plugin: 'margin', key: 'stepsTop' } as const, 0)
 const stepsFollow = atom({ plugin: 'margin', key: 'stepsFollow' } as const, true)
 
+// What this turn's tool calls read or fetched, by kind.
+const used = atom({ plugin: 'margin', key: 'used' } as const, EMPTY_USED)
 const EMPTY_INTENT: Intent = { wants: '', steps: [], at: 0, ended: false }
 // Claude's last intent report.
 const intent = atom({ plugin: 'margin', key: 'intent' } as const, EMPTY_INTENT)
@@ -1240,7 +1307,10 @@ export const register: Register = (on, options) => {
       await update($, intent, now => (now.wants ? { ...now, ended: false, agents: undefined } : { ...now, agents: undefined }))
     } else if (!e.command && !e.isMeta) {
       // One typed over a running turn joins it.
-      if (!e.turnId) await update($, turns, n => n + 1)
+      if (!e.turnId) {
+        await update($, turns, n => n + 1)
+        await update($, used, resetUsed)
+      }
       $.clock.after(0, () => readOverview($))
       // Last turn's answered report is not this turn's: shown as it was, it read as current. Dimmed, planning… until Claude
       // reports; with intent off no report comes, so it just goes.
@@ -1485,6 +1555,14 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     const result = await next(e)
     if (!READ_ONLY.has(e.tool)) await update($, toolCalls, n => n + 1)
+
+    return result
+  })
+
+  // Recorded after the call runs: a call that fails or is refused used nothing.
+  on('tool.call', { tool: /^(Read|Grep|Glob|WebSearch|WebFetch|Skill|mcp__context7__.+|mcp__codegraph__.+)$/ }, async ($, e, next) => {
+    const result = await next(e)
+    await update($, used, u => recordUse(u, e as never))
 
     return result
   })
@@ -3241,8 +3319,13 @@ export const register: Register = (on, options) => {
       }
       // The body never scrolls (its bars stay pinned): STEPS gets the rows left under TAKE, its cues included.
       // TOPICS' header, zone and divider, ASK, TAKE and their rules, the footer.
-      const stepRoom =
+      const roomLeft =
         e.props.scroll.bodyRows - 2 - BAR_ROWS - (hasReport ? 2 : 0) - (zoned ? 2 + topicsRows : 0) - reportRows - 1
+      // USED under STEPS: its rule and a row per kind, only while STEPS keep 3 rows.
+      const usedNow = await read($, used)
+      const usedKinds = USE_KINDS.filter(kind => usedNow.kinds[kind])
+      const usedRows = shown.wants && usedKinds.length && roomLeft - (1 + usedKinds.length) >= 3 ? 1 + usedKinds.length : 0
+      const stepRoom = roomLeft - usedRows
       const following = await read($, stepsFollow)
       const storedSteps = await read($, stepsTop)
       if (!next.signal.aborted) stepsZone = undefined
@@ -3342,8 +3425,8 @@ export const register: Register = (on, options) => {
                             w = down
                           }
                           if (!next.signal.aborted) stepsHeld = w.top
-                          // Over the footer's 2 rows.
-                          const from = e.props.scroll.bodyRows - BAR_ROWS - 2 - stepRoom
+                          // Over USED and the footer's 2 rows.
+                          const from = e.props.scroll.bodyRows - BAR_ROWS - 2 - usedRows - stepRoom
                           if (!next.signal.aborted)
                             stepsZone = { from, to: from + Math.min(rows.length, stepRoom), top: w.top, end: zoneWindow(rows.length, Infinity, stepRoom).top, offset: e.props.scroll.offset }
                           const stepCues = cues('steps', width - LABEL, w, setSteps)
@@ -3408,6 +3491,26 @@ export const register: Register = (on, options) => {
                       </Box>
                     </Box>
                   ),
+                  usedRows > 0 && partRule('USED'),
+                  ...(usedRows > 0 ? usedKinds : []).map((kind, i) => {
+                    const { main, agents, names } = usedNow.kinds[kind]!
+                    const extra = agents > 0 ? ` +${agents}` : ''
+                    // Counts right-aligned, as the Git tab's churn columns; +N in its own column after them.
+                    const mainW = Math.max(...usedKinds.map(k => String(usedNow.kinds[k]!.main).length))
+                    const extraW = Math.max(...usedKinds.map(k => (usedNow.kinds[k]!.agents > 0 ? ` +${usedNow.kinds[k]!.agents}`.length : 0)))
+                    const room = Math.max(1, width - LABEL - 7 - mainW - extraW - 2)
+                    return (
+                      <Box key={`used:${kind}`}>
+                        <Box width={LABEL} flexShrink={0}>
+                          <Text bold color={HUD.label}>{i === 0 ? 'USED' : ''}</Text>
+                        </Box>
+                        <Text color={HUD.faint}>{kind.padEnd(7)}</Text>
+                        <Text color="claude">{String(main).padStart(mainW)}</Text>
+                        <Text color={HUD.faint}>{extra.padEnd(extraW)}</Text>
+                        <Text>{`  ${fit(names.join(', '), room)}`}</Text>
+                      </Box>
+                    )
+                  }),
                 ]}
               </Box>
             </Box>

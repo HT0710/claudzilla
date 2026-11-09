@@ -4,7 +4,7 @@ import type { AgentStatus, Register } from 'claude-code'
 import type { Spawn, Step } from '../types'
 import { fileKey } from '../hooks/git-data'
 
-import { dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseTopics, pinHolds, readStamps, stampPattern, zoneWindow } from '../hooks/register'
+import { EMPTY_USED, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseTopics, pinHolds, readStamps, recordUse, resetUsed, stampPattern, useOf, zoneWindow } from '../hooks/register'
 
 // A process.run result with `stdout`.
 const ran = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -645,6 +645,72 @@ test('a read-only tool call leaves git unread', async ($, on) => {
   await ui.drawn()
 
   expect(runs).toBe(before)
+})
+
+test('useOf names each kind and skips calls it does not know', () => {
+  expect(useOf({ tool: 'Read', file_path: '/r/a/register.tsx' })).toEqual({ kind: 'files', name: 'register.tsx' })
+  expect(useOf({ tool: 'Read', file_path: '/h/.claude/projects/-x/memory/use-branch.md' })).toEqual({ kind: 'memory', name: 'use-branch' })
+  expect(useOf({ tool: 'Read', file_path: '/r/src/memory/notes.md' })).toEqual({ kind: 'files', name: 'notes.md' })
+  expect(useOf({ tool: 'Read', file_path: '/r/src/memory/x.ts' })).toEqual({ kind: 'files', name: 'x.ts' })
+  expect(useOf({ tool: 'WebFetch', url: 'https://code.claude.com/docs/x' })).toEqual({ kind: 'web', name: 'code.claude.com' })
+  expect(useOf({ tool: 'Skill', skill: 'superpowers:brainstorming' })).toEqual({ kind: 'skills', name: 'superpowers:brainstorming' })
+  expect(useOf({ tool: 'Read' })).toBeUndefined()
+  expect(useOf({ tool: 'Bash', command: 'cat x' })).toBeUndefined()
+  expect(useOf({ tool: 'mcp__margin__intent', wants: 'x' })).toBeUndefined()
+})
+
+test('a file read 5 times counts 5 and names it once', () => {
+  let u = EMPTY_USED
+  for (let i = 0; i < 5; i++) u = recordUse(u, { tool: 'Read', file_path: '/r/a.ts' })
+  expect(u.kinds.files).toEqual({ main: 5, agents: 0, names: ['a.ts'] })
+})
+
+test('a subagent call counts as agents, not main', () => {
+  const u = recordUse(EMPTY_USED, { tool: 'Read', file_path: '/r/a.ts', agentId: 'a1' })
+  expect(u.kinds.files).toEqual({ main: 0, agents: 1, names: ['a.ts'] })
+  expect(u.seen).toEqual(['a1'])
+})
+
+test('a mid-turn prompt keeps USED; a new prompt clears it', async ($, on) => {
+  noHistory(on)
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  on('tool.call', () => ({ result: 'ok' }) as any)
+  let last: any
+  on('state.set', (_, e, next) => {
+    if (e.key === 'used') last = e.value
+    return next(e)
+  })
+  await $.tool.call({ tool: 'Read', file_path: '/r/a.ts' } as any)
+  expect(last.kinds.files.main).toBe(1)
+  await $.prompt.submit({ text: 'also', wait: false, turnId: 't1', origin: { kind: 'composer' } } as any)
+  expect(last.kinds.files.main).toBe(1)
+  await $.prompt.submit({ text: 'new', wait: false, origin: { kind: 'composer' } } as any)
+  expect(last.kinds).toEqual({})
+})
+
+test('a task notification or a slash command keeps USED', async ($, on) => {
+  noHistory(on)
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  on('tool.call', () => ({ result: 'ok' }) as any)
+  let last: any
+  on('state.set', (_, e, next) => {
+    if (e.key === 'used') last = e.value
+    return next(e)
+  })
+  await $.tool.call({ tool: 'Read', file_path: '/r/a.ts' } as any)
+  await $.prompt.submit({ text: '<task-notification>', wait: false, origin: { kind: 'task-notification' } } as any)
+  expect(last.kinds.files.main).toBe(1)
+  await $.prompt.submit({ text: '/compact', wait: false, origin: { kind: 'composer' }, command: { name: 'compact', args: '' } } as any)
+  expect(last.kinds.files.main).toBe(1)
+  await $.prompt.submit({ text: 'meta', wait: false, isMeta: true, origin: { kind: 'composer' } } as any)
+  expect(last.kinds.files.main).toBe(1)
+})
+
+test('an agent met before the last prompt no longer counts', () => {
+  let u = recordUse(EMPTY_USED, { tool: 'Read', file_path: '/r/a.ts', agentId: 'a1' })
+  u = resetUsed(u)
+  u = recordUse(u, { tool: 'Read', file_path: '/r/a.ts', agentId: 'a1' })
+  expect(u.kinds.files).toBeUndefined()
 })
 
 test('a commit subject draws its control characters as spaces', async ($, on) => {
@@ -2877,6 +2943,64 @@ test('steps past the body end in the ↓ N more cue; steps that fit get none', a
   expect(await ui.find({ type: 'Button', key: 'steps:down' })).toBeUndefined()
 })
 
+test('USED lists each kind used this turn under STEPS', async ($, on) => {
+  on('tool.call', () => ({ result: {} }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/hooks/register.tsx' } as any)
+  await $.tool.call({ tool: 'Skill', skill: 'caveman:cavecrew' } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: /^USED/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /register\.tsx/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /caveman:cavecrew/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^web/ })).toBeUndefined()
+})
+
+test('agent calls show as a dim +N', async ($, on) => {
+  on('tool.call', () => ({ result: {} }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts', agentId: 'a1' } as any)
+  await ui.drawn()
+  expect(await colorOf(ui, /\+1/)).toBe('#4f5c68')
+})
+
+test('a turn with only the intent report draws no USED', async ($, on) => {
+  on('tool.call', () => ({ result: {} }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: /^USED/ })).toBeUndefined()
+})
+
+test('a long URL is cut, not wrapped, in a 40-column pane', async ($, on) => {
+  on('tool.call', () => ({ result: {} }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await ui.drawn()
+  const before = (await ui.find({ key: 'report' }))?.children?.length
+  await $.tool.call({ tool: 'WebSearch', query: 'https://example.com/' + 'a'.repeat(80) } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: /…$/ })).toBeDefined()
+  expect((await ui.find({ key: 'report' }))?.children?.length).toBe((before ?? 0) + 2)
+})
+
+test('USED hides when STEPS would keep fewer than 3 rows', async ($, on) => {
+  on('tool.call', () => ({ result: {} }) as any)
+  noHistory(on)
+  on('session.end', (_, e) => ({ sessionId: e.sessionId }) as any)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll: { offset: 0, bodyRows: 11 + BAR_ROWS } }, requestId: 'margin' })
+  const steps = Array.from({ length: 30 }, (_, i) => ({ text: `step ${i + 1}`, status: 'pending' }))
+  await $.tool.call({ tool: INTENT, ...REPORT, steps } as any)
+  await ui.drawn()
+  const rows = async () => (await ui.find({ type: 'Button', key: 'steps:down' }))?.props
+  const before = await rows()
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts' } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: /^USED/ })).toBeUndefined()
+  expect(await rows()).toEqual(before)
+})
+
 // 14 body rows: STEPS gets 6, from row 6, under the tabs, their rule, ASK, TAKE's rule, TAKE and STEPS' rule,
 // over the footer's rule and status row.
 const stepsPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], doing: number) => {
@@ -2893,6 +3017,20 @@ const stepsPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]
   const shown = async (n: number) => (await ui.find({ type: 'Text', text: `step ${n}` })) !== undefined
   return { ui, wheel, shown }
 }
+
+test('USED takes rows from STEPS: the wheel hits the shorter zone, not the USED rows', async ($, on) => {
+  on('tool.call', () => ({ result: {} }) as any)
+  const { ui, wheel, shown } = await stepsPane($, on, 9)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts' } as any)
+  await ui.drawn()
+  // 6 rows less USED's 2: ↑, steps 7 to 9, ↓.
+  expect(await shown(9)).toBe(true)
+  expect(await shown(6)).toBe(false)
+  await wheel(-2, 10)
+  expect(await shown(9)).toBe(true)
+  await wheel(-2, 6)
+  expect(await shown(9)).toBe(false)
+})
 
 test('STEPS follow the step in progress; the wheel over them stops that until the next prompt', async ($, on) => {
   const { ui, wheel, shown } = await stepsPane($, on, 9)
