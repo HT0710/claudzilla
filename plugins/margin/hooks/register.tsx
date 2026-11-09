@@ -3,6 +3,8 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { AgentRow, Check, CheckState, CommitView, Counts, FileView, LogRow, Gh, Intent, Modal, ModalKey, Op, Overview, Pr, PrState, PrView, Spawn, Stage, Step, Tab, Take, Word } from '../types'
 import { LOG_FORMAT, age, branches, cutMiddle, fileKey, incomingPrs, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseStatusZ, parseMerge, parsePrView, parsePrs, parseRebase, printable, sortChecks, stashCount, syncMark, treeRows, worktrees, worst } from './git-data'
+import { WHEEL_HOLD, drawnZones, keepZones, modalOpen, nudge, setZones } from './kit'
+import type { Zone } from './kit'
 import { mdRows } from './markdown'
 import { capped, contentFrame, modalFrame, scrollWindow, stackFrame } from './modal'
 import type { Frame } from './modal'
@@ -755,21 +757,11 @@ const readWc = ($: EngineInterface, root: string, paths: string[]) =>
       return out
     })
     .catch(() => new Map<string, Counts>())
-// The Git tab as last drawn: rows above `commitsAt` scroll CHANGES, the rest COMMITS, each up to its
-// last offset. Unset while another tab shows: the engine scrolls that one. `divider`: CHANGES' rows as drawn and
-// the rows a drag can give it; the divider is row `commitsAt`.
-let gitZones: { commitsAt: number; changes: number; commits: number; divider: Split } | undefined
-type Split = { rows: number; min: number; max: number }
 // The divider the last notch moved, with its pointer row and time: it moves off the pointer, so notches on that
 // row less than WHEEL_HOLD ms apart keep moving it.
 let wheeling: { zone: 'git' | 'topics'; row: number; at: number } | undefined
-const WHEEL_HOLD = 1000
-// A stored split moved by `by` rows, from the rows drawn while it is unset, kept to the drawn bounds.
-const nudge = (stored: number, { rows, min, max }: Split, by: number) =>
-  Math.max(min, Math.min((stored >= 0 ? Math.max(min, Math.min(stored, max)) : rows) + by, max))
 // The open modal's layers as last drawn, in tab-body cells: the wheel scrolls the top layer when over it.
 type Layer = { frame: Frame; top: number; end: number }
-let modalZone: { m: Layer; s?: Layer } | undefined
 // What a press on each top row's Client does, as the last Git tab draw set it.
 let rowActs: Record<string, () => unknown> = {}
 // The tab rows each top row's card spans, from its top to its end, and each top row's own, as the last Git tab draw set them.
@@ -793,17 +785,8 @@ let prRead: { key: string; signal: AbortSignal; run: Promise<({ stdout: string }
 let opRead: { key: string; signal: AbortSignal; run: Promise<Op | undefined> } | undefined
 // Whether install.sh chose basic glyphs: read once a session.
 let basicGlyphs: Promise<boolean> | undefined
-// The History list's last offset as last drawn; unset as gitZones is.
-let historyEnd: number | undefined
-// The Overview's TOPICS as last drawn, with a report under them: rows `from` to `to` of the tree, up to
-// offset `end`; `offset`, the engine's window then, as a pointer's row counts from it.
-// Its divider is row `to`.
-let topicsZone: { from: number; to: number; end: number; offset: number; divider: Split } | undefined
-// The Overview's STEPS as last drawn: rows `from` to `to`, the first shown `top`, up to offset `end`; `offset` as
-// topicsZone's.
 // The top STEPS last drew, kept once the run ends and no step is in progress; a new prompt clears it.
 let stepsHeld: number | undefined
-let stepsZone: { from: number; to: number; top: number; end: number; offset: number } | undefined
 // A list zone's window over `n` rows, its cues as a modal's: a zone too short for them still scrolls, bare.
 // Its last offset: the window at `top` Infinity.
 export const zoneWindow = (n: number, top: number, room: number) => {
@@ -1444,7 +1427,7 @@ export const register: Register = (on, options) => {
     // An open modal takes every press: its own act; any other closes the top layer and does nothing else.
     // A tab press closes it whole and switches.
     // The open row's own Button (`open:`) closes the whole modal through its onPress.
-    if (modalZone && !/^([ms]|open):/.test(e.element ?? '')) {
+    if (modalOpen() && !/^([ms]|open):/.test(e.element ?? '')) {
       const isTab = TABS.some(one => one === e.element)
       await setModal($, m => (m?.sub && !isTab ? { ...m, sub: undefined } : null))
       if (!isTab) return { element: e.element }
@@ -1512,57 +1495,34 @@ export const register: Register = (on, options) => {
   // The wheel over the Git tab scrolls the zone under it, not the pane; keys, with no pointer, COMMITS.
   // Over History, its list, under the header.
   on('ui.scroll', { requestId: PANE }, async ($, e, next) => {
-    // Over an open modal's top layer, its list; anywhere else, nothing. Rows count under the tabs and their rule.
-    const layered = modalZone
-    if (layered) {
-      const row = (e.pointer?.row ?? -Infinity) - 2
-      const column = e.pointer?.column ?? -Infinity
-      const layer = layered.s ?? layered.m
-      if (row >= layer.frame.top && row < layer.frame.top + layer.frame.height && column >= layer.frame.left && column < layer.frame.left + layer.frame.width) {
-        const top = Math.max(0, Math.min(layer.top + e.by, layer.end))
-        await update($, modal, m => (!m ? m : layered.s ? (m.sub ? { ...m, sub: { ...m.sub, top } } : m) : { ...m, top }))
+    const zones = drawnZones()
+    const rowIn = (z: Zone) => (e.pointer ? e.pointer.row + z.offset : undefined)
+    const over = (z: Zone) => {
+      const row = rowIn(z)
+      return row !== undefined && row >= z.from && row < z.to && (!z.columns || (e.pointer!.column >= z.columns[0] && e.pointer!.column < z.columns[1]))
+    }
+    // 1. An open modal takes every notch: over its top layer it scrolls it, anywhere else nothing.
+    const layer = zones.find(z => z.kind === 'modal')
+    if (layer) {
+      if (over(layer)) await layer.wheel(e.by)
+      return {}
+    }
+    // 2. A divider under the pointer, or still wheeled within WHEEL_HOLD on the same row.
+    const dividers = zones.filter(z => z.kind === 'divider')
+    if (dividers.length) {
+      const now = await $.clock.now().catch(() => -Infinity)
+      const held = (z: Zone) => !!wheeling && wheeling.zone === z.hold && e.pointer?.row === wheeling.row && now - wheeling.at < WHEEL_HOLD
+      const divider = dividers.find(z => rowIn(z) === z.from || held(z))
+      if (divider) {
+        wheeling = { zone: divider.hold!, row: e.pointer!.row, at: now }
+        await divider.wheel(e.by)
+        return {}
       }
-      return {}
     }
-    const end = historyEnd
-    if (end !== undefined) {
-      // From the row drawn: a rewind may have shrunk the list under the offset stored.
-      await update($, historyTop, top => Math.max(0, Math.min(Math.min(top, end) + e.by, end)))
-      return {}
-    }
-    const topics = topicsZone
-    const row = (e.pointer?.row ?? -Infinity) + (topics?.offset ?? 0)
-    // Over a divider, or still wheeling it, up gives the zone above it rows. A clock that fails holds nothing.
-    const now = await $.clock.now().catch(() => -Infinity)
-    const held = (zone: 'git' | 'topics') => wheeling?.zone === zone && e.pointer?.row === wheeling.row && now - wheeling.at < WHEEL_HOLD
-    const hold = (zone: 'git' | 'topics') => (wheeling = { zone, row: e.pointer!.row, at: now })
-    if (topics && (row === topics.to || held('topics'))) {
-      hold('topics')
-      await update($, topicsSplit, rows => nudge(rows, topics.divider, -e.by))
-      return {}
-    }
-    if (topics && row >= topics.from && row < topics.to) {
-      await update($, topicsTop, top => Math.max(0, Math.min(Math.min(top, topics.end) + e.by, topics.end)))
-      return {}
-    }
-    // From the row drawn: following may have scrolled past the offset stored.
-    const steps = stepsZone
-    const stepRow = (e.pointer?.row ?? -Infinity) + (steps?.offset ?? 0)
-    if (steps && stepRow >= steps.from && stepRow < steps.to) {
-      await update($, stepsFollow, () => false)
-      await update($, stepsTop, () => Math.max(0, Math.min(steps.top + e.by, steps.end)))
-      return {}
-    }
-    const zones = gitZones
-    if (!zones) return next(e)
-    if (zones.commitsAt && (e.pointer?.row === zones.commitsAt || held('git'))) {
-      hold('git')
-      await update($, split, rows => nudge(rows, zones.divider, -e.by))
-      return {}
-    }
-    const zone = (e.pointer?.row ?? Infinity) < zones.commitsAt ? 'changes' : 'commits'
-    await update($, scrolled, top => ({ ...top, [zone]: Math.max(0, Math.min(top[zone] + e.by, zones[zone])) }))
-
+    // 3. The list under the pointer; 4. else the tab's fallback. The Overview has none: the engine scrolls it.
+    const list = zones.find(z => z.kind === 'list' && over(z)) ?? zones.find(z => z.fallback)
+    if (!list) return next(e)
+    await list.wheel(e.by)
     return {}
   })
 
@@ -1735,12 +1695,8 @@ export const register: Register = (on, options) => {
 
     let body
     // Kept while a Git draw reads: a wheel tick meanwhile still scrolls its zone.
-    if (current !== 'Git') {
-      gitZones = undefined
-      modalZone = undefined
-    }
-    if (current !== 'History') historyEnd = undefined
-    if (current !== 'Overview') topicsZone = stepsZone = undefined
+    keepZones(current)
+    const drawnNow: Zone[] = []
     if (current === 'Decisions') {
       body = emptyNote(
         e.props.scroll.bodyRows - BAR_ROWS - 2,
@@ -1861,7 +1817,12 @@ export const register: Register = (on, options) => {
       const listRows = Math.max(0, e.props.scroll.bodyRows - BAR_ROWS - 3)
       const w = zoneWindow(lines.length, await read($, historyTop), listRows)
       const listCues = cues('history', e.props.bodyColumns - 2 * PAD, w, to => update($, historyTop, () => to))
-      if (!next.signal.aborted) historyEnd = zoneWindow(lines.length, Infinity, listRows).top
+      const historyEnd = zoneWindow(lines.length, Infinity, listRows).top
+      drawnNow.push({
+        tab: 'History', kind: 'list', from: -Infinity, to: Infinity, offset: 0, fallback: true,
+        // From the row drawn: a rewind may have shrunk the list under the offset stored.
+        wheel: by => update($, historyTop, top => Math.max(0, Math.min(Math.min(top, historyEnd) + by, historyEnd))),
+      })
       zones = { zones: prompts.length ? 'list' : 'empty', prompts: prompts.length, rows: lines.length, listRows }
       scroll = { from: w.top, above: w.above, below: w.below }
       body = (
@@ -2010,16 +1971,24 @@ export const register: Register = (on, options) => {
       const commitsN = Number(total) || page * PAGE + commits.length
       const commitsW = zoneWindow(commitsN, commitsFrom, commitsRows)
       // CHANGES' rows end under its last file: the tabs, their rule, the branch, its rule and the header.
-      // Only a live draw sets them: a dropped one finishing after another tab drew would take its wheel.
-      if (!next.signal.aborted)
-        gitZones = !head
-          ? undefined
-          : {
-              commitsAt: files.length && changesRows ? 4 + topRows + changesRows : 0,
-              changes: zoneWindow(files.length, Infinity, changesRows).top,
-              commits: zoneWindow(commitsN, Infinity, commitsRows).top,
-              divider: { rows: changesRows, min: changesMin, max: changesMax },
-            }
+      if (head) {
+        const commitsAt = files.length && changesRows ? 4 + topRows + changesRows : 0
+        const changesEnd = zoneWindow(files.length, Infinity, changesRows).top
+        const commitsEnd = zoneWindow(commitsN, Infinity, commitsRows).top
+        const divider = { rows: changesRows, min: changesMin, max: changesMax }
+        if (commitsAt > 0)
+          drawnNow.push(
+            {
+              tab: 'Git', kind: 'list', from: -Infinity, to: commitsAt, offset: 0,
+              wheel: by => update($, scrolled, top => ({ ...top, changes: Math.max(0, Math.min(top.changes + by, changesEnd)) })),
+            },
+            { tab: 'Git', kind: 'divider', from: commitsAt, to: commitsAt + 1, offset: 0, hold: 'git', wheel: by => update($, split, rows => nudge(rows, divider, -by)) },
+          )
+        drawnNow.push({
+          tab: 'Git', kind: 'list', from: commitsAt || -Infinity, to: Infinity, offset: 0, fallback: true,
+          wheel: by => update($, scrolled, top => ({ ...top, commits: Math.max(0, Math.min(top.commits + by, commitsEnd)) })),
+        })
+      }
       zones = {
         zones: !head ? (status ? 'not a repo' : 'no git answer') : !files.length ? 'commits only' : changesRows ? 'changes+commits' : 'changes hidden: no rows',
         changes: files.length, changesRows, commits: commits.length, commitsRows, total: Number(total) || 0,
@@ -3056,8 +3025,19 @@ export const register: Register = (on, options) => {
         return [drawLayer('m', f, { top: f.top, left: f.left - PAD }, acts, [], rows, open!.top), stacked ?? null]
       }
       const modalBox = !dimmed ? null : open?.key === 'commit' ? commitModal() : open?.key === 'prs' ? summaryModal() : open?.key === 'branch' ? branchModal() : open?.key === 'pr' ? prModal() : open?.key === 'rebase' ? rebaseModal() : null
-      // Only a live draw sets them, as gitZones.
-      if (!next.signal.aborted) modalZone = layers.m ? { m: layers.m, s: layers.s } : undefined
+      const topLayer = layers.s ?? layers.m
+      if (topLayer) {
+        const sub = !!layers.s
+        const { frame } = topLayer
+        // Rows count under the tabs and their rule.
+        drawnNow.push({
+          tab: 'Git', kind: 'modal', from: frame.top + 2, to: frame.top + 2 + frame.height, offset: 0, columns: [frame.left, frame.left + frame.width],
+          wheel: by => {
+            const top = Math.max(0, Math.min(topLayer.top + by, topLayer.end))
+            return update($, modal, m => (!m ? m : sub ? (m.sub ? { ...m, sub: { ...m.sub, top } } : m) : { ...m, top }))
+          },
+        })
+      }
       body = !head ? (
         // The rows under the tabs and their rule. No answer at all: git is not on PATH, or the surface
         // runs no command.
@@ -3333,9 +3313,16 @@ export const register: Register = (on, options) => {
       const topicsW = { top: topicsFrom, shown: Math.max(1, whole(topicsRoom)), above: upRows && topicsFrom, below: 0 }
       topicsW.below = hasDown ? rest - topicsW.shown : 0
       const topicsCues = cues('topics', width, topicsW, to => update($, topicsTop, () => to))
-      if (!next.signal.aborted) topicsZone = zoned
-          ? { from: 3 + sessionRows, to: 3 + sessionRows + topicsRows, end: topicsEnd, offset: e.props.scroll.offset, divider: { rows: topicsRows, min: topicsMin, max: topicsMax } }
-          : undefined
+      if (zoned) {
+        const from = 3 + sessionRows
+        const to = from + topicsRows
+        const offset = e.props.scroll.offset
+        const divider = { rows: topicsRows, min: topicsMin, max: topicsMax }
+        drawnNow.push(
+          { tab: 'Overview', kind: 'list', from, to, offset, wheel: by => update($, topicsTop, top => Math.max(0, Math.min(Math.min(top, topicsEnd) + by, topicsEnd))) },
+          { tab: 'Overview', kind: 'divider', from: to, to: to + 1, offset, hold: 'topics', wheel: by => update($, topicsSplit, rows => nudge(rows, divider, -by)) },
+        )
+      }
       // In a zone, the topics that start in it, the last one cut by its edge.
       let shownTopics = topics.slice(topicsFrom)
       if (zoned) {
@@ -3361,7 +3348,6 @@ export const register: Register = (on, options) => {
       const stepRoom = roomLeft - usedRows
       const following = await read($, stepsFollow)
       const storedSteps = await read($, stepsTop)
-      if (!next.signal.aborted) stepsZone = undefined
       const setSteps = async (to: number) => {
         await update($, stepsFollow, () => false)
         await update($, stepsTop, () => to)
@@ -3469,8 +3455,15 @@ export const register: Register = (on, options) => {
                           if (!next.signal.aborted) stepsHeld = w.top
                           // Over USED and the footer's 2 rows.
                           const from = e.props.scroll.bodyRows - BAR_ROWS - 2 - usedRows - stepRoom
-                          if (!next.signal.aborted)
-                            stepsZone = { from, to: from + Math.min(rows.length, stepRoom), top: w.top, end: zoneWindow(rows.length, Infinity, stepRoom).top, offset: e.props.scroll.offset }
+                          const stepsEnd = zoneWindow(rows.length, Infinity, stepRoom).top
+                          drawnNow.push({
+                            tab: 'Overview', kind: 'list', from, to: from + Math.min(rows.length, stepRoom), offset: e.props.scroll.offset,
+                            // From the row drawn: following may have scrolled past the offset stored.
+                            wheel: async by => {
+                              await update($, stepsFollow, () => false)
+                              await update($, stepsTop, () => Math.max(0, Math.min(w.top + by, stepsEnd)))
+                            },
+                          })
                           const stepCues = cues('steps', width - LABEL, w, setSteps)
                           return [w.above > 0 && stepCues.up, ...rows.slice(w.top, w.top + w.shown), w.below > 0 && stepCues.down]
                         })(shown.steps.map((step, i) => {
@@ -3604,6 +3597,7 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
+    if (!next.signal.aborted) setZones(current, drawnNow)
     const key = `${current}|${e.props.bodyColumns}|${e.props.scroll.bodyRows}|${JSON.stringify(zones)}`
     if (key !== lastPane) {
       lastPane = key
