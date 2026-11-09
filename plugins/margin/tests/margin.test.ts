@@ -4307,3 +4307,37 @@ test('a broken claudzilla.json: no toast', async ($, on) => {
   await paletteStart($)
   expect(toasts).toEqual([])
 })
+
+// A notch with no pointer: a key, or a wheel the terminal reports with no row. Each tab's fallback zone takes it.
+const notch = ($: Parameters<TestBody>[0], by: number) =>
+  $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' } })
+
+test('a notch with no pointer scrolls the History list', async ($, on) => {
+  const start = Date.now() - 60_000
+  const history = Array.from({ length: 30 }, (_, i) => JSON.stringify({ display: `p${i}`, timestamp: start + i * 1000, sessionId: 'chat-1' })).join('\n')
+  on('clock.now', () => ({ value: 0 }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('process.run', (_, e) => ran(isHistoryGrep(e.argv) ? history : ''))
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await ui.redraw()
+  await notch($, 5)
+  expect(await ui.find({ key: 'jump:3' })).toBeUndefined()
+  expect((await ui.find({ key: 'jump:4' }))?.text).toContain('p25')
+  expect(await ui.find({ type: 'Button', key: 'history:up' })).toBeDefined()
+})
+
+test('a notch with no pointer scrolls COMMITS and leaves CHANGES', async ($, on) => {
+  noHistory(on)
+  const files = Array.from({ length: 30 }, (_, i) => ` M file${i}.ts`).join('\n')
+  const log = Array.from({ length: 60 }, (_, i) => `c${i}ffff c${i} commit ${i}`).join('\n')
+  on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, '--count': '60\n', log: `${log}\n` })(e.argv) ?? ''))
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'Git' })
+  await notch($, 5)
+  expect(await cueText(ui, 'commits')).toEqual({ up: true, down: true })
+  expect(await rowText(ui, /commit 0$/)).toBeUndefined()
+  expect(await cueText(ui, 'changes')).toEqual({ up: false, down: true })
+  expect(await rowText(ui, /file0\.ts/)).toBeDefined()
+})
