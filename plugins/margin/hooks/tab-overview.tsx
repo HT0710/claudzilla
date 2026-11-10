@@ -150,7 +150,11 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const LABEL = 7
   // A step or agent row is a row Client; its card shows on hover, as the Git tab's rows do.
   const hv = rowHovers.Overview
-  const dimmed = modalNow?.key === 'topics' || modalNow?.key === 'used'
+  const topicsOpen = modalNow?.key === 'topics' && about.topics.length > 0
+  const usedKind = modalNow?.key === 'used' ? modalNow.kind : undefined
+  const usedEntry = usedKind && usedShown[usedKind]
+  // Dim behind what is drawn: a stored modal with nothing to show is not open.
+  const dimmed = topicsOpen || !!(usedKind && usedEntry)
   const pointer = await read($, rowPointer)
   const spans = hv.spans
   hv.spans = {}
@@ -195,7 +199,6 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const zoned = !!shown.wants && hasAbout
   const layers: { m?: Layer; s?: Layer } = {}
   const lc: LayerCtx = { el: ctx.el, layers, setModal: change => ctx.setModal(change) }
-  const topicsOpen = modalNow?.key === 'topics' && about.topics.length > 0
   const topicsModal = () => {
     const w = Math.max(1, modalFrame(props.bodyColumns, tabRows, 0).width - 4 - 3)
     const items = [...about.topics].reverse().map(topic => wrapLines(topic, w))
@@ -214,8 +217,6 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     const f = modalFrame(props.bodyColumns, tabRows, 5 + rows.length)
     return drawLayer($, lc, 'm', f, { top: f.top, left: f.left - PAD }, [], [heading(ctx.el, 'TOPICS', <Text color={HUD.faint}>{`${about.topics.length} total`}</Text>)], rows, modalNow!.top)
   }
-  const usedKind = modalNow?.key === 'used' ? modalNow.kind : undefined
-  const usedEntry = usedKind && usedShown[usedKind]
   const usedModal = async (kind: UseKind, entry: NonNullable<typeof usedEntry>) => {
     const { names: recent, fromAgents = [], agentOf = {}, sourceOf = {} } = entry
     // Claude's own names first, agents' after, each newest first.
@@ -283,8 +284,9 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     return drawLayer($, lc, 'm', f, { top: f.top, left: f.left - PAD }, [], [heading(ctx.el, kind.toUpperCase(), <Text color={HUD.faint}>{`${names.length} total`}</Text>)], rows, modalNow!.top)
   }
   const modalBox = topicsOpen ? topicsModal() : usedKind && usedEntry ? await usedModal(usedKind, usedEntry) : null
-  // Its list gone (a new prompt cleared it), the modal closes: left open, it would come back with the next list.
-  if (usedKind && !usedEntry) $.clock.after(0, () => ctx.setModal(m => (m?.key === 'used' ? null : m)))
+  // Its list gone (a new prompt or /clear emptied it), the modal closes: left open, it would come back with the next list.
+  if (usedKind && !usedEntry && !ctx.signal.aborted) $.clock.after(0, () => ctx.setModal(m => (m?.key === 'used' && m.kind === usedKind ? null : m)))
+  if (modalNow?.key === 'topics' && !about.topics.length && !ctx.signal.aborted) $.clock.after(0, () => ctx.setModal(m => (m?.key === 'topics' ? null : m)))
   const layerZone = modalZone($, 'Overview', layers)
   if (layerZone) drawn.push(layerZone)
   const trace = {
