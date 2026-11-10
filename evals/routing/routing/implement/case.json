@@ -1,0 +1,6 @@
+{
+  "base": "../../../cases/sdd-implementer-code/csv",
+  "allowed_tools": ["Read", "Grep", "Glob", "Edit", "Write", "Agent", "Bash(node:*)", "Bash(git:*)"],
+  "followups": ["go"],
+  "matrix": [{"model":"opus","effort":"medium","routing":"on"},{"model":"opus","effort":"medium","routing":"off"}]
+}

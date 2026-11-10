@@ -1,0 +1,6 @@
+{
+  "base": "../../../cases/systematic-debugging/invoice",
+  "allowed_tools": ["Read", "Grep", "Glob", "Edit", "Agent", "Bash(node:*)"],
+  "followups": ["go"],
+  "matrix": [{"model":"opus","effort":"medium","routing":"on"},{"model":"opus","effort":"medium","routing":"off"}]
+}
