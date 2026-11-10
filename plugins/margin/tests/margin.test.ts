@@ -754,6 +754,8 @@ test('recordUse parentOf: a fetch takes the reader\'s latest search, keeps its f
   let u = fetch(EMPTY_USED, 'https://a.dev/0')
   expect(u.kinds.web!.parentOf).toEqual([])
   u = search(u, 'one')
+  u = fetch(u, 'https://a.dev/0')
+  expect(u.kinds.web!.parentOf).toEqual([])
   u = fetch(u, 'https://a.dev/1')
   u = search(u, 'two')
   u = fetch(u, 'https://a.dev/1')
@@ -4871,15 +4873,35 @@ test('the memory and skills modals count calls and show the reader tree', async 
   expect(await hasInModal(ui, 'Claude')).toBe(true)
 })
 
-test('a USED modal draws a stored entry without byReader, and one that names __proto__', async ($, on) => {
+test('a USED modal draws a stored entry without byReader', async ($, on) => {
+  on('state.set', (_, e, next) => {
+    if (e.key === 'used') {
+      const { byReader, parentOf, ...old } = (e.value as any).kinds.files ?? {}
+      return next({ ...e, value: { ...(e.value as any), kinds: { files: old } } } as any)
+    }
+    return next(e)
+  })
   const ui = await usedPane($, on)
-  await $.tool.call({ tool: 'Grep', pattern: '__proto__' } as any)
-  await $.tool.call({ tool: 'Grep', pattern: '404' } as any)
-  await $.tool.call({ tool: 'Grep', pattern: 'abc' } as any)
-  await tapRow(ui, 'o:used:other')
-  const texts = (await modalTexts(ui)).map(t => t.text).filter(t => ['abc', '404', '__proto__'].includes(t))
-  expect(texts).toEqual(['abc', '404', '__proto__'])
-  expect(await inModal(ui, '[object Object]')).toBeUndefined()
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts' } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/b.ts' } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/c.ts' } as any)
+  await tapRow(ui, 'o:used:files')
+  expect((await Promise.all([0, 1, 2].map(i => usedRow(ui, i)))).map(r => r.text.replace(/^[ │├└]+/, ''))).toEqual(['c.ts', 'b.ts', 'a.ts'])
+  expect(await hasInModal(ui, 'Claude')).toBe(true)
+})
+
+test('a skill named __proto__ draws with no source hint', async ($, on) => {
+  const ui = await usedPane($, on)
+  await $.tool.call({ tool: 'Skill', skill: '__proto__' } as any)
+  await tapRow(ui, 'o:used:skills')
+  expect(await hasInModal(ui, '__proto__')).toBe(true)
+  expect(await hasInModal(ui, /object Object/)).toBe(false)
+})
+
+test('readersOf: a byReader stored as an object by an earlier build reads as missing', () => {
+  const old = { main: 1, agents: 0, names: ['/r/a.ts'], fromAgents: [], byReader: { main: { '/r/a.ts': 1 } } } as any
+  expect(readersOf(old)).toEqual([['main', [['/r/a.ts', 1]]]])
+  expect(recordUse({ kinds: { files: old }, stale: [], seen: [] }, { tool: 'Read', file_path: '/r/b.ts' }).kinds.files!.byReader).toEqual([['main', [['/r/b.ts', 1], ['/r/a.ts', 1]]]])
 })
 
 test("a USED press while waiting opens last turn's list", async ($, on) => {

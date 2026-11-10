@@ -112,7 +112,7 @@ export const recordUse = (used: Used, call: { tool: string } & Record<string, un
   const pages = (was.parentOf ?? []).map(([r, ps]): [string, [string, string][]] => [r, ps.filter(([u]) => names.includes(u))])
   const mineP = pages.find(([r]) => r === reader)?.[1] ?? []
   const parentOf: NonNullable<UseEntry['parentOf']> =
-    use.kind === 'web' && !use.source && latest && !mineP.some(([u]) => u === use.name)
+    use.kind === 'web' && !use.source && latest && !mine.some(([n]) => n === use.name)
       ? [...pages.filter(([r]) => r !== reader), [reader, [...mineP, [use.name, latest]]]]
       : pages
   const kind = {
