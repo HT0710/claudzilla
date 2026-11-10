@@ -64,8 +64,6 @@ export const hang = (steps: Step[], spawns: Spawn[], turn: number): AgentRow[][]
   return rows
 }
 
-// The lines a text takes wrapped at w: words packed greedily, one past the width broken, as Text wraps.
-// shortcut: counts characters, not cells; CJK and emoji take two, so the count runs short. Upgrade: string-width.
 const LABEL_CARD = {
   SESSION: 'What this chat is about, summed up from your prompts',
   TOPIC: 'What your latest prompts are about; show all lists every topic',
@@ -76,6 +74,8 @@ const LABEL_CARD = {
 }
 type Label = keyof typeof LABEL_CARD
 
+// The lines a text takes wrapped at w: words packed greedily, one past the width broken, as Text wraps.
+// shortcut: counts characters, not cells; CJK and emoji take two, so the count runs short. Upgrade: string-width.
 export const wrapLines = (text: string, w: number): string[] =>
   text.split('\n').flatMap(para => {
     const lines: string[] = []
