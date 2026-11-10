@@ -98,6 +98,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/experimental.mjs\"",
+            "timeout": 5
+          }
+        ]
       }
     ]
   },
