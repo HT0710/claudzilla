@@ -684,12 +684,12 @@ test('useOf: a WebFetch counts only http and https, its URL as parsed', () => {
 test('a file read 5 times counts 5 and names it once', () => {
   let u = EMPTY_USED
   for (let i = 0; i < 5; i++) u = recordUse(u, { tool: 'Read', file_path: '/r/a.ts' })
-  expect(u.kinds.files).toEqual({ main: 5, agents: 0, names: ['/r/a.ts'], fromAgents: [], agentOf: {}, sourceOf: {} })
+  expect(u.kinds.files).toEqual({ main: 5, agents: 0, names: ['/r/a.ts'], fromAgents: [], agentOf: {}, sourceOf: {}, byReader: { main: { '/r/a.ts': 5 } } })
 })
 
 test('a subagent call counts as agents, not main', () => {
   const u = recordUse(EMPTY_USED, { tool: 'Read', file_path: '/r/a.ts', agentId: 'a1' })
-  expect(u.kinds.files).toEqual({ main: 0, agents: 1, names: ['/r/a.ts'], fromAgents: ['/r/a.ts'], agentOf: { '/r/a.ts': 'a1' }, sourceOf: {} })
+  expect(u.kinds.files).toEqual({ main: 0, agents: 1, names: ['/r/a.ts'], fromAgents: ['/r/a.ts'], agentOf: { '/r/a.ts': 'a1' }, sourceOf: {}, byReader: { a1: { '/r/a.ts': 1 } } })
   expect(u.seen).toEqual(['a1'])
 })
 
@@ -711,10 +711,28 @@ test('recordUse keeps 50 unique names per kind, newest first, with sources and a
   expect(u.kinds.files!.names).not.toContain('/r/f1.ts')
   expect(u.kinds.files!.main).toBe(52)
   u = recordUse(u, { tool: 'Grep', pattern: 'x', agentId: 'a1' })
-  expect(u.kinds.other).toEqual({ main: 0, agents: 1, names: ['x'], fromAgents: ['x'], agentOf: { x: 'a1' }, sourceOf: { x: 'grep' } })
+  expect(u.kinds.other).toEqual({ main: 0, agents: 1, names: ['x'], fromAgents: ['x'], agentOf: { x: 'a1' }, sourceOf: { x: 'grep' }, byReader: { a1: { x: 1 } } })
   u = recordUse(u, { tool: 'Grep', pattern: 'x' })
   expect(u.kinds.other!.fromAgents).toEqual([])
   expect(u.kinds.other!.agentOf).toEqual({})
+})
+
+test('recordUse byReader: counts per reader and name, readers in first-read order, a re-read moves to newest, pruned to kept names', () => {
+  const read = (u: typeof EMPTY_USED, f: string, agentId?: string) => recordUse(u, { tool: 'Read', file_path: `/r/${f}`, ...(agentId && { agentId }) })
+  let u = read(EMPTY_USED, 'a.ts', 'a1')
+  u = read(u, 'a.ts')
+  u = read(u, 'b.ts')
+  u = read(u, 'a.ts')
+  u = read(u, 'c.ts', 'a1')
+  const by = u.kinds.files!.byReader!
+  expect(Object.keys(by)).toEqual(['a1', 'main'])
+  expect(by.main).toEqual({ '/r/a.ts': 2, '/r/b.ts': 1 })
+  expect(Object.keys(by.main!)).toEqual(['/r/a.ts', '/r/b.ts'])
+  expect(Object.keys(by.a1!)).toEqual(['/r/c.ts', '/r/a.ts'])
+  let v = EMPTY_USED
+  for (let i = 0; i < 51; i++) v = read(v, `f${i}.ts`)
+  expect(Object.keys(v.kinds.files!.byReader!.main!)).toHaveLength(50)
+  expect(v.kinds.files!.byReader!.main!['/r/f0.ts']).toBeUndefined()
 })
 
 test('a spawn record keeps the launch name and the agent type', async ($, on) => {
@@ -4606,7 +4624,7 @@ test("a USED row press opens that kind's modal; ✕ and a tab change close it", 
   const row = (await pieces(ui, 'o:m:use:1'))!
   expect(row.find(x => x.text === 'hooks')?.color).toBe('#808286')
   expect(row.find(x => x.text === '/')?.color).toBe('promptBorder')
-  expect(row.find(x => x.text === ' └ ')?.color).toBe('promptBorder')
+  expect(row.find(x => x.text === '   └ ')?.color).toBe('promptBorder')
   await ui.press({ key: 'm:x' })
   expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
   await tapRow(ui, 'o:used:files')
@@ -4715,7 +4733,7 @@ test('web rows: a page links in parts, a search says search; other rows name the
   expect(await inModal(ui, 'slack')).toBe('#4f5c68')
 })
 
-test('the agent hint: launch name, else type without the plugin, else none', async ($, on) => {
+test('the FILES branch name: launch name, else type without the plugin, else agent', async ($, on) => {
   const ui = await usedPane($, on)
   await spawn($, 'one', { name: 'scout' })
   await spawn($, 'two', { subagentType: 'caveman:cavecrew-investigator' })
@@ -4723,9 +4741,33 @@ test('the agent hint: launch name, else type without the plugin, else none', asy
   await $.tool.call({ tool: 'Read', file_path: '/proj/b.ts', agentId: 'a2' } as any)
   await $.tool.call({ tool: 'Read', file_path: '/proj/c.ts', agentId: 'zz' } as any)
   await tapRow(ui, 'o:used:files')
-  // Newest first: c.ts (no record, no hint), b.ts, a.ts.
-  const hints = (await Promise.all([0, 1, 2].map(i => usedRow(ui, i)))).flatMap(r => r.hint.filter(x => x.color === '#4f5c68').map(x => x.text))
-  expect(hints).toEqual(['cavecrew-inve…', 'scout'])
+  const texts = (await modalTexts(ui)).map(t => t.text)
+  expect(texts.filter(t => ['scout', 'cavecrew-inve…', 'agent'].includes(t))).toEqual(['scout', 'cavecrew-inve…', 'agent'])
+  expect((await usedRow(ui, 0)).hint).toEqual([])
+})
+
+test('the FILES modal: Claude first, a file under two readers shows twice, a re-read shows ×N faint, the total counts calls', async ($, on) => {
+  const ui = await usedPane($, on)
+  await spawn($, 'one', { name: 'scout' })
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts', agentId: 'a1' } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts', agentId: 'a1' } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts' } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/b.ts' } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/c.ts', agentId: 'a1' } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/d.ts', agentId: 'a1' } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/e.ts', agentId: 'a1' } as any)
+  await tapRow(ui, 'o:used:files')
+  expect(await ui.find({ type: 'Text', text: '7 total' })).toBeDefined()
+  const texts = (await modalTexts(ui)).map(t => t.text)
+  expect(texts.indexOf('Claude')).toBeLessThan(texts.indexOf('scout'))
+  expect(texts.filter(t => t === 'FILES')).toHaveLength(1)
+  const rows = await Promise.all([0, 1, 2, 3, 4, 5].map(i => usedRow(ui, i)))
+  expect(rows.map(r => r.text.replace(/^[ │├└]+/, ''))).toEqual(['b.ts', 'a.ts', 'e.ts', 'd.ts', 'c.ts', 'a.ts'])
+  expect(rows.map(r => r.hint)).toEqual([[], [], [], [], [], [{ text: '×2', color: '#4f5c68' }]])
+  expect(rows[0]!.text).toMatch(/^ │ ├ /)
+  expect(rows[1]!.text).toMatch(/^ │ └ /)
+  expect(rows[5]!.text).toMatch(/^   └ /)
+  await tapRow(ui, 'o:m:use:2')
 })
 
 test("a USED press while waiting opens last turn's list", async ($, on) => {
@@ -4745,7 +4787,7 @@ test('a long path is cut from the left, the file name whole; a name with control
   await $.tool.call({ tool: 'Read', file_path: `/proj/${'deep/'.repeat(12)}kit.tsx` } as any)
   await $.tool.call({ tool: 'Grep', pattern: 'a\nb\tc' } as any)
   await tapRow(ui, 'o:used:files')
-  expect((await usedRow(ui, 0)).text).toMatch(/^ [├└] …/)
+  expect((await usedRow(ui, 0)).text).toMatch(/^   [├└] …/)
   expect((await usedRow(ui, 0)).text).toMatch(/kit\.tsx$/)
   await ui.press({ key: 'm:x' })
   await tapRow(ui, 'o:used:other')

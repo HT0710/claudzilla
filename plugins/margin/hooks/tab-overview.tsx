@@ -237,15 +237,47 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     const { names: recent, fromAgents = [], agentOf = {}, sourceOf = {} } = entry
     // Claude's own names first, agents' after, each newest first.
     const names = [...recent.filter(n => !fromAgents.includes(n)), ...recent.filter(n => fromAgents.includes(n))]
+    const agentName = (id?: string) => {
+      const one = id && sparks.find(s => s.id === id)
+      return (one && fit(printable(one.name ?? (one.type ?? '').replace(/^[^:]+:/, '')), 14)) || 'agent'
+    }
     const hintOf = (name: string) => {
       const one = agentOf[name] && sparks.find(s => s.id === agentOf[name])
       return [one && fit(printable(one.name ?? (one.type ?? '').replace(/^[^:]+:/, '')), 14), sourceOf[name]].filter(Boolean).join('  ')
     }
+    // FILES: a branch per reader, Claude first. Stored without byReader: one call per name.
+    const byReader = entry.byReader ?? names.reduce<Record<string, Record<string, number>>>((acc, n) => {
+      const r = fromAgents.includes(n) ? (agentOf[n] ?? '') : 'main'
+      return { ...acc, [r]: { ...acc[r], [n]: 1 } }
+    }, {})
+    const readers = Object.entries(byReader)
+      .filter(([, m]) => Object.keys(m).length)
+      .sort(([a], [b]) => Number(b === 'main') - Number(a === 'main'))
+    type Item = { name: string; glyph: string; count?: number; branch?: string }
+    const items: Item[] =
+      kind === 'files'
+        ? readers.flatMap(([reader, m], ri) => {
+            const last = ri === readers.length - 1
+            const files = Object.entries(m)
+            return [
+              { name: '', glyph: last ? '└ ' : '├ ', branch: reader === 'main' ? 'Claude' : agentName(reader) },
+              ...files.map(([name, count], k) => ({ name, count, glyph: `${last ? '  ' : '│ '}${k === files.length - 1 ? '└ ' : '├ '}` })),
+            ]
+          })
+        : names.map((name, i) => ({ name, glyph: i === names.length - 1 ? '└ ' : '├ ' }))
     const inner = modalFrame(props.bodyColumns, tabRows, 0).width - 4
-    const rows = names.map((name, i) => {
-      const glyph = i === names.length - 1 ? '└ ' : '├ '
-      const hint = hintOf(name)
-      const room = Math.max(1, inner - 3 - (hint ? hint.length + 2 : 0))
+    let fileAt = 0
+    const rows = items.map(({ name, glyph, count, branch }, row) => {
+      if (branch !== undefined)
+        return (
+          <Text>
+            <Text color="promptBorder">{` ${glyph}`}</Text>
+            <Text>{branch}</Text>
+          </Text>
+        )
+      const i = kind === 'files' ? fileAt++ : row
+      const hint = kind === 'files' ? (count && count > 1 ? `×${count}` : '') : hintOf(name)
+      const room = Math.max(1, inner - (glyph.length + 1) - (hint ? hint.length + 2 : 0))
       const text = printable(name)
       // Path or URL pieces: a folder or path part SCOPE, every slash the border colour.
       const parts = (segs: string[], tone: (i: number) => string | undefined) =>
@@ -305,7 +337,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
       )
     })
     const f = modalFrame(props.bodyColumns, tabRows, 5 + rows.length)
-    return drawLayer($, lc, 'm', f, { top: f.top, left: f.left - PAD }, [], [heading(ctx.el, kind.toUpperCase(), <Text color={HUD.faint}>{`${names.length} total`}</Text>)], rows, modalNow!.top)
+    return drawLayer($, lc, 'm', f, { top: f.top, left: f.left - PAD }, [], [heading(ctx.el, kind.toUpperCase(), <Text color={HUD.faint}>{`${kind === 'files' ? entry.main + entry.agents : names.length} total`}</Text>)], rows, modalNow!.top)
   }
   const modalBox = topicsOpen ? topicsModal() : usedKind && usedEntry ? usedModal(usedKind, usedEntry) : null
   // Its list gone (a new prompt or /clear emptied it), the modal closes: left open, it would come back with the next list.

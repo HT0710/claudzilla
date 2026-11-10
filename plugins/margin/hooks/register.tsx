@@ -102,6 +102,13 @@ export const recordUse = (used: Used, call: { tool: string } & Record<string, un
   const keptFrom = [...(agentOnly ? [use.name] : []), ...fromAgents.filter(n => n !== use.name && names.includes(n))]
   const keep = <T,>(rec: Record<string, T>, own?: [string, T]) =>
     Object.fromEntries([...(own ? [own] : []), ...Object.entries(rec).filter(([n]) => n !== use.name && names.includes(n))])
+  // reader ('main' or an agent id) to name to calls: readers in first-read order, names newest first.
+  const reader = id ?? 'main'
+  const byReader = Object.fromEntries(
+    Object.entries(was.byReader ?? {}).map(([r, m]) => [r, Object.fromEntries(Object.entries(m).filter(([n]) => names.includes(n)))]),
+  )
+  const mine = byReader[reader] ?? {}
+  byReader[reader] = { [use.name]: (mine[use.name] ?? 0) + 1, ...Object.fromEntries(Object.entries(mine).filter(([n]) => n !== use.name)) }
   const kind = {
     main: was.main + (id ? 0 : 1),
     agents: was.agents + (id ? 1 : 0),
@@ -109,6 +116,7 @@ export const recordUse = (used: Used, call: { tool: string } & Record<string, un
     fromAgents: keptFrom,
     agentOf: keep(agentOf, agentOnly && id ? [use.name, id] : undefined),
     sourceOf: keep(sourceOf, use.source ? [use.name, use.source] : undefined),
+    byReader,
   }
   return { ...used, kinds: { ...used.kinds, [use.kind]: kind }, seen: id && !used.seen.includes(id) ? [...used.seen, id] : used.seen }
 }
