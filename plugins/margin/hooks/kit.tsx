@@ -311,13 +311,12 @@ export type RowCtx = {
   up: (at: number, n: number) => boolean
 }
 export type LayerCtx = { el: Els; layers: { m?: Layer; s?: Layer }; setModal: (change: (m: Modal | null) => Modal | null) => Promise<void> }
-export const row = (rc: RowCtx, key: string, left: any[], right: any[], cardEl: null, o: { pieces: (key: string, node: any[]) => Piece[]; line: number; act: boolean; width?: number }): JSX.Element => {
+export const row = (rc: RowCtx, key: string, left: any[], right: any[], o: { pieces: (key: string, node: any[]) => Piece[]; line: number; act: boolean; width?: number }): JSX.Element => {
   const { Box, Button } = rc.el
   const Client = 'Client' in rc.el ? rc.el.Client : undefined
   return Client ? (
     <Box flexDirection="column" height={1} hover={rc.dimmed ? undefined : { scope: `card:${key}`, ...(!o.act && key in rowHover.acts && { backgroundColor: LIT }) }} {...(o.width !== undefined && { width: o.width, flexShrink: 0 })}>
       <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left: o.pieces(key, left), right: o.pieces(key, right), ...(!rc.dimmed && { line: `line:${o.line}` }) }} />
-      {cardEl}
     </Box>
   ) : (
     <Box key={`hov:${key}`} hover={rc.dimmed ? undefined : { scope: `card:${key}` }} justifyContent="space-between" height={1} overflow="hidden" {...(o.width !== undefined && { flexShrink: 0 })}>
@@ -325,7 +324,6 @@ export const row = (rc: RowCtx, key: string, left: any[], right: any[], cardEl: 
         {left}
       </Button>
       <Box flexShrink={0}>{right}</Box>
-      {cardEl}
     </Box>
   )
 }
