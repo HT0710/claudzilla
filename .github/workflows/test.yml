@@ -18,6 +18,7 @@ jobs:
           - tests/report.test.sh
           - tests/install.test.sh
           - tests/rule-review.test.sh
+          - tests/experimental.test.sh
           - tests/hud.test.sh
           - tests/guide.test.sh
           - tests/visuals.test.sh
