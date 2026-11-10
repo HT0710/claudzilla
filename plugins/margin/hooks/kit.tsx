@@ -1,7 +1,8 @@
 import { atom, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderPropsOf, RenderSurface } from 'claude-code'
 
-import type { Intent, Modal, Overview, Tab } from '../types'
+import type { FileView, Intent, Modal, Overview, Tab } from '../types'
+import { printable } from './git-data'
 import { scrollWindow } from './modal'
 import type { Frame } from './modal'
 import { DEFAULTS } from './palette'
@@ -177,6 +178,21 @@ export type Els = Elements[RenderSurface]
 export type Prompt = { display: string; timestamp: number; typed?: string }
 // Counts UTF-16 units, not cells: a wide glyph (CJK, emoji) can still overflow by one.
 export const fit = (text: string, room: number) => (text.length > room ? `${text.slice(0, room - 1)}…` : text)
+// Lines kept each side of the clicked one, and each line's length: the draws repeat on every scroll, so they
+// window a slice, not the file.
+const FILE_SPAN = 200
+const FILE_LINE = 500
+// The File tab's view from a read: `text` empty stands for a file it cannot show (unreadable or binary).
+export const fileView = (raw: string, line: number, read: string | undefined): NonNullable<FileView> => {
+  // Drawn only, and Text and Code refuse control characters: a path from git can hold one.
+  const path = printable(raw)
+  if (read === undefined || read.includes('\0')) return { path, line, first: 1, text: '' }
+  const all = read.replace(/\r?\n$/, '').split(/\r?\n/)
+  const from = Math.max(0, Math.min(line - 1 - FILE_SPAN, all.length - (2 * FILE_SPAN + 1)))
+  // Code refuses control characters (ESC in a log, ^L in a source): each shows as a space; tabs stay.
+  const kept = all.slice(from, from + 2 * FILE_SPAN + 1).map(one => one.slice(0, FILE_LINE).replace(/[\x00-\x08\x0b-\x1f\x7f]/g, ' '))
+  return { path, line, first: from + 1, text: kept.join('\n') }
+}
 export const clock = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
