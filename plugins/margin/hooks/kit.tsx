@@ -324,11 +324,11 @@ export type RowCtx = {
   up: (at: number, n: number) => boolean
 }
 export type LayerCtx = { el: Els; layers: { m?: Layer; s?: Layer }; setModal: (change: (m: Modal | null) => Modal | null) => Promise<void> }
-export const row = (rc: RowCtx, key: string, left: any[], right: any[], o: { pieces: (key: string, node: any[]) => Piece[]; line: number; act: boolean; width?: number }): JSX.Element => {
+export const row = (rc: RowCtx, key: string, left: any[], right: any[], o: { pieces: (key: string, node: any[]) => Piece[]; line: number; act: boolean; lit?: boolean; width?: number }): JSX.Element => {
   const { Box, Button } = rc.el
   const Client = 'Client' in rc.el ? rc.el.Client : undefined
   return Client ? (
-    <Box flexDirection="column" height={1} hover={rc.dimmed ? undefined : { scope: `card:${key}`, ...(!o.act && key in rc.hover.acts && { backgroundColor: LIT }) }} {...(o.width !== undefined && { width: o.width, flexShrink: 0 })}>
+    <Box flexDirection="column" height={1} hover={rc.dimmed ? undefined : { scope: `card:${key}`, ...(!o.act && (o.lit || key in rc.hover.acts) && { backgroundColor: LIT }) }} {...(o.width !== undefined && { width: o.width, flexShrink: 0 })}>
       <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left: o.pieces(key, left), right: o.pieces(key, right), ...(!rc.dimmed && { line: `line:${o.line}` }) }} />
     </Box>
   ) : (

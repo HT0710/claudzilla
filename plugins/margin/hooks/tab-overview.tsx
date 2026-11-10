@@ -506,7 +506,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                         if (!r.key) return r.node
                         const k = w.top + n
                         kitCard(rc, `card:${r.key}`, atOf(k), 'center', kitKv(rc, 'status', <Text color={r.mark}>{r.word}</Text>))
-                        return kitRow(rc, r.key, r.left!, [], { pieces: (key, node) => dimOn(k, toPieces(node)), line: k, act: false })
+                        return kitRow(rc, r.key, r.left!, [], { pieces: (key, node) => dimOn(k, toPieces(node)), line: k, act: false, lit: true })
                       })
                       return [w.above > 0 && stepCues.up, ...shownRows, w.below > 0 && stepCues.down]
                     })(shown.steps.map((step, i) => {
