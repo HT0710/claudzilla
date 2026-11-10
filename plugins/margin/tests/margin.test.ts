@@ -4545,6 +4545,35 @@ test("a USED row press opens that kind's modal; ✕ and a tab change close it", 
   expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
 })
 
+// A row press while a draw waits on its reads (a USED modal's cwd) acts on the rows the last draw drew.
+test('a row press while a draw waits on its reads still acts', async ($, on) => {
+  let held: Promise<unknown> | undefined
+  const views: (string | undefined)[] = []
+  on('ui.view', (_, e) => {
+    views.push(e.agentId)
+    return { value: {} }
+  })
+  on('tool.call', () => ({ result: {} }) as any)
+  on('session.cwd', () => {
+    const now = held
+    held = undefined
+    return (now ?? { value: '/proj' }) as any
+  })
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }) as any)
+  const ui = await agentsPane($, on, { a1: 'running' })
+  await $.tool.call({ tool: INTENT, ...AGENTS_REPORT } as any)
+  await spawn($, 'Read code')
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts' } as any)
+  await ui.drawn()
+  held = new Promise(() => undefined)
+  // The press settles only with every draw, the held one too: not awaited.
+  void ui.press({ key: 'o:used:files' })
+  await new Promise(done => setTimeout(done, 20))
+  void ui.post({ press: true }, { in: 'row:o:agent:0:0' })
+  await new Promise(done => setTimeout(done, 50))
+  expect(views).toEqual(['a1'])
+})
+
 test('a file press opens it in the File tab through $.margin.show', async ($, on) => {
   const ui = await usedPane($, on)
   await $.tool.call({ tool: 'Read', file_path: '/proj/hooks/kit.tsx' } as any)
