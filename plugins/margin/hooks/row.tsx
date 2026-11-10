@@ -7,7 +7,7 @@ import type { ClientModule } from 'claude-code'
 // modal, it stays lit in that colour and posts its presses alone.
 // `line`: the hover group the row heats, so the next line's pieces, which carry its `hover`, fade at once.
 // `under`: a second fade group, on a nested Text that takes the piece's colour, as a Text takes one hover.
-type Piece = { text: string; color?: string; backgroundColor?: string; dimColor?: boolean; bold?: boolean; hover?: object; under?: object }
+type Piece = { text: string; color?: string; backgroundColor?: string; dimColor?: boolean; bold?: boolean; hover?: object; under?: object; inverse?: boolean }
 const Row: ClientModule<
   { left: Piece[]; right: Piece[]; faded?: boolean; open?: string; line?: string },
   { down?: boolean }

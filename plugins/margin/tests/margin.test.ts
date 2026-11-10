@@ -3,6 +3,7 @@ import type { TestBody } from 'claude-code/testing'
 import type { AgentStatus, Register } from 'claude-code'
 import type { Spawn, Step } from '../types'
 import { fileKey } from '../hooks/git-data'
+import { hoverOf, rowHovers } from '../hooks/kit'
 
 import { EMPTY_USED, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, resetUsed, stampPattern, useOf, wrapLines, zoneWindow } from '../hooks/register'
 
@@ -2499,9 +2500,9 @@ test("Claude's intent report draws on the Overview tab", async ($, on) => {
   expect(await ui.find({ type: 'Text', text: /^ASK$/ })).toBeDefined()
   // No TOPICS read yet: no divider to tie the report to a topic.
   expect(await ui.find({ key: 'now' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^● $/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^○ $/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^spec$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^● $/, in: 'row:o:step:0' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^○ $/, in: 'row:o:step:1' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^spec$/, in: 'row:o:step:0' })).toBeDefined()
 })
 
 test("a subagent's intent report is answered but not drawn", async ($, on) => {
@@ -2522,9 +2523,10 @@ test("a main turn's end marks the report ended; a subagent's does not", async ($
   expect(await ui.find({ type: 'Text', text: /^✓ done / })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '2/2 steps' })).toBeDefined()
   // Claude skips a report only to close its last steps: the answer closes them all.
-  expect(await ui.find({ type: 'Text', text: /^✓ $/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^● $/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^○ $/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^✓ $/, in: 'row:o:step:0' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^✓ $/, in: 'row:o:step:1' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^[●○] $/, in: 'row:o:step:0' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^[●○] $/, in: 'row:o:step:1' })).toBeUndefined()
 })
 
 test('a main turn that ends on a background agent waits on it, the steps kept open', async ($, on) => {
@@ -2652,7 +2654,7 @@ test('an interrupted turn keeps the steps as Claude left them', async ($, on) =>
   await turnEnd($, undefined, 'aborted')
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: /^■ stopped / })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^● $/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^● $/, in: 'row:o:step:0' })).toBeDefined()
 })
 
 test('/clear empties the report', async ($, on) => {
@@ -2681,7 +2683,8 @@ test("the next prompt dims an answered report, not a stopped one", async ($, on)
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: '◐ planning…' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '… steps' })).toBeDefined()
-  for (const text of ['a third tab', /^clear$/, /^! $/, /^spec$/]) expect(await colorOf(ui, text)).toBe('#4f5c68')
+  for (const text of ['a third tab', /^clear$/, /^! $/]) expect(await colorOf(ui, text)).toBe('#4f5c68')
+  expect(await colorOf(ui, /^spec$/, 'o:step:0')).toBe('#4f5c68')
 })
 
 test("a dimmed report waits for Claude's next one: a ping leaves it, a turn without a report drops it", async ($, on) => {
@@ -2693,7 +2696,7 @@ test("a dimmed report waits for Claude's next one: a ping leaves it, a turn with
   await $.tool.call({ tool: INTENT, now: 2 } as any)
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: '… steps' })).toBeDefined()
-  expect(await colorOf(ui, /^✓ $/)).toBe('#4f5c68')
+  expect(await colorOf(ui, /^✓ $/, 'o:step:0')).toBe('#4f5c68')
   await turnEnd($)
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: /^✓ done / })).toBeDefined()
@@ -2771,7 +2774,7 @@ test("a background task's result carries the report on: kept, its ping moves the
   expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '● working' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '1/2 steps' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^● $/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^● $/, in: 'row:o:step:1' })).toBeDefined()
 })
 
 // The tools the panel registers, and the rule the intent tool's description carries.
@@ -3213,7 +3216,7 @@ test('a rule from the text column sets TAKE and STEPS apart', async ($, on) => {
   expect(await ui.find({ key: 'rule:STEPS' })).toBeDefined()
 })
 
-const colorOf = async (ui: { find: (q: any) => Promise<any> }, text: string | RegExp) => (await ui.find({ type: 'Text', text }))?.props.color
+const colorOf = async (ui: { find: (q: any) => Promise<any> }, text: string | RegExp, row?: string) => (await ui.find({ type: 'Text', text, ...(row && { in: `row:${row}` }) }))?.props.color
 test('the status row is colored by state: working, done, stopped', async ($, on) => {
   const ui = await intentPane($, on)
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
@@ -3232,11 +3235,11 @@ test("a step's mark is colored apart from its text", async ($, on) => {
   const ui = await intentPane($, on)
   await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'completed' }, { text: 'plan', status: 'in_progress' }, { text: 'ship', status: 'pending' }] } as any)
   await ui.drawn()
-  expect(await colorOf(ui, /^✓ $/)).toBe('#5d9678')
-  expect(await colorOf(ui, /^spec$/)).toBe('#808286')
-  expect(await colorOf(ui, /^● $/)).toBe('claude')
-  expect(await colorOf(ui, /^plan$/)).toBe('claude')
-  expect(await colorOf(ui, /^○ $/)).toBe('#4f5c68')
+  expect(await colorOf(ui, /^✓ $/, 'o:step:0')).toBe('#5d9678')
+  expect(await colorOf(ui, /^spec$/, 'o:step:0')).toBe('#808286')
+  expect(await colorOf(ui, /^● $/, 'o:step:1')).toBe('claude')
+  expect(await colorOf(ui, /^plan$/, 'o:step:1')).toBe('claude')
+  expect(await colorOf(ui, /^○ $/, 'o:step:2')).toBe('#4f5c68')
 })
 
 // 20 body rows: the status row, its rule, ASK, TAKE's rule, TAKE and STEPS' rule leave 12 for steps.
@@ -3245,15 +3248,15 @@ test('steps past the body end in the ↓ N more cue; steps that fit get none', a
   const steps = Array.from({ length: 25 }, (_, i) => ({ text: `step ${i + 1}`, status: 'pending' }))
   await $.tool.call({ tool: INTENT, ...REPORT, steps } as any)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: 'step 11' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'step 12' })).toBeUndefined()
+  expect(await rowText(ui, / step 11$/)).toBeDefined()
+  expect(await rowText(ui, / step 12$/)).toBeUndefined()
   expect(await colorOf(ui, ' 14 more')).toBe('#4f5c68')
   expect(await ui.find({ type: 'Button', key: 'steps:down' })).toBeDefined()
   // An ASK wrapping to 3 rows at the 29-column text width takes 2 of them.
   await $.tool.call({ tool: INTENT, ...REPORT, wants: Array(7).fill('abcdefghi').join(' '), steps } as any)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: 'step 9' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'step 10' })).toBeUndefined()
+  expect(await rowText(ui, / step 9$/)).toBeDefined()
+  expect(await rowText(ui, / step 10$/)).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: ' 16 more' })).toBeDefined()
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await ui.drawn()
@@ -3373,7 +3376,7 @@ const stepsPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]
   await ui.drawn()
   const wheel = (by: number, row = 6) =>
     $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 14 + BAR_ROWS, contentRows: 14 + BAR_ROWS, origin: { kind: 'person' }, pointer: { column: 0, row } })
-  const shown = async (n: number) => (await ui.find({ type: 'Text', text: `step ${n}` })) !== undefined
+  const shown = async (n: number) => (await rowText(ui, new RegExp(` step ${n}$`))) !== undefined
   return { ui, wheel, shown }
 }
 
@@ -3440,8 +3443,8 @@ test("STEPS follow to the last row of the step in progress: its agents show", as
   const steps = Array.from({ length: 14 }, (_, i) => ({ text: `step ${i + 1}`, status: i < 9 ? 'completed' : i === 9 ? 'in_progress' : 'pending', ...(i === 9 && { agents: ['agent a', 'agent b'] }) }))
   await $.tool.call({ tool: INTENT, ...REPORT, steps } as any)
   await ui.drawn()
-  expect(await ui.find({ key: 'agent:9:0' })).toBeDefined()
-  expect(await ui.find({ key: 'agent:9:1' })).toBeDefined()
+  expect(await pieces(ui, 'o:agent:9:0')).toBeDefined()
+  expect(await pieces(ui, 'o:agent:9:1')).toBeDefined()
 })
 
 test('a step taller than the zone keeps its first row in view when followed', async ($, on) => {
@@ -3449,7 +3452,7 @@ test('a step taller than the zone keeps its first row in view when followed', as
   const steps = Array.from({ length: 8 }, (_, i) => ({ text: `step ${i + 1}`, status: i < 6 ? 'completed' : i === 6 ? 'in_progress' : 'pending', ...(i === 6 && { agents: ['a', 'b', 'c'] }) }))
   await $.tool.call({ tool: INTENT, ...REPORT, wants: Array(15).fill('abcdefghi').join(' '), steps } as any)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: 'step 7' })).toBeDefined()
+  expect(await rowText(ui, / step 7$/)).toBeDefined()
 })
 
 test('a press on a STEPS cue stops following; the wheel keeps within the steps', async ($, on) => {
@@ -3483,12 +3486,12 @@ test('a now ping marks the steps before it done and its own in progress', async 
   expect(await $.tool.call({ tool: INTENT, now: 2 } as any)).toMatchObject({ result: 'ok' })
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: '1/3 steps' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^○ $/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^○ $/, in: 'row:o:step:2' })).toBeDefined()
   await $.tool.call({ tool: INTENT, now: 3 } as any)
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: '2/3 steps' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^○ $/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^● $/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^○ $/, in: 'row:o:step:2' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^● $/, in: 'row:o:step:2' })).toBeDefined()
   // The report's own words stay.
   expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
 })
@@ -3511,16 +3514,33 @@ test('a report past the footer is cut at the bottom, never squeezed', async ($, 
 
 test('the status row is the footer, under TOPIC and the report, with or without topics', async ($, on) => {
   const ui = await twelveTopics($, on)
-  const order = async () => (await ui.findAll({ type: 'Text' })).map((t: any) => t.text as string)
+  // Draw order: each Text's string, each row Client's left pieces joined.
+  const order = async () => {
+    const out: string[] = []
+    const walk = (n: any) => {
+      if (!n || typeof n !== 'object') return
+      if (Array.isArray(n)) return n.forEach(walk)
+      if (Array.isArray(n.props?.props?.left)) out.push(n.props.props.left.map((x: any) => x.text).join(''))
+      else if (n.type === 'Text') {
+        const own = [n.children ?? n.props?.children].flat().filter((c: unknown) => typeof c === 'string')
+        if (own.length) out.push(own.join(''))
+      }
+      walk([n.children, n.props?.children])
+    }
+    walk(await ui.drawn())
+    return out
+  }
   let all = await order()
   expect(all.indexOf('topic 11')).toBeLessThan(all.indexOf('a third tab'))
-  expect(all.indexOf('plan')).toBeLessThan(all.indexOf('● working'))
+  expect(all.indexOf('○ plan')).toBeGreaterThan(-1)
+  expect(all.indexOf('○ plan')).toBeLessThan(all.indexOf('● working'))
   expect(await ui.find({ type: 'Box', key: 'footer' })).toBeDefined()
   await $.session.end({ reason: 'clear', sessionId: 'chat-1' } as any)
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   all = await order()
   expect(all.includes('TOPIC')).toBe(false)
-  expect(all.indexOf('plan')).toBeLessThan(all.indexOf('● working'))
+  expect(all.indexOf('○ plan')).toBeGreaterThan(-1)
+  expect(all.indexOf('○ plan')).toBeLessThan(all.indexOf('● working'))
 })
 
 test('a report missing ASK or TAKE keeps the last ones', async ($, on) => {
@@ -3715,12 +3735,63 @@ const agentsPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1
   return intentPane($, on)
 }
 const spawn = ($: Parameters<TestBody>[0], description: string, extra = {}) => $.agent.spawn({ prompt: 'p', description, ...extra } as any)
-// An agent row: its whole text, then its glyph's and description's colors, however deep its Texts sit.
 const texts = (node: any): any[] => (node?.type === 'Text' ? [node] : (node?.children ?? []).flatMap(texts))
+// An Overview row Client's left pieces, by its row key.
+const pieces = async (ui: { find: (q: any) => Promise<any> }, key: string) =>
+  (await ui.find({ key: `row:${key}` }))?.props?.props?.left as { text: string; color?: string; bold?: boolean; inverse?: boolean }[] | undefined
 const agentRow = async (ui: { find: (q: any) => Promise<any> }, step: number, n: number) => {
-  const row = await ui.find({ key: `agent:${step}:${n}` })
-  return row && { text: row.text as string, glyph: texts(row)[1]?.props?.color, color: texts(row)[2]?.props?.color }
+  const p = await pieces(ui, `o:agent:${step}:${n}`)
+  return p && { text: p.map(x => x.text).join(''), glyph: p[1]?.color, color: p[2]?.color }
 }
+const tapRow = async (ui: any, key: string) => {
+  await ui.resize({ columns: 30, rows: 1, in: `row:${key}` })
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: `row:${key}` })
+  await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: `row:${key}` })
+}
+const hoverRow = (ui: any, key: string) => ui.pointer({ type: 'enter', x: 0, y: 0, in: `row:${key}` })
+// The drawn tree's nodes passing `test`; the hover card Box scoped `card:<key>` (git-top.test.ts:1653).
+const findIn = (node: any, test: (n: any) => boolean): any[] =>
+  !node || typeof node !== 'object' ? [] : Array.isArray(node) ? node.flatMap(n => findIn(n, test)) : [...(test(node) ? [node] : []), ...findIn([node.props?.children, node.children], test)]
+const cardBox = async (ui: { drawn: () => Promise<unknown> }, key: string) =>
+  findIn(await ui.drawn(), n => n.hover?.scope === `card:${key}` && n.props?.position === 'absolute')[0]
+// Its Texts: each own string and its color.
+const cardTexts = async (ui: { drawn: () => Promise<unknown> }, key: string) => {
+  const own = (n: any) => [n.children ?? n.props?.children].flat().filter((c: unknown) => typeof c === 'string').join('')
+  return findIn(await cardBox(ui, key), n => n.type === 'Text').map(n => [own(n), n.props?.color] as const).filter(([t]) => t.trim())
+}
+
+test('a step card names its status in its mark color', async ($, on) => {
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'completed' }, { text: 'plan', status: 'in_progress' }, { text: 'ship', status: 'pending' }] } as any)
+  await ui.drawn()
+  for (const [i, word, color] of [[0, 'done', '#5d9678'], [1, 'working', 'claude'], [2, 'not started', '#4f5c68']] as const) {
+    await hoverRow(ui, `o:step:${i}`)
+    expect(await cardTexts(ui, `o:step:${i}`)).toEqual([['status  ', '#4f5c68'], [word, color]])
+  }
+})
+
+test('an agent card names its status in its mark color', async ($, on) => {
+  const ui = await agentsPane($, on, { a1: 'completed', a2: 'pending', a3: 'killed', a4: 'failed', a5: 'running' })
+  await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'in_progress', agents: ['c', 'p', 'k', 'f', 'r', 'x'] }] } as any)
+  for (const one of ['c', 'p', 'k', 'f', 'r']) await spawn($, one)
+  await ui.press({ key: 'more:0' })
+  await ui.drawn()
+  const words = [['done', '#5d9678'], ['not started', '#4f5c68'], ['stopped', '#8c7850'], ['failed', '#e06c75'], ['running', 'claude'], ['not started', '#4f5c68']]
+  for (const [n, [word, color]] of words.entries()) expect((await cardTexts(ui, `o:agent:0:${n}`))[1]).toEqual([word, color])
+})
+
+// 14 body rows: steps 1 to 5 shown on tab rows 4 to 8 over a ↓ cue; 8 + 4 + 1 passes the 12 tab rows.
+test('a card on the last STEPS row opens upward', async ($, on) => {
+  const { ui } = await stepsPane($, on, 1)
+  expect((await cardBox(ui, 'o:step:4'))?.props.top).toBeLessThan((await cardBox(ui, 'o:step:0'))?.props.top)
+})
+
+test('each tab keeps its own row hover state', () => {
+  expect(hoverOf('o:step:0')).toBe(rowHovers.Overview)
+  expect(hoverOf('o:agent:0:0')).toBe(rowHovers.Overview)
+  expect(hoverOf('branch')).toBe(rowHovers.Git)
+  expect(rowHovers.Git).not.toBe(rowHovers.Overview)
+})
 
 test('a listed agent shows planned, then live under its step', async ($, on) => {
   const status = { a1: 'running' }
@@ -3894,14 +3965,13 @@ test("clicking a live agent row opens its transcript, its whole row lit while in
   await spawn($, 'Read code')
   await ui.drawn()
   // The planned 'Check API' has no agent to open.
-  expect((await ui.findAll({ type: 'Button' })).filter(one => one.key?.startsWith('view:')).map(one => one.key)).toEqual(['view:a1'])
-  await ui.press({ key: 'view:a1' })
+  await tapRow(ui, 'o:agent:1:0')
+  expect(views).toEqual([])
+  await tapRow(ui, 'o:agent:0:0')
   await ui.redraw({ ...props, view: { agentId: 'a1' } })
   // Lit as the shown tab is: the whole row, padded to the pane's edge.
-  const lit = (await ui.find({ key: 'agent:0:0' })).text as string
-  expect(lit).toBe(`└ ◌ Read code${' '.repeat(40 - 4 - 7 - 13)}`)
-  expect((await ui.find({ type: 'Text', text: /^└ ◌ Read code/ }))?.props).toMatchObject({ bold: true, inverse: true, color: 'claude' })
-  await ui.press({ key: 'view:a1' })
+  expect((await pieces(ui, 'o:agent:0:0'))?.[0]).toMatchObject({ text: `└ ◌ Read code${' '.repeat(40 - 4 - 7 - 13)}`, bold: true, inverse: true, color: 'claude' })
+  await tapRow(ui, 'o:agent:0:0')
   expect(views).toEqual(['a1', undefined])
 })
 
@@ -3916,7 +3986,7 @@ test('an agent the engine will not show says why', async ($, on) => {
   await $.tool.call({ tool: INTENT, ...AGENTS_REPORT } as any)
   await spawn($, 'Read code')
   await ui.drawn()
-  await ui.press({ key: 'view:a1' })
+  await tapRow(ui, 'o:agent:0:0')
   expect(toasts).toEqual(['no such agent'])
 })
 
@@ -3930,11 +4000,12 @@ test("in an agent's transcript, its step's row goes back to the main conversatio
   await $.tool.call({ tool: INTENT, ...AGENTS_REPORT } as any)
   await spawn($, 'Read code')
   await ui.drawn()
-  expect(await ui.find({ key: 'main' })).toBeUndefined()
+  await tapRow(ui, 'o:step:0')
+  expect(views).toEqual([])
   await ui.redraw({ ...props, view: { agentId: 'a1' } })
   // Only the step the viewed agent hangs under.
-  expect((await ui.find({ key: 'main' }))?.text).toBe('● spec')
-  await ui.press({ key: 'main' })
+  expect((await pieces(ui, 'o:step:0'))?.map(x => x.text).join('')).toBe('● spec')
+  await tapRow(ui, 'o:step:0')
   expect(views).toEqual([undefined])
 })
 
