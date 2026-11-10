@@ -176,7 +176,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     if (shown.deny) $.ui.toast(shown.deny)
   }
   // A line a label card dims: nested, it follows the card's group but cannot heat it, so only the word does.
-  const dimText = (hover: object | undefined, color: string | undefined, children: unknown, wrap?: 'wrap') => (
+  const dimText = (hover: object | undefined, color: string | undefined, children: JSX.Children, wrap?: 'wrap') => (
     <Text wrap={wrap} color={color}>
       <Text color={color} hover={hover}>{children}</Text>
     </Text>
