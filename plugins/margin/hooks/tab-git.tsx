@@ -3,12 +3,13 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Check, CheckState, CommitView, Counts, FileView, Gh, LogRow, Modal, ModalKey, Op, Pr, PrState, PrView, Stage, Word } from '../types'
 import { LOG_FORMAT, age, ago, branches, cutMiddle, fileKey, incomingPrs, ownPrs, parseHead, parseLog, parseMerge, parseNumstat, parseRebase, parseShortstat, parseStatusZ, printable, sortChecks, stashCount, syncMark, treeRows, worktrees, worst } from './git-data'
-import { AHEAD, BAR_ROWS, BEHIND, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, capped, card as kitCard, clock, configDir, contentFrame, cues, dayName, dim, drawLayer as kitDrawLayer, emptyNote, fade, fadeBg, fileView, fit, heading as kitHeading, kv as kitKv, line as kitLine, modalFrame, modalZone, nudge, readTheme, row as kitRow, rowHover, stackFrame, textLength, toPieces, zoneWindow } from './kit'
+import { AHEAD, BAR_ROWS, BEHIND, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, capped, card as kitCard, clock, configDir, contentFrame, cues, dayName, dim, drawLayer as kitDrawLayer, emptyNote, fade, fadeBg, fileView, fit, heading as kitHeading, kv as kitKv, line as kitLine, modalFrame, modalZone, nudge, readTheme, row as kitRow, rowHovers, stackFrame, textLength, toPieces, zoneWindow } from './kit'
 import type { Frame, Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, Zone } from './kit'
 import { mdRows } from './markdown'
 
 const submitted = atom({ plugin: 'margin', key: 'submitted' } as const, 0)
 const toolCalls = atom({ plugin: 'margin', key: 'toolCalls' } as const, 0)
+const rowHover = rowHovers.Git
 const rowPointer = atom({ plugin: 'margin', key: 'rowPointer' } as const, { left: null, at: null } as { left: string | null; at: string | null })
 const split = atom({ plugin: 'margin', key: 'split' } as const, -1)
 // The first row each Git zone shows, as the wheel moved it.
@@ -435,7 +436,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   const gone = pointer.left && spans[pointer.left]
   // A hover card's widest: 75% of the body.
   const cardWidth = Math.floor(props.bodyColumns * 0.75)
-  const rc: RowCtx = { el: ctx.el, dimmed, pointer, gone: gone || undefined, cards, columns: props.bodyColumns, cardWidth, up: upOf }
+  const rc: RowCtx = { el: ctx.el, hover: rowHover, dimmed, pointer, gone: gone || undefined, cards, columns: props.bodyColumns, cardWidth, up: upOf }
   const card = (scope: string, at: number, anchor: 'left' | 'right' | 'center', ...rows: JSX.Element[]) => kitCard(rc, scope, at, anchor, ...rows)
   const kv = (label: string, info: JSX.Element | string, right?: JSX.Element) => kitKv(rc, label, info, right)
   // Against the upstream: ✓ in sync, ↑ unpushed, ↓ unpulled, both when diverged; local never pushed, gone deleted.

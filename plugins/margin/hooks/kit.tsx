@@ -153,7 +153,7 @@ export const fadeTree = (node: unknown, keep: Set<string>, close: () => unknown,
   // Faded, nothing lights: a modal under a stacked one keeps its file rows dark.
   return { ...el, props, ...(!invert && { hover: undefined }), ...(el.children !== undefined && { children: kids(el.children) }) }
 }
-export type Piece = { text: string; color?: string; backgroundColor?: string; dimColor?: boolean; bold?: boolean; hover?: object; under?: object }
+export type Piece = { text: string; color?: string; backgroundColor?: string; dimColor?: boolean; bold?: boolean; hover?: object; under?: object; inverse?: boolean }
 export const fadePieces = (pieces: Piece[]) =>
   pieces.map(x => ({ ...x, color: PILL_CAPS.has(x.text) ? fadeBg(x.color) : fade(x.color), ...(x.backgroundColor && { backgroundColor: fadeBg(x.backgroundColor) }) }))
 // A row's Texts as a row Client's pieces, each with the styles it inherits.
@@ -162,8 +162,8 @@ export const toPieces = (node: unknown, style: Omit<Piece, 'text'> = {}): Piece[
   if (typeof node === 'string' || typeof node === 'number') return node === '' ? [] : [{ ...style, text: String(node) }]
   if (!node || typeof node !== 'object' || !('type' in node)) return []
   const el = node as { type: string; props?: Record<string, any>; children?: unknown }
-  const { color, backgroundColor, dimColor, bold } = el.type === 'Text' ? (el.props ?? {}) : {}
-  const own = Object.fromEntries(Object.entries({ color, backgroundColor, dimColor, bold }).filter(([, v]) => v !== undefined))
+  const { color, backgroundColor, dimColor, bold, inverse } = el.type === 'Text' ? (el.props ?? {}) : {}
+  const own = Object.fromEntries(Object.entries({ color, backgroundColor, dimColor, bold, inverse }).filter(([, v]) => v !== undefined))
   return toPieces(el.children ?? el.props?.children, { ...style, ...own })
 }
 export const dim = (hex: string) => `#${hex.slice(1).replace(/../g, c => Math.round(parseInt(c, 16) * 0.6).toString(16).padStart(2, '0'))}`
@@ -293,12 +293,16 @@ export const heading = (el: Els, label: string, right?: JSX.Element) => {
 }
 // The open modal's layers as last drawn, in tab-body cells: the wheel scrolls the top layer when over it.
 export type Layer = { frame: Frame; top: number; end: number }
-// As the last Git tab draw set them: `acts`, what a press on each top row's Client does; `spans`, the tab rows each
+// As the last draw of a tab set them: `acts`, what a press on each top row's Client does; `spans`, the tab rows each
 // top row's card spans, from its top to its end; `lines`, each top row's own.
-export const rowHover: { acts: Record<string, () => unknown>; spans: Record<string, [number, number]>; lines: Record<string, number> } = { acts: {}, spans: {}, lines: {} }
+export type RowHover = { acts: Record<string, () => unknown>; spans: Record<string, [number, number]>; lines: Record<string, number> }
+// Each tab's own: a stale draw of one never clears the other's.
+export const rowHovers: Record<'Git' | 'Overview', RowHover> = { Git: { acts: {}, spans: {}, lines: {} }, Overview: { acts: {}, spans: {}, lines: {} } }
+export const hoverOf = (row: string): RowHover => (row.startsWith('o:') ? rowHovers.Overview : rowHovers.Git)
 // What the Git draw's row and card closures read from its scope.
 export type RowCtx = {
   el: Els
+  hover: RowHover
   // Behind an open modal: no hover, card or link.
   dimmed: boolean
   // rowPointer as this draw read it.
@@ -318,12 +322,12 @@ export const row = (rc: RowCtx, key: string, left: any[], right: any[], o: { pie
   const { Box, Button } = rc.el
   const Client = 'Client' in rc.el ? rc.el.Client : undefined
   return Client ? (
-    <Box flexDirection="column" height={1} hover={rc.dimmed ? undefined : { scope: `card:${key}`, ...(!o.act && key in rowHover.acts && { backgroundColor: LIT }) }} {...(o.width !== undefined && { width: o.width, flexShrink: 0 })}>
+    <Box flexDirection="column" height={1} hover={rc.dimmed ? undefined : { scope: `card:${key}`, ...(!o.act && key in rc.hover.acts && { backgroundColor: LIT }) }} {...(o.width !== undefined && { width: o.width, flexShrink: 0 })}>
       <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left: o.pieces(key, left), right: o.pieces(key, right), ...(!rc.dimmed && { line: `line:${o.line}` }) }} />
     </Box>
   ) : (
     <Box key={`hov:${key}`} hover={rc.dimmed ? undefined : { scope: `card:${key}` }} justifyContent="space-between" height={1} overflow="hidden" {...(o.width !== undefined && { flexShrink: 0 })}>
-      <Button key={`git:${key}`} plain onPress={() => rowHover.acts[key]?.()}>
+      <Button key={`git:${key}`} plain onPress={() => rc.hover.acts[key]?.()}>
         {left}
       </Button>
       <Box flexShrink={0}>{right}</Box>
@@ -341,7 +345,7 @@ export const card = (rc: RowCtx, scope: string, at: number, anchor: 'left' | 'ri
   const place = anchor === 'left' ? { left: 0 } : anchor === 'right' ? { right: 0 } : { left: Math.floor((rc.columns - width) / 2) - PAD }
   // Its border and rows, from at + 2.
   const top = rc.up(at, rows.length) ? at - rows.length - 3 : at + 2
-  const span = (rowHover.spans[key] = [top, top + 2 + rows.length])
+  const span = (rc.hover.spans[key] = [top, top + 2 + rows.length])
   const over = !!rc.gone && span[0] < rc.gone[1] && rc.gone[0] < span[1]
   if (!rc.dimmed && (!Client || key === rc.pointer.at || (key !== rc.pointer.left && !over)))
     rc.cards.push(

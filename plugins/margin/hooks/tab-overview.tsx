@@ -2,8 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { AgentRow, Modal, Spawn, Step, Take } from '../types'
-import { BAR_ROWS, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, SCOPE, TYPES, USE_KINDS, clock, cues, drawLayer, emptyNote, fit, heading, modalFrame, modalZone, zoneWindow } from './kit'
-import type { Layer, LayerCtx, TabCtx, TabDraw, UseKind, Zone } from './kit'
+import { BAR_ROWS, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, row as kitRow, rowHovers, toPieces, zoneWindow } from './kit'
+import type { Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, UseKind, Zone } from './kit'
 
 const intent = atom({ plugin: 'margin', key: 'intent' } as const, EMPTY_INTENT)
 const overview = atom({ plugin: 'margin', key: 'overview' } as const, EMPTY_OVERVIEW)
@@ -13,6 +13,7 @@ const used = atom({ plugin: 'margin', key: 'used' } as const, EMPTY_USED)
 const modal = atom({ plugin: 'margin', key: 'modal' } as const, null as Modal | null)
 const stepsTop = atom({ plugin: 'margin', key: 'stepsTop' } as const, 0)
 const stepsFollow = atom({ plugin: 'margin', key: 'stepsFollow' } as const, true)
+const rowPointer = atom({ plugin: 'margin', key: 'rowPointer' } as const, { left: null, at: null } as { left: string | null; at: string | null })
 
 // The name a USED row shows for a full value.
 export const shortName = (kind: UseKind, name: string, source?: string): string => {
@@ -34,6 +35,11 @@ let stepsHeld: number | undefined
 export function resetStepsHeld() {
   stepsHeld = undefined
 }
+
+const STEP_WORD: Record<Step['status'], string> = { completed: 'done', in_progress: 'working', pending: 'not started' }
+const AGENT_WORD: Record<AgentRow['status'], string> = { completed: 'done', pending: 'not started', planned: 'not started', running: 'running', waiting: 'waiting', idle: 'idle', failed: 'failed', killed: 'stopped' }
+// A STEPS row: a step or agent with its card, or a fold toggle.
+type StepLine = { key?: string; left?: JSX.Element[]; word?: string; mark?: string; node?: JSX.Element }
 
 const WORKING = ['running', 'waiting', 'idle']
 export const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
@@ -127,6 +133,23 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   // The tab body the modal sits in, under the tabs and their rule.
   const tabRows = props.scroll.bodyRows - 2 - BAR_ROWS
   const LABEL = 7
+  // A step or agent row is a row Client; its card shows on hover, as the Git tab's rows do.
+  const hv = rowHovers.Overview
+  const dimmed = modalNow?.key === 'topics' || (modalNow?.key as string | undefined) === 'used'
+  const pointer = await read($, rowPointer)
+  const spans = hv.spans
+  hv.spans = {}
+  hv.acts = {}
+  hv.lines = {}
+  const gone = pointer.left && spans[pointer.left]
+  const cards: JSX.Element[] = []
+  const upOf = (at: number, n: number) => at + 4 + n > tabRows
+  const rc: RowCtx = { el: ctx.el, hover: hv, dimmed, pointer, gone: gone || undefined, cards, columns: props.bodyColumns, cardWidth: Math.floor(props.bodyColumns * 0.75), up: upOf }
+  const acts: Record<string, () => unknown> = {}
+  const view = async (id?: string) => {
+    const shown = await $.ui.view(id && ctx.viewing() !== id ? { agentId: id } : {})
+    if (shown.deny) $.ui.toast(shown.deny)
+  }
   // Purple inline label, the text wrapping under itself.
   const labelled = (label: string, text: string, color?: string) => (
     <Box key={label}>
@@ -280,7 +303,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                     <Text bold color={HUD.label}>STEPS</Text>
                   </Box>
                   <Box flexDirection="column" width={width - LABEL}>
-                    {((perStep: unknown[][]) => {
+                    {((perStep: StepLine[][]) => {
                       const rows = perStep.flat()
                       // Following, the step in progress kept in view, scrolled as little as that takes.
                       const doing = following ? shown.steps.findIndex(step => step.status === 'in_progress') : -1
@@ -306,7 +329,26 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                         },
                       })
                       const stepCues = cues(ctx.el, 'steps', width - LABEL, w, setSteps)
-                      return [w.above > 0 && stepCues.up, ...rows.slice(w.top, w.top + w.shown), w.below > 0 && stepCues.down]
+                      hv.acts = dimmed ? {} : acts
+                      // Tab-body rows: the zone's start counts the tabs bar too.
+                      const atOf = (k: number) => from - 2 + (w.above > 0 ? 1 : 0) + (k - w.top)
+                      hv.lines = Object.fromEntries(rows.flatMap((r, k) => (r.key && k >= w.top && k < w.top + w.shown ? [[r.key, atOf(k)]] : [])))
+                      const inWindow = (k: number) => k >= w.top && k < w.top + w.shown && !!rows[k]?.key
+                      // The line between a row and its card dims, as the Git tab's: the next row when the card opens down, the one above when up.
+                      const faded = (scope: string, x: Piece) => ({ scope, color: PILL_CAPS.has(x.text) ? fadeBg(x.color) : fade(x.color), ...(x.backgroundColor && { backgroundColor: fadeBg(x.backgroundColor) }) })
+                      const dimOn = (k: number, pieces: Piece[]) => {
+                        if (dimmed) return pieces
+                        const fromAbove = inWindow(k - 1) && !upOf(atOf(k - 1), 1)
+                        const fromBelow = inWindow(k + 1) && upOf(atOf(k + 1), 1)
+                        return pieces.map(x => ({ ...x, ...(fromAbove && { hover: faded(`line:${k - 1}`, x) }), ...(fromBelow && { under: faded(`line:${k + 1}`, x) }) }))
+                      }
+                      const shownRows = rows.slice(w.top, w.top + w.shown).map((r, n) => {
+                        if (!r.key) return r.node
+                        const k = w.top + n
+                        kitCard(rc, `card:${r.key}`, atOf(k), 'center', kitKv(rc, 'status', <Text color={r.mark}>{r.word}</Text>))
+                        return kitRow(rc, r.key, r.left!, [], { pieces: (key, node) => dimOn(k, toPieces(node)), line: k, act: false })
+                      })
+                      return [w.above > 0 && stepCues.up, ...shownRows, w.below > 0 && stepCues.down]
                     })(shown.steps.map((step, i) => {
                       const all = agentRows[i] ?? []
                       // Past 3, the rest fold into a count, so a fan-out does not push later steps out of view.
@@ -319,50 +361,40 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                         .join(' ')
                       // In an agent's transcript, that agent's step leads back to the main conversation.
                       const stepLine = [
-                        <Text key="mark" color={shade(MARK_SHADE[step.status])}>{MARK[step.status]} </Text>,
+                        <Text key="mark" color={shade(MARK_SHADE[step.status])}>{`${MARK[step.status]} `}</Text>,
                         <Text key="text" color={shade(TEXT_SHADE[step.status])}>{fit(step.text, width - LABEL - 2)}</Text>,
                       ]
                       // A spawned agent's row opens its transcript; the one in view is lit across the row, as the shown tab is.
-                      const agentLine = (row: AgentRow, tree: string) => {
+                      const agentLine = (row: AgentRow, tree: string, j: number): StepLine => {
                         const [glyph, color] = AGENT_MARK[row.status]
                         const text = fit(row.description, width - LABEL - 4)
-                        const line =
+                        const key = `o:agent:${i}:${j}`
+                        if (row.id) acts[key] = () => view(row.id)
+                        const left =
                           row.id && row.id === ctx.viewing()
-                            ? <Text bold inverse color={shade('claude')}>{`${tree}${glyph} ${text}`.padEnd(width - LABEL)}</Text>
+                            ? [<Text bold inverse color={shade('claude')}>{`${tree}${glyph} ${text}`.padEnd(width - LABEL)}</Text>]
                             : [
                                 <Text key="tree" color={shade(HUD.faint)}>{tree}</Text>,
-                                <Text key="mark" color={shade(color)}>{glyph} </Text>,
+                                <Text key="mark" color={shade(color)}>{`${glyph} `}</Text>,
                                 <Text key="text" color={shade(agentText(row.status))}>{text}</Text>,
                               ]
-                        return row.id ? (
-                          <Button key={`view:${row.id}`} plain onPress={() => $.ui.view(ctx.viewing() === row.id ? {} : { agentId: row.id })}>
-                            {line}
-                          </Button>
-                        ) : (
-                          line
-                        )
+                        return { key, left, word: AGENT_WORD[row.status], mark: shade(color) }
                       }
-                      const toggle = (key: string, label: string, to: number) => (
-                        <Button key={key} plain onPress={() => update($, expanded, () => to)}>
-                          <Text color={shade(HUD.faint)}>└ </Text>
-                          <Text color={shade(HUD.faint)}>{label}</Text>
-                        </Button>
-                      )
+                      const toggle = (key: string, label: string, to: number): StepLine => ({
+                        node: (
+                          <Button key={key} plain onPress={() => update($, expanded, () => to)}>
+                            <Text color={shade(HUD.faint)}>└ </Text>
+                            <Text color={shade(HUD.faint)}>{label}</Text>
+                          </Button>
+                        ),
+                      })
+                      const stepKey = `o:step:${i}`
+                      if (all.some(row => row.id && row.id === ctx.viewing())) acts[stepKey] = () => view()
                       return [
-                        <Box key={`step:${i}`}>
-                          {all.some(row => row.id && row.id === ctx.viewing()) ? (
-                            <Button key="main" plain onPress={() => $.ui.view({})}>
-                              {stepLine}
-                            </Button>
-                          ) : (
-                            stepLine
-                          )}
-                        </Box>,
-                        ...rows.map((row, j) => (
-                          <Box key={`agent:${i}:${j}`}>{agentLine(row, j === rows.length - 1 && !folds ? '└ ' : '├ ')}</Box>
-                        )),
+                        { key: stepKey, left: stepLine, word: STEP_WORD[step.status], mark: shade(MARK_SHADE[step.status]) },
+                        ...rows.map((row, j) => agentLine(row, j === rows.length - 1 && !folds ? '└ ' : '├ ', j)),
                         folds && (hidden.length ? toggle(`more:${i}`, `… ${hidden.length} more  ${counts}`, i) : toggle('less', '… less', -1)),
-                      ].filter(Boolean)
+                      ].filter(Boolean) as StepLine[]
                     }))}
                   </Box>
                 </Box>
@@ -402,6 +434,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
           </Box>
         </Box>
         {hasReport && statusRow}
+        {cards}
         {modalBox}
       </Box>
     )

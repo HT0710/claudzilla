@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { CommitView, LogRow, Gh, Intent, Modal, PrView, Spawn, Step, Tab, Take } from '../types'
 import { parseCommitView, parsePrView, parsePrs, printable } from './git-data'
-import { BAR_ROWS, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, WHEEL_HOLD, applyPalette, configDir, clock, dim, drawnZones, emptyNote as kitEmptyNote, fadeTree, fileView, fit, keepZones, modalOpen, rowHover, setZones } from './kit'
+import { BAR_ROWS, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, WHEEL_HOLD, applyPalette, configDir, clock, dim, drawnZones, emptyNote as kitEmptyNote, fadeTree, fileView, fit, hoverOf, keepZones, modalOpen, setZones } from './kit'
 import type { Prompt, TabCtx, TabDraw, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
@@ -1100,14 +1100,7 @@ export const register: Register = (on, options) => {
       await setModal($, m => (m?.sub && !isTab ? { ...m, sub: undefined } : null))
       if (!isTab) return { element: e.element }
     }
-    // Agent rows redraw mid-turn too: their fold and their transcript take the tabs' route.
-    if (e.element === 'main' || e.element?.startsWith('view:')) {
-      const id = e.element.slice(5)
-      const shown = await $.ui.view(e.element === 'main' || viewing === id ? {} : { agentId: id })
-      if (shown.deny) $.ui.toast(shown.deny)
-
-      return { element: e.element }
-    }
+    // Agent rows redraw mid-turn too: their fold takes the tabs' route.
     if (e.element === 'less' || e.element?.startsWith('more:')) {
       await update($, expanded, () => (e.element === 'less' ? -1 : Number(e.element!.slice(5))))
 
@@ -1133,8 +1126,8 @@ export const register: Register = (on, options) => {
       const data = e.data as { hover?: boolean; press?: boolean } | undefined
       // A row under the left row's card is entered as the pointer lands on that card: its card stays undrawn.
       const under = (left: string | null) => {
-        const span = left ? rowHover.spans[left] : undefined
-        return !!span && rowHover.lines[row]! >= span[0] && rowHover.lines[row]! < span[1]
+        const span = left ? hoverOf(row).spans[left] : undefined
+        return !!span && hoverOf(row).lines[row]! >= span[0] && hoverOf(row).lines[row]! < span[1]
       }
       if (data?.hover) {
         const held = leaving?.row
@@ -1153,7 +1146,7 @@ export const register: Register = (on, options) => {
       if (data?.press) {
         leaving = undefined
         await update($, rowPointer, () => ({ left: null, at: null }))
-        await rowHover.acts[row]?.()
+        await hoverOf(row).acts[row]?.()
       }
       return {}
     }
