@@ -15,6 +15,7 @@ Non-coding question: Ponytail off; Caveman + `response-format.md` stay on.
 - Ambiguity that changes the work → ask. Ambiguity with a sane default → take it, name it in one line.
 - Confused → say what's confusing. Never paper over it.
 - Repo comment style exists → match it. None → `comments.md`.
+- Caveman "no follow-up offers" → the `response-format.md` `Next:` line still goes out; it is not an offer.
 
 ## RTK - Rust Token Killer
 
