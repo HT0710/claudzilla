@@ -3302,6 +3302,15 @@ test('USED lists each kind used this turn under STEPS', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: /^web/ })).toBeUndefined()
 })
 
+test('a USED name with control characters draws on its one row as spaces', async ($, on) => {
+  on('tool.call', () => ({ result: {} }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await $.tool.call({ tool: 'Grep', pattern: 'a\nb\x1bc' } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'a b c' })).toBeDefined()
+})
+
 test('USED kinds pad to the longest shown plus 2 spaces', async ($, on) => {
   on('tool.call', () => ({ result: {} }) as any)
   const ui = await intentPane($, on)
