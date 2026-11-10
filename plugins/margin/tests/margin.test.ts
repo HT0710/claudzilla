@@ -3860,6 +3860,22 @@ test('a label card dims the line under it; behind a modal it does not show', asy
 })
 
 // A card opens at the row two under its label, or upward: label row - card lines - 3 (kit card).
+// The pointer leaves a step row for the label column, which has no row Client: the step stays the row left.
+test('a label card shows after the pointer leaves a step row whose card it overlaps', async ($, on) => {
+  const clock = mock.clock(on)
+  on('tool.call', () => ({ result: {} }) as any)
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('fs.read', () => ({ value: '' }))
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts' } as any)
+  await hoverRow(ui, 'o:step:0')
+  await ui.pointer({ type: 'leave', x: 0, y: 0, in: 'row:o:step:0' })
+  await clock.advance(30)
+  for (const label of ['TAKE', 'PLAN', 'USED']) expect([label, !!(await cardBox(ui, `o:label:${label}`))]).toEqual([label, true])
+})
+
 test('each label card opens at its own row', async ($, on) => {
   const ui = await labelled($, on)
   const tops = { SESSION: 2, TOPIC: 6, ASK: 9, TAKE: 11, PLAN: 13, USED: 8 }
