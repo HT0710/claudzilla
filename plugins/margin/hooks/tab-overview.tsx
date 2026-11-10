@@ -2,7 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { AgentRow, Modal, Spawn, Step, Take } from '../types'
-import { BAR_ROWS, DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, row as kitRow, rowHovers, toPieces, zoneWindow } from './kit'
+import { printable } from './git-data'
+import { BAR_ROWS, DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, LIT, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, row as kitRow, rowHovers, toPieces, zoneWindow } from './kit'
 import type { Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, UseKind, Zone } from './kit'
 
 const intent = atom({ plugin: 'margin', key: 'intent' } as const, EMPTY_INTENT)
@@ -94,10 +95,12 @@ export const wrapLines = (text: string, w: number): string[] =>
 export type OverviewCtx = TabCtx & {
   // The agent whose transcript the main view shows; read when drawn and when pressed.
   viewing: () => string | undefined
+  // A skill's SKILL.md as its prompt reported it.
+  skillPath: (name: string) => string | undefined
 }
 
 export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDraw> {
-  const { Box, Button, Text } = ctx.el
+  const { Box, Button, Link, Text } = ctx.el
   const { props } = ctx
   const drawn: Zone[] = []
   const shown = await read($, intent)
@@ -105,6 +108,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const agentRows = hang(shown.steps, await read($, spawns), shown.turn ?? -1)
   const open = await read($, expanded)
   const modalNow = await read($, modal)
+  const usedNow = await read($, used)
+  const usedShown = shown.waiting ? (usedNow.last ?? {}) : usedNow.kinds
   const width = props.bodyColumns - 2 * PAD
   // Only the first read builds the list; every later one updates the topics shown.
   const readSlot = about.running ? (about.topics.length ? 'updating…' : 'reading…') : about.failed ? 'update failed' : ''
@@ -145,7 +150,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const LABEL = 7
   // A step or agent row is a row Client; its card shows on hover, as the Git tab's rows do.
   const hv = rowHovers.Overview
-  const dimmed = modalNow?.key === 'topics' || (modalNow?.key as string | undefined) === 'used'
+  const dimmed = modalNow?.key === 'topics' || modalNow?.key === 'used'
   const pointer = await read($, rowPointer)
   const spans = hv.spans
   hv.spans = {}
@@ -209,7 +214,77 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     const f = modalFrame(props.bodyColumns, tabRows, 5 + rows.length)
     return drawLayer($, lc, 'm', f, { top: f.top, left: f.left - PAD }, [], [heading(ctx.el, 'TOPICS', <Text color={HUD.faint}>{`${about.topics.length} total`}</Text>)], rows, modalNow!.top)
   }
-  const modalBox = topicsOpen ? topicsModal() : null
+  const usedKind = modalNow?.key === 'used' ? modalNow.kind : undefined
+  const usedEntry = usedKind && usedShown[usedKind]
+  const usedModal = async (kind: UseKind, entry: NonNullable<typeof usedEntry>) => {
+    const { names: recent, fromAgents = [], agentOf = {}, sourceOf = {} } = entry
+    // Claude's own names first, agents' after, each newest first.
+    const names = [...recent.filter(n => !fromAgents.includes(n)), ...recent.filter(n => fromAgents.includes(n))]
+    const cwd = await $.session.cwd().catch(() => '')
+    const home = await $.env.get('HOME').catch(() => undefined)
+    const sparks = await read($, spawns)
+    const hintOf = (name: string) => {
+      const one = agentOf[name] && sparks.find(s => s.id === agentOf[name])
+      return [one && fit(one.name ?? (one.type ?? '').replace(/^[^:]+:/, ''), 14), sourceOf[name]].filter(Boolean).join('  ')
+    }
+    const inner = modalFrame(props.bodyColumns, tabRows, 0).width - 4
+    const rows = names.map((name, i) => {
+      const glyph = i === names.length - 1 ? '└ ' : '├ '
+      const hint = hintOf(name)
+      const room = Math.max(1, inner - 3 - (hint ? hint.length + 2 : 0))
+      const text = printable(name)
+      // Path or URL pieces: a folder or path part SCOPE, every slash the border colour.
+      const parts = (segs: string[], tone: (i: number) => string | undefined) =>
+        segs.flatMap((seg, k) => [
+          ...(k ? [<Text key={`/${k}`} color="promptBorder">/</Text>] : []),
+          ...(seg ? [<Text key={`s${k}`} color={tone(k)}>{seg}</Text>] : []),
+        ])
+      let pieces: JSX.Element[] = [<Text>{text}</Text>]
+      if (kind === 'files') {
+        const rel = cwd && text.startsWith(`${cwd}/`) ? text.slice(cwd.length + 1) : home && text.startsWith(`${home}/`) ? `~/${text.slice(home.length + 1)}` : text
+        const cut = rel.length > room ? `…${rel.slice(1 - room)}` : rel
+        const segs = cut.split('/')
+        pieces = parts(segs, k => (k < segs.length - 1 ? SCOPE : undefined))
+      } else if (kind === 'memory') {
+        pieces = [<Text>{shortName('memory', text)}</Text>]
+      } else if (kind === 'web' && sourceOf[name] !== 'search') {
+        const rest = text.replace(/^https?:\/\//, '')
+        const q = rest.search(/[?#]/)
+        const segs = (q < 0 ? rest : rest.slice(0, q)).split('/')
+        pieces = [...parts(segs, k => (k ? SCOPE : undefined)), ...(q < 0 ? [] : [<Text color={HUD.faint}>{rest.slice(q)}</Text>])]
+      }
+      const main = <Text wrap="truncate-end">{pieces}</Text>
+      const path = kind === 'skills' ? ctx.skillPath(name) : kind === 'files' || kind === 'memory' ? name : undefined
+      const target =
+        kind === 'web' && sourceOf[name] !== 'search' ? (
+          <Link href={name}>{main}</Link>
+        ) : path ? (
+          <Button key={`m:use:${i}`} plain onPress={() => $.margin.show({ path, line: 1 })}>
+            {main}
+          </Button>
+        ) : (
+          main
+        )
+      return (
+        <Box justifyContent="space-between" gap={2}>
+          <Box flexShrink={1} overflow="hidden">
+            <Text color="promptBorder">{` ${glyph}`}</Text>
+            {target}
+          </Box>
+          {hint ? (
+            <Box flexShrink={0}>
+              <Text color={HUD.faint}>{hint}</Text>
+            </Box>
+          ) : null}
+        </Box>
+      )
+    })
+    const f = modalFrame(props.bodyColumns, tabRows, 5 + rows.length)
+    return drawLayer($, lc, 'm', f, { top: f.top, left: f.left - PAD }, [], [heading(ctx.el, kind.toUpperCase(), <Text color={HUD.faint}>{`${names.length} total`}</Text>)], rows, modalNow!.top)
+  }
+  const modalBox = topicsOpen ? topicsModal() : usedKind && usedEntry ? await usedModal(usedKind, usedEntry) : null
+  // Its list gone (a new prompt cleared it), the modal closes: left open, it would come back with the next list.
+  if (usedKind && !usedEntry) $.clock.after(0, () => ctx.setModal(m => (m?.key === 'used' ? null : m)))
   const layerZone = modalZone($, 'Overview', layers)
   if (layerZone) drawn.push(layerZone)
   const trace = {
@@ -221,8 +296,6 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const roomLeft =
     props.scroll.bodyRows - 2 - BAR_ROWS - (hasReport ? 2 : 0) - (zoned ? 2 + latestRows : 0) - sessionRows - reportRows - 1
   // USED under STEPS: its rule and a row per kind, only while STEPS keep 3 rows.
-  const usedNow = await read($, used)
-  const usedShown = shown.waiting ? (usedNow.last ?? {}) : usedNow.kinds
   const usedKinds = USE_KINDS.filter(kind => usedShown[kind])
   const usedRows = shown.wants && usedKinds.length && roomLeft - (1 + usedKinds.length) >= 3 ? 1 + usedKinds.length : 0
   const stepRoom = roomLeft - usedRows
@@ -462,21 +535,26 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                 const shorts = names.map(n => shortName(kind, n, sourceOf[n]))
                 const line = fit(shorts.join(', '), room)
                 const dh = dimFor(labelAt.USED! + i)
+                const act = () => ctx.setModal(() => ({ key: 'used', top: 0, kind }))
                 return (
                   <Box key={`used:${kind}`}>
                     <Box width={LABEL} flexShrink={0}>
                       {i === 0 ? labelWord('USED') : <Text>{''}</Text>}
                     </Box>
-                    <Text color={HUD.faint} hover={dh}>{kind.padEnd(kindW)}</Text>
-                    <Text color={shown.waiting ? HUD.faint : 'claude'} hover={dh}>{String(main).padStart(mainW)}</Text>
-                    <Text color={HUD.faint} hover={dh}>{extra.padEnd(extraW)}</Text>
-                    <Text hover={dh}>{'  '}</Text>
-                    {/* Cut as one line, then split back per name: an agent's name dims as its +N does. */}
-                    {names.map((name, n) => {
-                      const at = shorts.slice(0, n).join(', ').length + (n > 0 ? 2 : 0)
-                      const piece = line.slice(at - (n > 0 ? 2 : 0), at + shorts[n].length)
-                      return piece ? <Text key={name} color={shown.waiting || fromAgents.includes(name) ? HUD.faint : undefined} hover={dh}>{piece}</Text> : null
-                    })}
+                    <Box key={`o:usedrow:${kind}`} hover={{ backgroundColor: LIT }}>
+                      <Button key={`o:used:${kind}`} plain onPress={act}>
+                        <Text color={HUD.faint} hover={dh}>{kind.padEnd(kindW)}</Text>
+                        <Text color={shown.waiting ? HUD.faint : 'claude'} hover={dh}>{String(main).padStart(mainW)}</Text>
+                        <Text color={HUD.faint} hover={dh}>{extra.padEnd(extraW)}</Text>
+                        <Text hover={dh}>{'  '}</Text>
+                        {/* Cut as one line, then split back per name: an agent's name dims as its +N does. */}
+                        {names.map((name, n) => {
+                          const at = shorts.slice(0, n).join(', ').length + (n > 0 ? 2 : 0)
+                          const piece = line.slice(at - (n > 0 ? 2 : 0), at + shorts[n].length)
+                          return piece ? <Text key={name} color={shown.waiting || fromAgents.includes(name) ? HUD.faint : undefined} hover={dh}>{piece}</Text> : null
+                        })}
+                      </Button>
+                    </Box>
                   </Box>
                 )
               }),
@@ -488,5 +566,5 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
         {modalBox}
       </Box>
     )
-  return { body, zones: drawn, trace, ...(topicsOpen && { fade: { keep: new Set(['modal']), open: 'o:topics:all' } }) }
+  return { body, zones: drawn, trace, ...(topicsOpen && { fade: { keep: new Set(['modal']), open: 'o:topics:all' } }), ...(modalBox && usedKind && { fade: { keep: new Set(['modal']), open: `o:used:${usedKind}` } }) }
 }

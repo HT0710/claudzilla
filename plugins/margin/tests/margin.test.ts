@@ -4485,3 +4485,135 @@ test('a notch with no pointer scrolls COMMITS and leaves CHANGES', async ($, on)
   expect(await cueText(ui, 'changes')).toEqual({ up: false, down: true })
   expect(await rowText(ui, /file0\.ts/)).toBeDefined()
 })
+
+// Behind the modal the tab's own Texts stay, faded: modal checks look inside it.
+const modalTexts = async (ui: { drawn: () => Promise<unknown> }) => textsUnder(ui, 'modal')
+const inModal = async (ui: { drawn: () => Promise<unknown> }, text: string | RegExp) =>
+  (await modalTexts(ui)).find(t => (typeof text === 'string' ? t.text === text : text.test(t.text)))?.color
+const hasInModal = async (ui: { drawn: () => Promise<unknown> }, text: string | RegExp) =>
+  (await modalTexts(ui)).some(t => (typeof text === 'string' ? t.text === text : text.test(t.text)))
+const usedPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]) => {
+  on('tool.call', () => ({ result: {} }) as any)
+  on('session.cwd', () => ({ value: '/proj' }))
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }) as any)
+  const ui = await agentsPane($, on, {})
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  return ui
+}
+
+test("a USED row press opens that kind's modal; ✕ and a tab change close it", async ($, on) => {
+  const ui = await usedPane($, on)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/hooks/kit.tsx' } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts' } as any)
+  await $.tool.call({ tool: 'Grep', pattern: 'x' } as any)
+  await ui.press({ key: 'o:used:files' })
+  expect(await ui.find({ type: 'Text', text: 'FILES' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '2 total' })).toBeDefined()
+  expect(await hasInModal(ui, 'x')).toBe(false)
+  expect(await inModal(ui, 'hooks')).toBe('#808286')
+  expect(await inModal(ui, '/')).toBe('promptBorder')
+  expect(await inModal(ui, ' ├ ')).toBe('promptBorder')
+  await ui.press({ key: 'm:x' })
+  expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
+  await ui.press({ key: 'o:used:files' })
+  // The lit row behind the fade closes it too.
+  await ui.press({ key: 'open:o:used:files' })
+  expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
+  await ui.press({ key: 'o:used:files' })
+  await ui.press({ key: 'History' })
+  await ui.press({ key: 'Overview' })
+  expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
+})
+
+test('a file press opens it in the File tab through $.margin.show', async ($, on) => {
+  const ui = await usedPane($, on)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/hooks/kit.tsx' } as any)
+  await ui.press({ key: 'o:used:files' })
+  await ui.press({ key: 'm:use:0' })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'hooks/kit.tsx' })).toBeDefined()
+  expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
+})
+
+test('a skill press opens its SKILL.md; a skill with no path is a plain row', async ($, on) => {
+  on('skill.prompt', (_, e) => ({ text: e.text }) as any)
+  const ui = await usedPane($, on)
+  await $.skill.prompt({ skill: 'cavecrew', pluginName: 'caveman', text: '', path: '/p/cavecrew/SKILL.md' } as any)
+  await $.tool.call({ tool: 'Skill', skill: 'caveman:cavecrew' } as any)
+  await $.tool.call({ tool: 'Skill', skill: 'init' } as any)
+  await ui.press({ key: 'o:used:skills' })
+  expect(await ui.find({ type: 'Button', key: 'm:use:1' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'm:use:0' })).toBeUndefined()
+})
+
+test('web rows: a page links in parts, a search says search; other rows name their source', async ($, on) => {
+  const ui = await usedPane($, on)
+  await $.tool.call({ tool: 'WebSearch', query: 'ink overlay' } as any)
+  await $.tool.call({ tool: 'WebFetch', url: 'https://github.com/vadimdemedes/ink?tab=api#position' } as any)
+  await $.tool.call({ tool: 'mcp__claude_ai_slack__slack_send_message' } as any)
+  await ui.press({ key: 'o:used:web' })
+  expect((await ui.find({ type: 'Link' }))?.props.href).toBe('https://github.com/vadimdemedes/ink?tab=api#position')
+  expect(await inModal(ui, 'github.com')).toBeUndefined()
+  expect(await inModal(ui, 'vadimdemedes')).toBe('#808286')
+  expect(await inModal(ui, /^\?tab=api#position$/)).toBe('#4f5c68')
+  expect(await inModal(ui, 'search')).toBe('#4f5c68')
+  await ui.press({ key: 'm:x' })
+  await ui.press({ key: 'o:used:other' })
+  expect(await inModal(ui, 'slack_send_message')).toBeUndefined()
+  expect(await inModal(ui, 'slack')).toBe('#4f5c68')
+})
+
+test('the agent hint: launch name, else type without the plugin, else none', async ($, on) => {
+  const ui = await usedPane($, on)
+  await spawn($, 'one', { name: 'scout' })
+  await spawn($, 'two', { subagentType: 'caveman:cavecrew-investigator' })
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts', agentId: 'a1' } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/b.ts', agentId: 'a2' } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/c.ts', agentId: 'zz' } as any)
+  await ui.press({ key: 'o:used:files' })
+  // Newest first: c.ts (no record, no hint), b.ts, a.ts.
+  const hints = (await modalTexts(ui)).filter(t => t.color === '#4f5c68' && !/total$/.test(t.text)).map(t => t.text)
+  expect(hints).toEqual(['cavecrew-inve…', 'scout'])
+})
+
+test("a USED press while waiting opens last turn's list", async ($, on) => {
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  const ui = await usedPane($, on)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/old.ts' } as any)
+  await turnEnd($)
+  await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } })
+  await $.tool.call({ tool: 'Read', file_path: '/proj/new.ts' } as any)
+  await ui.press({ key: 'o:used:files' })
+  expect(await hasInModal(ui, 'old.ts')).toBe(true)
+  expect(await hasInModal(ui, 'new.ts')).toBe(false)
+})
+
+test('a long path is cut from the left, the file name whole; a name with control characters draws as spaces', async ($, on) => {
+  const ui = await usedPane($, on)
+  await $.tool.call({ tool: 'Read', file_path: `/proj/${'deep/'.repeat(12)}kit.tsx` } as any)
+  await $.tool.call({ tool: 'Grep', pattern: 'a\nb\tc' } as any)
+  await ui.press({ key: 'o:used:files' })
+  expect(await hasInModal(ui, /^…/)).toBe(true)
+  expect(await hasInModal(ui, 'kit.tsx')).toBe(true)
+  await ui.press({ key: 'm:x' })
+  await ui.press({ key: 'o:used:other' })
+  expect(await hasInModal(ui, 'a b c')).toBe(true)
+})
+
+test('a USED modal row without a hint draws no right side, so its gap takes no room', async ($, on) => {
+  const ui = await usedPane($, on)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts' } as any)
+  await ui.press({ key: 'o:used:files' })
+  const rows: number[] = []
+  const walk = (n: any, inside: boolean) => {
+    if (!n || typeof n !== 'object') return
+    if (Array.isArray(n)) return n.forEach(x => walk(x, inside))
+    const here = inside || n.props?.key === 'modal'
+    const kids = [n.children, n.props?.children].flat().filter(x => x !== undefined && x !== null && x !== '' && x !== false)
+    if (here && n.type === 'Box' && n.props?.gap === 2 && n.props?.justifyContent === 'space-between') rows.push(kids.length)
+    walk(kids, here)
+  }
+  walk(await ui.drawn(), false)
+  // The heading keeps its right text; the one row has none.
+  expect(rows).toEqual([2, 1])
+})
