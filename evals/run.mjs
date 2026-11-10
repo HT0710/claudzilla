@@ -41,14 +41,18 @@ function loadCases(root, pattern) {
   const re = globRe(pattern), out = [];
   const dirs = (d) => readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
   for (const role of dirs(root)) for (const name of dirs(join(root, role))) {
-    const dir = join(root, role, name), id = `${role}/${name}`;
-    if (!re.test(id) || !existsSync(join(dir, "case.json"))) continue;
-    const c = JSON.parse(readFileSync(join(dir, "case.json"), "utf8"));
+    const own = join(root, role, name), id = `${role}/${name}`;
+    if (!re.test(id) || !existsSync(join(own, "case.json"))) continue;
+    const c = JSON.parse(readFileSync(join(own, "case.json"), "utf8"));
+    // `base` (relative to this case) borrows another case's fixture, setup and grader; prompt and cells stay this case's own.
+    const dir = c.base ? resolve(own, c.base) : own;
+    if (c.base && !existsSync(join(dir, "grade.sh"))) throw new Error(`${id}: base has no grade.sh: ${c.base}`);
+    if ((c.matrix ?? []).some((x) => x.routing !== undefined && x.routing !== "on" && x.routing !== "off")) throw new Error(`${id}: routing must be "on" or "off"`);
     out.push({
       id, dir, role: c.role ?? role, agent: c.agent ?? null, skill: c.skill ?? null, source: c.source ?? "synthetic", judge: c.judge ?? false,
       tools: withRtk(c.allowed_tools ?? READ_ONLY).join(","), matrix: c.matrix ?? (c.agent ? AGENT_CELLS : SKILL_CELLS),
       followups: c.followups ?? [], timeout: (c.timeout_seconds ?? 900) * 1000,
-      prompt: readFileSync(join(dir, "prompt.md"), "utf8").trim(),
+      prompt: readFileSync(join(own, "prompt.md"), "utf8").trim(),
     });
   }
   return out;
@@ -83,13 +87,15 @@ function skillFired(file, skill) {
 // Every turn re-passes model, effort and agent: --resume alone falls back to the saved defaults (measured).
 function claudeArgs(c, cell) {
   return ["--model", cell.model, "--effort", cell.effort, "--permission-mode", "dontAsk", "--allowedTools", c.tools,
-    ...(c.agent ? ["--agent", c.agent] : [])];
+    ...(c.agent ? ["--agent", c.agent] : []), ...(cell.routing === "off" ? ["--disallowedTools", "Agent"] : [])];
 }
 
 function runP(c, cell, wd) {
-  const t = { cost: 0, outTokens: 0, turns: 0, ms: 0, denials: 0, models: new Set() };
+  const t = { cost: 0, outTokens: 0, turns: 0, ms: 0, denials: 0, models: new Set(), costByModel: {} };
   // Cases ship CLI stubs (e.g. a fake `gh`) in <workdir>/bin.
-  const env = { ...process.env, PATH: `${join(wd, "bin")}${delimiter}${process.env.PATH}` };
+  // EVAL_ROUTING=off also turns off the local delegate-nudge hook, which would block every search with Agent gone.
+  // Always set, so a value left in the operator's shell never leaks into other cells.
+  const env = { ...process.env, PATH: `${join(wd, "bin")}${delimiter}${process.env.PATH}`, EVAL_ROUTING: cell.routing ?? "" };
   let sid = null;
   // Replay prompts name the original checkout; replays.mjs swapped it for {{WORKDIR}}.
   for (const prompt of [c.prompt, ...c.followups].map((p) => p.replaceAll("{{WORKDIR}}", wd))) {
@@ -101,7 +107,9 @@ function runP(c, cell, wd) {
     sid = j.session_id;
     t.cost += j.total_cost_usd ?? 0; t.turns += j.num_turns ?? 0; t.ms += j.duration_ms ?? 0;
     t.denials += j.permission_denials?.length ?? 0;
-    for (const [m, u] of Object.entries(j.modelUsage ?? {})) { t.models.add(m); t.outTokens += u.outputTokens ?? 0; }
+    for (const [m, u] of Object.entries(j.modelUsage ?? {})) {
+      t.models.add(m); t.outTokens += u.outputTokens ?? 0; t.costByModel[m] = (t.costByModel[m] ?? 0) + (u.costUSD ?? 0);
+    }
   }
   return { status: "ran", session: sid, transcript: findTranscript(sid), ...t, models: [...t.models] };
 }
@@ -124,7 +132,7 @@ function grade(c, wd, res) {
   return r.status === 0 ? "pass" : "fail";
 }
 
-const key = (r) => [r.case, r.model, r.effort, r.run].join("|");
+const key = (r) => [r.case, r.model, r.effort, r.routing ?? "", r.run].join("|");
 const sh = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: "utf8", ...opts });
 
 function main(argv) {
@@ -138,9 +146,9 @@ function main(argv) {
   let streak = 0;
   for (const c of cases) {
     for (const cell of a.smoke ? [{ model: "haiku", effort: "low" }] : c.matrix) {
-      if (only && !only.has(`${c.id} ${cell.model} ${cell.effort}`)) continue;
+      if (only && !only.has([c.id, cell.model, cell.effort, cell.routing].filter(Boolean).join(" "))) continue;
       for (let run = 1; run <= a.runs; run++) {
-        const row = { case: c.id, role: c.role, agent: c.agent, model: cell.model, effort: cell.effort, run, claude, judge: c.judge };
+        const row = { case: c.id, role: c.role, agent: c.agent, model: cell.model, effort: cell.effort, ...(cell.routing ? { routing: cell.routing } : {}), run, claude, judge: c.judge };
         if (done.has(key(row))) continue;
         const wd = mkdtempSync(join(tmpdir(), "eval-"));
         try {
@@ -152,7 +160,7 @@ function main(argv) {
           rmSync(wd, { recursive: true, force: true });
         }
         appendFileSync(rowsFile, `${JSON.stringify(row)}\n`);
-        console.log(`${row.status.padEnd(7)} ${c.id} ${cell.model} ${cell.effort} #${run}`);
+        console.log(`${row.status.padEnd(7)} ${c.id} ${cell.model} ${cell.effort}${cell.routing ? ` ${cell.routing}` : ""} #${run}`);
         streak = row.status === "errored" ? streak + 1 : 0;
         if (streak >= 2) { console.error("two errored runs in a row; stopping (re-run to resume)"); return 3; }
       }

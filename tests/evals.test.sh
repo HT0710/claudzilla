@@ -33,7 +33,7 @@ mkdir -p "$TMP/bin" "$TMP/cfg" "$TMP/tmp"
 cat > "$TMP/bin/claude" <<'EOF'
 #!/usr/bin/env bash
 [ "$1" = --version ] && { echo "9.9.9 (fake)"; exit 0; }
-{ printf '%s' "$*" | tr '\n' ' '; echo " PATH-HEAD=${PATH%%:*}"; } >> "$FAKE_LOG"
+{ printf '%s' "$*" | tr '\n' ' '; echo " ROUTING=${EVAL_ROUTING-unset} PATH-HEAD=${PATH%%:*}"; } >> "$FAKE_LOG"
 case "${FAKE_MODE:-ok}" in
   error) echo '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"rate limited"}'; exit 1 ;;
   hang) exec sleep 5 ;;
@@ -48,7 +48,7 @@ done
 mkdir -p "$CLAUDE_CONFIG_DIR/projects/fake"
 skill=""; [ -n "${FAKE_SKILL:-}" ] && skill=",{\"type\":\"tool_use\",\"name\":\"Skill\",\"input\":{\"skill\":\"$FAKE_SKILL\"}}"
 echo "{\"type\":\"assistant\",\"message\":{\"id\":\"m$$\",\"model\":\"claude-$model\",\"usage\":{\"output_tokens\":7},\"content\":[{\"type\":\"text\",\"text\":\"ok\"}$skill]}}" >> "$CLAUDE_CONFIG_DIR/projects/fake/$sid.jsonl"
-echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$sid\",\"total_cost_usd\":0.5,\"num_turns\":2,\"duration_ms\":1000,\"permission_denials\":[{\"tool_name\":\"Bash\"}],\"modelUsage\":{\"claude-$model\":{\"outputTokens\":7}}}"
+echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$sid\",\"total_cost_usd\":0.5,\"num_turns\":2,\"duration_ms\":1000,\"permission_denials\":[{\"tool_name\":\"Bash\"}],\"modelUsage\":{\"claude-$model\":{\"outputTokens\":7,\"costUSD\":0.25}}}"
 EOF
 chmod +x "$TMP/bin/claude"
 export PATH="$TMP/bin:$PATH" CLAUDE_CONFIG_DIR="$TMP/cfg" TMPDIR="$TMP/tmp" FAKE_LOG="$TMP/calls.log"
@@ -187,6 +187,33 @@ check "replays: setup puts main at the base, HEAD at the tip, no origin" bash -c
 printf '%s\n' "cavecrew-reviewer/$s1-$s2 haiku low" > "$TMP/c.txt"
 node "$EV/run.mjs" --root "$RP" --only "$TMP/c.txt" --out "$TMP/o14" >/dev/null 2>&1
 check "run: generated replay runs from its setup.sh" [ "$(field "$TMP/o14/rows.jsonl" status)" = replayed ]
+
+# --- routing cells: off disallows Agent, on/off are separate rows for resume and --only, `base` borrows a case
+RC="$TMP/rc"; mkdir -p "$RC/t/src" "$RC/t/based" "$TMP/bad/t/nobase" "$TMP/bad2/t/typo"
+cp -R "$EV/cases/pilot/sum/." "$RC/t/src/"; echo '{"role":"t","matrix":[{"model":"haiku","effort":"low"}]}' > "$RC/t/src/case.json"
+cp -R "$RC/t/src" "$RC/t/route"
+echo '{"role":"t","matrix":[{"model":"opus","effort":"medium","routing":"on"},{"model":"opus","effort":"medium","routing":"off"}]}' > "$RC/t/route/case.json"
+echo '{"role":"t","base":"../src","matrix":[{"model":"haiku","effort":"low"}]}' > "$RC/t/based/case.json"; echo 'BASED PROMPT' > "$RC/t/based/prompt.md"
+rr() { node "$EV/run.mjs" --root "$RC" "$@"; }
+: > "$FAKE_LOG"
+FAKE_PATCH="$SOL" rr --cases 't/route' --out "$TMP/o20" >/dev/null
+check "routing: one row per on/off cell" [ "$(field "$TMP/o20/rows.jsonl" routing)" = "on off" ]
+check "routing: off disallows Agent and sets EVAL_ROUTING" grep -q -- '--disallowedTools Agent.* ROUTING=off' "$FAKE_LOG"
+check "routing: on keeps Agent" bash -c 'grep -q "ROUTING=on" "$1" && ! grep "ROUTING=on" "$1" | grep -q -- "--disallowedTools"' _ "$FAKE_LOG"
+check "routing: cost split by model" grep -q '"costByModel":{"claude-opus":0.25}' "$TMP/o20/rows.jsonl"
+n=$(calls); rr --cases 't/route' --out "$TMP/o20" >/dev/null
+check "routing: re-run skips both cells" [ "$(calls)" = "$n" ]
+echo 't/route opus medium off' > "$TMP/only-r.txt"
+rr --cases 't/route' --only "$TMP/only-r.txt" --out "$TMP/o21" >/dev/null
+check "routing: --only fourth word picks one cell" [ "$(field "$TMP/o21/rows.jsonl" routing)" = off ]
+: > "$FAKE_LOG"
+EVAL_ROUTING=off FAKE_PATCH="$SOL" rr --cases 't/based' --out "$TMP/o22" >/dev/null
+check "routing: other cells clear a leaked EVAL_ROUTING" grep -q 'ROUTING= PATH-HEAD' "$FAKE_LOG"
+check "base: own prompt, borrowed fixture and grader" bash -c 'grep -q "BASED PROMPT" "$1" && [ "$2" = pass ]' _ "$FAKE_LOG" "$(field "$TMP/o22/rows.jsonl" status)"
+echo '{"role":"t","base":"../nope"}' > "$TMP/bad/t/nobase/case.json"; echo p > "$TMP/bad/t/nobase/prompt.md"
+check "base: missing base stops before any run" bash -c '! node "$1/run.mjs" --root "$2" --out "$3" >/dev/null 2>&1' _ "$EV" "$TMP/bad" "$TMP/o23"
+cp -R "$RC/t/src/." "$TMP/bad2/t/typo/"; echo '{"role":"t","matrix":[{"model":"opus","effort":"low","routing":"Off"}]}' > "$TMP/bad2/t/typo/case.json"
+check "routing: unknown value stops before any run" bash -c '! node "$1/run.mjs" --root "$2" --out "$3" >/dev/null 2>&1' _ "$EV" "$TMP/bad2" "$TMP/o24"
 
 # --- --only limits cells
 printf 't/two sonnet high\n' > "$TMP/only.txt"

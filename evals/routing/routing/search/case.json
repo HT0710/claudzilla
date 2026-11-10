@@ -1,0 +1,5 @@
+{
+  "base": "../../../cases/investigator/claudzilla",
+  "allowed_tools": ["Read", "Grep", "Glob", "Agent"],
+  "matrix": [{"model":"opus","effort":"medium","routing":"on"},{"model":"opus","effort":"medium","routing":"off"}]
+}

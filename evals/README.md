@@ -17,6 +17,8 @@ Dev-only, not installed. Measures which model + effort each workflow role needs 
 | judge | `node evals/judge.mjs $S/rows.jsonl $S/ref/rows.jsonl` |
 | report | `node evals/report.mjs $S/rows.jsonl` writes `$S/report.md` and `$S/picks.json` |
 
+- Routing comparison (subagent rules on, against all work inline) is its own run, kept out of the sweep and the report: `node evals/run.mjs --root evals/routing --runs 3 --out $S/routing`. Its cells carry `routing: on|off`; off disallows `Agent` and sets `EVAL_ROUTING=off` for hooks that would force delegation. Compare cost and pass per `routing` from `rows.jsonl` by hand; `costByModel` shows what subagents on other models cost.
+- A case can set `base` (path relative to the case) to reuse another case's fixture, `setup.sh` and `grade.sh` with its own prompt. An `--only` line takes the routing value as a fourth word.
 - Apply picks by hand in a reviewed commit: `effort:` in `claude/skills/pr/SKILL.md`, the agent table in `claude/rules/superpowers.md`, the main-session effort in `settings.base.json`.
 - `evals/replays/` is gitignored: replay prompts are your recorded Agent calls, local paths included.
 - Each child leaves a transcript in `~/.claude/projects/-tmp-eval-*`. The judge reads them: delete them only after judging.
