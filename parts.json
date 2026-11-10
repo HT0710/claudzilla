@@ -1,7 +1,7 @@
 {
   "core": {
-    "links": ["CLAUDE.md", "RTK.md", "rules", "hooks/rules-guard.mjs", "hooks/trace.mjs", "hooks/trace.pl", "hooks/md-display.pl", "skills/pr", "skills/rule-review"],
-    "hooks": ["rules-guard.mjs", "trace.mjs", "md-display.pl", "rule-review/scan.mjs"],
+    "links": ["CLAUDE.md", "RTK.md", "rules", "hooks/rules-guard.mjs", "hooks/experimental.mjs", "hooks/trace.mjs", "hooks/trace.pl", "hooks/md-display.pl", "skills/pr", "skills/rule-review"],
+    "hooks": ["rules-guard.mjs", "experimental.mjs", "trace.mjs", "md-display.pl", "rule-review/scan.mjs"],
     "keys": ["env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "extraKnownMarketplaces.claude-plugins-official"],
     "plugins": ["superpowers@claude-plugins-official"],
     "rest": true
