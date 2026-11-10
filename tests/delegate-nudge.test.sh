@@ -10,7 +10,9 @@ export CLAUDE_CONFIG_DIR="$TMP/cfg" TMPDIR="$TMP"
 mkdir -p "$CLAUDE_CONFIG_DIR"
 on() { printf '%s' '{"experimental":{"agentRouting":true}}' >"$CLAUDE_CONFIG_DIR/claudzilla.json"; }
 # Empty SID leaves session_id out of the event.
-ev() { node -e 'const [s,e,t,c,x]=process.argv.slice(1);const o={hook_event_name:e,tool_name:t,cwd:c,...JSON.parse(x)};if(s)o.session_id=s;process.stdout.write(JSON.stringify(o))' "$SID" "$1" "${2:-}" "$CWD" "${3:-{\}}" | node "${HOOK:-$H}"; }
+# A variable, not a literal: bash 3.2 (macOS) keeps the backslash in "${3:-{\}}".
+NO_INPUT='{}'
+ev() { node -e 'const [s,e,t,c,x]=process.argv.slice(1);const o={hook_event_name:e,tool_name:t,cwd:c,...JSON.parse(x)};if(s)o.session_id=s;process.stdout.write(JSON.stringify(o))' "$SID" "$1" "${2:-}" "$CWD" "${3:-$NO_INPUT}" | node "${HOOK:-$H}"; }
 prompt() { ev UserPromptSubmit; }
 warm() { prompt; ev PreToolUse Grep >/dev/null; ev PreToolUse Grep >/dev/null; }
 denied() { [[ "$1" == *'"deny"'* ]] && echo yes || echo no; }
