@@ -27,7 +27,7 @@ export type Zone = {
   // Takes a notch no zone is under, or one with no pointer: History's list, Git's COMMITS.
   fallback?: boolean
   // A divider's name for WHEEL_HOLD.
-  hold?: 'git' | 'topics'
+  hold?: 'git'
   // The store update, made in the draw (R5): `$` and the atoms stay in the drawing file.
   wheel: (by: number) => Promise<unknown>
 }
