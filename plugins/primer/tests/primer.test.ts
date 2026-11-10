@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { draft, find, fit, parse, reportArgs, rows } from '../hooks/register'
+import { draft, experimentalArgs, featureLines, find, fit, parse, reportArgs, rows } from '../hooks/register'
 
 const MD = '# claudzilla guide\n\n## Basics\n\n### What claudzilla is\n<!-- topic: start -->\n\nIntro.\n\n### Talk to Claude\n<!-- topic: talk -->\n\nSay it.\n\n## Screen\n\n### The picks card\n<!-- topic: picks -->\n\nDigits.\n'
 
@@ -77,10 +77,10 @@ async function open($: Parameters<TestBody>[0], args = '', columns = 100, bodyRo
 const wheel = ($: Parameters<TestBody>[0], by: number, pointer?: { column: number; row: number }) =>
   $.ui.scroll({ component: 'Pane', requestId: 'primer', offset: 0, by, bodyRows: 6, contentRows: 6, origin: { kind: 'person' }, ...(pointer ? { pointer } : {}) })
 
-test('registers /claudzilla with a topic hint', async ($, on) => {
+test('registers /claudzilla with the experimental hint', async ($, on) => {
   const seen = host(on)
   await $.session.start(start)
-  expect(seen.registered).toContainEqual(expect.objectContaining({ name: 'claudzilla', argumentHint: '[topic | report [what happened] | compact]' }))
+  expect(seen.registered).toContainEqual(expect.objectContaining({ name: 'claudzilla', argumentHint: '[topic | report [what happened] | compact | experimental [id on|off]]' }))
 })
 
 test('bare /claudzilla toggles the guide; a topic opens it either way', async ($, on) => {
@@ -455,4 +455,60 @@ test('a palette label colours the header', async ($, on) => {
   on('env.get', (_, e: any) => ({ value: e.name === 'CLAUDE_CONFIG_DIR' ? '/cfg' : undefined }) as any)
   const ui = await open($)
   expect((await ui.findAll({ type: 'Text' })).slice(0, 2).map(t => t.props.color)).toEqual(['#112233', '#112233'])
+})
+
+test('experimentalArgs: other commands pass through', () => { expect(experimentalArgs('report x')).toBe(undefined); expect(experimentalArgs('')).toBe(undefined) })
+test('experimentalArgs: bare lists', () => { expect(experimentalArgs(' Experimental ')).toEqual({}) })
+test('experimentalArgs: id and state', () => { expect(experimentalArgs('experimental agentRouting on')).toEqual({ id: 'agentRouting', state: 'on' }); expect(experimentalArgs('experimental agentRouting ON')).toEqual({ id: 'agentRouting', state: 'on' }) })
+test('experimentalArgs: malformed gives usage', () => {
+  const error = 'Use: /claudzilla experimental [<id> on|off]'
+  expect(experimentalArgs('experimental agentRouting')).toEqual({ error })
+  expect(experimentalArgs('experimental agentRouting maybe')).toEqual({ error })
+})
+test('featureLines: one line per feature', () => {
+  expect(featureLines([{ id: 'a', description: 'First.', on: true }, { id: 'b', description: '', on: false }])).toBe('a: on — First.\nb: off — ')
+  expect(featureLines([])).toBe('No experimental features.')
+})
+
+const LABS = MD + '\n### Labs\n<!-- topic: labs -->\n\nTry things.\n'
+const FEATURES = (on: boolean) => JSON.stringify([{ id: 'agentRouting', description: 'Route lookups.', on }])
+// Runs the experimental script mock beside the FIND lookup; `calls` records its argv tails in order.
+function labs(on: Parameters<TestBody>[1], { list = ran(0, FEATURES(false)), set = ran(0, '') } = {}) {
+  const calls: string[] = []
+  host(on, {
+    guide: LABS,
+    proc: c => {
+      const m = /experimental\.mjs (.*)$/.exec(c)
+      if (!m) return ran(0, '/repo\nv1.4.0\n')
+      calls.push(m[1]!)
+      return m[1]!.startsWith('--set') ? set : list
+    },
+  })
+  return calls
+}
+const texts = async (ui: Awaited<ReturnType<typeof open>>) => (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+
+test('experimental lists features in the labs topic', async ($, on) => {
+  labs(on)
+  const ui = await open($, 'experimental')
+  expect(await texts(ui)).toContain('agentRouting: off')
+  expect((await ui.find({ type: 'Markdown' }))?.props.text).toContain('### Labs')
+})
+
+test('experimental <id> on writes, then lists', async ($, on) => {
+  const calls = labs(on, { list: ran(0, FEATURES(true)) })
+  const text = await texts(await open($, 'experimental agentRouting on'))
+  expect(calls).toEqual(['--set agentRouting on', '--list'])
+  expect(text).toContain('agentRouting on. Applies from the next session or after /clear.')
+  expect(text).toContain('agentRouting: on')
+})
+
+test("experimental shows the script's refusal", async ($, on) => {
+  labs(on, { set: { value: { exitCode: 3, stdout: '', stderr: 'No experimental feature "nope". Known: agentRouting\n', isStdoutTruncated: false, isStderrTruncated: false } } })
+  expect(await texts(await open($, 'experimental nope on'))).toContain('No experimental feature "nope". Known: agentRouting')
+})
+
+test('experimental without the core install', async ($, on) => {
+  labs(on, { list: ran(1, '') })
+  expect(await texts(await open($, 'experimental'))).toContain('Experimental features need the claudzilla core install.')
 })

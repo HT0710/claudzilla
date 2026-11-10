@@ -136,6 +136,22 @@ export function reportArgs(args: string): string | undefined {
   return m ? (m[1] ?? '').trim() : undefined
 }
 
+const EXPERIMENTAL_USAGE = 'Use: /claudzilla experimental [<id> on|off]'
+
+// First word not `experimental`: undefined; bare: {}; `<id> on|off`: that pair; anything else: the usage line.
+export function experimentalArgs(args: string): { id?: string; state?: 'on' | 'off'; error?: string } | undefined {
+  const [first, ...rest] = args.trim().split(/\s+/)
+  if (first?.toLowerCase() !== 'experimental') return undefined
+  if (!rest.length) return {}
+  const [id, state] = rest
+  const s = state?.toLowerCase()
+  return rest.length === 2 && (s === 'on' || s === 'off') ? { id, state: s } : { error: EXPERIMENTAL_USAGE }
+}
+
+export function featureLines(list: { id: string; description: string; on: boolean }[]): string {
+  return list.length ? list.map(f => `${f.id}: ${f.on ? 'on' : 'off'} — ${f.description}`).join('\n') : 'No experimental features.'
+}
+
 // The /compact (or /clear) line compact_draft puts in the prompt box: one plain line, no markdown.
 export function draft(input: { keep?: unknown; drop?: unknown; clear?: unknown }): string | undefined {
   if (input.clear === true) return '/clear'
@@ -256,7 +272,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await t.start(traceIo($))
     HUD.label = (await readPalette($)).palette.shared.label
-    await $.command.register({ name: 'claudzilla', description: 'The claudzilla guide, one section at a time', argumentHint: '[topic | report [what happened] | compact]', immediate: true })
+    await $.command.register({ name: 'claudzilla', description: 'The claudzilla guide, one section at a time', argumentHint: '[topic | report [what happened] | compact | experimental [id on|off]]', immediate: true })
     await $.tool.register(COMPACT_SPEC).catch(() => undefined)
 
     return next(e)
@@ -313,6 +329,7 @@ export const register: Register = on => {
 
       return {}
     }
+    const lab = experimentalArgs(e.args)
     if (/^compact$/i.test(e.args.trim())) {
       await handOff($, 'claudzilla-compact', '')
 
@@ -324,12 +341,32 @@ export const register: Register = on => {
 
       return {}
     }
+    let labNote: string | undefined
+    if (lab) {
+      const home = await $.env.get('HOME').catch(() => undefined)
+      const dir = (await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined)) || `${home}/.claude`
+      const script = (...argv: string[]) => $.process.run(['node', `${dir}/hooks/experimental.mjs`, ...argv]).catch(() => undefined)
+      const lines: string[] = []
+      if (lab.error) lines.push(lab.error)
+      else if (lab.id && lab.state) {
+        const set = await script('--set', lab.id, lab.state)
+        lines.push(set?.exitCode === 0 ? `${lab.id} ${lab.state}. Applies from the next session or after /clear.` : (set?.stderr.trim() || 'Could not write the setting.'))
+      }
+      const listed = await script('--list')
+      try {
+        if (listed?.exitCode !== 0) throw new Error()
+        lines.push(featureLines(JSON.parse(listed.stdout)))
+      } catch {
+        lines.push('Experimental features need the claudzilla core install.')
+      }
+      labNote = lines.join('\n')
+    }
     // Read again on each run: GUIDE.md changes with the clone.
     guide = load($)
     const { sections } = await guide
-    const hit = find(sections ?? [], e.args)
+    const hit = find(sections ?? [], lab ? 'labs' : e.args)
     if (hit.section) slug = hit.section.slug
-    note = hit.note
+    note = labNote ?? hit.note
     if (hit.section) await update($, bodyTop, () => 0)
     reveal = true
     const opened = await $.ui.open({ id: PANE, title: 'Guide', focus: true, closeOnEscape: true })
