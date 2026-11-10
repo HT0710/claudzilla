@@ -1,5 +1,5 @@
 import type { AgentStatus } from 'claude-code'
-import type { Used } from '../hooks/kit'
+import type { UseKind, Used } from '../hooks/kit'
 
 export type Tab = 'Overview' | 'Decisions' | 'History' | 'File' | 'Tree' | 'Git'
 export type Step = { text: string; status: 'pending' | 'in_progress' | 'completed'; agents?: string[] }
@@ -49,7 +49,7 @@ export type GitModalKey = 'branch' | 'pr' | 'prs' | 'rebase' | 'commit'
 // Each tab's modal keys; a tab adds its own to the union.
 export type ModalKey = GitModalKey | 'used' | 'topics'
 // `top`: the first list row shown; `sub`: the stacked modal over it, keyed by its section; `sha`: the commit modal's.
-export type Modal = { key: ModalKey; top: number; sub?: { key: string; top: number }; sha?: string; n?: number; armed?: string }
+export type Modal = { key: ModalKey; top: number; kind?: UseKind; sub?: { key: string; top: number }; sha?: string; n?: number; armed?: string }
 
 declare module 'claude-code' {
   interface EngineInterface {

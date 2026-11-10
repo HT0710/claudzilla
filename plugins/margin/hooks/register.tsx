@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { CommitView, LogRow, Gh, Intent, Modal, PrView, Spawn, Step, Tab, Take } from '../types'
 import { parseCommitView, parsePrView, parsePrs, printable } from './git-data'
-import { BAR_ROWS, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, WHEEL_HOLD, applyPalette, configDir, clock, dim, drawnZones, emptyNote as kitEmptyNote, fadeTree, fileView, fit, hoverOf, keepZones, modalOpen, setZones } from './kit'
+import { BAR_ROWS, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, USE_KINDS, PAD, WHEEL_HOLD, applyPalette, configDir, clock, dim, drawnZones, emptyNote as kitEmptyNote, fadeTree, fileView, fit, hoverOf, keepZones, modalOpen, setZones } from './kit'
 import type { Prompt, TabCtx, TabDraw, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
@@ -545,6 +545,8 @@ let leaves = 0
 // Found by session id, not rebuilt from the root: Claude Code cuts a long root's folder name and
 // hashes it, and /cd or a worktree move changes the root. Kept once found.
 const chatPaths = new Map<string, string>()
+// Each skill's SKILL.md, as the engine reported it when the skill loaded.
+const skillPaths = new Map<string, string>()
 const chatPath = async ($: EngineInterface) => {
   const [dir, sessionId] = await Promise.all([configDir($), $.session.id()])
   if (!chatPaths.has(sessionId)) {
@@ -1106,6 +1108,12 @@ export const register: Register = (on, options) => {
 
       return { element: e.element }
     }
+    const usedKind = USE_KINDS.find(kind => e.element === `o:used:${kind}`)
+    if (usedKind) {
+      await setModal($, () => ({ key: 'used', top: 0, kind: usedKind }))
+
+      return { element: e.element }
+    }
     if (e.element === 'o:topics:all') {
       await setModal($, () => ({ key: 'topics', top: 0 }))
 
@@ -1210,6 +1218,13 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     const result = await next(e)
     if (!READ_ONLY.has(e.tool)) await update($, toolCalls, n => n + 1)
+
+    return result
+  })
+
+  on('skill.prompt', async ($, e, next) => {
+    const result = await next(e)
+    if (e.path) for (const name of [e.skill, ...(e.pluginName ? [`${e.pluginName}:${e.skill}`] : [])]) skillPaths.set(name, e.path)
 
     return result
   })
@@ -1367,7 +1382,7 @@ export const register: Register = (on, options) => {
       out = await drawGit($, { ...ctx, readGh: () => readGh($), readCommitView: sha => readCommitView($, sha), readPrView: (n, failed) => readPrView($, n, failed), rerunFailed: runs => rerunFailed($, runs) })
     } else {
       viewing = e.props.view?.agentId
-      out = await drawOverview($, { ...ctx, viewing: () => viewing })
+      out = await drawOverview($, { ...ctx, viewing: () => viewing, skillPath: name => skillPaths.get(name) })
     }
     if (!next.signal.aborted && (await read($, tab)) === saved) setZones(current, out.zones)
     const body = out.fade ? fadeTree(out.body, out.fade.keep, () => setModal($, () => null), out.fade.open) : out.body
