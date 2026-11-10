@@ -229,7 +229,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     const names = [...recent.filter(n => !fromAgents.includes(n)), ...recent.filter(n => fromAgents.includes(n))]
     const hintOf = (name: string) => {
       const one = agentOf[name] && sparks.find(s => s.id === agentOf[name])
-      return [one && fit(one.name ?? (one.type ?? '').replace(/^[^:]+:/, ''), 14), sourceOf[name]].filter(Boolean).join('  ')
+      return [one && fit(printable(one.name ?? (one.type ?? '').replace(/^[^:]+:/, '')), 14), sourceOf[name]].filter(Boolean).join('  ')
     }
     const inner = modalFrame(props.bodyColumns, tabRows, 0).width - 4
     const rows = names.map((name, i) => {
@@ -544,7 +544,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                 const extraW = Math.max(...usedKinds.map(k => (usedShown[k]!.agents > 0 ? ` +${usedShown[k]!.agents}`.length : 0)))
                 const kindW = Math.max(...usedKinds.map(k => k.length)) + 2
                 const room = Math.max(1, width - LABEL - kindW - mainW - extraW - 2)
-                const shorts = names.map(n => shortName(kind, n, sourceOf[n]))
+                const shorts = names.map(n => printable(shortName(kind, n, sourceOf[n])))
                 const line = fit(shorts.join(', '), room)
                 const dh = dimFor(labelAt.USED! + i)
                 const act = () => ctx.setModal(() => ({ key: 'used', top: 0, kind }))
