@@ -1462,6 +1462,28 @@ test('a ! shell command matches its bash-input row, its ! in the shell prompt co
   expect((await ui.find({ key: 'jump:1' }))?.text).toContain('! git status')
 })
 
+test('a ! command typed with no space reads "! cmd" in History', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
+  const history = ['!echo p1', 'next'].map((display, i) => JSON.stringify({ display, timestamp: Date.now() - 2 + i, sessionId: 'chat-1' })).join('\n')
+  const chat = ['<bash-input>echo p1</bash-input>', 'next']
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('fs.read', () => ({ value: history }))
+  on('session.messages', (_, e) => ({
+    value:
+      e.as === 'api'
+        ? chat.map(text => ({ role: 'user', content: [{ type: 'text', text }] }))
+        : chat.map(text => ({ role: 'user', text, toolUses: [] })),
+  }))
+
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await ui.redraw()
+
+  expect((await ui.find({ type: 'Text', text: '!' }))?.props.color).toBe('bashBorder')
+  expect((await ui.find({ key: 'jump:1' }))?.text).toContain('! echo p1')
+})
+
 test('gone runs: a pasted /command is a prompt; a paste whose text is lost takes the run around it', () => {
   const pasted = { display: '/compact keep', typed: '[Pasted text #1]', timestamp: 1 }
   expect(gone([{ display: 'next', timestamp: 2 }, pasted, { display: 'first', timestamp: 0 }], ['first', 'next'], [])).toEqual([
