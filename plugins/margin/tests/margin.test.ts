@@ -3149,6 +3149,17 @@ test('USED lists each kind used this turn under STEPS', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: /^web/ })).toBeUndefined()
 })
 
+test('USED kinds pad to the longest shown plus 2 spaces', async ($, on) => {
+  on('tool.call', () => ({ result: {} }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts' } as any)
+  await $.tool.call({ tool: 'Skill', skill: 'caveman:cavecrew' } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'skills  ' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'files   ' })).toBeDefined()
+})
+
 test('agent calls show as a dim +N', async ($, on) => {
   on('tool.call', () => ({ result: {} }) as any)
   const ui = await intentPane($, on)
