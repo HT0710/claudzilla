@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { AgentRow, Modal, Spawn, Step, Take } from '../types'
 import { printable } from './git-data'
-import { BAR_ROWS, DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, LIT, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, counted, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, row as kitRow, rowHovers, toPieces, zoneWindow } from './kit'
+import { BAR_ROWS, DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, counted, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, row as kitRow, rowHovers, toPieces, zoneWindow } from './kit'
 import type { Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, UseKind, Zone } from './kit'
 
 const intent = atom({ plugin: 'margin', key: 'intent' } as const, EMPTY_INTENT)
@@ -149,6 +149,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   // The tab body the modal sits in, under the tabs and their rule.
   const tabRows = props.scroll.bodyRows - 2 - BAR_ROWS
   const LABEL = 7
+  const USED_LINE = 100000
   // A step or agent row is a row Client; its card shows on hover, as the Git tab's rows do.
   const hv = rowHovers.Overview
   const topicsOpen = modalNow?.key === 'topics' && about.topics.length > 0
@@ -171,6 +172,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const upOf = (at: number, n: number) => at + 4 + n > tabRows
   const rc: RowCtx = { el: ctx.el, hover: hv, dimmed, pointer, gone: gone || undefined, cards, columns: props.bodyColumns, cardWidth: Math.floor(props.bodyColumns * 0.75), up: upOf }
   const acts: Record<string, () => unknown> = {}
+  // Behind a modal only the open row acts: its press closes it.
+  hv.acts = dimmed ? (usedKind ? { [`o:used:${usedKind}`]: () => ctx.setModal(() => null) } : {}) : acts
   const view = async (id?: string) => {
     const shown = await $.ui.view(id && ctx.viewing() !== id ? { agentId: id } : {})
     if (shown.deny) $.ui.toast(shown.deny)
@@ -469,7 +472,6 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                         },
                       })
                       const stepCues = cues(ctx.el, 'steps', width - LABEL, w, setSteps, true, false)
-                      hv.acts = dimmed ? {} : acts
                       // Tab-body rows: the zone's start counts the tabs bar too.
                       const atOf = (k: number) => from - 2 + (w.above > 0 ? 1 : 0) + (k - w.top)
                       hv.lines = Object.fromEntries(rows.flatMap((r, k) => (r.key && k >= w.top && k < w.top + w.shown ? [[r.key, atOf(k)]] : [])))
@@ -559,28 +561,26 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                 const shorts = names.map(n => printable(shortName(kind, n, sourceOf[n])))
                 const line = fit(shorts.join(', '), room)
                 const dh = dimFor(labelAt.USED! + i)
-                const act = () => ctx.setModal(() => ({ key: 'used', top: 0, kind }))
+                acts[`o:used:${kind}`] = () => ctx.setModal(() => ({ key: 'used', top: 0, kind }))
+                const left = [
+                  <Text color={HUD.faint}>{kind.padEnd(kindW)}</Text>,
+                  <Text color={shown.waiting ? HUD.faint : 'claude'}>{String(main).padStart(mainW)}</Text>,
+                  <Text color={HUD.faint}>{extra.padEnd(extraW)}</Text>,
+                  <Text>{'  '}</Text>,
+                  // Cut as one line, then split back per name: an agent's name dims as its +N does.
+                  ...names.map((name, n) => {
+                    const at = shorts.slice(0, n).join(', ').length + (n > 0 ? 2 : 0)
+                    const piece = line.slice(at - (n > 0 ? 2 : 0), at + shorts[n].length)
+                    return piece ? <Text key={name} color={shown.waiting || fromAgents.includes(name) ? HUD.faint : undefined}>{piece}</Text> : null
+                  }),
+                ]
                 return (
                   <Box key={`used:${kind}`}>
                     <Box width={LABEL} flexShrink={0}>
                       {i === 0 ? labelWord('USED') : <Text>{''}</Text>}
                     </Box>
-                    <Box key={`o:usedrow:${kind}`} hover={{ backgroundColor: LIT }}>
-                      <Button key={`o:used:${kind}`} plain onPress={act}>
-                        <Text>
-                          <Text color={HUD.faint} hover={dh}>{kind.padEnd(kindW)}</Text>
-                          <Text color={shown.waiting ? HUD.faint : 'claude'} hover={dh}>{String(main).padStart(mainW)}</Text>
-                          <Text color={HUD.faint} hover={dh}>{extra.padEnd(extraW)}</Text>
-                          <Text hover={dh}>{'  '}</Text>
-                          {/* Cut as one line, then split back per name: an agent's name dims as its +N does. */}
-                          {names.map((name, n) => {
-                            const at = shorts.slice(0, n).join(', ').length + (n > 0 ? 2 : 0)
-                            const piece = line.slice(at - (n > 0 ? 2 : 0), at + shorts[n].length)
-                            return piece ? <Text key={name} color={shown.waiting || fromAgents.includes(name) ? HUD.faint : undefined} hover={dh}>{piece}</Text> : null
-                          })}
-                        </Text>
-                      </Button>
-                    </Box>
+                    {/* Past the step rows' line ids, so the two never share a hover group. */}
+                    {kitRow(rc, `o:used:${kind}`, left, [], { pieces: (_key, node) => toPieces(node).map(x => ({ ...x, ...(dh && { hover: dh }) })), line: USED_LINE + i, act: false, width: width - LABEL })}
                   </Box>
                 )
               }),
@@ -592,5 +592,5 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
         {modalBox}
       </Box>
     )
-  return { body, zones: drawn, trace, ...(topicsOpen && { fade: { keep: new Set(['modal']), open: 'o:topics:all' } }), ...(modalBox && usedKind && { fade: { keep: new Set(['modal']), open: `o:used:${usedKind}` } }) }
+  return { body, zones: drawn, trace, ...(topicsOpen && { fade: { keep: new Set(['modal']), open: 'o:topics:all' } }), ...(modalBox && usedKind && { fade: { keep: new Set(['modal']), open: `${'Client' in ctx.el ? 'row' : 'hov'}:o:used:${usedKind}` } }) }
 }

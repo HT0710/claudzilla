@@ -737,11 +737,11 @@ test('the USED row draws short names from the full values', async ($, on) => {
   await $.tool.call({ tool: 'WebFetch', url: 'https://code.claude.com/docs/x' } as any)
   await $.tool.call({ tool: 'mcp__claude_ai_slack__slack_send_message' } as any)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: /^register\.tsx$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /hooks\// })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^use-branch$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^code\.claude\.com$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^slack_send_message$/ })).toBeDefined()
+  expect(await usedPiece(ui, 'files', /^register\.tsx$/)).toBeDefined()
+  expect(await usedPiece(ui, 'files', /hooks\//)).toBeUndefined()
+  expect(await usedPiece(ui, 'memory', /^use-branch$/)).toBeDefined()
+  expect(await usedPiece(ui, 'web', /^code\.claude\.com$/)).toBeDefined()
+  expect(await usedPiece(ui, 'other', /^slack_send_message$/)).toBeDefined()
 })
 
 test('a mid-turn prompt keeps USED; a new prompt clears it', async ($, on) => {
@@ -2742,13 +2742,13 @@ test("waiting keeps last turn's USED faint, shows ◐ planning… and … steps,
   expect(await colorOf(ui, '◐ planning…')).toBe('claude')
   expect(await colorOf(ui, '… steps')).toBe('#4f5c68')
   expect(await ui.find({ type: 'Text', text: '● working' })).toBeUndefined()
-  expect(await colorOf(ui, /^old\.ts$/)).toBe('#4f5c68')
+  expect((await usedPiece(ui, 'files', /^old\.ts$/))?.color).toBe('#4f5c68')
   expect(await colorOf(ui, /^USED/)).toBe('#a396d2')
-  expect(await ui.find({ type: 'Text', text: /new\.ts/ })).toBeUndefined()
+  expect(await usedPiece(ui, 'files', /new\.ts/)).toBeUndefined()
   await $.tool.call({ tool: INTENT, ...REPORT, wants: 'a fourth tab' } as any)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: /old\.ts/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^new\.ts$/ })).toBeDefined()
+  expect(await usedPiece(ui, 'files', /old\.ts/)).toBeUndefined()
+  expect(await usedPiece(ui, 'files', /^new\.ts$/)).toBeDefined()
 })
 
 test('a turn that ends without a report shows done', async ($, on) => {
@@ -3297,9 +3297,9 @@ test('USED lists each kind used this turn under STEPS', async ($, on) => {
   await $.tool.call({ tool: 'Skill', skill: 'caveman:cavecrew' } as any)
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: /^USED/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /register\.tsx/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /caveman:cavecrew/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^web/ })).toBeUndefined()
+  expect(await usedPiece(ui, 'files', /register\.tsx/)).toBeDefined()
+  expect(await usedPiece(ui, 'skills', /caveman:cavecrew/)).toBeDefined()
+  expect(await pieces(ui, 'o:used:web')).toBeUndefined()
 })
 
 test('a USED name with control characters draws on its one row as spaces', async ($, on) => {
@@ -3308,7 +3308,7 @@ test('a USED name with control characters draws on its one row as spaces', async
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await $.tool.call({ tool: 'Grep', pattern: 'a\nb\x1bc' } as any)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: 'a b c' })).toBeDefined()
+  expect(await usedPiece(ui, 'other', /^a b c$/)).toBeDefined()
 })
 
 test('USED kinds pad to the longest shown plus 2 spaces', async ($, on) => {
@@ -3318,8 +3318,8 @@ test('USED kinds pad to the longest shown plus 2 spaces', async ($, on) => {
   await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts' } as any)
   await $.tool.call({ tool: 'Skill', skill: 'caveman:cavecrew' } as any)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: 'skills  ' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'files   ' })).toBeDefined()
+  expect((await pieces(ui, 'o:used:skills'))?.[0]?.text).toBe('skills  ')
+  expect((await pieces(ui, 'o:used:files'))?.[0]?.text).toBe('files   ')
 })
 
 test('agent calls show as a dim +N', async ($, on) => {
@@ -3328,7 +3328,7 @@ test('agent calls show as a dim +N', async ($, on) => {
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts', agentId: 'a1' } as any)
   await ui.drawn()
-  expect((await textsUnder(ui, 'used:files')).find(t => /\+1/.test(t.text))?.color).toBe('#4f5c68')
+  expect(((await pieces(ui, 'o:used:files')) ?? []).find(t => /\+1/.test(t.text))?.color).toBe('#4f5c68')
 })
 
 test('a name only agents used is dim; one Claude used too is not', async ($, on) => {
@@ -3339,7 +3339,7 @@ test('a name only agents used is dim; one Claude used too is not', async ($, on)
   await $.tool.call({ tool: 'Read', file_path: '/proj/b.ts', agentId: 'a1' } as any)
   await $.tool.call({ tool: 'Read', file_path: '/proj/b.ts' } as any)
   await ui.drawn()
-  const color = async (name: RegExp) => (await textsUnder(ui, 'used:files')).find(t => name.test(t.text))?.color
+  const color = async (name: RegExp) => ((await pieces(ui, 'o:used:files')) ?? []).find(t => name.test(t.text))?.color
   expect(await color(/a\.ts/)).toBe('#4f5c68')
   expect(await color(/b\.ts/)).not.toBe('#4f5c68')
 })
@@ -3350,15 +3350,7 @@ test("Claude's names come before names only agents used", async ($, on) => {
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await $.tool.call({ tool: 'Read', file_path: '/proj/b.ts' } as any)
   await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts', agentId: 'a1' } as any)
-  const text: string[] = []
-  const walk = (n: any) => {
-    if (typeof n === 'string') return text.push(n)
-    if (!n || typeof n !== 'object') return
-    if (Array.isArray(n)) return n.forEach(walk)
-    walk([n.children, n.props?.children])
-  }
-  walk(await ui.drawn())
-  const all = text.join('')
+  const all = ((await pieces(ui, 'o:used:files')) ?? []).map(x => x.text).join('')
   expect(all.indexOf('b.ts')).toBeGreaterThan(-1)
   expect(all.indexOf('b.ts')).toBeLessThan(all.indexOf('a.ts'))
 })
@@ -3379,7 +3371,7 @@ test('a long URL is cut, not wrapped, in a 40-column pane', async ($, on) => {
   const before = (await ui.find({ key: 'report' }))?.children?.length
   await $.tool.call({ tool: 'WebSearch', query: 'https://example.com/' + 'a'.repeat(80) } as any)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: /…$/ })).toBeDefined()
+  expect(await usedPiece(ui, 'web', /…$/)).toBeDefined()
   expect((await ui.find({ key: 'report' }))?.children?.length).toBe((before ?? 0) + 2)
 })
 
@@ -3776,6 +3768,8 @@ const texts = (node: any): any[] => (node?.type === 'Text' ? [node] : (node?.chi
 // An Overview row Client's left pieces, by its row key.
 const pieces = async (ui: { find: (q: any) => Promise<any> }, key: string) =>
   (await ui.find({ key: `row:${key}` }))?.props?.props?.left as { text: string; color?: string; bold?: boolean; inverse?: boolean }[] | undefined
+// A USED row's first piece matching `re`.
+const usedPiece = async (ui: { find: (q: any) => Promise<any> }, kind: string, re: RegExp) => ((await pieces(ui, `o:used:${kind}`)) ?? []).find(x => re.test(x.text))
 const agentRow = async (ui: { find: (q: any) => Promise<any> }, step: number, n: number) => {
   const p = await pieces(ui, `o:agent:${step}:${n}`)
   return p && { text: p.map(x => x.text).join(''), glyph: p[1]?.color, color: p[2]?.color }
@@ -3896,8 +3890,8 @@ test('only the label word heats its card: every line it dims is a nested Text', 
   }
   walk(await ui.drawn(), false)
   expect(heats).toEqual([])
-  // PLAN's line is a step row's: its pieces sit in the row Client's Text.
-  expect([...follows].sort()).toEqual(['ASK', 'SESSION', 'TAKE', 'TOPIC', 'USED'])
+  // PLAN's and USED's lines are row Clients': their pieces sit in the row Client's Text.
+  expect([...follows].sort()).toEqual(['ASK', 'SESSION', 'TAKE', 'TOPIC'])
 })
 
 test('each label card opens at its own row', async ($, on) => {
@@ -4577,12 +4571,28 @@ const usedPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1])
   return ui
 }
 
+test('a USED row is a row Client; a tap opens its modal', async ($, on) => {
+  const ui = await usedPane($, on)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts' } as any)
+  expect(await pieces(ui, 'o:used:files')).toBeDefined()
+  await tapRow(ui, 'o:used:files')
+  expect(await ui.find({ type: 'Text', text: 'FILES' })).toBeDefined()
+})
+
+test('a USED row taps without steps drawn', async ($, on) => {
+  const ui = await usedPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT, steps: [] } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts' } as any)
+  await tapRow(ui, 'o:used:files')
+  expect(await ui.find({ type: 'Text', text: 'FILES' })).toBeDefined()
+})
+
 test("a USED row press opens that kind's modal; ✕ and a tab change close it", async ($, on) => {
   const ui = await usedPane($, on)
   await $.tool.call({ tool: 'Read', file_path: '/proj/hooks/kit.tsx' } as any)
   await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts' } as any)
   await $.tool.call({ tool: 'Grep', pattern: 'x' } as any)
-  await ui.press({ key: 'o:used:files' })
+  await tapRow(ui, 'o:used:files')
   expect(await ui.find({ type: 'Text', text: 'FILES' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '2 total' })).toBeDefined()
   expect(await hasInModal(ui, 'x')).toBe(false)
@@ -4591,11 +4601,11 @@ test("a USED row press opens that kind's modal; ✕ and a tab change close it", 
   expect(await inModal(ui, ' ├ ')).toBe('promptBorder')
   await ui.press({ key: 'm:x' })
   expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
-  await ui.press({ key: 'o:used:files' })
+  await tapRow(ui, 'o:used:files')
   // The lit row behind the fade closes it too.
-  await ui.press({ key: 'open:o:used:files' })
+  await tapRow(ui, 'o:used:files')
   expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
-  await ui.press({ key: 'o:used:files' })
+  await tapRow(ui, 'o:used:files')
   await ui.press({ key: 'History' })
   await ui.press({ key: 'Overview' })
   expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
@@ -4629,7 +4639,7 @@ test('a row press while a draw waits on its reads still acts', async ($, on) => 
   await ui.drawn()
   held = new Promise(() => undefined)
   // The press settles only with every draw, the held one too: not awaited.
-  ui.press({ key: 'o:used:files' }).catch(() => {})
+  tapRow(ui, 'o:used:files').catch(() => {})
   await reading
   void ui.post({ press: true }, { in: 'row:o:agent:0:0' })
   await viewing
@@ -4639,7 +4649,7 @@ test('a row press while a draw waits on its reads still acts', async ($, on) => 
 test('a file press opens it in the File tab through $.margin.show', async ($, on) => {
   const ui = await usedPane($, on)
   await $.tool.call({ tool: 'Read', file_path: '/proj/hooks/kit.tsx' } as any)
-  await ui.press({ key: 'o:used:files' })
+  await tapRow(ui, 'o:used:files')
   await ui.press({ key: 'm:use:0' })
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: 'hooks/kit.tsx' })).toBeDefined()
@@ -4652,7 +4662,7 @@ test('a skill press opens its SKILL.md; a skill with no path is a plain row', as
   await $.skill.prompt({ skill: 'cavecrew', pluginName: 'caveman', text: '', path: '/p/cavecrew/SKILL.md' } as any)
   await $.tool.call({ tool: 'Skill', skill: 'caveman:cavecrew' } as any)
   await $.tool.call({ tool: 'Skill', skill: 'init' } as any)
-  await ui.press({ key: 'o:used:skills' })
+  await tapRow(ui, 'o:used:skills')
   expect(await ui.find({ type: 'Button', key: 'm:use:1' })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'm:use:0' })).toBeUndefined()
 })
@@ -4662,7 +4672,7 @@ test('web rows: a page links in parts, a search says search; other rows name the
   await $.tool.call({ tool: 'WebSearch', query: 'ink overlay' } as any)
   await $.tool.call({ tool: 'WebFetch', url: 'https://github.com/vadimdemedes/ink?tab=api#position' } as any)
   await $.tool.call({ tool: 'mcp__claude_ai_slack__slack_send_message' } as any)
-  await ui.press({ key: 'o:used:web' })
+  await tapRow(ui, 'o:used:web')
   expect((await ui.find({ type: 'Link' }))?.props.href).toBe('https://github.com/vadimdemedes/ink?tab=api#position')
   expect(await hasInModal(ui, 'github.com')).toBe(true)
   expect(await inModal(ui, 'github.com')).toBeUndefined()
@@ -4670,7 +4680,7 @@ test('web rows: a page links in parts, a search says search; other rows name the
   expect(await inModal(ui, /^\?tab=api#position$/)).toBe('#4f5c68')
   expect(await inModal(ui, 'search')).toBe('#4f5c68')
   await ui.press({ key: 'm:x' })
-  await ui.press({ key: 'o:used:other' })
+  await tapRow(ui, 'o:used:other')
   expect(await hasInModal(ui, 'slack_send_message')).toBe(true)
   expect(await inModal(ui, 'slack_send_message')).toBeUndefined()
   expect(await inModal(ui, 'slack')).toBe('#4f5c68')
@@ -4683,7 +4693,7 @@ test('the agent hint: launch name, else type without the plugin, else none', asy
   await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts', agentId: 'a1' } as any)
   await $.tool.call({ tool: 'Read', file_path: '/proj/b.ts', agentId: 'a2' } as any)
   await $.tool.call({ tool: 'Read', file_path: '/proj/c.ts', agentId: 'zz' } as any)
-  await ui.press({ key: 'o:used:files' })
+  await tapRow(ui, 'o:used:files')
   // Newest first: c.ts (no record, no hint), b.ts, a.ts.
   const hints = (await modalTexts(ui)).filter(t => t.color === '#4f5c68' && !/total$/.test(t.text)).map(t => t.text)
   expect(hints).toEqual(['cavecrew-inve…', 'scout'])
@@ -4696,7 +4706,7 @@ test("a USED press while waiting opens last turn's list", async ($, on) => {
   await turnEnd($)
   await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } })
   await $.tool.call({ tool: 'Read', file_path: '/proj/new.ts' } as any)
-  await ui.press({ key: 'o:used:files' })
+  await tapRow(ui, 'o:used:files')
   expect(await hasInModal(ui, 'old.ts')).toBe(true)
   expect(await hasInModal(ui, 'new.ts')).toBe(false)
 })
@@ -4705,18 +4715,18 @@ test('a long path is cut from the left, the file name whole; a name with control
   const ui = await usedPane($, on)
   await $.tool.call({ tool: 'Read', file_path: `/proj/${'deep/'.repeat(12)}kit.tsx` } as any)
   await $.tool.call({ tool: 'Grep', pattern: 'a\nb\tc' } as any)
-  await ui.press({ key: 'o:used:files' })
+  await tapRow(ui, 'o:used:files')
   expect(await hasInModal(ui, /^…/)).toBe(true)
   expect(await hasInModal(ui, 'kit.tsx')).toBe(true)
   await ui.press({ key: 'm:x' })
-  await ui.press({ key: 'o:used:other' })
+  await tapRow(ui, 'o:used:other')
   expect(await hasInModal(ui, 'a b c')).toBe(true)
 })
 
 test('a USED modal row without a hint draws no right side, so its gap takes no room', async ($, on) => {
   const ui = await usedPane($, on)
   await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts' } as any)
-  await ui.press({ key: 'o:used:files' })
+  await tapRow(ui, 'o:used:files')
   const rows: number[] = []
   const walk = (n: any, inside: boolean) => {
     if (!n || typeof n !== 'object') return
