@@ -671,6 +671,8 @@ export const register: Register = on => {
   const agents = new Map<string, AgentRow>()
   // Agent calls' tool_use_id by agentId, which their requests carry.
   const spawned = new Map<string, string>()
+  // Background Bash commands' first line by tool_use_id, for the same finish notification.
+  const shells = new Map<string, string>()
   const agentTag = ({ model, effort }: AgentRow) => [/opus|sonnet|haiku|fable/.exec(model ?? '')?.[0], effort].filter(Boolean).join(' · ')
   // Files each Bash call changed, by tool_use_id; and the Bash groups a click opened, by requestId, to the file rows
   // whose diff a click opened.
@@ -739,6 +741,11 @@ export const register: Register = on => {
   // Bash calls whose writes git status found, as a script's: they keep their command, and show its output while their row is open.
   const scripts = new Set<string>()
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    // Here, not on the row: calls drawn in a group never draw a ToolUse row.
+    if (e.tool_use_id && (e as { run_in_background?: unknown }).run_in_background === true) {
+      if (shells.size > 500) shells.clear()
+      shells.set(e.tool_use_id, e.command.split('\n')[0]!)
+    }
     if (!hideEditDiff) return next(e)
     const targets = writeTargets(e.command)
     const cwd = await $.session.cwd().catch(() => '')
@@ -1103,13 +1110,14 @@ export const register: Register = on => {
     const native = await next(e)
     const { origin, isExpanded, task } = e.props
     const agent = task?.toolUseId ? agents.get(task.toolUseId) : undefined
-    const arg = agent?.description
+    const shell = task?.toolUseId ? shells.get(task.toolUseId) : undefined
+    const arg = agent?.description ?? shell
     const ended = task?.status && ENDED[task.status]
     if (!hideEditDiff || e.surface !== 'terminal' || isExpanded || origin.kind !== 'task-notification' || !arg || !ended) return native
     const elements = $.ui.resolve(e)
     const { Text } = elements
     const [tail, color] = ended
-    return textRow(elements, <Text color={color}>●</Text>, ['Agent', arg, task.durationMs === undefined ? tail : `${tail} · ${took(task.durationMs)}`], agentTag(agent!))
+    return textRow(elements, <Text color={color}>●</Text>, [agent ? 'Agent' : 'Bash', arg, task.durationMs === undefined ? tail : `${tail} · ${took(task.durationMs)}`], agent ? agentTag(agent) : '')
   })
 
   // A reply still streaming skips the hook below, so md-display.pl draws its lines from this width.

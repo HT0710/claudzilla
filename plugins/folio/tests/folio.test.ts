@@ -1451,6 +1451,25 @@ for (const [name, task, extra] of [
   })
 }
 
+// A background shell's finish row, after its Bash call ran as s1; a grouped call draws no ToolUse row.
+const shellNotice = async ($: any, on: any, input: object, task: object) => {
+  on('tool.call', () => ({ result: { stdout: '', stderr: '' } }) as any)
+  await $.tool.call({ tool: 'Bash', tool_use_id: 's1', ...input } as any)
+  return $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
+    props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 's1', ...task } }, viewport: VIEW })
+}
+
+test("a background shell's notification reads its command's first line", async ($, on) => {
+  finished(on)
+  const ui = await shellNotice($, on, { command: "cd /p; python3 - <<'EOF'\nprint(1)\nEOF", run_in_background: true }, { status: 'completed', durationMs: 12_000 })
+  expect(await textOf(ui)).toBe("● Bash (cd /p; python3 - <<'EOF')  done · 12s")
+})
+
+test("a foreground shell's notification stays native", async ($, on) => {
+  finished(on)
+  expect(await textOf(await shellNotice($, on, { command: 'ls' }, { status: 'completed' }))).toBe('native')
+})
+
 test('hideEditDiff false keeps the native notification row', async ($, on) => {
   finished(on)
   configured(on, { '/cfg/claudzilla.json': off })
