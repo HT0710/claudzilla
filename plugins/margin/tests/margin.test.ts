@@ -674,6 +674,13 @@ test('useOf names each kind and skips calls it does not know', () => {
   expect(useOf({ tool: 'mcp__margin__intent', wants: 'x' })).toBeUndefined()
 })
 
+// A fetched URL becomes a link: only a web page's, stored as the parsed href.
+test('useOf: a WebFetch counts only http and https, its URL as parsed', () => {
+  expect(useOf({ tool: 'WebFetch', url: 'javascript:alert(1)' })).toBeUndefined()
+  expect(useOf({ tool: 'WebFetch', url: 'file:///etc/passwd' })).toBeUndefined()
+  expect(useOf({ tool: 'WebFetch', url: 'http://a.dev/x\x01y' })).toEqual({ kind: 'web', name: 'http://a.dev/x%01y' })
+})
+
 test('a file read 5 times counts 5 and names it once', () => {
   let u = EMPTY_USED
   for (let i = 0; i < 5; i++) u = recordUse(u, { tool: 'Read', file_path: '/r/a.ts' })

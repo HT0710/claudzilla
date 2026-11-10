@@ -64,8 +64,10 @@ export const useOf = (call: { tool: string } & Record<string, unknown>): { kind:
     const url = str(call.url)
     if (!url) return undefined
     try {
-      new URL(url)
-      return { kind: 'web', name: url }
+      // Drawn as a link: a web page's only, never the raw string.
+      const u = new URL(url)
+      if (!/^https?:$/.test(u.protocol)) return undefined
+      return { kind: 'web', name: u.href }
     } catch {
       return undefined
     }
