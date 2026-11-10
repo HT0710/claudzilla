@@ -86,7 +86,9 @@ export async function draw($: EngineInterface, ctx: HistoryCtx): Promise<TabDraw
   // One element per row, dividers too, so the list scrolls by rows under the header.
   // A ! command's ! in the shell prompt's color, faint as its row.
   const row = (prompt: Prompt, color: string | undefined) => {
-    const text = fit(flat(prompt.display), room).padEnd(room)
+    const display = flat(prompt.display)
+    // "!cmd" reads "! cmd", as the shell prompt draws it.
+    const text = fit(display.startsWith('!') ? `! ${display.slice(1).trimStart()}` : display, room).padEnd(room)
     if (!text.startsWith('!')) return <Text color={color}>{text}</Text>
     return [<Text color={color === HUD.faint ? color : 'bashBorder'}>!</Text>, <Text color={color}>{text.slice(1)}</Text>]
   }
