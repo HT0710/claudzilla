@@ -22,10 +22,22 @@ Which model:
 - Run code search, a large doc, or many files read for a short answer on haiku. Ask for file:line quotes so the answer can be checked. Move it to sonnet only if the result comes back thin. A file you will edit or plan from stays inline, because you need its exact text.
 - Keep each haiku agent's input under 100K tokens; split a bigger read across agents.
 - Run implementation whose design is settled, in a written plan or agreed in chat, on sonnet. The brief states the agreed design and the check that proves it done. Move it to opus only if its review fails. Task size or step count is not a reason to start on opus.
-- A rule that names a model for a role, such as code reviews on opus, still wins.
+- A rule that names a model for a role, such as `code-reviewer.md` reviews on opus, still wins.
 
 Effort defaults:
 
 - Haiku runs at low and sonnet at medium.
 - Work that already belongs on opus runs at high for process work such as debugging, and at xhigh for refactors and plans. This line sets effort, not the model.
 - A task that fails at every effort needs a better brief, not a higher level.
+
+In superpowers skills:
+
+This table replaces the model choice in `subagent-driven-development` (its Model Selection section) and `executing-plans`. Set both `model` and `effort` on every dispatch, because the skill templates leave effort out.
+
+| role | model | effort |
+|---|---|---|
+| implementer with a settled plan, per-task reviewer, scoped re-review, final-review fix wave | sonnet | medium |
+| per-task reviewer on a high-risk diff, such as concurrency or a shared contract | opus | high |
+| fix rounds 4 and 5, after a stuck implementer | opus | high |
+| final whole-branch review (`caveman:cavecrew-reviewer`, see `superpowers.md`) | opus | high |
+| `dispatching-parallel-agents` agent, which finds and fixes its own problem | sonnet | medium |

@@ -186,7 +186,7 @@ To start every session in another mode, see *Customize claudzilla* (`/claudzilla
 ### Use skills
 <!-- topic: skills -->
 
-A *skill* is a file of instructions for one kind of task, such as debugging or writing a plan. Claude loads a skill when the task fits, or you run one by typing `/` and its name, such as `/superpowers:brainstorming`. A skill makes Claude follow a set method instead of improvising one. claudzilla installs the superpowers plugin, whose skills cover debugging, test-first coding, plans and reviews.
+A *skill* is a file of instructions for one kind of task, such as debugging or writing a plan. Claude loads a skill when the task fits, or you run one by typing `/` and its name, such as `/superpowers:brainstorming`. A skill makes Claude follow a set method instead of improvising one. claudzilla installs the superpowers plugin, whose skills cover debugging, test-first coding, plans and reviews. claudzilla's rules adjust them to its reply style: no "I'm using the … skill" line, and progress and end reports use the same short format as any other reply.
 
 Claude uses these skills without asking when the task fits:
 
@@ -651,6 +651,7 @@ An experimental feature is new behaviour that is off until you turn it on. It ma
 
 - **Agent routing** (`agentRouting`): Claude decides for each task whether to hand the work to a subagent. It picks the cheapest model and effort that does the job.
   - **Search limit:** with the feature on, the third search in one turn without a subagent call is refused with a note to delegate. Reads of a known file and a grep inside one known file stay allowed. The limit starts or stops at the next tool call, while the rule text applies from the next session. Scripts that run without the Agent tool: set `EVAL_ROUTING=off`, or turn the feature off.
+  - **Superpowers skills:** subagent-driven development and parallel agents use a fixed model and effort per role. Implementers and per-task reviews run on Sonnet, and the final review and stuck fixes run on Opus.
   - **Cost:** it may start more subagents. A saving has not been measured yet.
   - **Proven when:** the cost per completed task drops while the pass rate stays the same, measured over real sessions.
 
