@@ -112,7 +112,7 @@ export const recordUse = (used: Used, call: { tool: string } & Record<string, un
 }
 
 // A new prompt: agents met so far become stale, counts restart.
-export const resetUsed = (used: Used): Used => ({ kinds: {}, stale: [...used.stale, ...used.seen], seen: [] })
+export const resetUsed = (used: Used): Used => ({ kinds: {}, last: used.kinds, stale: [...used.stale, ...used.seen], seen: [] })
 
 const tab = atom({ plugin: 'margin', key: 'tab' } as const, 'Overview' as Tab)
 // Content hooks flag tabs here.
