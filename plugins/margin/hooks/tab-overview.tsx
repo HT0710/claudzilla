@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { AgentRow, Modal, Spawn, Step, Take } from '../types'
-import { BAR_ROWS, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, row as kitRow, rowHovers, toPieces, zoneWindow } from './kit'
+import { BAR_ROWS, DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, row as kitRow, rowHovers, toPieces, zoneWindow } from './kit'
 import type { Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, UseKind, Zone } from './kit'
 
 const intent = atom({ plugin: 'margin', key: 'intent' } as const, EMPTY_INTENT)
@@ -65,6 +65,16 @@ export const hang = (steps: Step[], spawns: Spawn[], turn: number): AgentRow[][]
 
 // The lines a text takes wrapped at w: words packed greedily, one past the width broken, as Text wraps.
 // shortcut: counts characters, not cells; CJK and emoji take two, so the count runs short. Upgrade: string-width.
+const LABEL_CARD = {
+  SESSION: 'What this chat is about, summed up from your prompts',
+  TOPIC: 'What your latest prompts are about; show all lists every topic',
+  ASK: "What you asked this turn, in Claude's words",
+  TAKE: "Claude's view of the ask before working",
+  PLAN: 'The steps Claude set for this turn, and their progress',
+  USED: 'What Claude read this turn; press a row to list it',
+}
+type Label = keyof typeof LABEL_CARD
+
 export const wrapLines = (text: string, w: number): string[] =>
   text.split('\n').flatMap(para => {
     const lines: string[] = []
@@ -151,19 +161,19 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     if (shown.deny) $.ui.toast(shown.deny)
   }
   // Purple inline label, the text wrapping under itself.
-  const labelled = (label: string, text: string, color?: string) => (
+  const labelled = (label: string, text: string, color?: string, hover?: object) => (
     <Box key={label}>
       {/* A fixed column: beside wrapping text, a padded label shrank and lost its gap. */}
       <Box width={LABEL} flexShrink={0}>
-        <Text bold color={HUD.label}>{label}</Text>
+        {labelWord(label as Label)}
       </Box>
-      <Text wrap="wrap" color={color}>{text}</Text>
+      <Text wrap="wrap" color={color} hover={hover}>{text}</Text>
     </Box>
   )
   // A part after ASK opens under a rule from the text column to the edge.
-  const partRule = (label: string) => (
+  const partRule = (label: string, start: number) => (
     <Box key={`rule:${label}`} paddingLeft={LABEL}>
-      <Text color="promptBorder">{'─'.repeat(Math.max(0, width - LABEL))}</Text>
+      <Text color="promptBorder" hover={dimFor(start)}>{'─'.repeat(Math.max(0, width - LABEL))}</Text>
     </Box>
   )
   const wrapRows = (text: string, w: number) => wrapLines(text, w).length
@@ -216,6 +226,40 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const usedKinds = USE_KINDS.filter(kind => usedShown[kind])
   const usedRows = shown.wants && usedKinds.length && roomLeft - (1 + usedKinds.length) >= 3 ? 1 + usedKinds.length : 0
   const stepRoom = roomLeft - usedRows
+  // Over USED and the footer's 2 rows.
+  const from = props.scroll.bodyRows - BAR_ROWS - 2 - usedRows - stepRoom
+  // The tab-body row each drawn label sits on, counted down the column; PLAN's and USED's come from STEPS.
+  const askAt = sessionRows + (hasAbout ? 2 + latestRows : 0)
+  const askRows = wrapRows(shown.wants, Math.max(1, width - LABEL))
+  const takeAt = askAt + askRows + 1
+  const takeRows = take ? wrapRows(takeText, Math.max(1, width - LABEL)) : 0
+  // The rule row under ASK, or under TAKE when there is one.
+  const ruleAt = take ? takeAt + takeRows : askAt + askRows
+  const labelAt: Partial<Record<Label, number>> = {
+    ...(summaryRows > 0 && { SESSION: 0 }),
+    ...(hasAbout && { TOPIC: sessionRows }),
+    ...(shown.wants && { ASK: askAt }),
+    ...(shown.wants && take && { TAKE: takeAt }),
+    ...(shown.wants && shown.steps.length > 0 && { PLAN: from - 2 }),
+    ...(usedRows > 0 && { USED: ruleAt + 1 }),
+  }
+  const cardOf = (label: Label) => wrapLines(LABEL_CARD[label], rc.cardWidth - 4)
+  // The line a label's card dims: the first row of the element starting at `start`, or inside the label's own text.
+  const dimFor = (start: number, rows = 1, own?: Label) => {
+    if (dimmed) return undefined
+    for (const [label, at] of Object.entries(labelAt) as [Label, number][]) {
+      const t = rc.up(at, cardOf(label).length) ? at - 1 : at + 1
+      if (t === start || (label === own && t > start && t < start + rows)) return { scope: `card:o:label:${label}`, color: DIMMED }
+    }
+  }
+  const labelWord = (label: Label) => {
+    kitCard(rc, `card:o:label:${label}`, labelAt[label]!, 'left', ...cardOf(label).map(l => <Text>{l}</Text>))
+    return (
+      <Box key={`o:label:${label}`} width={label.length} hover={dimmed ? undefined : { scope: `card:o:label:${label}` }}>
+        <Text bold color={HUD.label}>{label}</Text>
+      </Box>
+    )
+  }
   const following = await read($, stepsFollow)
   const storedSteps = await read($, stepsTop)
   const setSteps = async (to: number) => {
@@ -225,7 +269,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const topicRows = latest
     ? [
         <Box key="topic" paddingLeft={2} flexShrink={0}>
-          <Text wrap="wrap" color={about.running ? HUD.faint : undefined}>{latest}</Text>
+          <Text wrap="wrap" color={about.running ? HUD.faint : undefined} hover={dimFor(sessionRows + 1)}>{latest}</Text>
         </Box>,
       ]
     : []
@@ -258,17 +302,17 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
               ...(summaryRows
                 ? [
                     <Box key="sessionHead" justifyContent="space-between">
-                      <Text bold color={HUD.label}>SESSION</Text>
+                      {labelWord('SESSION')}
                       <Text color={HUD.faint}>{readSlot}</Text>
                     </Box>,
                     <Box key="summary" paddingLeft={2} height={summaryRows} overflow="hidden" flexShrink={0}>
-                      <Text wrap="wrap" color={about.running ? HUD.faint : SCOPE}>{about.summary}</Text>
+                      <Text wrap="wrap" color={about.running ? HUD.faint : SCOPE} hover={dimFor(1)}>{about.summary}</Text>
                     </Box>,
-                    <Box key="sessionRule"><Text color="promptBorder">{'─'.repeat(width)}</Text></Box>,
+                    <Box key="sessionRule"><Text color="promptBorder" hover={dimFor(1 + summaryRows)}>{'─'.repeat(width)}</Text></Box>,
                   ]
                 : []),
               <Box key="topicHead" justifyContent="space-between">
-                <Text bold color={HUD.label}>TOPIC</Text>
+                {labelWord('TOPIC')}
                 <Box gap={2}>
                   {!summaryRows && <Text color={HUD.faint}>{readSlot}</Text>}
                   {about.topics.length > 1 && (
@@ -279,28 +323,28 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                 </Box>
               </Box>,
               ...topicRows,
-              ...(shown.wants ? [<Box key="topicRule"><Text color="promptBorder">{'─'.repeat(width)}</Text></Box>] : []),
+              ...(shown.wants ? [<Box key="topicRule"><Text color="promptBorder" hover={dimFor(sessionRows + 1 + latestRows)}>{'─'.repeat(width)}</Text></Box>] : []),
             ]}
             {shown.wants && [
-              labelled('ASK', shown.wants, shade()),
-              take && partRule('TAKE'),
+              labelled('ASK', shown.wants, shade(), dimFor(askAt, askRows, 'ASK')),
+              take && partRule('TAKE', askAt + askRows),
               take && (
                 <Box key="TAKE">
                   <Box width={LABEL} flexShrink={0}>
-                    <Text bold color={HUD.label}>TAKE</Text>
+                    {labelWord('TAKE')}
                   </Box>
-                  <Text wrap="wrap">
+                  <Text wrap="wrap" hover={dimFor(takeAt, takeRows, 'TAKE')}>
                     <Text color={shade(TAKE_MARK[take.stance][1])}>{`${TAKE_MARK[take.stance][0]} `}</Text>
                     <Text bold color={shade(TAKE_MARK[take.stance][1])}>{fit(take.label, 16)}</Text>
                     {take.why && <Text color={shade()}>{`: ${take.why}`}</Text>}
                   </Text>
                 </Box>
               ),
-              shown.steps.length > 0 && partRule('STEPS'),
+              shown.steps.length > 0 && partRule('STEPS', ruleAt),
               shown.steps.length > 0 && (
                 <Box key="steps">
                   <Box width={LABEL} flexShrink={0}>
-                    <Text bold color={HUD.label}>STEPS</Text>
+                    {labelWord('PLAN')}
                   </Box>
                   <Box flexDirection="column" width={width - LABEL}>
                     {((perStep: StepLine[][]) => {
@@ -317,8 +361,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                         w = down
                       }
                       if (!ctx.signal.aborted) stepsHeld = w.top
-                      // Over USED and the footer's 2 rows.
-                      const from = props.scroll.bodyRows - BAR_ROWS - 2 - usedRows - stepRoom
+                      if (usedRows > 0) labelAt.USED = from - 2 + (w.above > 0 ? 1 : 0) + w.shown + (w.below > 0 ? 1 : 0) + 1
                       const stepsEnd = zoneWindow(rows.length, Infinity, stepRoom).top
                       drawn.push({
                         tab: 'Overview', kind: 'list', from, to: from + Math.min(rows.length, stepRoom), offset: props.scroll.offset,
@@ -340,7 +383,13 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                         if (dimmed) return pieces
                         const fromAbove = inWindow(k - 1) && !upOf(atOf(k - 1), 1)
                         const fromBelow = inWindow(k + 1) && upOf(atOf(k + 1), 1)
-                        return pieces.map(x => ({ ...x, ...(fromAbove && { hover: faded(`line:${k - 1}`, x) }), ...(fromBelow && { under: faded(`line:${k + 1}`, x) }) }))
+                        // PLAN's card dims the row under it too; a second group goes on `under` when the row above holds `hover`.
+                        const plan = dimFor(atOf(k))
+                        return pieces.map(x => ({
+                          ...x,
+                          ...(fromAbove ? { hover: faded(`line:${k - 1}`, x) } : plan && { hover: plan }),
+                          ...(fromBelow ? { under: faded(`line:${k + 1}`, x) } : fromAbove && plan && { under: plan }),
+                        }))
                       }
                       const shownRows = rows.slice(w.top, w.top + w.shown).map((r, n) => {
                         if (!r.key) return r.node
@@ -399,7 +448,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                   </Box>
                 </Box>
               ),
-              usedRows > 0 && partRule('USED'),
+              usedRows > 0 && partRule('USED', labelAt.USED! - 1),
               ...(usedRows > 0 ? usedKinds : []).map((kind, i) => {
                 const { main, agents, names: recent, fromAgents = [], sourceOf = {} } = usedShown[kind]!
                 // Claude's own names first, agents' after, each newest first.
@@ -412,20 +461,21 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                 const room = Math.max(1, width - LABEL - kindW - mainW - extraW - 2)
                 const shorts = names.map(n => shortName(kind, n, sourceOf[n]))
                 const line = fit(shorts.join(', '), room)
+                const dh = dimFor(labelAt.USED! + i)
                 return (
                   <Box key={`used:${kind}`}>
                     <Box width={LABEL} flexShrink={0}>
-                      <Text bold color={HUD.label}>{i === 0 ? 'USED' : ''}</Text>
+                      {i === 0 ? labelWord('USED') : <Text>{''}</Text>}
                     </Box>
-                    <Text color={HUD.faint}>{kind.padEnd(kindW)}</Text>
-                    <Text color={shown.waiting ? HUD.faint : 'claude'}>{String(main).padStart(mainW)}</Text>
-                    <Text color={HUD.faint}>{extra.padEnd(extraW)}</Text>
-                    <Text>{'  '}</Text>
+                    <Text color={HUD.faint} hover={dh}>{kind.padEnd(kindW)}</Text>
+                    <Text color={shown.waiting ? HUD.faint : 'claude'} hover={dh}>{String(main).padStart(mainW)}</Text>
+                    <Text color={HUD.faint} hover={dh}>{extra.padEnd(extraW)}</Text>
+                    <Text hover={dh}>{'  '}</Text>
                     {/* Cut as one line, then split back per name: an agent's name dims as its +N does. */}
                     {names.map((name, n) => {
                       const at = shorts.slice(0, n).join(', ').length + (n > 0 ? 2 : 0)
                       const piece = line.slice(at - (n > 0 ? 2 : 0), at + shorts[n].length)
-                      return piece ? <Text key={name} color={shown.waiting || fromAgents.includes(name) ? HUD.faint : undefined}>{piece}</Text> : null
+                      return piece ? <Text key={name} color={shown.waiting || fromAgents.includes(name) ? HUD.faint : undefined} hover={dh}>{piece}</Text> : null
                     })}
                   </Box>
                 )

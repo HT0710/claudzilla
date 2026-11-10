@@ -2496,7 +2496,7 @@ test("Claude's intent report draws on the Overview tab", async ($, on) => {
   expect(await ui.find({ type: 'Text', text: '0/2 steps' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'clear' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^STEPS/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^PLAN$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^ASK$/ })).toBeDefined()
   // No TOPICS read yet: no divider to tie the report to a topic.
   expect(await ui.find({ key: 'now' })).toBeUndefined()
@@ -3784,6 +3784,74 @@ test('an agent card names its status in its mark color', async ($, on) => {
 test('a card on the last STEPS row opens upward', async ($, on) => {
   const { ui } = await stepsPane($, on, 1)
   expect((await cardBox(ui, 'o:step:4'))?.props.top).toBeLessThan((await cardBox(ui, 'o:step:0'))?.props.top)
+})
+
+const LABEL_CARD = {
+  SESSION: 'What this chat is about, summed up from your prompts',
+  TOPIC: 'What your latest prompts are about; show all lists every topic',
+  ASK: "What you asked this turn, in Claude's words",
+  TAKE: "Claude's view of the ask before working",
+  PLAN: 'The steps Claude set for this turn, and their progress',
+  USED: 'What Claude read this turn; press a row to list it',
+}
+const labelled = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]) => {
+  on('tool.call', () => ({ result: {} }) as any)
+  const { ui, clock } = await overviewPane($, on, () => ({ isAnswered: true, text: SUMMED, usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts' } as any)
+  await ui.drawn()
+  return ui
+}
+
+test('each section label carries its card and never lights', async ($, on) => {
+  const ui = await labelled($, on)
+  for (const [label, text] of Object.entries(LABEL_CARD)) {
+    const word = findIn(await ui.drawn(), n => n.props?.key === `o:label:${label}`)[0]
+    expect(word?.props.width).toBe(label.length)
+    expect(word?.hover).toEqual({ scope: `card:o:label:${label}` })
+    expect((await cardTexts(ui, `o:label:${label}`)).map(([t]) => t).join(' ')).toBe(text)
+  }
+})
+
+test('a label card dims the line under it; behind a modal it does not show', async ($, on) => {
+  const ui = await labelled($, on)
+  const rule = findIn(await ui.drawn(), n => n.props?.key === 'rule:TAKE')[0]
+  expect(findIn(rule, n => n.type === 'Text')[0]?.hover).toEqual({ scope: 'card:o:label:ASK', color: '#3a424a' })
+  await ui.press({ key: 'o:topics:all' })
+  expect(await cardTexts(ui, 'o:label:ASK')).toEqual([])
+})
+
+// A card opens at the row two under its label, or upward: label row - card lines - 3 (kit card).
+test('each label card opens at its own row', async ($, on) => {
+  const ui = await labelled($, on)
+  const tops = { SESSION: 2, TOPIC: 6, ASK: 9, TAKE: 11, PLAN: 13, USED: 8 }
+  for (const [label, top] of Object.entries(tops)) expect((await cardBox(ui, `o:label:${label}`))?.props.top).toBe(top)
+})
+
+test('with no TAKE and no steps, USED sits under ASK and its card has a row', async ($, on) => {
+  on('tool.call', () => ({ result: {} }) as any)
+  const { ui, clock } = await overviewPane($, on, () => ({ isAnswered: true, text: SUMMED, usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await $.tool.call({ tool: INTENT, wants: 'a third tab', steps: [] } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts' } as any)
+  await ui.drawn()
+  expect((await cardBox(ui, 'o:label:USED'))?.props.top).toBe(11)
+  const rule = findIn(await ui.drawn(), n => n.props?.key === 'rule:USED')[0]
+  expect(findIn(rule, n => n.type === 'Text')[0]?.hover).toEqual({ scope: 'card:o:label:ASK', color: '#3a424a' })
+})
+
+test('with no TAKE, the rule above PLAN carries ASK\'s dim', async ($, on) => {
+  on('tool.call', () => ({ result: {} }) as any)
+  const { ui, clock } = await overviewPane($, on, () => ({ isAnswered: true, text: SUMMED, usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await $.tool.call({ tool: INTENT, wants: 'a third tab', steps: REPORT.steps } as any)
+  await ui.drawn()
+  const rule = findIn(await ui.drawn(), n => n.props?.key === 'rule:STEPS')[0]
+  expect(findIn(rule, n => n.type === 'Text')[0]?.hover).toEqual({ scope: 'card:o:label:ASK', color: '#3a424a' })
 })
 
 test('each tab keeps its own row hover state', () => {
