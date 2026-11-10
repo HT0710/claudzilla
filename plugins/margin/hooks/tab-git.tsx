@@ -378,7 +378,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   const act = (key: string) => key === 'fetch' && !dimmed
   const piecesOf = (key: string, node: any[]) =>
     act(key) ? toPieces(node).map(x => ({ ...x, hover: { scope: `card:${key}`, inverse: true } })) : dimOn(key, toPieces(node))
-  const topRow = (key: string, left: any[], right: any[], cardEl: null, width?: number) => kitRow(rc, key, left, right, cardEl, { pieces: piecesOf, line: lineOf(key), act: act(key), width })
+  const topRow = (key: string, left: any[], right: any[], width?: number) => kitRow(rc, key, left, right, { pieces: piecesOf, line: lineOf(key), act: act(key), width })
   // A row's hover card, drawn last so it paints over the rows under it, and shown while its row's scope is
   // hovered. `row`: the row it hangs under, counted from the tab's top.
   const cards: JSX.Element[] = []

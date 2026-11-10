@@ -6,8 +6,8 @@ import type { Prompt, TabCtx, TabDraw } from './kit'
 
 const historyTop = atom({ plugin: 'margin', key: 'historyTop' } as const, 0)
 
-//  : the toast wraps at spaces; ↻ keeps to its word.
-const GONE = "Can't jump: rewound or compacted out of the chat. ↻ reuses it."
+// \u00a0: the toast wraps at spaces; ↻ keeps to its word.
+const GONE = "Can't jump: rewound or compacted out of the chat. ↻\u00a0reuses it."
 // A move redraws every row, each saying where it is now; rows a long jump unmounted say nothing
 // again, so only the rows reported with the newest count.
 const FRESH = 100
@@ -27,7 +27,7 @@ export const litPrompt = (prompts: Prompt[], times: number[], pinned?: { timesta
   return at >= 0 ? at : inView(prompts, times)
 }
 
-// The shape `gone` returns (register.tsx), declared here: a tab file imports nothing from register.tsx.
+// The shape `readHistory` returns (register.tsx), declared here: a tab file imports nothing from register.tsx.
 export type HistoryReads = { all: Prompt[]; prompts: Prompt[]; drawnOnly: Set<string>; commands: Set<string>; rows: { isLive: boolean; marker?: 'Rewound' | 'Compacted' }[] }
 export type HistoryCtx = TabCtx & {
   // The cached read, kept in register.tsx.

@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { CommitView, LogRow, Gh, Intent, Modal, PrView, Spawn, Step, Tab, Take } from '../types'
 import { parseCommitView, parsePrView, parsePrs, printable } from './git-data'
-import { BAR_ROWS, DIM, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, WHEEL_HOLD, applyPalette, configDir, clock, dim, drawnZones, emptyNote as kitEmptyNote, fadeTree, fileView, fit, keepZones, modalOpen, rowHover, setZones, zoneWindow } from './kit'
+import { BAR_ROWS, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, WHEEL_HOLD, applyPalette, configDir, clock, dim, drawnZones, emptyNote as kitEmptyNote, fadeTree, fileView, fit, keepZones, modalOpen, rowHover, setZones } from './kit'
 import type { Prompt, TabCtx, TabDraw, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
@@ -655,7 +655,7 @@ export const nearestCommandId = (text: string, prompt: Prompt) => {
 const rowIds = new Map<string, string>()
 // Redraws within 100 ms, once however many rows moved or drew meanwhile. It redraws every chat row
 // this plugin hooks too, which is what makes the rows that did not move say where they are again
-// (see FRESH). Due by the clock, not a flag: a timer dropped with the draw that set it holds off
+// (see FRESH in tab-history.tsx). Due by the clock, not a flag: a timer dropped with the draw that set it holds off
 // nothing past its 100 ms.
 let due = -Infinity
 const redrawSoon = async ($: EngineInterface) => {
@@ -1157,8 +1157,8 @@ export const register: Register = (on, options) => {
     return {}
   })
 
-  // The wheel over the Git tab scrolls the zone under it, not the pane; keys, with no pointer, COMMITS.
-  // Over History, its list, under the header.
+  // Wheel zone order: an open modal takes every notch; then a held or hovered divider; then the zone under the pointer;
+  // then the tab's fallback; else next(e).
   on('ui.scroll', { requestId: PANE }, async ($, e, next) => {
     const zones = drawnZones()
     const rowIn = (z: Zone) => (e.pointer ? e.pointer.row + z.offset : undefined)
@@ -1369,7 +1369,7 @@ export const register: Register = (on, options) => {
       viewing = e.props.view?.agentId
       out = await drawOverview($, { ...ctx, viewing: () => viewing })
     }
-    if (!next.signal.aborted) setZones(current, out.zones)
+    if (!next.signal.aborted && (await read($, tab)) === saved) setZones(current, out.zones)
     const body = out.fade ? fadeTree(out.body, out.fade.keep, () => setModal($, () => null), out.fade.open) : out.body
     // What the tab drew, or hid and why.
     const zones = out.trace
