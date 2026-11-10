@@ -8,7 +8,7 @@ When to delegate:
 
 - Do it yourself when the task is small or needs this conversation's context that a handoff prompt would have to repeat.
 - Path known: stay inline. Reads of a known path, and a grep inside one known file, never get delegated.
-- A lookup past the inline search limit in the core rules goes to `caveman:cavecrew-investigator` on haiku at effort low. Not in the agent list: `Explore`.
+- A lookup past the inline search limit in the core rules goes to `caveman:cavecrew-investigator` on haiku at effort low. Not in the agent list: `Explore`. A hook blocks the third search of a turn with no Agent call.
 - Delegate when the work reads much and returns little, splits into parallel parts, or is a bounded edit you can fully specify.
 - This section counts as the user asking, so the Agent tool's "do not spawn unless the user asks" does not apply here.
 - Delegate live UI trials, such as tmux sessions or repeated clicks, and work expected to dump screens or logs into context.
