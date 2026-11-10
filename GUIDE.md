@@ -596,6 +596,7 @@ In this list, `env`, `permissions` and `model` go in `~/.claude/settings.overrid
 - **Stop auto-update:** put `{"rulesGuard":{"autoUpdate":false}}` in `~/.claude/claudzilla.json`; you still get the notice.
 - **Change other guard settings:** `compactNudge` (the context size, in tokens, at which Claude suggests compacting; `0` turns it off), `coldCompact` (how many times `compactNudge` the context must reach before claudzilla compacts by itself while you are away, `2` by default; `0` never), `reviewNudge`, `autoUpdate` and `trace` (`false` stops the local trace; machine file only) sit next to `rules`, not inside it.
 - **Recolour claudzilla:** put a `palette` key in `~/.claude/claudzilla.json`. Each colour is `#rrggbb`; any other value keeps its default. The status line changes at once, the plugins after `/reload-plugins` or in a new session. The margin names each ignored key in a toast.
+- **Try a new behaviour early:** turn on an experimental feature. See *Experimental features* (`/claudzilla labs`).
 - **Add your own instructions:** write them in `~/.claude/CLAUDE.local.md`. claudzilla's rules load it in every session on this machine.
 - **Change keys:** run `/keybindings` to open `~/.claude/keybindings.json`. To free **alt+q**, **alt+o**, **alt+h**, **alt+l**, **alt+g** or **alt+k**, set it to `null` in the `Chat` block. Changes apply without a restart.
 
@@ -634,6 +635,23 @@ The key names in each table:
 - `shared`, colours that two or more parts use: `label`, `faint`, `idle`, `action`, `dirty`, `churn`, `muted`, `lit`. Folio, primer and ballot read only this table.
 - `hud`, the status line: `rampLow`, `rampHigh`, `rampHot`, `track`, `note`, `cwdLow`, `cwdHigh`, `profile`, `version`, `divider`, `sweep`, `model`, `skill`, `thinking`, `clock`, `session`.
 - `margin`: `compacted`, `latest`, `ahead`, `behind`, `card`, `hairline`, `faded`, and three tables: `pill` (`green`, `gray`, `purple`, `red`, `yellow`, `blue`, `cyan`), `types` (`feat`, `fix`, `refactor`, `perf`, `docs`, `test`) and `status` (`M`, `A`, `D`, `U`, `R`, `C`, `?`).
+
+### Experimental features
+<!-- topic: labs -->
+
+An experimental feature is new behaviour that is off until you turn it on. It may change or be removed. Once it proves itself, it moves into the normal rules.
+
+#### Switch one on or off
+
+- **List them:** run `/claudzilla experimental`.
+- **Turn one on or off:** run `/claudzilla experimental <id> on` or `/claudzilla experimental <id> off`.
+- **When it applies:** from the next session, or after `/clear`.
+
+#### The features
+
+- **Agent routing** (`agentRouting`): Claude decides for each task whether to hand the work to a subagent. It picks the cheapest model and effort that does the job.
+  - **Cost:** it may start more subagents. A saving has not been measured yet.
+  - **Proven when:** the cost per completed task drops while the pass rate stays the same, measured over real sessions.
 
 ### Update and get help
 <!-- topic: more -->
@@ -677,6 +695,10 @@ It asks first, then removes claudzilla's links, settings entries, keys and plugi
 <!-- topic: news -->
 
 Headline features of recent versions. Restart Claude after an update to use them.
+
+#### v1.8.0
+
+- **Experimental features:** try new behaviour before it becomes a rule, starting with Agent routing (`/claudzilla labs`).
 
 #### v1.7.0
 

@@ -6,7 +6,7 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 G="$REPO/GUIDE.md"
 . "$REPO/tests/lib.sh"
 
-SLUGS="start first words talk replies flow approve skills context undo guard hud margin ballot limits background stuck bugs ref keys customize more news"
+SLUGS="start first words talk replies flow approve skills context undo guard hud margin ballot limits background stuck bugs ref keys customize labs more news"
 PARTS="Basics|Working|Screen|Own it"
 
 # prose: lines outside fences as "<slug>\t<line>"; inline code spans removed
