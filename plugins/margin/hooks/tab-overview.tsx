@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { AgentRow, Modal, Spawn, Step, Take } from '../types'
 import { printable } from './git-data'
-import { BAR_ROWS, DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, counted, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, row as kitRow, rowHovers, toPieces, zoneWindow } from './kit'
+import { BAR_ROWS, DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, LIT, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, counted, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, row as kitRow, rowHovers, toPieces, zoneWindow } from './kit'
 import type { Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, UseKind, Zone } from './kit'
 
 const intent = atom({ plugin: 'margin', key: 'intent' } as const, EMPTY_INTENT)
@@ -174,6 +174,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const acts: Record<string, () => unknown> = {}
   // Behind a modal only the open row acts: its press closes it.
   hv.acts = dimmed ? (usedKind ? { [`o:used:${usedKind}`]: () => ctx.setModal(() => null) } : {}) : acts
+  const Client = 'Client' in ctx.el ? ctx.el.Client : undefined
   const view = async (id?: string) => {
     const shown = await $.ui.view(id && ctx.viewing() !== id ? { agentId: id } : {})
     if (shown.deny) $.ui.toast(shown.deny)
@@ -268,16 +269,27 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
       }
       const main = <Text wrap="truncate-end">{pieces}</Text>
       const path = kind === 'skills' ? ctx.skillPath(name) : kind === 'files' || kind === 'memory' ? name : undefined
-      const target =
-        kind === 'web' && sourceOf[name] !== 'search' ? (
-          <Link href={name}>{main}</Link>
-        ) : path ? (
-          <Button key={`m:use:${i}`} plain onPress={() => $.margin.show({ path, line: 1 })}>
-            {main}
-          </Button>
-        ) : (
-          main
+      const web = kind === 'web' && sourceOf[name] !== 'search'
+      if (path && !web && Client) {
+        const key = `o:m:use:${i}`
+        hv.acts[key] = () => $.margin.show({ path, line: 1 })
+        const left = toPieces([<Text color="promptBorder">{` ${glyph}`}</Text>, ...pieces])
+        return (
+          // Keyed, its own hover scope: unkeyed, it would light whenever the pointer is anywhere in the modal.
+          <Box key={`${key}:box`} flexDirection="column" height={1} hover={{ backgroundColor: LIT }}>
+            <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left, right: hint ? toPieces(<Text color={HUD.faint}>{hint}</Text>) : [] }} />
+          </Box>
         )
+      }
+      const target = web ? (
+        <Link href={name}>{main}</Link>
+      ) : path ? (
+        <Button key={`m:use:${i}`} plain onPress={() => $.margin.show({ path, line: 1 })}>
+          {main}
+        </Button>
+      ) : (
+        main
+      )
       return (
         <Box justifyContent="space-between" gap={2}>
           <Box flexShrink={1} overflow="hidden">
