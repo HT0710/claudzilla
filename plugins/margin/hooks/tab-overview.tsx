@@ -105,7 +105,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const drawn: Zone[] = []
   const shown = await read($, intent)
   const about = await read($, overview)
-  const agentRows = hang(shown.steps, await read($, spawns), shown.turn ?? -1)
+  const sparks = await read($, spawns)
+  const agentRows = hang(shown.steps, sparks, shown.turn ?? -1)
   const open = await read($, expanded)
   const modalNow = await read($, modal)
   const usedNow = await read($, used)
@@ -155,7 +156,12 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const usedEntry = usedKind && usedShown[usedKind]
   // Dim behind what is drawn: a stored modal with nothing to show is not open.
   const dimmed = topicsOpen || !!(usedKind && usedEntry)
+  // Every read before the hover state clears: a press or a second draw in an await would find it empty.
   const pointer = await read($, rowPointer)
+  const following = await read($, stepsFollow)
+  const storedSteps = await read($, stepsTop)
+  const cwd = usedEntry ? await $.session.cwd().catch(() => '') : ''
+  const home = usedEntry ? await $.env.get('HOME').catch(() => undefined) : undefined
   const spans = hv.spans
   hv.spans = {}
   hv.acts = {}
@@ -217,13 +223,10 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     const f = modalFrame(props.bodyColumns, tabRows, 5 + rows.length)
     return drawLayer($, lc, 'm', f, { top: f.top, left: f.left - PAD }, [], [heading(ctx.el, 'TOPICS', <Text color={HUD.faint}>{`${about.topics.length} total`}</Text>)], rows, modalNow!.top)
   }
-  const usedModal = async (kind: UseKind, entry: NonNullable<typeof usedEntry>) => {
+  const usedModal = (kind: UseKind, entry: NonNullable<typeof usedEntry>) => {
     const { names: recent, fromAgents = [], agentOf = {}, sourceOf = {} } = entry
     // Claude's own names first, agents' after, each newest first.
     const names = [...recent.filter(n => !fromAgents.includes(n)), ...recent.filter(n => fromAgents.includes(n))]
-    const cwd = await $.session.cwd().catch(() => '')
-    const home = await $.env.get('HOME').catch(() => undefined)
-    const sparks = await read($, spawns)
     const hintOf = (name: string) => {
       const one = agentOf[name] && sparks.find(s => s.id === agentOf[name])
       return [one && fit(one.name ?? (one.type ?? '').replace(/^[^:]+:/, ''), 14), sourceOf[name]].filter(Boolean).join('  ')
@@ -283,7 +286,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     const f = modalFrame(props.bodyColumns, tabRows, 5 + rows.length)
     return drawLayer($, lc, 'm', f, { top: f.top, left: f.left - PAD }, [], [heading(ctx.el, kind.toUpperCase(), <Text color={HUD.faint}>{`${names.length} total`}</Text>)], rows, modalNow!.top)
   }
-  const modalBox = topicsOpen ? topicsModal() : usedKind && usedEntry ? await usedModal(usedKind, usedEntry) : null
+  const modalBox = topicsOpen ? topicsModal() : usedKind && usedEntry ? usedModal(usedKind, usedEntry) : null
   // Its list gone (a new prompt or /clear emptied it), the modal closes: left open, it would come back with the next list.
   if (usedKind && !usedEntry && !ctx.signal.aborted) $.clock.after(0, () => ctx.setModal(m => (m?.key === 'used' && m.kind === usedKind ? null : m)))
   if (modalNow?.key === 'topics' && !about.topics.length && !ctx.signal.aborted) $.clock.after(0, () => ctx.setModal(m => (m?.key === 'topics' ? null : m)))
@@ -335,8 +338,6 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
       </Box>
     )
   }
-  const following = await read($, stepsFollow)
-  const storedSteps = await read($, stepsTop)
   const setSteps = async (to: number) => {
     await update($, stepsFollow, () => false)
     await update($, stepsTop, () => to)
