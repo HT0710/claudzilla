@@ -40,31 +40,32 @@ const MAX_PROMPTS = 100
 // Built-in tools that never change files: their calls leave the Git tab's reads standing.
 const READ_ONLY = new Set(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'])
 
-const USE_NAMES = 5
+const USE_NAMES = 50
+const OWN_PLUGINS = ['ballot', 'byline', 'folio', 'herald', 'ledger', 'margin', 'primer']
 const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined)
 
-// The kind and name a tool call counts under; none for any other call.
-export const useOf = (call: { tool: string } & Record<string, unknown>): { kind: UseKind; name: string } | undefined => {
+// The kind, full name and source a tool call counts under; none for any other call.
+export const useOf = (call: { tool: string } & Record<string, unknown>): { kind: UseKind; name: string; source?: string } | undefined => {
   const { tool } = call
-  const base = (p: string) => p.slice(p.lastIndexOf('/') + 1)
   if (tool === 'Read') {
     const path = str(call.file_path)
     if (!path) return undefined
-    return /\/\.claude\/projects\/[^/]+\/memory\//.test(path) ? { kind: 'memory', name: base(path).replace(/\.md$/, '') } : { kind: 'files', name: base(path) }
+    return { kind: /\/\.claude\/projects\/[^/]+\/memory\//.test(path) ? 'memory' : 'files', name: path }
   }
   if (tool === 'Grep' || tool === 'Glob') {
     const name = str(call.pattern)
-    return name && { kind: 'files', name }
+    return name && { kind: 'other', name, source: tool.toLowerCase() }
   }
   if (tool === 'WebSearch') {
     const name = str(call.query)
-    return name && { kind: 'web', name }
+    return name && { kind: 'web', name, source: 'search' }
   }
   if (tool === 'WebFetch') {
     const url = str(call.url)
     if (!url) return undefined
     try {
-      return { kind: 'web', name: new URL(url).host }
+      new URL(url)
+      return { kind: 'web', name: url }
     } catch {
       return undefined
     }
@@ -73,13 +74,12 @@ export const useOf = (call: { tool: string } & Record<string, unknown>): { kind:
     const name = str(call.skill)
     return name && { kind: 'skills', name }
   }
-  if (tool.startsWith('mcp__context7__')) {
-    const name = str(call.libraryName) ?? str(call.query)
-    return name && { kind: 'docs', name }
-  }
-  if (tool.startsWith('mcp__codegraph__')) {
-    const name = str(call.query)
-    return name && { kind: 'docs', name }
+  if (tool.startsWith('mcp__')) {
+    const [server, ...rest] = tool.slice(5).split('__')
+    const name = rest.join('__')
+    if (!name || OWN_PLUGINS.includes(server)) return undefined
+    const arg = server === 'context7' ? (str(call.libraryName) ?? str(call.query)) : server === 'codegraph' ? str(call.query) : undefined
+    return { kind: 'other', name: arg ?? name, source: server.replace(/^claude_ai_/, '') }
   }
   return undefined
 }
@@ -90,16 +90,23 @@ export const recordUse = (used: Used, call: { tool: string } & Record<string, un
   const id = str(call.agentId)
   if (!use || (id && used.stale.includes(id))) return used
   const was = used.kinds[use.kind] ?? { main: 0, agents: 0, names: [], fromAgents: [] }
-  // Stored before fromAgents existed.
+  // Stored before fromAgents, agentOf and sourceOf existed.
   const fromAgents = was.fromAgents ?? []
+  const agentOf = was.agentOf ?? {}
+  const sourceOf = was.sourceOf ?? {}
   const names = [use.name, ...was.names.filter(n => n !== use.name)].slice(0, USE_NAMES)
   // A name stays an agent's until Claude uses it too.
   const agentOnly = id && (!was.names.includes(use.name) || fromAgents.includes(use.name))
+  const keptFrom = [...(agentOnly ? [use.name] : []), ...fromAgents.filter(n => n !== use.name && names.includes(n))]
+  const keep = <T,>(rec: Record<string, T>, own?: [string, T]) =>
+    Object.fromEntries([...(own ? [own] : []), ...Object.entries(rec).filter(([n]) => n !== use.name && names.includes(n))])
   const kind = {
     main: was.main + (id ? 0 : 1),
     agents: was.agents + (id ? 1 : 0),
     names,
-    fromAgents: [...(agentOnly ? [use.name] : []), ...fromAgents.filter(n => n !== use.name && names.includes(n))],
+    fromAgents: keptFrom,
+    agentOf: keep(agentOf, agentOnly && id ? [use.name, id] : undefined),
+    sourceOf: keep(sourceOf, use.source ? [use.name, use.source] : undefined),
   }
   return { ...used, kinds: { ...used.kinds, [use.kind]: kind }, seen: id && !used.seen.includes(id) ? [...used.seen, id] : used.seen }
 }
@@ -1076,7 +1083,7 @@ export const register: Register = (on, options) => {
         const shown = await read($, intent)
         const turn = await read($, turns)
         const step = shown.steps.find(one => one.status === 'in_progress')?.text ?? ''
-        await update($, spawns, now => [...now, { id, description: e.description, step, turn, status: 'pending' }])
+        await update($, spawns, now => [...now, { id, description: e.description, step, turn, status: 'pending', name: e.name, type: e.subagentType }])
         // Whether Claude listed it: how often it does is the later consistency check.
         t.event('agent.spawn', { listed: shown.steps.some(one => one.agents?.some(listed => same(listed, e.description))) })
       }
@@ -1215,9 +1222,9 @@ export const register: Register = (on, options) => {
   })
 
   // Recorded after the call runs: a call that fails or is refused used nothing.
-  on('tool.call', { tool: /^(Read|Grep|Glob|WebSearch|WebFetch|Skill|mcp__context7__.+|mcp__codegraph__.+)$/ }, async ($, e, next) => {
+  on('tool.call', { tool: /^(Read|Grep|Glob|WebSearch|WebFetch|Skill|mcp__.+)$/ }, async ($, e, next) => {
     const result = await next(e)
-    await update($, used, u => recordUse(u, e as never))
+    if (useOf(e as never)) await update($, used, u => recordUse(u, e as never))
 
     return result
   })
