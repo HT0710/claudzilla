@@ -175,6 +175,12 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     const shown = await $.ui.view(id && ctx.viewing() !== id ? { agentId: id } : {})
     if (shown.deny) $.ui.toast(shown.deny)
   }
+  // A line a label card dims: nested, it follows the card's group but cannot heat it, so only the word does.
+  const dimText = (hover: object | undefined, color: string | undefined, children: unknown, wrap?: 'wrap') => (
+    <Text wrap={wrap} color={color}>
+      <Text color={color} hover={hover}>{children}</Text>
+    </Text>
+  )
   // Purple inline label, the text wrapping under itself.
   const labelled = (label: string, text: string, color?: string, hover?: object) => (
     <Box key={label}>
@@ -182,13 +188,13 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
       <Box width={LABEL} flexShrink={0}>
         {labelWord(label as Label)}
       </Box>
-      <Text wrap="wrap" color={color} hover={hover}>{count(text)}</Text>
+      {dimText(hover, color, count(text), 'wrap')}
     </Box>
   )
   // A part after ASK opens under a rule from the text column to the edge.
   const partRule = (label: string, start: number) => (
     <Box key={`rule:${label}`} paddingLeft={LABEL}>
-      <Text color="promptBorder" hover={dimFor(start)}>{'─'.repeat(Math.max(0, width - LABEL))}</Text>
+      {dimText(dimFor(start), 'promptBorder', '─'.repeat(Math.max(0, width - LABEL)))}
     </Box>
   )
   const wrapRows = (text: string, w: number) => wrapLines(text, w).length
@@ -346,7 +352,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const topicRows = latest
     ? [
         <Box key="topic" paddingLeft={2} flexShrink={0}>
-          <Text wrap="wrap" color={about.running ? HUD.faint : undefined} hover={dimFor(sessionRows + 1)}>{latest}</Text>
+          {dimText(dimFor(sessionRows + 1), about.running ? HUD.faint : undefined, latest, 'wrap')}
         </Box>,
       ]
     : []
@@ -392,9 +398,9 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                       <Text color={HUD.faint}>{readSlot}</Text>
                     </Box>,
                     <Box key="summary" paddingLeft={2} height={summaryRows} overflow="hidden" flexShrink={0}>
-                      <Text wrap="wrap" color={about.running ? HUD.faint : undefined} hover={dimFor(1)}>{about.summary}</Text>
+                      {dimText(dimFor(1), about.running ? HUD.faint : undefined, about.summary, 'wrap')}
                     </Box>,
-                    <Box key="sessionRule"><Text color="promptBorder" hover={dimFor(1 + summaryRows)}>{'─'.repeat(width)}</Text></Box>,
+                    <Box key="sessionRule">{dimText(dimFor(1 + summaryRows), 'promptBorder', '─'.repeat(width))}</Box>,
                   ]
                 : []),
               <Box key="topicHead" justifyContent="space-between">
@@ -409,7 +415,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                 </Box>
               </Box>,
               ...topicRows,
-              ...(shown.wants ? [<Box key="topicRule"><Text color="promptBorder" hover={dimFor(sessionRows + 1 + latestRows)}>{'─'.repeat(width)}</Text></Box>] : []),
+              ...(shown.wants ? [<Box key="topicRule">{dimText(dimFor(sessionRows + 1 + latestRows), 'promptBorder', '─'.repeat(width))}</Box>] : []),
             ]}
             {shown.wants && [
               labelled('ASK', shown.wants, shade(), dimFor(askAt, askRows, 'ASK')),
@@ -419,11 +425,16 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                   <Box width={LABEL} flexShrink={0}>
                     {labelWord('TAKE')}
                   </Box>
-                  <Text wrap="wrap" hover={dimFor(takeAt, takeRows, 'TAKE')}>
-                    <Text color={shade(TAKE_MARK[take.stance][1])}>{`${TAKE_MARK[take.stance][0]} `}</Text>
-                    <Text bold color={shade(TAKE_MARK[take.stance][1])}>{fit(take.label, 16)}</Text>
-                    {take.why && <Text color={shade()}>{count(`: ${take.why}`)}</Text>}
-                  </Text>
+                  {dimText(
+                    dimFor(takeAt, takeRows, 'TAKE'),
+                    undefined,
+                    [
+                      <Text color={shade(TAKE_MARK[take.stance][1])}>{`${TAKE_MARK[take.stance][0]} `}</Text>,
+                      <Text bold color={shade(TAKE_MARK[take.stance][1])}>{fit(take.label, 16)}</Text>,
+                      take.why && <Text color={shade()}>{count(`: ${take.why}`)}</Text>,
+                    ],
+                    'wrap',
+                  )}
                 </Box>
               ),
               shown.steps.length > 0 && partRule('STEPS', ruleAt),
@@ -556,16 +567,18 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                     </Box>
                     <Box key={`o:usedrow:${kind}`} hover={{ backgroundColor: LIT }}>
                       <Button key={`o:used:${kind}`} plain onPress={act}>
-                        <Text color={HUD.faint} hover={dh}>{kind.padEnd(kindW)}</Text>
-                        <Text color={shown.waiting ? HUD.faint : 'claude'} hover={dh}>{String(main).padStart(mainW)}</Text>
-                        <Text color={HUD.faint} hover={dh}>{extra.padEnd(extraW)}</Text>
-                        <Text hover={dh}>{'  '}</Text>
-                        {/* Cut as one line, then split back per name: an agent's name dims as its +N does. */}
-                        {names.map((name, n) => {
-                          const at = shorts.slice(0, n).join(', ').length + (n > 0 ? 2 : 0)
-                          const piece = line.slice(at - (n > 0 ? 2 : 0), at + shorts[n].length)
-                          return piece ? <Text key={name} color={shown.waiting || fromAgents.includes(name) ? HUD.faint : undefined} hover={dh}>{piece}</Text> : null
-                        })}
+                        <Text>
+                          <Text color={HUD.faint} hover={dh}>{kind.padEnd(kindW)}</Text>
+                          <Text color={shown.waiting ? HUD.faint : 'claude'} hover={dh}>{String(main).padStart(mainW)}</Text>
+                          <Text color={HUD.faint} hover={dh}>{extra.padEnd(extraW)}</Text>
+                          <Text hover={dh}>{'  '}</Text>
+                          {/* Cut as one line, then split back per name: an agent's name dims as its +N does. */}
+                          {names.map((name, n) => {
+                            const at = shorts.slice(0, n).join(', ').length + (n > 0 ? 2 : 0)
+                            const piece = line.slice(at - (n > 0 ? 2 : 0), at + shorts[n].length)
+                            return piece ? <Text key={name} color={shown.waiting || fromAgents.includes(name) ? HUD.faint : undefined} hover={dh}>{piece}</Text> : null
+                          })}
+                        </Text>
                       </Button>
                     </Box>
                   </Box>
