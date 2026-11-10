@@ -3836,11 +3836,13 @@ const labelled = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1])
   return ui
 }
 
+// A taller Box makes the card's hover area a column under the word.
 test('each section label carries its card and never lights', async ($, on) => {
   const ui = await labelled($, on)
   for (const [label, text] of Object.entries(LABEL_CARD)) {
     const word = findIn(await ui.drawn(), n => n.props?.key === `o:label:${label}`)[0]
     expect(word?.props.width).toBe(label.length)
+    expect(word?.props.height).toBe(1)
     expect(word?.hover).toEqual({ scope: `card:o:label:${label}` })
     expect((await cardTexts(ui, `o:label:${label}`)).map(([t]) => t).join(' ')).toBe(text)
   }

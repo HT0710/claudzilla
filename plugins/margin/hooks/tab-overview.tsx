@@ -355,7 +355,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     // Not a row card: the row last left, kept until another row is entered, must not hide it.
     kitCard({ ...rc, gone: undefined }, `card:o:label:${label}`, labelAt[label]!, 'left', ...cardOf(label).map(l => <Text>{l}</Text>))
     return (
-      <Box key={`o:label:${label}`} width={label.length} hover={dimmed ? undefined : { scope: `card:o:label:${label}` }}>
+      <Box key={`o:label:${label}`} width={label.length} height={1} hover={dimmed ? undefined : { scope: `card:o:label:${label}` }}>
         <Text bold color={HUD.label}>{label}</Text>
       </Box>
     )
