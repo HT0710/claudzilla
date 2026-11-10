@@ -3328,7 +3328,7 @@ test('agent calls show as a dim +N', async ($, on) => {
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts', agentId: 'a1' } as any)
   await ui.drawn()
-  expect(await colorOf(ui, /\+1/)).toBe('#4f5c68')
+  expect((await textsUnder(ui, 'used:files')).find(t => /\+1/.test(t.text))?.color).toBe('#4f5c68')
 })
 
 test('a name only agents used is dim; one Claude used too is not', async ($, on) => {
@@ -3339,8 +3339,9 @@ test('a name only agents used is dim; one Claude used too is not', async ($, on)
   await $.tool.call({ tool: 'Read', file_path: '/proj/b.ts', agentId: 'a1' } as any)
   await $.tool.call({ tool: 'Read', file_path: '/proj/b.ts' } as any)
   await ui.drawn()
-  expect(await colorOf(ui, /a\.ts/)).toBe('#4f5c68')
-  expect(await colorOf(ui, /b\.ts/)).not.toBe('#4f5c68')
+  const color = async (name: RegExp) => (await textsUnder(ui, 'used:files')).find(t => name.test(t.text))?.color
+  expect(await color(/a\.ts/)).toBe('#4f5c68')
+  expect(await color(/b\.ts/)).not.toBe('#4f5c68')
 })
 
 test("Claude's names come before names only agents used", async ($, on) => {
@@ -3854,7 +3855,7 @@ test('each section label carries its card and never lights', async ($, on) => {
 test('a label card dims the line under it; behind a modal it does not show', async ($, on) => {
   const ui = await labelled($, on)
   const rule = findIn(await ui.drawn(), n => n.props?.key === 'rule:TAKE')[0]
-  expect(findIn(rule, n => n.type === 'Text')[0]?.hover).toEqual({ scope: 'card:o:label:ASK', color: '#3a424a' })
+  expect(findIn(rule, n => n.type === 'Text' && n.hover)[0]?.hover).toEqual({ scope: 'card:o:label:ASK', color: '#3a424a' })
   await ui.press({ key: 'o:topics:all' })
   expect(await cardTexts(ui, 'o:label:ASK')).toEqual([])
 })
@@ -3876,6 +3877,29 @@ test('a label card shows after the pointer leaves a step row whose card it overl
   for (const label of ['TAKE', 'PLAN', 'USED']) expect([label, !!(await cardBox(ui, `o:label:${label}`))]).toEqual([label, true])
 })
 
+// On the terminal only a Text nested in a Text follows a hover group without heating it.
+test('only the label word heats its card: every line it dims is a nested Text', async ($, on) => {
+  const ui = await labelled($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT, wants: 'a third tab '.repeat(4) } as any)
+  await $.tool.call({ tool: 'Grep', pattern: 'x' } as any)
+  // Tall enough for both USED rows: the second is the line under USED.
+  await ui.redraw({ ...props, scroll: { offset: 0, bodyRows: 40 + BAR_ROWS } })
+  const heats: string[] = []
+  const follows = new Set<string>()
+  const walk = (n: any, inText: boolean) => {
+    if (!n || typeof n !== 'object') return
+    if (Array.isArray(n)) return n.forEach(x => walk(x, inText))
+    const scope: string | undefined = n.hover?.scope
+    if (scope?.startsWith('card:o:label:') && n.props?.position !== 'absolute' && !n.props?.key?.startsWith('o:label:') && !(n.type === 'Text' && inText)) heats.push(`${n.type} ${scope}`)
+    else if (scope?.startsWith('card:o:label:') && n.type === 'Text') follows.add(scope.slice(13))
+    walk([n.children, n.props?.children].flat(), inText || n.type === 'Text')
+  }
+  walk(await ui.drawn(), false)
+  expect(heats).toEqual([])
+  // PLAN's line is a step row's: its pieces sit in the row Client's Text.
+  expect([...follows].sort()).toEqual(['ASK', 'SESSION', 'TAKE', 'TOPIC', 'USED'])
+})
+
 test('each label card opens at its own row', async ($, on) => {
   const ui = await labelled($, on)
   const tops = { SESSION: 2, TOPIC: 6, ASK: 9, TAKE: 11, PLAN: 13, USED: 8 }
@@ -3892,7 +3916,7 @@ test('with no TAKE and no steps, USED sits under ASK and its card has a row', as
   await ui.drawn()
   expect((await cardBox(ui, 'o:label:USED'))?.props.top).toBe(11)
   const rule = findIn(await ui.drawn(), n => n.props?.key === 'rule:USED')[0]
-  expect(findIn(rule, n => n.type === 'Text')[0]?.hover).toEqual({ scope: 'card:o:label:ASK', color: '#3a424a' })
+  expect(findIn(rule, n => n.type === 'Text' && n.hover)[0]?.hover).toEqual({ scope: 'card:o:label:ASK', color: '#3a424a' })
 })
 
 test('with no TAKE, the rule above PLAN carries ASK\'s dim', async ($, on) => {
@@ -3903,7 +3927,7 @@ test('with no TAKE, the rule above PLAN carries ASK\'s dim', async ($, on) => {
   await $.tool.call({ tool: INTENT, wants: 'a third tab', steps: REPORT.steps } as any)
   await ui.drawn()
   const rule = findIn(await ui.drawn(), n => n.props?.key === 'rule:STEPS')[0]
-  expect(findIn(rule, n => n.type === 'Text')[0]?.hover).toEqual({ scope: 'card:o:label:ASK', color: '#3a424a' })
+  expect(findIn(rule, n => n.type === 'Text' && n.hover)[0]?.hover).toEqual({ scope: 'card:o:label:ASK', color: '#3a424a' })
 })
 
 test('each tab keeps its own row hover state', () => {
