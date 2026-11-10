@@ -3023,6 +3023,25 @@ test('/clear empties TOPICS', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'Nothing here yet' })).toBeDefined()
 })
 
+test('/clear with TOPICS open closes it: the rows act again and the next read brings no modal back', async ($, on) => {
+  on('tool.call', () => ({ result: {} }) as any)
+  const { ui, clock } = await overviewPane($, on)
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await ui.press({ key: 'o:topics:all' })
+  await $.session.end({ reason: 'clear', sessionId: 'chat-1' } as any)
+  await clock.settle()
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
+  expect(await cardBox(ui, 'o:step:0')).toBeDefined()
+  await send($, 'next thing')
+  await clock.settle()
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'shipping the branch' })).toBeDefined()
+  expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
+})
+
 test('a reload with the Overview tab open reads TOPICS without waiting for a prompt', async ($, on) => {
   const { ui, clock, asks } = await overviewPane($, on, () => new Promise(() => undefined))
   await ui.press({ key: 'Overview' })
