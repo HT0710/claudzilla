@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { CommitView, LogRow, Gh, Intent, Modal, PrView, Spawn, Step, Tab, Take } from '../types'
 import { parseCommitView, parsePrView, parsePrs, printable } from './git-data'
-import { BAR_ROWS, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, USE_KINDS, PAD, WHEEL_HOLD, applyPalette, configDir, clock, dim, drawnZones, emptyNote as kitEmptyNote, fadeTree, fileView, fit, hoverOf, keepZones, modalOpen, setZones } from './kit'
+import { BAR_ROWS, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, WHEEL_HOLD, applyPalette, configDir, clock, dim, drawnZones, emptyNote as kitEmptyNote, fadeTree, fileView, fit, hoverOf, keepZones, modalOpen, setZones } from './kit'
 import type { Prompt, TabCtx, TabDraw, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
@@ -1107,12 +1107,6 @@ export const register: Register = (on, options) => {
     // Agent rows redraw mid-turn too: their fold takes the tabs' route.
     if (e.element === 'less' || e.element?.startsWith('more:')) {
       await update($, expanded, () => (e.element === 'less' ? -1 : Number(e.element!.slice(5))))
-
-      return { element: e.element }
-    }
-    const usedKind = USE_KINDS.find(kind => e.element === `o:used:${kind}`)
-    if (usedKind) {
-      await setModal($, () => ({ key: 'used', top: 0, kind: usedKind }))
 
       return { element: e.element }
     }
