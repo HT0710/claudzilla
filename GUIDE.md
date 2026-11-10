@@ -341,15 +341,17 @@ To open or close the margin, type `/margin`, or press a tab's key (see the key t
 
 **Overview** shows a status row: whether Claude is `● working`, `✓ done` or `■ stopped`, or, when its turn ended with background agents still running, `◌ waiting on N agents`. It sits at the bottom of the tab, over the lower tab bar. The tab holds:
 
-- **SESSION:** the whole chat in one sentence, written by the same Opus read as TOPICS, up to 4 rows.
-- **TOPICS:** what this chat is about. After each prompt, while the tab shows, Opus groups your prompts, and only your prompts, into topics.
+- **SESSION:** the whole chat in one sentence, written by the same Opus read as TOPIC, up to 4 rows.
+- **TOPIC:** what your latest prompts are about. After each prompt, while the tab shows, Opus groups your prompts, and only your prompts, into topics. Press `show all` to open a TOPICS modal that lists every topic, newest first. While Opus reads, the SESSION header shows `reading…` or `updating…`, and `update failed` if the read fails. With no summary, the TOPIC header shows it.
 - **ASK:** how Claude read your request.
 - **TAKE:** Claude's reaction to your ask before it starts: `✓` fine, `!` concern, `✗` against, `?` unsure, a short label, and a reason when it has one. On a question, the reason names what Claude will check or doubt, never the answer.
-- **STEPS:** its steps: `✓` done, `●` in progress, `○` pending.
+- **PLAN:** its steps: `✓` done, `●` in progress, `○` pending.
   - Agents Claude starts hang under their step: `○` planned, `◌` working, `✓` done, `✗` failed, `■` stopped. Past 3, the rest fold into `… N more`; click it to see them all, `… less` to fold them. Click an agent to open its transcript (its row lights blue); click it again, click its step, or press **Esc** to go back.
-- **USED:** under STEPS, one row per kind Claude used this turn (files, memory, web, docs, skills) with a count, a dim `+N` for subagent calls, and the last names: Claude's own first, then dim the ones only subagents used. It hides when STEPS would keep fewer than 3 rows.
+- **USED:** under PLAN, one row per kind Claude used this turn (files, memory, web, skills, other) with a count, a dim `+N` for subagent calls, and the last names: Claude's own first, then dim the ones only subagents used. Grep, Glob and every MCP tool except claudzilla's own count as other. Press a row to open a modal for that kind. It lists a tree by reader, `Claude` first and then each agent by name, with `×N` for a re-read, the source (such as `grep` or an MCP server) at the right, and `N total` counting calls. Web pages nest under the search that led to them. Press a file, memory or skill row to open it in the File tab, or a web page to follow the link. USED hides when PLAN would keep fewer than 3 rows.
 
-From the moment you submit until Claude reports, the status row shows `planning…` over last turn's dimmed report. The current step is lit blue. When STEPS runs past the pane's last row, it scrolls in place: the wheel moves it, and the list follows the step in progress until you wheel it yourself. The next prompt starts it at the top again, and the `⇕` rule under TOPICS gives it more rows. Claude fills ASK, TAKE and STEPS by calling a hidden `intent` tool at the start of each turn. TOPICS, ASK, TAKE and STEPS are written in the language you write in; the labels stay in English. Check ASK first: if Claude misread you, press **Esc** and correct it. Each report and each topics read uses a little of your usage limits; see *Usage and cost* (`/claudzilla limits`). To turn the reports off, set the margin's `intent` option to off in `/config`; it applies from the next session.
+Hover a step or agent row to see its status in a card. Hover SESSION, TOPIC, ASK, TAKE, PLAN or USED to see a one-sentence card saying what it is.
+
+From the moment you submit until Claude reports, the status row shows `◐ planning…` and `… steps`, and USED shows last turn's names dimmed, over last turn's dimmed report. The count reads `N/M steps`. The current step is lit blue. When PLAN runs past the pane's last row, it scrolls in place: the wheel moves it, and the list follows the step in progress until you wheel it yourself. The next prompt starts it at the top again. Claude fills ASK, TAKE and PLAN by calling a hidden `intent` tool at the start of each turn. TOPIC, ASK, TAKE and PLAN are written in the language you write in; the labels stay in English. Check ASK first: if Claude misread you, press **Esc** and correct it. Each report and each topics read uses a little of your usage limits; see *Usage and cost* (`/claudzilla limits`). To turn the reports off, set the margin's `intent` option to off in `/config`; it applies from the next session.
 
 **History** lists this chat's prompts, newest first:
 
@@ -376,7 +378,7 @@ Each changed file shows git's two status letters and its line counts: the first,
 
 Each commit shows its subject and age; unpushed commits are bright and counted as `↑N` in the header. Hover one for its id, author, branches, tags and size. Click it for its message and files, with `copy` for its id and, once pushed, `github` for its page on GitHub, GitLab, Codeberg or SourceHut.
 
-The mouse wheel scrolls each list. The `⇕` rule between CHANGES and COMMITS, and the one under TOPICS, sets how the rows are shared: drag it or turn the wheel over it, and each side keeps at least one row; click it to move it to the top, and click it there to move it to the bottom. The [margin README](https://github.com/HT0710/claudzilla/blob/main/plugins/margin/README.md) has the full detail.
+The mouse wheel scrolls each list. The `⇕` rule between CHANGES and COMMITS sets how the rows are shared: drag it or turn the wheel over it, and each side keeps at least one row; click it to move it to the top, and click it there to move it to the bottom. The [margin README](https://github.com/HT0710/claudzilla/blob/main/plugins/margin/README.md) has the full detail.
 
 ### The ballot card
 <!-- topic: ballot -->
