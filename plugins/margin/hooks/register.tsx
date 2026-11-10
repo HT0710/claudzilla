@@ -165,10 +165,10 @@ const INTENT_RULE = [
   'your answer closes it. Do not mention the tool in your reply. Write wants, take and steps in the language the user writes in.',
   "When a step spawns agents, list each Agent call's description in that step's agents, exactly as you pass it, and keep listing them when you redraft.",
   'take is your reaction to the ask, given before any work; never the answer. On a work ask: your stance on doing it as asked. On a question with no work: how sure you are and what you will check, or a premise you doubt; never your expected answer, even when context already holds it: name the source, not what it says.',
-  'Bad: "plausible: wording invites a mini-answer". Good: "check first: will read the take rule".',
+  'Bad: "plausible: wording invites a mini-answer". Good: "check rule: will read the take rule".',
   "stance: fine = you would do it as asked; concern = you would do it but see a real risk or a better way; against = you'd want the user to reconsider before you act: the ask as stated is irreversible, bypasses a safeguard (review, CI, backup, confirmation), or breaks a stated rule. Pick against over concern whenever one of these holds, even if you would still do it after confirming; unsure = you cannot judge yet.",
-  'label: required, 1 to 3 words, at most 16 characters. Examples: fine "clear", "small fix"; concern "risky", "overkill", "check first"; against "breaks rule", "data loss"; unsure "needs repro", "unclear goal". No mood words such as "excited" or "happy".',
-  'why: optional, one clause, about 60 characters at most: the reason.',
+  'label: required, 1 to 3 words, at most 16 characters. On a question with no work: a verb and its target, such as "check labels", "read session", "count names". Examples: fine "clear", "small fix"; concern "risky", "overkill", "check first"; against "breaks rule", "data loss"; unsure "needs repro", "unclear goal". Bad: "naming q", "design q", "answer", "question": they name the question type, not your take. No mood words such as "excited" or "happy".',
+  'why: optional, one clause, about 60 characters at most: the reason. With unsure, the why names the input you will check (a file, a command or the session), never a finding.',
 ].join(' ')
 // An answer closed every step; an interrupt left some open, for pings to pick back up.
 const isAnswered = (now: Intent) => now.ended && now.steps.every(step => step.status === 'completed')
