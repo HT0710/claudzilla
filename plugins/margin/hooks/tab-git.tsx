@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Check, CheckState, CommitView, Counts, FileView, Gh, LogRow, Modal, ModalKey, Op, Pr, PrState, PrView, Stage, Word } from '../types'
 import { LOG_FORMAT, age, ago, branches, cutMiddle, fileKey, incomingPrs, ownPrs, parseHead, parseLog, parseMerge, parseNumstat, parseRebase, parseShortstat, parseStatusZ, printable, sortChecks, stashCount, syncMark, treeRows, worktrees, worst } from './git-data'
-import { AHEAD, BAR_ROWS, BEHIND, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, capped, card as kitCard, clock, configDir, contentFrame, cues, dayName, dim, drawLayer as kitDrawLayer, emptyNote, fade, fadeBg, fileView, fit, heading as kitHeading, kv as kitKv, line as kitLine, modalFrame, modalZone, nudge, readTheme, row as kitRow, rowHovers, stackFrame, textLength, toPieces, zoneWindow } from './kit'
+import { AHEAD, BAR_ROWS, BEHIND, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, capped, card as kitCard, clock, configDir, contentFrame, counted as kitCounted, cues, dayName, dim, drawLayer as kitDrawLayer, emptyNote, fade, fadeBg, fileView, fit, heading as kitHeading, kv as kitKv, line as kitLine, modalFrame, modalZone, nudge, readTheme, row as kitRow, rowHovers, stackFrame, textLength, toPieces, zoneWindow } from './kit'
 import type { Frame, Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, Zone } from './kit'
 import { mdRows } from './markdown'
 
@@ -581,11 +581,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
       </Box>
     )
   }
-  // A count in normal text: each standalone number in the claude colour; faint text stays faint. IDs (#n,
-  // shas), times (11h), churn (+7) and numbers inside names are not counts: a number touching a letter, #, + or
-  // − stays.
-  const counted = (text: string) =>
-    text.split(/(?<![\w#+−.\/-])(\d+)(?![\w.\/-])/).map((part, i) => (part ? <Text color={i % 2 ? 'claude' : undefined}>{part}</Text> : null))
+  const counted = (text: string) => kitCounted(ctx.el, text)
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
   const opRows = op ? 1 : 0
   const prRow = (() => {

@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { AgentRow, Modal, Spawn, Step, Take } from '../types'
 import { printable } from './git-data'
-import { BAR_ROWS, DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, LIT, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, row as kitRow, rowHovers, toPieces, zoneWindow } from './kit'
+import { BAR_ROWS, DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, LIT, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, counted, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, row as kitRow, rowHovers, toPieces, zoneWindow } from './kit'
 import type { Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, UseKind, Zone } from './kit'
 
 const intent = atom({ plugin: 'margin', key: 'intent' } as const, EMPTY_INTENT)
@@ -114,7 +114,6 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   // Only the first read builds the list; every later one updates the topics shown.
   const readSlot = about.running ? (about.topics.length ? 'updating…' : 'reading…') : about.failed ? 'update failed' : ''
   const done = shown.steps.filter(step => step.status === 'completed').length
-  const stepCount = shown.steps.length ? `${done}/${shown.steps.length} steps` : ''
   // Ended with every step closed: an answer; else interrupted or failed, as Claude left it.
   // Working is lit as History lights the prompt in view; done is the branch row's green; stopped Git's dirty amber.
   // Waiting on agents takes plan mode's teal: the theme's other blues are working and the tabs.
@@ -143,6 +142,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   }
   const agentText = (status: AgentRow['status']) => (WORKING.includes(status) ? undefined : status === 'planned' || status === 'pending' ? HUD.faint : SCOPE)
   const shade = (color?: string) => (shown.waiting ? HUD.faint : color)
+  const count = (text: string) => (shown.waiting ? text : counted(ctx.el, text))
   const hasAbout = about.topics.length > 0 || about.running || !!about.failed
   const hasReport = !!(shown.wants || shown.waiting || shown.ended)
   // The tab body the modal sits in, under the tabs and their rule.
@@ -172,7 +172,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
       <Box width={LABEL} flexShrink={0}>
         {labelWord(label as Label)}
       </Box>
-      <Text wrap="wrap" color={color} hover={hover}>{text}</Text>
+      <Text wrap="wrap" color={color} hover={hover}>{count(text)}</Text>
     </Box>
   )
   // A part after ASK opens under a rule from the text column to the edge.
@@ -352,7 +352,16 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
       <Text color="promptBorder">{'─'.repeat(width)}</Text>
       <Box justifyContent="space-between">
         <Text color={stateColor}>{state}</Text>
-        <Text color={HUD.faint}>{shown.waiting ? (shown.agents ? '' : '… steps') : stepCount}</Text>
+        {shown.waiting ? (
+          <Text color={HUD.faint}>{shown.agents ? '' : '… steps'}</Text>
+        ) : shown.steps.length ? (
+          <Box key="count">
+            <Text color="claude">{`${done}`}</Text>
+            <Text color={HUD.faint}>/</Text>
+            <Text color="claude">{`${shown.steps.length}`}</Text>
+            <Text color={HUD.faint}>{' steps'}</Text>
+          </Box>
+        ) : null}
       </Box>
     </Box>
   )
@@ -379,7 +388,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                       <Text color={HUD.faint}>{readSlot}</Text>
                     </Box>,
                     <Box key="summary" paddingLeft={2} height={summaryRows} overflow="hidden" flexShrink={0}>
-                      <Text wrap="wrap" color={about.running ? HUD.faint : SCOPE} hover={dimFor(1)}>{about.summary}</Text>
+                      <Text wrap="wrap" color={about.running ? HUD.faint : undefined} hover={dimFor(1)}>{about.summary}</Text>
                     </Box>,
                     <Box key="sessionRule"><Text color="promptBorder" hover={dimFor(1 + summaryRows)}>{'─'.repeat(width)}</Text></Box>,
                   ]
@@ -409,7 +418,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                   <Text wrap="wrap" hover={dimFor(takeAt, takeRows, 'TAKE')}>
                     <Text color={shade(TAKE_MARK[take.stance][1])}>{`${TAKE_MARK[take.stance][0]} `}</Text>
                     <Text bold color={shade(TAKE_MARK[take.stance][1])}>{fit(take.label, 16)}</Text>
-                    {take.why && <Text color={shade()}>{`: ${take.why}`}</Text>}
+                    {take.why && <Text color={shade()}>{count(`: ${take.why}`)}</Text>}
                   </Text>
                 </Box>
               ),
@@ -444,7 +453,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                           await update($, stepsTop, () => Math.max(0, Math.min(w.top + by, stepsEnd)))
                         },
                       })
-                      const stepCues = cues(ctx.el, 'steps', width - LABEL, w, setSteps)
+                      const stepCues = cues(ctx.el, 'steps', width - LABEL, w, setSteps, true, false)
                       hv.acts = dimmed ? {} : acts
                       // Tab-body rows: the zone's start counts the tabs bar too.
                       const atOf = (k: number) => from - 2 + (w.above > 0 ? 1 : 0) + (k - w.top)
@@ -484,7 +493,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                       // In an agent's transcript, that agent's step leads back to the main conversation.
                       const stepLine = [
                         <Text key="mark" color={shade(MARK_SHADE[step.status])}>{`${MARK[step.status]} `}</Text>,
-                        <Text key="text" color={shade(TEXT_SHADE[step.status])}>{fit(step.text, width - LABEL - 2)}</Text>,
+                        <Text key="text" color={shade(TEXT_SHADE[step.status])}>{count(fit(step.text, width - LABEL - 2))}</Text>,
                       ]
                       // A spawned agent's row opens its transcript; the one in view is lit across the row, as the shown tab is.
                       const agentLine = (row: AgentRow, tree: string, j: number): StepLine => {
@@ -496,7 +505,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                           row.id && row.id === ctx.viewing()
                             ? [<Text bold inverse color={shade('claude')}>{`${tree}${glyph} ${text}`.padEnd(width - LABEL)}</Text>]
                             : [
-                                <Text key="tree" color={shade(HUD.faint)}>{tree}</Text>,
+                                <Text key="tree" color={shade('promptBorder')}>{tree}</Text>,
                                 <Text key="mark" color={shade(color)}>{`${glyph} `}</Text>,
                                 <Text key="text" color={shade(agentText(row.status))}>{text}</Text>,
                               ]
@@ -505,7 +514,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                       const toggle = (key: string, label: string, to: number): StepLine => ({
                         node: (
                           <Button key={key} plain onPress={() => update($, expanded, () => to)}>
-                            <Text color={shade(HUD.faint)}>└ </Text>
+                            <Text color={shade('promptBorder')}>└ </Text>
                             <Text color={shade(HUD.faint)}>{label}</Text>
                           </Button>
                         ),

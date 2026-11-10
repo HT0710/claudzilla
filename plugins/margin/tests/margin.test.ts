@@ -368,7 +368,7 @@ test('CHANGES shows the modal cues: ↑ N more once scrolled, ↓ N more turns t
   await wheelAt($, 5, 6)
   // ↑, 5 files, ↓.
   expect(await cueText(ui, 'changes')).toEqual({ up: true, down: true })
-  expect(await ui.find({ type: 'Text', text: ' 5 more ' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' 5 more' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: ' 20 more' })).toBeDefined()
   expect(await rowText(ui, /file9\.ts/)).toBeDefined()
   expect(await rowText(ui, /file10\.ts/)).toBeUndefined()
@@ -398,7 +398,7 @@ test('COMMITS shows the modal cues; ↓ more counts nothing, as COMMITS reads in
   expect(await rowText(ui, /commit 14$/)).toBeUndefined()
   await wheelAt($, 5, 10)
   expect(await cueText(ui, 'commits')).toEqual({ up: true, down: true })
-  expect(await ui.find({ type: 'Text', text: ' 5 more ' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' 5 more' })).toBeDefined()
   expect(await rowText(ui, /commit 17$/)).toBeDefined()
   expect(await rowText(ui, /commit 18$/)).toBeUndefined()
   await ui.press({ key: 'commits:down' })
@@ -2493,7 +2493,7 @@ test("Claude's intent report draws on the Overview tab", async ($, on) => {
   expect(await $.tool.call({ tool: INTENT, ...REPORT } as any)).toMatchObject({ result: 'ok' })
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: '● working' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '0/2 steps' })).toBeDefined()
+  expect(await textOf(ui, 'count')).toBe('0/2 steps')
   expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'clear' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^PLAN$/ })).toBeDefined()
@@ -2521,7 +2521,7 @@ test("a main turn's end marks the report ended; a subagent's does not", async ($
   await turnEnd($)
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: /^✓ done / })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '2/2 steps' })).toBeDefined()
+  expect(await textOf(ui, 'count')).toBe('2/2 steps')
   // Claude skips a report only to close its last steps: the answer closes them all.
   expect(await ui.find({ type: 'Text', text: /^✓ $/, in: 'row:o:step:0' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^✓ $/, in: 'row:o:step:1' })).toBeDefined()
@@ -2537,11 +2537,11 @@ test('a main turn that ends on a background agent waits on it, the steps kept op
   await turnEnd($)
   await ui.drawn()
   expect(await colorOf(ui, '◌ waiting on 1 agent')).toBe('planMode')
-  expect(await ui.find({ type: 'Text', text: '0/2 steps' })).toBeDefined()
+  expect(await textOf(ui, 'count')).toBe('0/2 steps')
   status = 'completed'
   await turnEnd($)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: '2/2 steps' })).toBeDefined()
+  expect(await textOf(ui, 'count')).toBe('2/2 steps')
 })
 
 test("an answer closes the steps past agents the turn does not wait on: a subagent's, a plugin's, a teammate, an idle one", async ($, on) => {
@@ -2557,7 +2557,7 @@ test("an answer closes the steps past agents the turn does not wait on: a subage
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await turnEnd($)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: '2/2 steps' })).toBeDefined()
+  expect(await textOf(ui, 'count')).toBe('2/2 steps')
 })
 
 test('an agent already running at the prompt holds that prompt\'s answer open too', async ($, on) => {
@@ -2570,11 +2570,11 @@ test('an agent already running at the prompt holds that prompt\'s answer open to
   await turnEnd($)
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: '◌ waiting on 1 agent' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '0/2 steps' })).toBeDefined()
+  expect(await textOf(ui, 'count')).toBe('0/2 steps')
   status = 'completed'
   await turnEnd($)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: '2/2 steps' })).toBeDefined()
+  expect(await textOf(ui, 'count')).toBe('2/2 steps')
 })
 
 test("waiting counts the agents; an agent's result or a new prompt is work again", async ($, on) => {
@@ -2624,7 +2624,7 @@ test("waiting after an answered report shows none of that report's steps", async
   await turnEnd($)
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: '◌ waiting on 1 agent' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '2/2 steps' })).toBeUndefined()
+  expect(await textOf(ui, 'count')).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: 'planning…' })).toBeUndefined()
 })
 
@@ -2719,7 +2719,7 @@ test('a prompt shows planning… until Claude reports', async ($, on) => {
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: '● working' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '… steps' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: '0/2 steps' })).toBeDefined()
+  expect(await textOf(ui, 'count')).toBe('0/2 steps')
 })
 
 test("waiting keeps last turn's USED faint, shows ◐ planning… and … steps, and swaps when the report lands", async ($, on) => {
@@ -2773,7 +2773,7 @@ test("a background task's result carries the report on: kept, its ping moves the
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '● working' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '1/2 steps' })).toBeDefined()
+  expect(await textOf(ui, 'count')).toBe('1/2 steps')
   expect(await ui.find({ type: 'Text', text: /^● $/, in: 'row:o:step:1' })).toBeDefined()
 })
 
@@ -3058,7 +3058,7 @@ test('SESSION: the summary from the TOPICS read draws in its own section above T
   expect(asks).toHaveLength(1)
   expect(asks[0]!.prompt).toContain('"> "')
   expect((await ui.findAll({ type: 'Text', text: /^(SESSION|TOPIC)$/ })).map(found => found.props.text ?? found.text)).toEqual(['SESSION', 'TOPIC'])
-  expect((await ui.find({ type: 'Text', text: 'Built the intent tab, then shipped it.' }))?.props.color).toBe('#808286')
+  expect((await ui.find({ type: 'Text', text: 'Built the intent tab, then shipped it.' }))?.props.color).toBeUndefined()
   expect(await ui.find({ type: 'Box', key: 'sessionRule' })).toBeDefined()
   // The summary line is no topic.
   expect(await ui.find({ key: 'o:topics:all' })).toBeDefined()
@@ -3400,7 +3400,7 @@ test('STEPS follow the step in progress; the wheel over them stops that until th
   expect(await shown(9)).toBe(true)
   expect(await shown(5)).toBe(false)
   expect(await shown(10)).toBe(false)
-  expect(await ui.find({ type: 'Text', text: ' 5 more ' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' 5 more' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: ' 3 more' })).toBeDefined()
 
   await wheel(-2)
@@ -3485,11 +3485,11 @@ test('a now ping marks the steps before it done and its own in progress', async 
   await $.tool.call({ tool: INTENT, ...THREE } as any)
   expect(await $.tool.call({ tool: INTENT, now: 2 } as any)).toMatchObject({ result: 'ok' })
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: '1/3 steps' })).toBeDefined()
+  expect(await textOf(ui, 'count')).toBe('1/3 steps')
   expect(await ui.find({ type: 'Text', text: /^○ $/, in: 'row:o:step:2' })).toBeDefined()
   await $.tool.call({ tool: INTENT, now: 3 } as any)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: '2/3 steps' })).toBeDefined()
+  expect(await textOf(ui, 'count')).toBe('2/3 steps')
   expect(await ui.find({ type: 'Text', text: /^○ $/, in: 'row:o:step:2' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /^● $/, in: 'row:o:step:2' })).toBeDefined()
   // The report's own words stay.
@@ -3550,7 +3550,7 @@ test('a report missing ASK or TAKE keeps the last ones', async ($, on) => {
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'clear' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '0/3 steps' })).toBeDefined()
+  expect(await textOf(ui, 'count')).toBe('0/3 steps')
 })
 
 test('TAKE shows a stance mark, the label and the why', async ($, on) => {
@@ -3600,7 +3600,7 @@ test('a now ping with no report this turn is ignored', async ($, on) => {
   await turnEnd($)
   await $.tool.call({ tool: INTENT, now: 1 } as any)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: '3/3 steps' })).toBeDefined()
+  expect(await textOf(ui, 'count')).toBe('3/3 steps')
 })
 
 test('the rule asks for a now ping only on a new step', async ($, on) => {
@@ -3623,16 +3623,17 @@ test('with a report, a topics read shows on the TOPIC header and the footer keep
   await send($, 'next thing')
   await clock.advance(0)
   await ui.drawn()
-  const right = async () => (await ui.findAll({ type: 'Text', text: /^(updating…|update failed|show all|0\/2 steps)$/ })).map(found => found.props.text ?? found.text)
-  expect(await right()).toEqual(['updating…', 'show all', '0/2 steps'])
+  const right = async () => (await ui.findAll({ type: 'Text', text: /^(updating…|update failed|show all)$/ })).map(found => found.props.text ?? found.text)
+  expect(await right()).toEqual(['updating…', 'show all'])
+  expect(await textOf(ui, 'count')).toBe('0/2 steps')
   answer({ isAnswered: false, reason: 'api-error', usage: {} })
   await clock.settle()
   await ui.drawn()
-  expect(await right()).toEqual(['update failed', 'show all', '0/2 steps'])
+  expect(await right()).toEqual(['update failed', 'show all'])
   await send($, 'another thing')
   await clock.advance(0)
   await ui.drawn()
-  expect(await right()).toEqual(['updating…', 'show all', '0/2 steps'])
+  expect(await right()).toEqual(['updating…', 'show all'])
 })
 
 test('the first TOPICS read, with none shown yet, says reading…', async ($, on) => {
@@ -3651,7 +3652,7 @@ test('a now ping after an interrupt picks the stopped report back up', async ($,
   await $.tool.call({ tool: INTENT, now: 2 } as any)
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: '● working' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '1/3 steps' })).toBeDefined()
+  expect(await textOf(ui, 'count')).toBe('1/3 steps')
 })
 
 // The tracer writes through fs.write; the harness has no fs, so these answer beneath the mod and keep what it writes.
@@ -3940,7 +3941,7 @@ test('an answer closes the steps but agent rows keep their own marks', async ($,
   await spawn($, 'Read code')
   await turnEnd($)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: '2/2 steps' })).toBeDefined()
+  expect(await textOf(ui, 'count')).toBe('2/2 steps')
   expect(await agentRow(ui, 0, 0)).toEqual({ text: '└ ■ Read code', glyph: '#8c7850', color: '#808286' })
 })
 
@@ -4616,4 +4617,37 @@ test('a USED modal row without a hint draws no right side, so its gap takes no r
   walk(await ui.drawn(), false)
   // The heading keeps its right text; the one row has none.
   expect(rows).toEqual([2, 1])
+})
+
+test('numbers in ASK, TAKE and PLAN are counted; ids, versions and times are not', async ($, on) => {
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT, wants: 'fix 67 tests in v1.8 #235 by 11h', take: { stance: 'fine', label: 'clear', why: 'only 3 files' }, steps: [{ text: 'run 4 checks', status: 'pending' }] } as any)
+  await ui.drawn()
+  const claude = async (key: string) => (await textsUnder(ui, key)).filter(t => t.color === 'claude').map(t => t.text)
+  expect(await claude('ASK')).toEqual(['67'])
+  expect(await claude('TAKE')).toEqual(['3'])
+  expect((await pieces(ui, 'o:step:0'))?.find(x => x.text === '4')?.color).toBe('claude')
+})
+
+test('the footer count: numbers claude, / and steps faint', async ($, on) => {
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await ui.drawn()
+  expect(await textOf(ui, 'count')).toBe('0/2 steps')
+  expect((await textsUnder(ui, 'count')).map(t => [t.text, t.color])).toEqual([['0', 'claude'], ['/', '#4f5c68'], ['2', 'claude'], [' steps', '#4f5c68']])
+})
+
+test('tree glyphs take the border color', async ($, on) => {
+  const ui = await agentsPane($, on, { a1: 'running' })
+  await $.tool.call({ tool: INTENT, ...AGENTS_REPORT } as any)
+  await spawn($, 'Read code')
+  await ui.drawn()
+  expect((await pieces(ui, 'o:agent:0:0'))?.[0]).toMatchObject({ text: '└ ', color: 'promptBorder' })
+})
+
+test("STEPS' top cue is a blank row; a Git modal keeps its ruled cue", async ($, on) => {
+  const { ui, wheel } = await stepsPane($, on, 1)
+  await wheel(3)
+  expect(await ui.find({ type: 'Button', key: 'steps:up' })).toBeDefined()
+  expect((await textsUnder(ui, 'steps:up-row')).filter(t => /─/.test(t.text))).toEqual([])
 })
