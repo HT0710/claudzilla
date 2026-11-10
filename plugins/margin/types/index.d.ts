@@ -47,7 +47,7 @@ export type Op =
 export type Branch = { name: string; base?: string; ahead: number; behind: number; upstream: 'ok' | 'local' | 'gone'; pr?: Pr; worktree: boolean; at: number }
 export type GitModalKey = 'branch' | 'pr' | 'prs' | 'rebase' | 'commit'
 // Each tab's modal keys; a tab adds its own to the union.
-export type ModalKey = GitModalKey
+export type ModalKey = GitModalKey | 'used' | 'topics'
 // `top`: the first list row shown; `sub`: the stacked modal over it, keyed by its section; `sha`: the commit modal's.
 export type Modal = { key: ModalKey; top: number; sub?: { key: string; top: number }; sha?: string; n?: number; armed?: string }
 
@@ -56,6 +56,6 @@ declare module 'claude-code' {
     margin: Panel
   }
   interface PluginState {
-    margin: { tab: Tab; notices: Tab[]; submitted: number; toolCalls: number; rowPointer: { left: string | null; at: string | null }; split: number; scrolled: { changes: number; commits: number }; historyTop: number; topicsSplit: number; topicsTop: number; intent: Intent; overview: Overview; spawns: Spawn[]; turns: number; expanded: number; file: FileView; modal: Modal | null; fetching: boolean; branchView: { by: 'base' | 'prefix' | 'worktrees'; showMerged: boolean }; gh: Gh; prViews: Record<number, PrView>; used: Used; stepsTop: number; stepsFollow: boolean; commitViews: Record<string, { row: LogRow; view?: CommitView }> }
+    margin: { tab: Tab; notices: Tab[]; submitted: number; toolCalls: number; rowPointer: { left: string | null; at: string | null }; split: number; scrolled: { changes: number; commits: number }; historyTop: number; intent: Intent; overview: Overview; spawns: Spawn[]; turns: number; expanded: number; file: FileView; modal: Modal | null; fetching: boolean; branchView: { by: 'base' | 'prefix' | 'worktrees'; showMerged: boolean }; gh: Gh; prViews: Record<number, PrView>; used: Used; stepsTop: number; stepsFollow: boolean; commitViews: Record<string, { row: LogRow; view?: CommitView }> }
   }
 }

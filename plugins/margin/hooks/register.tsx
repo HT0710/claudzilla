@@ -19,7 +19,7 @@ export { fileWindow } from './tab-file'
 export { gitWeb } from './tab-git'
 export { fileView } from './kit'
 export { dayLabel, inView, litPrompt } from './tab-history'
-export { hang } from './tab-overview'
+export { hang, wrapLines } from './tab-overview'
 export { EMPTY_USED, USE_KINDS } from './kit'
 export type { Used, UseKind } from './kit'
 
@@ -130,9 +130,6 @@ const rowPointer = atom({ plugin: 'margin', key: 'rowPointer' } as const, { left
 const split = atom({ plugin: 'margin', key: 'split' } as const, -1)
 // The History list's, on a key of its own: a reload keeps what older code stored under `scrolled`.
 const historyTop = atom({ plugin: 'margin', key: 'historyTop' } as const, 0)
-// Rows the Overview's TOPICS take, as their divider was dragged; -1 until it is. Then the first topic shown.
-const topicsSplit = atom({ plugin: 'margin', key: 'topicsSplit' } as const, -1)
-const topicsTop = atom({ plugin: 'margin', key: 'topicsTop' } as const, 0)
 // The first STEPS row shown, and whether it follows the step in progress: the wheel or a cue there stops that until
 // the next prompt.
 const stepsTop = atom({ plugin: 'margin', key: 'stepsTop' } as const, 0)
@@ -535,7 +532,7 @@ let historyRead: { key: string; at: number; reads: ReturnType<typeof readHistory
 
 // The divider the last notch moved, with its pointer row and time: it moves off the pointer, so notches on that
 // row less than WHEEL_HOLD ms apart keep moving it.
-let wheeling: { zone: 'git' | 'topics'; row: number; at: number } | undefined
+let wheeling: { zone: 'git'; row: number; at: number } | undefined
 // A row's leave, held LEAVE_HOLD ms: a move onto the next row posts its enter just after, and a draw between the two
 // drops the cards under the left row's card for a frame. An enter in time takes it in; else it lands alone.
 const LEAVE_HOLD = 30
@@ -981,7 +978,6 @@ export const register: Register = (on, options) => {
     }
     // The new prompt lists first: back to the top to show it.
     await update($, historyTop, () => 0)
-    await update($, topicsTop, () => 0)
     await update($, stepsTop, () => 0)
     await update($, stepsFollow, () => true)
     resetStepsHeld()
@@ -1117,6 +1113,11 @@ export const register: Register = (on, options) => {
 
       return { element: e.element }
     }
+    if (e.element === 'o:topics:all') {
+      await setModal($, () => ({ key: 'topics', top: 0 }))
+
+      return { element: e.element }
+    }
     const picked = TABS.find(one => one === e.element)
     if (!picked) return next(e)
     await pick($, picked)
@@ -1157,9 +1158,8 @@ export const register: Register = (on, options) => {
       return {}
     }
     const rows = (e.data as { split?: unknown } | undefined)?.split
-    if (e.requestId !== PANE || (e.element !== 'divider' && e.element !== 'now') || typeof rows !== 'number') return next(e)
-    if (e.element === 'divider') await update($, split, () => Math.max(0, rows))
-    else await update($, topicsSplit, () => Math.max(0, rows))
+    if (e.requestId !== PANE || e.element !== 'divider' || typeof rows !== 'number') return next(e)
+    await update($, split, () => Math.max(0, rows))
 
     return {}
   })

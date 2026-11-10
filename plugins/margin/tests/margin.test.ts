@@ -4,7 +4,7 @@ import type { AgentStatus, Register } from 'claude-code'
 import type { Spawn, Step } from '../types'
 import { fileKey } from '../hooks/git-data'
 
-import { EMPTY_USED, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, resetUsed, stampPattern, useOf, zoneWindow } from '../hooks/register'
+import { EMPTY_USED, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, resetUsed, stampPattern, useOf, wrapLines, zoneWindow } from '../hooks/register'
 
 // A process.run result with `stdout`.
 const ran = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -20,6 +20,20 @@ const rowText = async (ui: { drawn: () => Promise<unknown> }, text: RegExp) => {
   }
   walk(await ui.drawn())
   return sides.find(t => text.test(t))
+}
+// The Texts under the drawn node keyed `key` that hold their own string, each with its color, in draw order.
+const textsUnder = async (ui: { drawn: () => Promise<unknown> }, key: string) => {
+  const found: { text: string; color?: string }[] = []
+  const walk = (n: any, inside: boolean) => {
+    if (!n || typeof n !== 'object') return
+    if (Array.isArray(n)) return n.forEach(x => walk(x, inside))
+    const here = inside || n.props?.key === key
+    const kids = [n.children, n.props?.children].flat().filter(x => x !== undefined && x !== null)
+    if (here && n.type === 'Text' && kids.length && kids.every(x => typeof x === 'string')) found.push({ text: kids.join(''), color: n.props?.color })
+    walk(kids, here)
+  }
+  walk(await ui.drawn(), false)
+  return found
 }
 // Stands for grep pulling this chat's lines from the prompt history.
 const isHistoryGrep = (argv: readonly string[]) => argv.at(-1)?.endsWith('history.jsonl') ?? false
@@ -2883,7 +2897,7 @@ test('a pane waiting for room reads no TOPICS', async ($, on) => {
   expect(asks).toHaveLength(0)
 })
 
-test('TOPICS: Opus groups the prompts into topics, drawn newest first', async ($, on) => {
+test('TOPIC shows the newest topic only; show all lists every topic, newest lit', async ($, on) => {
   const { ui, clock, asks } = await overviewPane($, on)
   await ui.press({ key: 'Overview' })
   await clock.settle()
@@ -2892,21 +2906,70 @@ test('TOPICS: Opus groups the prompts into topics, drawn newest first', async ($
   expect(asks[0]!.model).toBe('opus')
   expect((asks[0] as any).maxTokens).toBeGreaterThanOrEqual(2000)
   expect(asks[0]!.prompt.indexOf('add an intent tab')).toBeLessThan(asks[0]!.prompt.indexOf('ship it'))
+  expect(await ui.find({ type: 'Text', text: 'TOPIC' })).toBeDefined()
+  expect(await colorOf(ui, 'shipping the branch')).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'Intent tab for the panel' })).toBeUndefined()
+  expect(await colorOf(ui, 'show all')).toBe('claude')
+  await ui.press({ key: 'o:topics:all' })
   expect(await ui.find({ type: 'Text', text: 'TOPICS' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'Intent tab for the panel' })).toBeDefined()
-  // The newest topic is the current one, drawn first.
-  expect((await ui.findAll({ type: 'Text', text: /^(Intent tab for the panel|shipping the branch)$/ })).map(found => found.props.text ?? found.text)).toEqual(['shipping the branch', 'Intent tab for the panel'])
-  expect((await ui.find({ type: 'Text', text: 'shipping the branch' }))?.props.color).toBe('claude')
-  expect((await ui.find({ type: 'Text', text: 'Intent tab for the panel' }))?.props.color).toBe('#808286')
+  expect(await ui.find({ type: 'Text', text: '2 total' })).toBeDefined()
+  expect((await textsUnder(ui, 'modal')).filter(t => /^(Intent tab for the panel|shipping the branch)$/.test(t.text)).map(t => [t.text, t.color])).toEqual([['shipping the branch', 'claude'], ['Intent tab for the panel', undefined]])
 })
 
-test('a report under TOPICS sits below their divider', async ($, on) => {
+test('wrapLines packs words as Text wraps them, a long word split', () => {
+  expect(wrapLines('aa bb cc', 5)).toEqual(['aa bb', 'cc'])
+  expect(wrapLines('abcdefghij', 4)).toEqual(['abcd', 'efgh', 'ij'])
+  expect(wrapLines('a\nb', 10)).toEqual(['a', 'b'])
+})
+
+test('one topic hides show all', async ($, on) => {
+  const { ui, clock } = await overviewPane($, on, () => ({ isAnswered: true, text: '- only one', usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'only one' })).toBeDefined()
+  expect(await ui.find({ key: 'o:topics:all' })).toBeUndefined()
+})
+
+test('a long topic wraps in the modal, │ down its later lines', async ($, on) => {
+  const long = 'wrapping words '.repeat(6).trim()
+  const { ui, clock } = await overviewPane($, on, () => ({ isAnswered: true, text: `- short one\n- ${long}`, usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await ui.press({ key: 'o:topics:all' })
+  expect(await colorOf(ui, /^ ├ $/)).toBe('promptBorder')
+  expect(await colorOf(ui, /^ │ $/)).toBe('promptBorder')
+  expect(await colorOf(ui, /^ └ $/)).toBe('promptBorder')
+  expect((await textsUnder(ui, 'modal')).filter(t => /^wrapping/.test(t.text)).length).toBeGreaterThan(1)
+})
+
+test('a topics read shows on the SESSION header; SESSION and the topic dim until it lands', async ($, on) => {
+  let answer: (value: unknown) => void = () => undefined
+  const { ui, clock } = await overviewPane($, on, n => (n === 1 ? { isAnswered: true, text: SUMMED, usage: {} } : new Promise(resolve => (answer = resolve))))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await send($, 'next thing')
+  await clock.advance(0)
+  await ui.drawn()
+  expect((await textsUnder(ui, 'sessionHead')).map(t => t.text)).toEqual(['SESSION', 'updating…'])
+  expect(await colorOf(ui, 'Built the intent tab, then shipped it.')).toBe('#4f5c68')
+  expect(await colorOf(ui, 'shipping the branch')).toBe('#4f5c68')
+  answer({ isAnswered: false, reason: 'api-error', usage: {} })
+  await clock.settle()
+  await ui.drawn()
+  expect(await colorOf(ui, 'update failed')).toBe('#4f5c68')
+  expect((await textsUnder(ui, 'sessionHead')).map(t => t.text)).toEqual(['SESSION', 'update failed'])
+  expect(await colorOf(ui, 'shipping the branch')).toBeUndefined()
+})
+
+test('a report under TOPIC sits below a plain rule', async ($, on) => {
   const { ui, clock } = await overviewPane($, on)
   await ui.press({ key: 'Overview' })
   await clock.settle()
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: '⇕', in: 'now' })).toBeDefined()
+  expect(await ui.find({ key: 'now' })).toBeUndefined()
+  expect(await ui.find({ key: 'topicRule' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
 })
 
@@ -2944,8 +3007,8 @@ test('a failed TOPICS read keeps the topics and says why', async ($, on) => {
   await send($, 'next thing')
   await clock.settle()
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: "couldn't read: api-error" })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'Intent tab for the panel' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'update failed' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'shipping the branch' })).toBeDefined()
 })
 
 test('/clear empties TOPICS', async ($, on) => {
@@ -2984,18 +3047,18 @@ test('parseSummary: the first "> " line, or none', () => {
 
 const SUMMED = `> Built the intent tab, then shipped it.\n${TOPICS}`
 
-test('SESSION: the summary from the TOPICS read draws in its own section above TOPICS', async ($, on) => {
+test('SESSION: the summary from the TOPICS read draws in its own section above TOPIC', async ($, on) => {
   const { ui, clock, asks } = await overviewPane($, on, () => ({ isAnswered: true, text: SUMMED, usage: {} }))
   await ui.press({ key: 'Overview' })
   await clock.settle()
   await ui.drawn()
   expect(asks).toHaveLength(1)
   expect(asks[0]!.prompt).toContain('"> "')
-  expect((await ui.findAll({ type: 'Text', text: /^(SESSION|TOPICS)$/ })).map(found => found.props.text ?? found.text)).toEqual(['SESSION', 'TOPICS'])
+  expect((await ui.findAll({ type: 'Text', text: /^(SESSION|TOPIC)$/ })).map(found => found.props.text ?? found.text)).toEqual(['SESSION', 'TOPIC'])
   expect((await ui.find({ type: 'Text', text: 'Built the intent tab, then shipped it.' }))?.props.color).toBe('#808286')
   expect(await ui.find({ type: 'Box', key: 'sessionRule' })).toBeDefined()
   // The summary line is no topic.
-  expect(await ui.find({ type: 'Text', text: '2 topics' })).toBeDefined()
+  expect(await ui.find({ key: 'o:topics:all' })).toBeDefined()
 })
 
 test('SESSION keeps its wording: later reads send the current summary back', async ($, on) => {
@@ -3023,26 +3086,6 @@ test('a read with no summary line keeps the last summary; no summary yet, no SES
   expect(await ui.find({ type: 'Text', text: 'Built the intent tab, then shipped it.' })).toBeDefined()
 })
 
-test('SESSION pushes the TOPICS zone down: the wheel finds TOPICS under it', async ($, on) => {
-  const text = `> One line on the session.\n${Array.from({ length: 12 }, (_, i) => `- topic ${i}`).join('\n')}`
-  const { ui, clock } = await overviewPane($, on, () => ({ isAnswered: true, text, usage: {} }))
-  await ui.press({ key: 'Overview' })
-  await clock.settle()
-  await $.tool.call({ tool: INTENT, ...REPORT } as any)
-  await ui.drawn()
-  const wheel = (by: number, row: number) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
-  // SESSION's header, line and rule on rows 2 to 4, TOPICS' header on 5: its 6 rows are 6 to 11, the divider 12.
-  const count = async () => (await ui.findAll({ type: 'Text', text: /^topic \d+$/ })).length
-  const before = await count()
-  await wheel(-2, 12)
-  expect(await count()).toBe(before + 2)
-  await wheel(2, 12)
-  expect(await ui.find({ type: 'Text', text: 'topic 11' })).toBeDefined()
-  await wheel(3, 10)
-  expect(await ui.find({ type: 'Text', text: 'topic 11' })).toBeUndefined()
-})
-
 test('TOPICS keeps its wording: later reads see the current topics', async ($, on) => {
   const { ui, clock, asks } = await overviewPane($, on)
   await ui.press({ key: 'Overview' })
@@ -3065,10 +3108,12 @@ test('TOPICS: a one-line reply rewords the last topic and keeps the rest', async
   await send($, 'next thing')
   await clock.settle()
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: 'Intent tab for the panel' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'shipping and merging' })).toBeDefined()
+  await ui.press({ key: 'o:topics:all' })
+  const inModal = (await textsUnder(ui, 'modal')).map(t => t.text)
+  expect(inModal).toContain('Intent tab for the panel')
+  expect(inModal).toContain('shipping and merging')
   expect(await ui.find({ type: 'Text', text: 'shipping the branch' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: '2 topics' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '2 total' })).toBeDefined()
 })
 
 test('TOPICS: a two-line reply keeps the last topic and adds a new one', async ($, on) => {
@@ -3078,8 +3123,9 @@ test('TOPICS: a two-line reply keeps the last topic and adds a new one', async (
   await send($, 'next thing')
   await clock.settle()
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: '3 topics' })).toBeDefined()
-  expect((await ui.find({ type: 'Text', text: 'TOPICS latest only' }))?.props.color).toBe('claude')
+  await ui.press({ key: 'o:topics:all' })
+  expect(await ui.find({ type: 'Text', text: '3 total' })).toBeDefined()
+  expect((await textsUnder(ui, 'modal')).find(t => t.text === 'TOPICS latest only')?.color).toBe('claude')
 })
 
 test('TOPICS: a reply echoing kept topics adds no copies', async ($, on) => {
@@ -3089,7 +3135,8 @@ test('TOPICS: a reply echoing kept topics adds no copies', async ($, on) => {
   await send($, 'next thing')
   await clock.settle()
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: '2 topics' })).toBeDefined()
+  await ui.press({ key: 'o:topics:all' })
+  expect(await ui.find({ type: 'Text', text: '2 total' })).toBeDefined()
 })
 
 test('TOPICS: an echoed list with an earlier topic reworded is refused, not added as copies', async ($, on) => {
@@ -3100,7 +3147,7 @@ test('TOPICS: an echoed list with an earlier topic reworded is refused, not adde
   await send($, 'next thing')
   await clock.settle()
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: "couldn't read: dropped topics" })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'update failed' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Intent tab for the panel.' })).toBeUndefined()
 })
 
@@ -3111,7 +3158,8 @@ test('TOPICS: a reply naming its new topic twice adds it once', async ($, on) =>
   await send($, 'next thing')
   await clock.settle()
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: '2 topics' })).toBeDefined()
+  await ui.press({ key: 'o:topics:all' })
+  expect(await ui.find({ type: 'Text', text: '2 total' })).toBeDefined()
 })
 
 test('TOPICS: a later reply with more than two topics is refused and the list stays', async ($, on) => {
@@ -3121,7 +3169,7 @@ test('TOPICS: a later reply with more than two topics is refused and the list st
   await send($, 'next thing')
   await clock.settle()
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: "couldn't read: dropped topics" })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'update failed' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'shipping the branch' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^a$/ })).toBeUndefined()
 })
@@ -3138,7 +3186,8 @@ test('TOPICS at the cap: the merge read still sends back the whole list', async 
   // At the cap, "at most 30" already holds: Opus sent all 30 back unmerged (replayed 2026-11-09).
   expect(asks[1]!.prompt).toContain('at most 20 lines')
   expect(asks[1]!.prompt).not.toContain('all but the last stay as they are')
-  expect(await ui.find({ type: 'Text', text: '5 topics' })).toBeDefined()
+  await ui.press({ key: 'o:topics:all' })
+  expect(await ui.find({ type: 'Text', text: '5 total' })).toBeDefined()
 })
 
 test('TOPICS at the cap: a merge reply past 20 lines is refused', async ($, on) => {
@@ -3149,7 +3198,7 @@ test('TOPICS at the cap: a merge reply past 20 lines is refused', async ($, on) 
   await send($, 'next thing')
   await clock.settle()
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: "couldn't read: dropped topics" })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'update failed' })).toBeDefined()
 })
 
 test('a rule from the text column sets TAKE and STEPS apart', async ($, on) => {
@@ -3444,7 +3493,7 @@ test('a now ping marks the steps before it done and its own in progress', async 
   expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
 })
 
-// 12 one-line topics and a report: 20 body rows less 6 fixed, TOPICS takes up to half of 14, 7 rows.
+// 12 one-line topics and a report.
 const twelveTopics = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]) => {
   const text = Array.from({ length: 12 }, (_, i) => `- topic ${i}`).join('\n')
   const { ui, clock } = await overviewPane($, on, () => ({ isAnswered: true, text, usage: {} }))
@@ -3454,139 +3503,23 @@ const twelveTopics = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>
   await ui.drawn()
   return ui
 }
-const topicShown = async (ui: { find: (q: any) => Promise<any> }, n: number) => (await ui.find({ type: 'Text', text: `topic ${n}` })) !== undefined
-
-test('dragging the TOPICS divider gives TOPICS more rows', async ($, on) => {
-  const ui = await twelveTopics($, on)
-  // Newest first: topics 11 down to 6, then the ↓ cue.
-  expect(await topicShown(ui, 6)).toBe(true)
-  expect(await topicShown(ui, 5)).toBe(false)
-
-  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'now' })
-  await ui.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'now' })
-  await ui.pointer({ type: 'up', x: 0, y: 2, button: 'left', in: 'now' })
-
-  expect(await topicShown(ui, 4)).toBe(true)
-  expect(await topicShown(ui, 3)).toBe(false)
-  expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
-})
-
-test('the TOPICS divider keeps 1 row of TOPICS above it and ASK and TAKE whole below', async ($, on) => {
-  const ui = await twelveTopics($, on)
-  // 14 free rows, 7 of TOPICS: up to 1 of them, down to the report's 3 rows of ASK, TAKE's rule and TAKE.
-  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'now' })
-  await ui.pointer({ type: 'move', x: 0, y: -9, button: 'left', in: 'now' })
-  expect(await ui.find({ type: 'Text', text: '↑6', in: 'now' })).toBeDefined()
-  await ui.pointer({ type: 'up', x: 0, y: -9, button: 'left', in: 'now' })
-  expect(await topicShown(ui, 11)).toBe(true)
-  expect(await topicShown(ui, 10)).toBe(false)
-
-  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'now' })
-  await ui.pointer({ type: 'move', x: 0, y: 20, button: 'left', in: 'now' })
-  expect(await ui.find({ type: 'Text', text: '↓10', in: 'now' })).toBeDefined()
-  await ui.pointer({ type: 'up', x: 0, y: 20, button: 'left', in: 'now' })
-  expect(await topicShown(ui, 2)).toBe(true)
-})
-
-test("the TOPICS divider goes down only as far as TAKE's last row over the footer", async ($, on) => {
-  const ui = await twelveTopics($, on)
-  await $.tool.call({ tool: INTENT, ...REPORT, wants: 'one two three four five six seven eight' } as any)
-  await ui.drawn()
-  // 18 body rows: the TOPICS header, the divider, 2 of ASK, TAKE's rule, TAKE and the footer's 2 leave 10.
-  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'now' })
-  await ui.pointer({ type: 'move', x: 0, y: 20, button: 'left', in: 'now' })
-  expect(await ui.find({ type: 'Text', text: '↓3', in: 'now' })).toBeDefined()
-})
-
 test('a report past the footer is cut at the bottom, never squeezed', async ($, on) => {
   const ui = await twelveTopics($, on)
   const report = await ui.find({ type: 'Box', key: 'report' })
   expect(report?.props.flexShrink).toBe(0)
 })
 
-test('the wheel over TOPICS scrolls them under a divider that stays put; ↑ brings them back up', async ($, on) => {
-  const ui = await twelveTopics($, on)
-  // TOPICS starts on row 3, under the tabs, their rule and the header; once scrolled, the ↑ cue takes its
-  // first row.
-  const wheel = (by: number, row: number) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
-
-  expect(await ui.find({ type: 'Button', key: 'topics:up' })).toBeUndefined()
-  await wheel(3, 4)
-  expect(await topicShown(ui, 9)).toBe(false)
-  expect(await topicShown(ui, 8)).toBe(true)
-  expect(await topicShown(ui, 4)).toBe(true)
-  expect(await topicShown(ui, 3)).toBe(false)
-  expect(await ui.find({ type: 'Button', key: 'topics:up' })).toBeDefined()
-
-  // To the oldest and no further.
-  await wheel(100, 4)
-  expect(await topicShown(ui, 0)).toBe(true)
-  expect(await topicShown(ui, 5)).toBe(true)
-  expect(await topicShown(ui, 6)).toBe(false)
-  expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
-
-  await ui.press({ key: 'topics:up' })
-  expect(await topicShown(ui, 11)).toBe(true)
-  expect(await ui.find({ type: 'Button', key: 'topics:up' })).toBeUndefined()
-})
-
-test('TOPICS show the modal cues: ↑ N more once scrolled, ↓ N more turns the page', async ($, on) => {
-  const ui = await twelveTopics($, on)
-  // 7 rows: 6 topics and ↓ at the top.
-  expect(await cueText(ui, 'topics')).toEqual({ up: false, down: true })
-  expect(await ui.find({ type: 'Text', text: ' 6 more' })).toBeDefined()
-  expect(await topicShown(ui, 6)).toBe(true)
-  expect(await topicShown(ui, 5)).toBe(false)
-  await wheelAt($, 3, 4)
-  // ↑, topics 8 down to 4, ↓.
-  expect(await cueText(ui, 'topics')).toEqual({ up: true, down: true })
-  expect(await ui.find({ type: 'Text', text: ' 3 more ' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: ' 4 more' })).toBeDefined()
-  expect(await topicShown(ui, 9)).toBe(false)
-  expect(await topicShown(ui, 4)).toBe(true)
-  expect(await topicShown(ui, 3)).toBe(false)
-  await ui.press({ key: 'topics:up' })
-  expect(await topicShown(ui, 11)).toBe(true)
-  await ui.press({ key: 'topics:down' })
-  // The page from topic 5, the oldest 6: the end, so no ↓.
-  expect(await cueText(ui, 'topics')).toEqual({ up: true, down: false })
-  expect(await ui.find({ type: 'Text', text: ' 6 more ' })).toBeDefined()
-  expect(await topicShown(ui, 6)).toBe(false)
-  expect(await topicShown(ui, 0)).toBe(true)
-})
-
-test('the wheel over the TOPICS divider moves it, keeping 1 row on either side', async ($, on) => {
-  const ui = await twelveTopics($, on)
-  // 7 rows of TOPICS from row 3: the divider is row 10, then 13 once moved.
-  const wheel = (by: number, row: number) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
-
-  await wheel(-2, 10)
-  expect(await topicShown(ui, 4)).toBe(true)
-  expect(await topicShown(ui, 3)).toBe(false)
-  expect(await ui.find({ type: 'Button', key: 'topics:up' })).toBeUndefined()
-  // Off the pointer now, a notch right after still moves it.
-  await wheel(-1, 10)
-  expect(await topicShown(ui, 3)).toBe(true)
-  expect(await ui.find({ type: 'Button', key: 'topics:up' })).toBeUndefined()
-
-  await wheel(100, 13)
-  expect(await topicShown(ui, 11)).toBe(true)
-  expect(await topicShown(ui, 10)).toBe(false)
-})
-
-test('the status row is the footer, under TOPICS and the report, with or without topics', async ($, on) => {
+test('the status row is the footer, under TOPIC and the report, with or without topics', async ($, on) => {
   const ui = await twelveTopics($, on)
   const order = async () => (await ui.findAll({ type: 'Text' })).map((t: any) => t.text as string)
   let all = await order()
-  expect(all.indexOf('topic 6')).toBeLessThan(all.indexOf('a third tab'))
+  expect(all.indexOf('topic 11')).toBeLessThan(all.indexOf('a third tab'))
   expect(all.indexOf('plan')).toBeLessThan(all.indexOf('● working'))
   expect(await ui.find({ type: 'Box', key: 'footer' })).toBeDefined()
   await $.session.end({ reason: 'clear', sessionId: 'chat-1' } as any)
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   all = await order()
-  expect(all.includes('TOPICS')).toBe(false)
+  expect(all.includes('TOPIC')).toBe(false)
   expect(all.indexOf('plan')).toBeLessThan(all.indexOf('● working'))
 })
 
@@ -3661,7 +3594,7 @@ test('the rule asks for the report in the user\'s language', async ($, on) => {
   expect(rule).toContain('language the user writes in')
 })
 
-test('with a report, updating… takes the step count\'s place until TOPICS are read; TOPICS counts them', async ($, on) => {
+test('with a report, a topics read shows on the TOPIC header and the footer keeps the step count', async ($, on) => {
   let answer: (value: unknown) => void = () => undefined
   const { ui, clock } = await overviewPane($, on, n => (n === 1 ? { isAnswered: true, text: TOPICS, usage: {} } : n === 2 ? new Promise(resolve => (answer = resolve)) : new Promise(() => undefined)))
   await ui.press({ key: 'Overview' })
@@ -3670,19 +3603,16 @@ test('with a report, updating… takes the step count\'s place until TOPICS are 
   await send($, 'next thing')
   await clock.advance(0)
   await ui.drawn()
-  const right = async () => (await ui.findAll({ type: 'Text', text: /^(reading…|updating…|0\/2 steps|\d+ topics|couldn't read.*)$/ })).map(found => found.props.text ?? found.text)
-  // Topics already shown: the read updates them.
-  expect(await right()).toEqual(['2 topics', 'updating…'])
+  const right = async () => (await ui.findAll({ type: 'Text', text: /^(updating…|update failed|show all|0\/2 steps)$/ })).map(found => found.props.text ?? found.text)
+  expect(await right()).toEqual(['updating…', 'show all', '0/2 steps'])
   answer({ isAnswered: false, reason: 'api-error', usage: {} })
   await clock.settle()
   await ui.drawn()
-  // A failed read keeps the steps in place and says so on the TOPICS header.
-  expect(await right()).toEqual(["couldn't read: api-error", '0/2 steps'])
-  // The next read: its state on the status row, the count back on the header.
+  expect(await right()).toEqual(['update failed', 'show all', '0/2 steps'])
   await send($, 'another thing')
   await clock.advance(0)
   await ui.drawn()
-  expect(await right()).toEqual(['2 topics', 'updating…'])
+  expect(await right()).toEqual(['updating…', 'show all', '0/2 steps'])
 })
 
 test('the first TOPICS read, with none shown yet, says reading…', async ($, on) => {
@@ -3702,39 +3632,6 @@ test('a now ping after an interrupt picks the stopped report back up', async ($,
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: '● working' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '1/3 steps' })).toBeDefined()
-})
-
-test('TOPICS scrolled to the end still shows the oldest topic, though it wraps past the zone', async ($, on) => {
-  const text = `- ${'x'.repeat(100)}\n- topic 1`
-  const { ui, clock } = await overviewPane($, on, () => ({ isAnswered: true, text, usage: {} }))
-  await ui.press({ key: 'Overview' })
-  await clock.settle()
-  await $.tool.call({ tool: INTENT, ...REPORT } as any)
-  await ui.drawn()
-  // 4 rows (3 for the long topic, 1 for topic 1), dragged up to 1.
-  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'now' })
-  await ui.pointer({ type: 'move', x: 0, y: -3, button: 'left', in: 'now' })
-  await ui.pointer({ type: 'up', x: 0, y: -3, button: 'left', in: 'now' })
-  await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 100, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 3 } })
-  await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: /^x+$/ })).toBeDefined()
-})
-
-test('the wheel finds TOPICS by the row drawn, once the engine scrolled the Overview', async ($, on) => {
-  // The engine's own scroll, past what TOPICS take.
-  on('ui.scroll', () => ({}) as any)
-  const ui = await twelveTopics($, on)
-  // The pane drawn with the window `offset` rows down, then a wheel tick on its `row`.
-  const wheel = async (offset: number, row: number) => {
-    await ui.redraw({ ...props, scroll: { offset, bodyRows: 20 } })
-    await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: offset + 3, by: 3, bodyRows: 20, contentRows: 30, origin: { kind: 'person' }, pointer: { column: 0, row } })
-  }
-  // Row 6 of the window, 10 rows down: the report, not TOPICS.
-  await wheel(10, 6)
-  expect(await topicShown(ui, 11)).toBe(true)
-  // Row 3 of the window, 3 rows down: TOPICS' fourth row.
-  await wheel(3, 3)
-  expect(await topicShown(ui, 11)).toBe(false)
 })
 
 // The tracer writes through fs.write; the harness has no fs, so these answer beneath the mod and keep what it writes.
