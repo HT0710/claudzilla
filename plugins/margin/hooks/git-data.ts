@@ -26,6 +26,9 @@ export const age = (ms: number, now: number) => {
   return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`
 }
 
+// "5m ago"; "now" stands alone.
+export const ago = (ms: number, now: number) => (now - ms < 60e3 ? 'now' : `${age(ms, now)} ago`)
+
 const BAD = new Set(['FAILURE', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE', 'ERROR'])
 const SKIP = new Set(['SKIPPED', 'NEUTRAL'])
 
