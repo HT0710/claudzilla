@@ -229,20 +229,21 @@ export type Win = { top: number; shown: number; above: number; below: number }
 // The Git modal's scroll cues, `inner` columns wide. `up`: ── ↑ N more ──, back to the top; the arrow bold in the
 // border colour, the count faint. `down`: ↓ N more turns the page, the first row not shown becoming the top row;
 // uncounted, as COMMITS' past the pages read. Unshrunk: a zone's last row wrapping past its edge would squeeze them out.
-export const cues = (el: Els, key: string, inner: number, w: Win, setTop: (to: number) => unknown, counted = true): { up: JSX.Element; down: JSX.Element } => {
+export const cues = (el: Els, key: string, inner: number, w: Win, setTop: (to: number) => unknown, counted = true, ruled = true): { up: JSX.Element; down: JSX.Element } => {
   const { Box, Button, Text } = el
   const mid = ` ${w.above} more `
   const fill = Math.max(0, inner - 2 - mid.length)
+  const head = ` ${w.above} more`
   const tail = counted ? ` ${w.below} more` : ' more'
   return {
     up: (
       <Box key={`${key}:up-row`} flexShrink={0}>
-        <Text color="promptBorder">{`${'─'.repeat(Math.floor(fill / 2))} `}</Text>
+        {ruled ? <Text color="promptBorder">{`${'─'.repeat(Math.floor(fill / 2))} `}</Text> : <Text>{' '.repeat(Math.max(0, Math.floor((inner - 1 - head.length) / 2)))}</Text>}
         <Button key={`${key}:up`} plain onPress={() => setTop(0)}>
           <Text bold color="promptBorder">↑</Text>
         </Button>
-        <Text color={HUD.faint}>{mid}</Text>
-        <Text color="promptBorder">{'─'.repeat(Math.ceil(fill / 2))}</Text>
+        <Text color={HUD.faint}>{ruled ? mid : head}</Text>
+        {ruled && <Text color="promptBorder">{'─'.repeat(Math.ceil(fill / 2))}</Text>}
       </Box>
     ),
     down: (
@@ -257,6 +258,11 @@ export const cues = (el: Els, key: string, inner: number, w: Win, setTop: (to: n
     ),
   }
 }
+// A count in normal text: each standalone number in the claude colour; faint text stays faint. IDs (#n,
+// shas), times (11h), churn (+7) and numbers inside names are not counts: a number touching a letter, #, + or
+// − stays.
+export const counted = (el: Els, text: string) =>
+  text.split(/(?<![\w#+−.\/-])(\d+)(?![\w.\/-])/).map((part, i) => (part ? <el.Text color={i % 2 ? 'claude' : undefined}>{part}</el.Text> : null))
 // A tab with nothing to list: a framed note, centered in `rows`.
 export const emptyNote = (el: Els, rows: number, title: string, ...lines: JSX.Element[]): JSX.Element => {
   const { Box, Text } = el
