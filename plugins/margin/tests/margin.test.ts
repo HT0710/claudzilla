@@ -4605,14 +4605,20 @@ test("a USED row press opens that kind's modal; ✕ and a tab change close it", 
 test('a row press while a draw waits on its reads still acts', async ($, on) => {
   let held: Promise<unknown> | undefined
   const views: (string | undefined)[] = []
+  let viewed!: () => void
+  const viewing = new Promise<void>(done => (viewed = done))
+  let reached!: () => void
+  const reading = new Promise<void>(done => (reached = done))
   on('ui.view', (_, e) => {
     views.push(e.agentId)
+    viewed()
     return { value: {} }
   })
   on('tool.call', () => ({ result: {} }) as any)
   on('session.cwd', () => {
     const now = held
     held = undefined
+    if (now) reached()
     return (now ?? { value: '/proj' }) as any
   })
   on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }) as any)
@@ -4623,10 +4629,10 @@ test('a row press while a draw waits on its reads still acts', async ($, on) => 
   await ui.drawn()
   held = new Promise(() => undefined)
   // The press settles only with every draw, the held one too: not awaited.
-  void ui.press({ key: 'o:used:files' })
-  await new Promise(done => setTimeout(done, 20))
+  ui.press({ key: 'o:used:files' }).catch(() => {})
+  await reading
   void ui.post({ press: true }, { in: 'row:o:agent:0:0' })
-  await new Promise(done => setTimeout(done, 50))
+  await viewing
   expect(views).toEqual(['a1'])
 })
 
