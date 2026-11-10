@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { AgentRow, Modal, Spawn, Step, Take } from '../types'
 import { printable } from './git-data'
-import { BAR_ROWS, DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, LIT, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, counted, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, row as kitRow, rowHovers, toPieces, zoneWindow } from './kit'
+import { BAR_ROWS, DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, LIT, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, counted, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, readersOf, row as kitRow, rowHovers, toPieces, zoneWindow } from './kit'
 import type { Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, UseKind, Zone } from './kit'
 
 const intent = atom({ plugin: 'margin', key: 'intent' } as const, EMPTY_INTENT)
@@ -234,40 +234,41 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     return drawLayer($, lc, 'm', f, { top: f.top, left: f.left - PAD }, [], [heading(ctx.el, 'TOPICS', <Text color={HUD.faint}>{`${about.topics.length} total`}</Text>)], rows, modalNow!.top)
   }
   const usedModal = (kind: UseKind, entry: NonNullable<typeof usedEntry>) => {
-    const { names: recent, fromAgents = [], agentOf = {}, sourceOf = {} } = entry
-    // Claude's own names first, agents' after, each newest first.
-    const names = [...recent.filter(n => !fromAgents.includes(n)), ...recent.filter(n => fromAgents.includes(n))]
+    const { sourceOf = {} } = entry
+    const sourceFor = (name: string) => (Object.hasOwn(sourceOf, name) ? sourceOf[name] : undefined)
     const agentName = (id?: string) => {
       const one = id && sparks.find(s => s.id === id)
       return (one && fit(printable(one.name ?? (one.type ?? '').replace(/^[^:]+:/, '')), 14)) || 'agent'
     }
-    const hintOf = (name: string) => {
-      const one = agentOf[name] && sparks.find(s => s.id === agentOf[name])
-      return [one && fit(printable(one.name ?? (one.type ?? '').replace(/^[^:]+:/, '')), 14), sourceOf[name]].filter(Boolean).join('  ')
-    }
-    // FILES: a branch per reader, Claude first. Stored without byReader: one call per name.
-    const byReader = entry.byReader ?? names.reduce<Record<string, Record<string, number>>>((acc, n) => {
-      const r = fromAgents.includes(n) ? (agentOf[n] ?? '') : 'main'
-      return { ...acc, [r]: { ...acc[r], [n]: 1 } }
-    }, {})
-    const readers = Object.entries(byReader)
-      .filter(([, m]) => Object.keys(m).length)
+    // A branch per reader, Claude first; on the web, a page sits under the search that led to it.
+    const readers = readersOf(entry)
+      .filter(([, m]) => m.length)
       .sort(([a], [b]) => Number(b === 'main') - Number(a === 'main'))
     type Item = { name: string; glyph: string; count?: number; branch?: string }
-    const items: Item[] =
-      kind === 'files'
-        ? readers.flatMap(([reader, m], ri) => {
-            const last = ri === readers.length - 1
-            const files = Object.entries(m)
-            return [
-              { name: '', glyph: last ? '└ ' : '├ ', branch: reader === 'main' ? 'Claude' : agentName(reader) },
-              ...files.map(([name, count], k) => ({ name, count, glyph: `${last ? '  ' : '│ '}${k === files.length - 1 ? '└ ' : '├ '}` })),
-            ]
-          })
-        : names.map((name, i) => ({ name, glyph: i === names.length - 1 ? '└ ' : '├ ' }))
+    const items: Item[] = readers.flatMap(([reader, m], ri) => {
+      const last = ri === readers.length - 1
+      const stem = last ? '  ' : '│ '
+      const parents = entry.parentOf?.find(([r]) => r === reader)?.[1] ?? []
+      const isSearch = ([n]: [string, number]) => kind === 'web' && sourceFor(n) === 'search'
+      const searches = m.filter(isSearch)
+      const parentOf = (n: string) => parents.find(([u]) => u === n)?.[1]
+      const under = (q: string) => m.filter(x => !isSearch(x) && parentOf(x[0]) === q)
+      const top = [...searches, ...m.filter(x => !isSearch(x) && !searches.some(([q]) => q === parentOf(x[0])))]
+      return [
+        { name: '', glyph: last ? '└ ' : '├ ', branch: reader === 'main' ? 'Claude' : agentName(reader) },
+        ...top.flatMap(([name, count], k) => {
+          const end = k === top.length - 1
+          const pages = isSearch([name, count]) ? under(name) : []
+          return [
+            { name, count, glyph: `${stem}${end ? '└ ' : '├ '}` },
+            ...pages.map(([page, n], j) => ({ name: page, count: n, glyph: `${stem}${end ? '  ' : '│ '}${j === pages.length - 1 ? '└ ' : '├ '}` })),
+          ]
+        }),
+      ]
+    })
     const inner = modalFrame(props.bodyColumns, tabRows, 0).width - 4
-    let fileAt = 0
-    const rows = items.map(({ name, glyph, count, branch }, row) => {
+    let itemAt = 0
+    const rows = items.map(({ name, glyph, count, branch }) => {
       if (branch !== undefined)
         return (
           <Text>
@@ -275,8 +276,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
             <Text>{branch}</Text>
           </Text>
         )
-      const i = kind === 'files' ? fileAt++ : row
-      const hint = kind === 'files' ? (count && count > 1 ? `×${count}` : '') : hintOf(name)
+      const i = itemAt++
+      const hint = [sourceFor(name), count && count > 1 ? `×${count}` : ''].filter(Boolean).join('  ')
       const room = Math.max(1, inner - (glyph.length + 1) - (hint ? hint.length + 2 : 0))
       const text = printable(name)
       // Path or URL pieces: a folder or path part SCOPE, every slash the border colour.
@@ -293,7 +294,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
         pieces = parts(segs, k => (k < segs.length - 1 ? SCOPE : undefined))
       } else if (kind === 'memory') {
         pieces = [<Text>{shortName('memory', text)}</Text>]
-      } else if (kind === 'web' && sourceOf[name] !== 'search') {
+      } else if (kind === 'web' && sourceFor(name) !== 'search') {
         const rest = text.replace(/^https?:\/\//, '')
         const q = rest.search(/[?#]/)
         const segs = (q < 0 ? rest : rest.slice(0, q)).split('/')
@@ -301,7 +302,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
       }
       const main = <Text wrap="truncate-end">{pieces}</Text>
       const path = kind === 'skills' ? ctx.skillPath(name) : kind === 'files' || kind === 'memory' ? name : undefined
-      const web = kind === 'web' && sourceOf[name] !== 'search'
+      const web = kind === 'web' && sourceFor(name) !== 'search'
       if (path && !web && Client) {
         const key = `o:m:use:${i}`
         hv.acts[key] = () => $.margin.show({ path, line: 1 })
@@ -337,7 +338,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
       )
     })
     const f = modalFrame(props.bodyColumns, tabRows, 5 + rows.length)
-    return drawLayer($, lc, 'm', f, { top: f.top, left: f.left - PAD }, [], [heading(ctx.el, kind.toUpperCase(), <Text color={HUD.faint}>{`${kind === 'files' ? entry.main + entry.agents : names.length} total`}</Text>)], rows, modalNow!.top)
+    return drawLayer($, lc, 'm', f, { top: f.top, left: f.left - PAD }, [], [heading(ctx.el, kind.toUpperCase(), <Text color={HUD.faint}>{`${entry.main + entry.agents} total`}</Text>)], rows, modalNow!.top)
   }
   const modalBox = topicsOpen ? topicsModal() : usedKind && usedEntry ? usedModal(usedKind, usedEntry) : null
   // Its list gone (a new prompt or /clear emptied it), the modal closes: left open, it would come back with the next list.

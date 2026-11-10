@@ -220,7 +220,20 @@ export type UseKind = 'files' | 'memory' | 'web' | 'skills' | 'other'
 export const USE_KINDS: UseKind[] = ['files', 'memory', 'web', 'skills', 'other']
 // `names`: full values (path, URL, query, pattern, MCP tool), newest first, at most 50. `agentOf`: an agent-only
 // name's agent id. `sourceOf`: an `other` name's source, `search` for a web search. Both keyed only by kept names.
-export type UseEntry = { main: number; agents: number; names: string[]; fromAgents: string[]; agentOf?: Record<string, string>; sourceOf?: Record<string, string>; byReader?: Record<string, Record<string, number>> }
+export type UseEntry = { main: number; agents: number; names: string[]; fromAgents: string[]; agentOf?: Record<string, string>; sourceOf?: Record<string, string>; byReader?: Readers; parentOf?: [reader: string, pages: [url: string, query: string][]][] }
+// Arrays, not objects: integer-like names sort first in an object and `__proto__` breaks its lookups.
+export type Readers = [reader: string, names: [name: string, count: number][]][]
+// Each reader ('main' or an agent id) with its names newest first and their call counts. Stored before byReader: one call per name, Claude's first.
+export const readersOf = (e: UseEntry): Readers => {
+  if (e.byReader) return e.byReader
+  const from = e.fromAgents ?? []
+  const by = new Map<string, [string, number][]>()
+  for (const n of [...e.names.filter(n => !from.includes(n)), ...e.names.filter(n => from.includes(n))]) {
+    const r = from.includes(n) ? (e.agentOf?.[n] ?? '') : 'main'
+    by.set(r, [...(by.get(r) ?? []), [n, 1]])
+  }
+  return [...by]
+}
 export type Used = { kinds: Partial<Record<UseKind, UseEntry>>; last?: Used['kinds']; stale: string[]; seen: string[] }
 export const EMPTY_USED: Used = { kinds: {}, stale: [], seen: [] }
 export const EMPTY_INTENT: Intent = { wants: '', steps: [], at: 0, ended: false }

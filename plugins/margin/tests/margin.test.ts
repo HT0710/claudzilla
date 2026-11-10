@@ -3,7 +3,7 @@ import type { TestBody } from 'claude-code/testing'
 import type { AgentStatus, Register } from 'claude-code'
 import type { Spawn, Step } from '../types'
 import { fileKey } from '../hooks/git-data'
-import { hoverOf, rowHovers } from '../hooks/kit'
+import { hoverOf, readersOf, rowHovers } from '../hooks/kit'
 
 import { EMPTY_USED, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, resetUsed, stampPattern, useOf, wrapLines, zoneWindow } from '../hooks/register'
 
@@ -684,12 +684,12 @@ test('useOf: a WebFetch counts only http and https, its URL as parsed', () => {
 test('a file read 5 times counts 5 and names it once', () => {
   let u = EMPTY_USED
   for (let i = 0; i < 5; i++) u = recordUse(u, { tool: 'Read', file_path: '/r/a.ts' })
-  expect(u.kinds.files).toEqual({ main: 5, agents: 0, names: ['/r/a.ts'], fromAgents: [], agentOf: {}, sourceOf: {}, byReader: { main: { '/r/a.ts': 5 } } })
+  expect(u.kinds.files).toEqual({ main: 5, agents: 0, names: ['/r/a.ts'], fromAgents: [], agentOf: {}, sourceOf: {}, byReader: [['main', [['/r/a.ts', 5]]]], parentOf: [] })
 })
 
 test('a subagent call counts as agents, not main', () => {
   const u = recordUse(EMPTY_USED, { tool: 'Read', file_path: '/r/a.ts', agentId: 'a1' })
-  expect(u.kinds.files).toEqual({ main: 0, agents: 1, names: ['/r/a.ts'], fromAgents: ['/r/a.ts'], agentOf: { '/r/a.ts': 'a1' }, sourceOf: {}, byReader: { a1: { '/r/a.ts': 1 } } })
+  expect(u.kinds.files).toEqual({ main: 0, agents: 1, names: ['/r/a.ts'], fromAgents: ['/r/a.ts'], agentOf: { '/r/a.ts': 'a1' }, sourceOf: {}, byReader: [['a1', [['/r/a.ts', 1]]]], parentOf: [] })
   expect(u.seen).toEqual(['a1'])
 })
 
@@ -711,7 +711,7 @@ test('recordUse keeps 50 unique names per kind, newest first, with sources and a
   expect(u.kinds.files!.names).not.toContain('/r/f1.ts')
   expect(u.kinds.files!.main).toBe(52)
   u = recordUse(u, { tool: 'Grep', pattern: 'x', agentId: 'a1' })
-  expect(u.kinds.other).toEqual({ main: 0, agents: 1, names: ['x'], fromAgents: ['x'], agentOf: { x: 'a1' }, sourceOf: { x: 'grep' }, byReader: { a1: { x: 1 } } })
+  expect(u.kinds.other).toEqual({ main: 0, agents: 1, names: ['x'], fromAgents: ['x'], agentOf: { x: 'a1' }, sourceOf: { x: 'grep' }, byReader: [['a1', [['x', 1]]]], parentOf: [] })
   u = recordUse(u, { tool: 'Grep', pattern: 'x' })
   expect(u.kinds.other!.fromAgents).toEqual([])
   expect(u.kinds.other!.agentOf).toEqual({})
@@ -724,15 +724,46 @@ test('recordUse byReader: counts per reader and name, readers in first-read orde
   u = read(u, 'b.ts')
   u = read(u, 'a.ts')
   u = read(u, 'c.ts', 'a1')
-  const by = u.kinds.files!.byReader!
-  expect(Object.keys(by)).toEqual(['a1', 'main'])
-  expect(by.main).toEqual({ '/r/a.ts': 2, '/r/b.ts': 1 })
-  expect(Object.keys(by.main!)).toEqual(['/r/a.ts', '/r/b.ts'])
-  expect(Object.keys(by.a1!)).toEqual(['/r/c.ts', '/r/a.ts'])
+  expect(u.kinds.files!.byReader).toEqual([
+    ['a1', [['/r/c.ts', 1], ['/r/a.ts', 1]]],
+    ['main', [['/r/a.ts', 2], ['/r/b.ts', 1]]],
+  ])
   let v = EMPTY_USED
   for (let i = 0; i < 51; i++) v = read(v, `f${i}.ts`)
-  expect(Object.keys(v.kinds.files!.byReader!.main!)).toHaveLength(50)
-  expect(v.kinds.files!.byReader!.main!['/r/f0.ts']).toBeUndefined()
+  expect(v.kinds.files!.byReader![0]![1]).toHaveLength(50)
+  expect(v.kinds.files!.byReader![0]![1].some(([n]) => n === '/r/f0.ts')).toBe(false)
+})
+
+test('recordUse byReader: integer-like names keep read order and __proto__ is an ordinary name', () => {
+  let u = recordUse(EMPTY_USED, { tool: 'Grep', pattern: 'abc' })
+  u = recordUse(u, { tool: 'Grep', pattern: '404' })
+  u = recordUse(u, { tool: 'Grep', pattern: '__proto__' })
+  expect(u.kinds.other!.byReader).toEqual([['main', [['__proto__', 1], ['404', 1], ['abc', 1]]]])
+})
+
+test('readersOf: an entry stored without byReader keeps its old names when read again', () => {
+  const old = { kinds: { files: { main: 2, agents: 1, names: ['/r/b.ts', '/r/a.ts'], fromAgents: ['/r/b.ts'], agentOf: { '/r/b.ts': 'a1' } } }, stale: [], seen: [] } as any
+  expect(readersOf(old.kinds.files)).toEqual([['main', [['/r/a.ts', 1]]], ['a1', [['/r/b.ts', 1]]]])
+  const u = recordUse(old, { tool: 'Read', file_path: '/r/c.ts' })
+  expect(u.kinds.files!.byReader).toEqual([['main', [['/r/c.ts', 1], ['/r/a.ts', 1]]], ['a1', [['/r/b.ts', 1]]]])
+})
+
+test('recordUse parentOf: a fetch takes the reader\'s latest search, keeps its first parent, none before a search', () => {
+  const fetch = (u: typeof EMPTY_USED, url: string, agentId?: string) => recordUse(u, { tool: 'WebFetch', url, ...(agentId && { agentId }) })
+  const search = (u: typeof EMPTY_USED, query: string, agentId?: string) => recordUse(u, { tool: 'WebSearch', query, ...(agentId && { agentId }) })
+  let u = fetch(EMPTY_USED, 'https://a.dev/0')
+  expect(u.kinds.web!.parentOf).toEqual([])
+  u = search(u, 'one')
+  u = fetch(u, 'https://a.dev/1')
+  u = search(u, 'two')
+  u = fetch(u, 'https://a.dev/1')
+  u = fetch(u, 'https://a.dev/2')
+  u = search(u, 'other', 'a1')
+  u = fetch(u, 'https://a.dev/3', 'a1')
+  expect(u.kinds.web!.parentOf).toEqual([
+    ['main', [['https://a.dev/1', 'one'], ['https://a.dev/2', 'two']]],
+    ['a1', [['https://a.dev/3', 'other']]],
+  ])
 })
 
 test('a spawn record keeps the launch name and the agent type', async ($, on) => {
@@ -4768,6 +4799,87 @@ test('the FILES modal: Claude first, a file under two readers shows twice, a re-
   expect(rows[1]!.text).toMatch(/^ │ └ /)
   expect(rows[5]!.text).toMatch(/^   └ /)
   await tapRow(ui, 'o:m:use:2')
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'e.ts' })).toBeDefined()
+  expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
+})
+
+// A modal row's drawn text without its glyphs, from Clients (pages are Links, so also from Texts).
+const treeRows = async (ui: { drawn: () => Promise<unknown> }) =>
+  (await modalTexts(ui)).map(t => t.text)
+
+test('the WEB modal: pages sit under their search, an unparented page under the reader, ×N and search at the right', async ($, on) => {
+  const ui = await usedPane($, on)
+  await spawn($, 'one', { name: 'scout' })
+  const call = (tool: string, arg: Record<string, string>, agentId?: string) => $.tool.call({ tool, ...arg, ...(agentId && { agentId }) } as any)
+  await call('WebFetch', { url: 'https://code.claude.com/docs/en/hooks' })
+  await call('WebFetch', { url: 'https://docs.anthropic.com/claude-code' }, 'a1')
+  await call('WebSearch', { query: 'ink absolute position overlay' }, 'a1')
+  await call('WebFetch', { url: 'https://github.com/vadimdemedes/ink?tab=api' }, 'a1')
+  await call('WebFetch', { url: 'https://github.com/vadimdemedes/ink?tab=api' }, 'a1')
+  await call('WebFetch', { url: 'https://npmjs.com/package/ink' }, 'a1')
+  await call('WebSearch', { query: 'ink box hover scope' }, 'a1')
+  await call('WebFetch', { url: 'https://github.com/vadimdemedes/ink/issues/12' }, 'a1')
+  await tapRow(ui, 'o:used:web')
+  expect(await ui.find({ type: 'Text', text: '8 total' })).toBeDefined()
+  const links = findIn(await ui.drawn(), n => n.type === 'Link').map(n => n.props.href)
+  expect(links).toEqual([
+    'https://code.claude.com/docs/en/hooks',
+    'https://github.com/vadimdemedes/ink/issues/12',
+    'https://npmjs.com/package/ink',
+    'https://github.com/vadimdemedes/ink?tab=api',
+    'https://docs.anthropic.com/claude-code',
+  ])
+  const texts = await treeRows(ui)
+  expect(texts.indexOf('Claude')).toBeLessThan(texts.indexOf('scout'))
+  expect(texts.indexOf('ink box hover scope')).toBeLessThan(texts.indexOf('ink absolute position overlay'))
+  expect(await inModal(ui, 'ink box hover scope')).toBeUndefined()
+  expect(texts.filter(t => t === 'search')).toHaveLength(2)
+  expect(await inModal(ui, 'search')).toBe('#4f5c68')
+  expect(await inModal(ui, '×2')).toBe('#4f5c68')
+  const glyphs = (await modalTexts(ui)).map(t => t.text).filter(t => /^ [ │├└ ]+$/.test(t) && t.trim() !== '')
+  expect(glyphs).toEqual([' ├ ', ' │ └ ', ' └ ', '   ├ ', '   │ └ ', '   ├ ', '   │ ├ ', '   │ └ ', '   └ '])
+})
+
+test('the other modal: an agent Grep sits under its agent with grep at the right and no agent name there', async ($, on) => {
+  const ui = await usedPane($, on)
+  await spawn($, 'one', { name: 'scout' })
+  await $.tool.call({ tool: 'Grep', pattern: 'rowHover', agentId: 'a1' } as any)
+  await $.tool.call({ tool: 'Grep', pattern: 'rowHover', agentId: 'a1' } as any)
+  await $.tool.call({ tool: 'Grep', pattern: 'x' } as any)
+  await tapRow(ui, 'o:used:other')
+  expect(await ui.find({ type: 'Text', text: '3 total' })).toBeDefined()
+  const texts = await treeRows(ui)
+  expect(texts.indexOf('Claude')).toBeLessThan(texts.indexOf('scout'))
+  expect(texts.indexOf('scout')).toBeLessThan(texts.indexOf('rowHover'))
+  expect(texts.filter(t => t === 'scout')).toHaveLength(1)
+  expect(await inModal(ui, 'grep')).toBe('#4f5c68')
+  expect(await inModal(ui, 'grep  ×2')).toBe('#4f5c68')
+})
+
+test('the memory and skills modals count calls and show the reader tree', async ($, on) => {
+  const ui = await usedPane($, on)
+  await $.tool.call({ tool: 'Read', file_path: '/home/u/.claude/projects/p/memory/a.md' } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/home/u/.claude/projects/p/memory/a.md' } as any)
+  await $.tool.call({ tool: 'Skill', skill: 'init' } as any)
+  await tapRow(ui, 'o:used:memory')
+  expect(await ui.find({ type: 'Text', text: '2 total' })).toBeDefined()
+  expect(await hasInModal(ui, 'Claude')).toBe(true)
+  expect((await usedRow(ui, 0)).hint).toEqual([{ text: '×2', color: '#4f5c68' }])
+  await ui.press({ key: 'm:x' })
+  await tapRow(ui, 'o:used:skills')
+  expect(await hasInModal(ui, 'Claude')).toBe(true)
+})
+
+test('a USED modal draws a stored entry without byReader, and one that names __proto__', async ($, on) => {
+  const ui = await usedPane($, on)
+  await $.tool.call({ tool: 'Grep', pattern: '__proto__' } as any)
+  await $.tool.call({ tool: 'Grep', pattern: '404' } as any)
+  await $.tool.call({ tool: 'Grep', pattern: 'abc' } as any)
+  await tapRow(ui, 'o:used:other')
+  const texts = (await modalTexts(ui)).map(t => t.text).filter(t => ['abc', '404', '__proto__'].includes(t))
+  expect(texts).toEqual(['abc', '404', '__proto__'])
+  expect(await inModal(ui, '[object Object]')).toBeUndefined()
 })
 
 test("a USED press while waiting opens last turn's list", async ($, on) => {

@@ -3,8 +3,8 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { CommitView, LogRow, Gh, Intent, Modal, PrView, Spawn, Step, Tab, Take } from '../types'
 import { parseCommitView, parsePrView, parsePrs, printable } from './git-data'
-import { BAR_ROWS, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, WHEEL_HOLD, applyPalette, configDir, clock, dim, drawnZones, emptyNote as kitEmptyNote, fadeTree, fileView, fit, hoverOf, keepZones, modalOpen, setZones } from './kit'
-import type { Prompt, TabCtx, TabDraw, UseKind, Used, Zone } from './kit'
+import { BAR_ROWS, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, WHEEL_HOLD, applyPalette, configDir, clock, dim, drawnZones, emptyNote as kitEmptyNote, fadeTree, fileView, fit, hoverOf, keepZones, modalOpen, readersOf, setZones } from './kit'
+import type { Prompt, Readers, TabCtx, TabDraw, UseEntry, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
 import { draw as drawFile } from './tab-file'
@@ -102,13 +102,19 @@ export const recordUse = (used: Used, call: { tool: string } & Record<string, un
   const keptFrom = [...(agentOnly ? [use.name] : []), ...fromAgents.filter(n => n !== use.name && names.includes(n))]
   const keep = <T,>(rec: Record<string, T>, own?: [string, T]) =>
     Object.fromEntries([...(own ? [own] : []), ...Object.entries(rec).filter(([n]) => n !== use.name && names.includes(n))])
-  // reader ('main' or an agent id) to name to calls: readers in first-read order, names newest first.
   const reader = id ?? 'main'
-  const byReader = Object.fromEntries(
-    Object.entries(was.byReader ?? {}).map(([r, m]) => [r, Object.fromEntries(Object.entries(m).filter(([n]) => names.includes(n)))]),
-  )
-  const mine = byReader[reader] ?? {}
-  byReader[reader] = { [use.name]: (mine[use.name] ?? 0) + 1, ...Object.fromEntries(Object.entries(mine).filter(([n]) => n !== use.name)) }
+  const prev = readersOf(was)
+  const mine = prev.find(([r]) => r === reader)?.[1] ?? []
+  const read: [string, number][] = [[use.name, (mine.find(([n]) => n === use.name)?.[1] ?? 0) + 1], ...mine.filter(([n]) => n !== use.name)]
+  const byReader: Readers = (prev.some(([r]) => r === reader) ? prev : [...prev, [reader, []] as Readers[number]]).map(([r, ns]): Readers[number] => [r, (r === reader ? read : ns).filter(([n]) => names.includes(n))])
+  // A page fetched under this reader's latest search; its first parent stays.
+  const latest = mine.find(([n]) => sourceOf[n] === 'search')?.[0]
+  const pages = (was.parentOf ?? []).map(([r, ps]): [string, [string, string][]] => [r, ps.filter(([u]) => names.includes(u))])
+  const mineP = pages.find(([r]) => r === reader)?.[1] ?? []
+  const parentOf: NonNullable<UseEntry['parentOf']> =
+    use.kind === 'web' && !use.source && latest && !mineP.some(([u]) => u === use.name)
+      ? [...pages.filter(([r]) => r !== reader), [reader, [...mineP, [use.name, latest]]]]
+      : pages
   const kind = {
     main: was.main + (id ? 0 : 1),
     agents: was.agents + (id ? 1 : 0),
@@ -117,6 +123,7 @@ export const recordUse = (used: Used, call: { tool: string } & Record<string, un
     agentOf: keep(agentOf, agentOnly && id ? [use.name, id] : undefined),
     sourceOf: keep(sourceOf, use.source ? [use.name, use.source] : undefined),
     byReader,
+    parentOf,
   }
   return { ...used, kinds: { ...used.kinds, [use.kind]: kind }, seen: id && !used.seen.includes(id) ? [...used.seen, id] : used.seen }
 }
