@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { Check, CheckState, CommitView, Counts, FileView, Gh, LogRow, Modal, ModalKey, Op, Pr, PrState, PrView, Stage, Word } from '../types'
-import { LOG_FORMAT, age, branches, cutMiddle, fileKey, incomingPrs, ownPrs, parseHead, parseLog, parseMerge, parseNumstat, parseRebase, parseShortstat, parseStatusZ, printable, sortChecks, stashCount, syncMark, treeRows, worktrees, worst } from './git-data'
+import { LOG_FORMAT, age, ago, branches, cutMiddle, fileKey, incomingPrs, ownPrs, parseHead, parseLog, parseMerge, parseNumstat, parseRebase, parseShortstat, parseStatusZ, printable, sortChecks, stashCount, syncMark, treeRows, worktrees, worst } from './git-data'
 import { AHEAD, BAR_ROWS, BEHIND, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, capped, card as kitCard, clock, configDir, contentFrame, cues, dayName, dim, drawLayer as kitDrawLayer, emptyNote, fade, fadeBg, fileView, fit, heading as kitHeading, kv as kitKv, line as kitLine, modalFrame, modalZone, nudge, readTheme, row as kitRow, rowHover, stackFrame, textLength, toPieces, zoneWindow } from './kit'
 import type { Frame, Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, Zone } from './kit'
 import { mdRows } from './markdown'
@@ -598,7 +598,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
     const title = <Box>{subjectTexts(pr.title, cardWidth - 4, true)}</Box>
     // A merged or closed PR: when and where it ended replaces base and checks, which no longer matter.
     const rows = ended
-      ? [title, kv(pr.state, <Text><Text color={HUD.faint}>into</Text>{` ${pr.base}`}</Text>, <Text color={HUD.faint}>{`${age(pr.at, now)} ago`}</Text>), changes]
+      ? [title, kv(pr.state, <Text><Text color={HUD.faint}>into</Text>{` ${pr.base}`}</Text>, <Text color={HUD.faint}>{ago(pr.at, now)}</Text>), changes]
       : [
           title,
           kv(
@@ -968,7 +968,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
             {
               label: 'COMMITS',
               right: <Text color={HUD.faint}>{`${view.commits.length} total`}</Text>,
-              rows: view.commits.map(c => line([<Text> </Text>, ...subjectTexts(c.subject)], <Text color={HUD.faint}>{`${age(c.at, now)} ago`}</Text>)),
+              rows: view.commits.map(c => line([<Text> </Text>, ...subjectTexts(c.subject)], <Text color={HUD.faint}>{ago(c.at, now)}</Text>)),
             },
             {
               label: 'FILES',
@@ -1004,7 +1004,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
     return sectionModal(
       [
         line(subjectTexts(pr.title, Infinity, true)),
-        line([<Text color="claude">{` #${pr.n}`}</Text>, <Text color={HUD.faint}>{' by '}</Text>, <Text>{pr.author}</Text>], <Text color={HUD.faint}>{`${VERB[pr.state]} ${age(pr.at, now)} ago`}</Text>),
+        line([<Text color="claude">{` #${pr.n}`}</Text>, <Text color={HUD.faint}>{' by '}</Text>, <Text>{pr.author}</Text>], <Text color={HUD.faint}>{`${VERB[pr.state]} ${ago(pr.at, now)}`}</Text>),
         ...(pr.conflicting && conflictFiles.length
           ? [line([<Text color={TYPES.fix}> ✗</Text>, <Text>{` conflicts in ${conflictFiles.map(path => path.slice(path.lastIndexOf('/') + 1)).join(', ')}`}</Text>])]
           : []),
@@ -1055,7 +1055,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
     return sectionModal(
       [
         line(subjectTexts(row.subject, Infinity, true)),
-        line([<Text color="claude">{` ${row.short}`}</Text>, <Text color={HUD.faint}>{' by '}</Text>, <Text>{row.author}</Text>], <Text color={HUD.faint}>{`${age(row.at, now)} ago`}</Text>),
+        line([<Text color="claude">{` ${row.short}`}</Text>, <Text color={HUD.faint}>{' by '}</Text>, <Text>{row.author}</Text>], <Text color={HUD.faint}>{ago(row.at, now)}</Text>),
         ...(row.refs.length || row.tags.length ? [line([<Text> </Text>, ...refTexts(row.refs, row.tags)])] : []),
       ],
       sections,
@@ -1123,7 +1123,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
       : {
           label: 'COMMITS',
           right: <Text color={HUD.faint}>{`${op.incoming.length} total`}</Text>,
-          rows: op.incoming.map(c => line([<Text> </Text>, ...subjectTexts(c.subject)], <Text color={HUD.faint}>{`${age(c.at, now)} ago`}</Text>)),
+          rows: op.incoming.map(c => line([<Text> </Text>, ...subjectTexts(c.subject)], <Text color={HUD.faint}>{ago(c.at, now)}</Text>)),
         }
     const files: Section[] = op.conflicts.length
       ? [{
@@ -1161,7 +1161,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
           {pill(p.state)}
         </Box>
       </Box>,
-      line([<Text>{`  ${p.author}`}</Text>, <Text color={HUD.faint}>{' from '}</Text>, <Text color={HUD.faint}>{p.head}</Text>], <Text color={HUD.faint}>{`${age(p.at, now)} ago`}</Text>),
+      line([<Text>{`  ${p.author}`}</Text>, <Text color={HUD.faint}>{' from '}</Text>, <Text color={HUD.faint}>{p.head}</Text>], <Text color={HUD.faint}>{ago(p.at, now)}</Text>),
     ]
     const join = (blocks: JSX.Element[][]) => blocks.flatMap((b, i) => (i ? [rule, ...b] : b))
     const blocks = summary.list.map(block)
@@ -1177,7 +1177,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
           const checks = sortChecks(subPr.checks)
           const runs = [...new Set(checks.filter(c => c.state === 'bad' && c.run).map(c => c.run!))]
           const subRows = [
-            line([<Text color="claude">{` #${subPr.n}`}</Text>, <Text color={HUD.faint}>{' by '}</Text>, <Text>{subPr.author}</Text>], <Text color={HUD.faint}>{`${VERB[subPr.state]} ${age(subPr.at, now)} ago`}</Text>),
+            line([<Text color="claude">{` #${subPr.n}`}</Text>, <Text color={HUD.faint}>{' by '}</Text>, <Text>{subPr.author}</Text>], <Text color={HUD.faint}>{`${VERB[subPr.state]} ${ago(subPr.at, now)}`}</Text>),
             rule,
             heading('CHECKS', <Text color={HUD.faint}>{`${checks.filter(c => c.state === 'ok').length} of ${checks.length} passed`}</Text>),
             ...checks.map(checkLine),

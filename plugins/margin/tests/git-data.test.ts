@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Check, CheckState, Pr, PrState } from '../types'
 
-import { age, branches, changeOf, cutMiddle, parseStatusZ, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows, worktrees } from '../hooks/git-data'
+import { age, ago, branches, changeOf, cutMiddle, parseStatusZ, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows, worktrees } from '../hooks/git-data'
 
 // A gh pr list row with every field the parser reads.
 const fixture = (over: Record<string, unknown> = {}) => ({
@@ -30,6 +30,8 @@ test('ages', () => {
   expect(age(0, 5 * 60e3)).toBe('5m')
   expect(age(0, 2 * 3600e3)).toBe('2h')
   expect(age(0, 3 * 86400e3)).toBe('3d')
+  expect(ago(0, 5 * 60e3)).toBe('5m ago')
+  expect(ago(0, 59e3)).toBe('now')
 })
 
 test('gh checks map to four states with a run time', () => {
