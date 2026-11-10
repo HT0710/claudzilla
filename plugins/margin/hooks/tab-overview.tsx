@@ -84,7 +84,9 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const [state, stateColor] = !shown.ended
     ? shown.agents
       ? [`◌ waiting on ${shown.agents} agent${shown.agents === 1 ? '' : 's'}`, 'planMode']
-      : ['● working', 'claude']
+      : shown.waiting
+        ? ['◐ planning…', 'claude']
+        : ['● working', 'claude']
     : done === shown.steps.length
       ? [`✓ done ${clock(shown.at)}`, HUD.action]
       : [`■ stopped ${clock(shown.at)}`, HUD.dirty]
@@ -213,7 +215,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     props.scroll.bodyRows - 2 - BAR_ROWS - (hasReport ? 2 : 0) - (zoned ? 2 + topicsRows : 0) - sessionRows - reportRows - 1
   // USED under STEPS: its rule and a row per kind, only while STEPS keep 3 rows.
   const usedNow = await read($, used)
-  const usedKinds = USE_KINDS.filter(kind => usedNow.kinds[kind])
+  const usedShown = shown.waiting ? (usedNow.last ?? {}) : usedNow.kinds
+  const usedKinds = USE_KINDS.filter(kind => usedShown[kind])
   const usedRows = shown.wants && usedKinds.length && roomLeft - (1 + usedKinds.length) >= 3 ? 1 + usedKinds.length : 0
   const stepRoom = roomLeft - usedRows
   const following = await read($, stepsFollow)
@@ -235,7 +238,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
       <Text color="promptBorder">{'─'.repeat(width)}</Text>
       <Box justifyContent="space-between">
         <Text color={stateColor}>{state}</Text>
-        <Text color={HUD.faint}>{shown.waiting ? (shown.agents ? '' : 'planning…') : about.running ? aboutHint : stepCount}</Text>
+        <Text color={HUD.faint}>{shown.waiting ? (shown.agents ? '' : '… steps') : about.running ? aboutHint : stepCount}</Text>
       </Box>
     </Box>
   )
@@ -399,13 +402,13 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
               ),
               usedRows > 0 && partRule('USED'),
               ...(usedRows > 0 ? usedKinds : []).map((kind, i) => {
-                const { main, agents, names: recent, fromAgents = [], sourceOf = {} } = usedNow.kinds[kind]!
+                const { main, agents, names: recent, fromAgents = [], sourceOf = {} } = usedShown[kind]!
                 // Claude's own names first, agents' after, each newest first.
                 const names = [...recent.filter(n => !fromAgents.includes(n)), ...recent.filter(n => fromAgents.includes(n))]
                 const extra = agents > 0 ? ` +${agents}` : ''
                 // Counts right-aligned, as the Git tab's churn columns; +N in its own column after them.
-                const mainW = Math.max(...usedKinds.map(k => String(usedNow.kinds[k]!.main).length))
-                const extraW = Math.max(...usedKinds.map(k => (usedNow.kinds[k]!.agents > 0 ? ` +${usedNow.kinds[k]!.agents}`.length : 0)))
+                const mainW = Math.max(...usedKinds.map(k => String(usedShown[k]!.main).length))
+                const extraW = Math.max(...usedKinds.map(k => (usedShown[k]!.agents > 0 ? ` +${usedShown[k]!.agents}`.length : 0)))
                 const kindW = Math.max(...usedKinds.map(k => k.length)) + 2
                 const room = Math.max(1, width - LABEL - kindW - mainW - extraW - 2)
                 const shorts = names.map(n => shortName(kind, n, sourceOf[n]))
@@ -416,14 +419,14 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                       <Text bold color={HUD.label}>{i === 0 ? 'USED' : ''}</Text>
                     </Box>
                     <Text color={HUD.faint}>{kind.padEnd(kindW)}</Text>
-                    <Text color="claude">{String(main).padStart(mainW)}</Text>
+                    <Text color={shown.waiting ? HUD.faint : 'claude'}>{String(main).padStart(mainW)}</Text>
                     <Text color={HUD.faint}>{extra.padEnd(extraW)}</Text>
                     <Text>{'  '}</Text>
                     {/* Cut as one line, then split back per name: an agent's name dims as its +N does. */}
                     {names.map((name, n) => {
                       const at = shorts.slice(0, n).join(', ').length + (n > 0 ? 2 : 0)
                       const piece = line.slice(at - (n > 0 ? 2 : 0), at + shorts[n].length)
-                      return piece ? <Text key={name} color={fromAgents.includes(name) ? HUD.faint : undefined}>{piece}</Text> : null
+                      return piece ? <Text key={name} color={shown.waiting || fromAgents.includes(name) ? HUD.faint : undefined}>{piece}</Text> : null
                     })}
                   </Box>
                 )

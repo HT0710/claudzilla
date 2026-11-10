@@ -221,7 +221,7 @@ export const USE_KINDS: UseKind[] = ['files', 'memory', 'web', 'skills', 'other'
 // `names`: full values (path, URL, query, pattern, MCP tool), newest first, at most 50. `agentOf`: an agent-only
 // name's agent id. `sourceOf`: an `other` name's source, `search` for a web search. Both keyed only by kept names.
 export type UseEntry = { main: number; agents: number; names: string[]; fromAgents: string[]; agentOf?: Record<string, string>; sourceOf?: Record<string, string> }
-export type Used = { kinds: Partial<Record<UseKind, UseEntry>>; stale: string[]; seen: string[] }
+export type Used = { kinds: Partial<Record<UseKind, UseEntry>>; last?: Used['kinds']; stale: string[]; seen: string[] }
 export const EMPTY_USED: Used = { kinds: {}, stale: [], seen: [] }
 export const EMPTY_INTENT: Intent = { wants: '', steps: [], at: 0, ended: false }
 export const EMPTY_OVERVIEW: Overview = { topics: [], running: false }
