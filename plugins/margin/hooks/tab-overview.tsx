@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { AgentRow, Spawn, Step, Take } from '../types'
 import { BAR_ROWS, DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, SCOPE, TYPES, USE_KINDS, clock, cues, emptyNote, fit, nudge, zoneWindow } from './kit'
-import type { TabCtx, TabDraw, Zone } from './kit'
+import type { TabCtx, TabDraw, UseKind, Zone } from './kit'
 
 const intent = atom({ plugin: 'margin', key: 'intent' } as const, EMPTY_INTENT)
 const overview = atom({ plugin: 'margin', key: 'overview' } as const, EMPTY_OVERVIEW)
@@ -14,6 +14,21 @@ const topicsSplit = atom({ plugin: 'margin', key: 'topicsSplit' } as const, -1)
 const topicsTop = atom({ plugin: 'margin', key: 'topicsTop' } as const, 0)
 const stepsTop = atom({ plugin: 'margin', key: 'stepsTop' } as const, 0)
 const stepsFollow = atom({ plugin: 'margin', key: 'stepsFollow' } as const, true)
+
+// The name a USED row shows for a full value.
+export const shortName = (kind: UseKind, name: string, source?: string): string => {
+  const base = name.slice(name.lastIndexOf('/') + 1)
+  if (kind === 'files') return base
+  if (kind === 'memory') return base.replace(/\.md$/, '')
+  if (kind === 'web' && source !== 'search') {
+    try {
+      return new URL(name).host
+    } catch {
+      return name
+    }
+  }
+  return name
+}
 
 // The top STEPS last drew, kept once the run ends and no step is in progress; a new prompt clears it.
 let stepsHeld: number | undefined
@@ -384,7 +399,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
               ),
               usedRows > 0 && partRule('USED'),
               ...(usedRows > 0 ? usedKinds : []).map((kind, i) => {
-                const { main, agents, names: recent, fromAgents = [] } = usedNow.kinds[kind]!
+                const { main, agents, names: recent, fromAgents = [], sourceOf = {} } = usedNow.kinds[kind]!
                 // Claude's own names first, agents' after, each newest first.
                 const names = [...recent.filter(n => !fromAgents.includes(n)), ...recent.filter(n => fromAgents.includes(n))]
                 const extra = agents > 0 ? ` +${agents}` : ''
@@ -393,7 +408,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                 const extraW = Math.max(...usedKinds.map(k => (usedNow.kinds[k]!.agents > 0 ? ` +${usedNow.kinds[k]!.agents}`.length : 0)))
                 const kindW = Math.max(...usedKinds.map(k => k.length)) + 2
                 const room = Math.max(1, width - LABEL - kindW - mainW - extraW - 2)
-                const line = fit(names.join(', '), room)
+                const shorts = names.map(n => shortName(kind, n, sourceOf[n]))
+                const line = fit(shorts.join(', '), room)
                 return (
                   <Box key={`used:${kind}`}>
                     <Box width={LABEL} flexShrink={0}>
@@ -405,8 +421,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                     <Text>{'  '}</Text>
                     {/* Cut as one line, then split back per name: an agent's name dims as its +N does. */}
                     {names.map((name, n) => {
-                      const at = names.slice(0, n).join(', ').length + (n > 0 ? 2 : 0)
-                      const piece = line.slice(at - (n > 0 ? 2 : 0), at + name.length)
+                      const at = shorts.slice(0, n).join(', ').length + (n > 0 ? 2 : 0)
+                      const piece = line.slice(at - (n > 0 ? 2 : 0), at + shorts[n].length)
                       return piece ? <Text key={name} color={fromAgents.includes(name) ? HUD.faint : undefined}>{piece}</Text> : null
                     })}
                   </Box>

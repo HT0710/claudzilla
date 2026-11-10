@@ -648,11 +648,11 @@ test('a read-only tool call leaves git unread', async ($, on) => {
 })
 
 test('useOf names each kind and skips calls it does not know', () => {
-  expect(useOf({ tool: 'Read', file_path: '/r/a/register.tsx' })).toEqual({ kind: 'files', name: 'register.tsx' })
-  expect(useOf({ tool: 'Read', file_path: '/h/.claude/projects/-x/memory/use-branch.md' })).toEqual({ kind: 'memory', name: 'use-branch' })
-  expect(useOf({ tool: 'Read', file_path: '/r/src/memory/notes.md' })).toEqual({ kind: 'files', name: 'notes.md' })
-  expect(useOf({ tool: 'Read', file_path: '/r/src/memory/x.ts' })).toEqual({ kind: 'files', name: 'x.ts' })
-  expect(useOf({ tool: 'WebFetch', url: 'https://code.claude.com/docs/x' })).toEqual({ kind: 'web', name: 'code.claude.com' })
+  expect(useOf({ tool: 'Read', file_path: '/r/a/register.tsx' })).toEqual({ kind: 'files', name: '/r/a/register.tsx' })
+  expect(useOf({ tool: 'Read', file_path: '/h/.claude/projects/-x/memory/use-branch.md' })).toEqual({ kind: 'memory', name: '/h/.claude/projects/-x/memory/use-branch.md' })
+  expect(useOf({ tool: 'Read', file_path: '/r/src/memory/notes.md' })).toEqual({ kind: 'files', name: '/r/src/memory/notes.md' })
+  expect(useOf({ tool: 'Read', file_path: '/r/src/memory/x.ts' })).toEqual({ kind: 'files', name: '/r/src/memory/x.ts' })
+  expect(useOf({ tool: 'WebFetch', url: 'https://code.claude.com/docs/x' })).toEqual({ kind: 'web', name: 'https://code.claude.com/docs/x' })
   expect(useOf({ tool: 'Skill', skill: 'superpowers:brainstorming' })).toEqual({ kind: 'skills', name: 'superpowers:brainstorming' })
   expect(useOf({ tool: 'Read' })).toBeUndefined()
   expect(useOf({ tool: 'Bash', command: 'cat x' })).toBeUndefined()
@@ -662,13 +662,64 @@ test('useOf names each kind and skips calls it does not know', () => {
 test('a file read 5 times counts 5 and names it once', () => {
   let u = EMPTY_USED
   for (let i = 0; i < 5; i++) u = recordUse(u, { tool: 'Read', file_path: '/r/a.ts' })
-  expect(u.kinds.files).toEqual({ main: 5, agents: 0, names: ['a.ts'], fromAgents: [] })
+  expect(u.kinds.files).toEqual({ main: 5, agents: 0, names: ['/r/a.ts'], fromAgents: [], agentOf: {}, sourceOf: {} })
 })
 
 test('a subagent call counts as agents, not main', () => {
   const u = recordUse(EMPTY_USED, { tool: 'Read', file_path: '/r/a.ts', agentId: 'a1' })
-  expect(u.kinds.files).toEqual({ main: 0, agents: 1, names: ['a.ts'], fromAgents: ['a.ts'] })
+  expect(u.kinds.files).toEqual({ main: 0, agents: 1, names: ['/r/a.ts'], fromAgents: ['/r/a.ts'], agentOf: { '/r/a.ts': 'a1' }, sourceOf: {} })
   expect(u.seen).toEqual(['a1'])
+})
+
+test('useOf: Grep and Glob are other, a search is marked, MCP tools name their source, own plugins skip', () => {
+  expect(useOf({ tool: 'Grep', pattern: 'rowHover' })).toEqual({ kind: 'other', name: 'rowHover', source: 'grep' })
+  expect(useOf({ tool: 'Glob', pattern: '**/*.tsx' })).toEqual({ kind: 'other', name: '**/*.tsx', source: 'glob' })
+  expect(useOf({ tool: 'WebSearch', query: 'ink overlay' })).toEqual({ kind: 'web', name: 'ink overlay', source: 'search' })
+  expect(useOf({ tool: 'mcp__context7__query-docs', libraryName: 'react' })).toEqual({ kind: 'other', name: 'react', source: 'context7' })
+  expect(useOf({ tool: 'mcp__codegraph__codegraph_explore', query: 'hang' })).toEqual({ kind: 'other', name: 'hang', source: 'codegraph' })
+  expect(useOf({ tool: 'mcp__claude_ai_slack__slack_send_message' })).toEqual({ kind: 'other', name: 'slack_send_message', source: 'slack' })
+  for (const own of ['ballot', 'byline', 'folio', 'herald', 'ledger', 'margin', 'primer']) expect(useOf({ tool: `mcp__${own}__x` })).toBeUndefined()
+})
+
+test('recordUse keeps 50 unique names per kind, newest first, with sources and agent ids', () => {
+  let u = EMPTY_USED
+  for (let i = 0; i < 52; i++) u = recordUse(u, { tool: 'Read', file_path: `/r/f${i}.ts` })
+  expect(u.kinds.files!.names).toHaveLength(50)
+  expect(u.kinds.files!.names[0]).toBe('/r/f51.ts')
+  expect(u.kinds.files!.names).not.toContain('/r/f1.ts')
+  expect(u.kinds.files!.main).toBe(52)
+  u = recordUse(u, { tool: 'Grep', pattern: 'x', agentId: 'a1' })
+  expect(u.kinds.other).toEqual({ main: 0, agents: 1, names: ['x'], fromAgents: ['x'], agentOf: { x: 'a1' }, sourceOf: { x: 'grep' } })
+  u = recordUse(u, { tool: 'Grep', pattern: 'x' })
+  expect(u.kinds.other!.fromAgents).toEqual([])
+  expect(u.kinds.other!.agentOf).toEqual({})
+})
+
+test('a spawn record keeps the launch name and the agent type', async ($, on) => {
+  let last: Spawn[] = []
+  on('state.set', (_, e, next) => {
+    if (e.key === 'spawns') last = e.value as Spawn[]
+    return next(e)
+  })
+  await agentsPane($, on, {})
+  await spawn($, 'Read code', { name: 'scout', subagentType: 'caveman:cavecrew-investigator' })
+  expect(last.at(-1)).toMatchObject({ id: 'a1', description: 'Read code', name: 'scout', type: 'caveman:cavecrew-investigator' })
+})
+
+test('the USED row draws short names from the full values', async ($, on) => {
+  on('tool.call', () => ({ result: {} }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/hooks/register.tsx' } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/h/.claude/projects/-x/memory/use-branch.md' } as any)
+  await $.tool.call({ tool: 'WebFetch', url: 'https://code.claude.com/docs/x' } as any)
+  await $.tool.call({ tool: 'mcp__claude_ai_slack__slack_send_message' } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: /^register\.tsx$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /hooks\// })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^use-branch$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^code\.claude\.com$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^slack_send_message$/ })).toBeDefined()
 })
 
 test('a mid-turn prompt keeps USED; a new prompt clears it', async ($, on) => {
