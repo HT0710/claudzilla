@@ -391,14 +391,15 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                 // Counts right-aligned, as the Git tab's churn columns; +N in its own column after them.
                 const mainW = Math.max(...usedKinds.map(k => String(usedNow.kinds[k]!.main).length))
                 const extraW = Math.max(...usedKinds.map(k => (usedNow.kinds[k]!.agents > 0 ? ` +${usedNow.kinds[k]!.agents}`.length : 0)))
-                const room = Math.max(1, width - LABEL - 7 - mainW - extraW - 2)
+                const kindW = Math.max(...usedKinds.map(k => k.length)) + 2
+                const room = Math.max(1, width - LABEL - kindW - mainW - extraW - 2)
                 const line = fit(names.join(', '), room)
                 return (
                   <Box key={`used:${kind}`}>
                     <Box width={LABEL} flexShrink={0}>
                       <Text bold color={HUD.label}>{i === 0 ? 'USED' : ''}</Text>
                     </Box>
-                    <Text color={HUD.faint}>{kind.padEnd(7)}</Text>
+                    <Text color={HUD.faint}>{kind.padEnd(kindW)}</Text>
                     <Text color="claude">{String(main).padStart(mainW)}</Text>
                     <Text color={HUD.faint}>{extra.padEnd(extraW)}</Text>
                     <Text>{'  '}</Text>
