@@ -12,7 +12,7 @@ const HERE = dirname(realpathSync(fileURLToPath(import.meta.url)));
 const DIR = join(HERE, "..", "experimental");
 const ID = /^[a-z][A-Za-z0-9]*$/;
 
-function enabled() {
+export function enabled() {
   try {
     const cfg = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "claudzilla.json");
     const e = JSON.parse(readFileSync(cfg, "utf8")).experimental;
