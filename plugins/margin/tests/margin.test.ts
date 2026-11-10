@@ -4671,6 +4671,18 @@ test('a FILES modal row is a row Client that lights under the pointer', async ($
   expect(lit.length).toBeGreaterThan(0)
 })
 
+for (const [name, key] of [['a pending step row', 'o:step:1'], ['a planned agent row', 'o:agent:1:0']] as const)
+  test(`${name} lights on hover and a tap does nothing`, async ($, on) => {
+    const views: unknown[] = []
+    on('ui.view', (_, e) => (views.push(e), { value: {} }))
+    const ui = await agentsPane($, on, {})
+    await $.tool.call({ tool: INTENT, ...AGENTS_REPORT } as any)
+    const lit = findIn(await ui.drawn(), n => n.hover?.backgroundColor === '#0f1c28' && findIn(n, c => c.props?.key === `row:${key}`).length > 0)
+    expect(lit.length).toBeGreaterThan(0)
+    await tapRow(ui, key)
+    expect(views).toEqual([])
+  })
+
 test('a skill press opens its SKILL.md; a skill with no path is a plain row', async ($, on) => {
   on('skill.prompt', (_, e) => ({ text: e.text }) as any)
   const ui = await usedPane($, on)
