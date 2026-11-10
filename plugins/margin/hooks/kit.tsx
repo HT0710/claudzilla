@@ -225,7 +225,8 @@ export type UseEntry = { main: number; agents: number; names: string[]; fromAgen
 export type Readers = [reader: string, names: [name: string, count: number][]][]
 // Each reader ('main' or an agent id) with its names newest first and their call counts. Stored before byReader: one call per name, Claude's first.
 export const readersOf = (e: UseEntry): Readers => {
-  if (e.byReader) return e.byReader
+  // An object byReader was stored by an earlier build.
+  if (Array.isArray(e.byReader)) return e.byReader
   const from = e.fromAgents ?? []
   const by = new Map<string, [string, number][]>()
   for (const n of [...e.names.filter(n => !from.includes(n)), ...e.names.filter(n => from.includes(n))]) {
