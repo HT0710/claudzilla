@@ -241,7 +241,7 @@ async function coldStatus($: EngineInterface, live: Live, cfg: Promise<Config>) 
   const level = tokens >= 4 * base ? 3 : tokens >= 2 * base ? 2 : 1
   t.event('cold.status', { level })
   $.ui.status(coldText(level, tokens))
-  live.pinned = true
+  live.pinned = live.coldLine = true
 }
 
 // A compact takes a while: whoever came back meanwhile keeps what they typed.
@@ -251,7 +251,7 @@ async function clearFill($: EngineInterface) {
 }
 
 type Timer = { cancel: () => void }
-type Live = { ctx: Ctx; idle?: Timer; cold: Timer[]; pinned: boolean; endAt: number; tokens: number; coldShown: boolean }
+type Live = { ctx: Ctx; idle?: Timer; cold: Timer[]; pinned: boolean; coldLine?: boolean; endAt: number; tokens: number; coldShown: boolean }
 
 // A turn is no idle time; a compact or /clear drops the context the levels were counted on.
 function stopIdle($: EngineInterface, live: Live, reset: boolean) {
@@ -260,7 +260,7 @@ function stopIdle($: EngineInterface, live: Live, reset: boolean) {
   for (const timer of live.cold) timer.cancel()
   live.cold = []
   if (live.pinned) $.ui.status(undefined)
-  live.pinned = false
+  live.pinned = live.coldLine = false
   if (reset) {
     live.ctx = { level: 0, at: 0 }
     live.tokens = 0
@@ -352,7 +352,13 @@ export const register: Register = on => {
   on('prompt.edit', ($, e, next) => {
     // No await before this check: a key never waits on a read.
     if (interactive && !live.coldShown && live.tokens > 0) void coldStatus($, live, cfg).catch(err => t.error('cold.status.failed', err))
-    return next(e)
+    const box = next(e)
+    // Cold line still up and the box emptied: offer the handoff again, dim, Tab to take.
+    if (live.coldLine)
+      void Promise.resolve(box)
+        .then(async b => b.text.trim() || t.event('cold.suggest', { shown: (await $.prompt.suggest({ text: HANDOFF })).isShown }))
+        .catch(err => t.error('cold.suggest.failed', err))
+    return box
   })
 
   on('session.compact', async ($, e, next) => {
