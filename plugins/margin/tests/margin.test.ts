@@ -6,6 +6,7 @@ import { fileKey } from '../hooks/git-data'
 import { hoverOf, readersOf, rowHovers } from '../hooks/kit'
 
 import { EMPTY_USED, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, resetUsed, stampPattern, useOf, usesOf, wrapLines, zoneWindow } from '../hooks/register'
+import { modelName } from '../hooks/tab-overview'
 
 // A process.run result with `stdout`.
 const ran = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -3859,6 +3860,10 @@ const agentsPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1
   return intentPane($, on)
 }
 const spawn = ($: Parameters<TestBody>[0], description: string, extra = {}) => $.agent.spawn({ prompt: 'p', description, ...extra } as any)
+// Agent `agentId`'s model request at `effort`, answered from below as core would.
+const stepAs = async ($: Parameters<TestBody>[0], agentId: string, effort: string) => {
+  for await (const _ of $.turn.step({ turnId: 't', index: 0, model: 'm', effort, messageCount: 1, agentId } as any));
+}
 const texts = (node: any): any[] => (node?.type === 'Text' ? [node] : (node?.children ?? []).flatMap(texts))
 // An Overview row Client's left pieces, by its row key.
 const flat = (n: any): string => (typeof n === 'string' ? n : !n || typeof n !== 'object' ? '' : [n.children, n.props?.children].flat().map(flat).join(''))
@@ -3911,6 +3916,33 @@ test('an agent card names its status in its mark color', async ($, on) => {
   await ui.drawn()
   const words = [['done', '#5d9678'], ['not started', '#4f5c68'], ['stopped', '#8c7850'], ['failed', '#e06c75'], ['running', 'claude'], ['not started', '#4f5c68']]
   for (const [n, [word, color]] of words.entries()) expect((await cardTexts(ui, `o:agent:0:${n}`))[1]).toEqual([word, color])
+})
+
+test('an agent card adds its type in its colour, model as name and version, and effort; empty values hide', async ($, on) => {
+  on('tool.call', () => ({ result: {} }) as any)
+  let n = 0
+  on('agent.spawn', () => ({ model: ['claude-haiku-5-5', 'opus'][n], agentId: `a${++n}` }) as any)
+  on('turn.step', async function* (_: any, e: any) { return { turnId: e.turnId, index: e.index, answer: '', toolUses: [] } } as any)
+  on('agent.list', () => ({ value: ['a1', 'a2'].map(id => ({ id, description: id, type: 'x', status: 'running' })) }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'in_progress', agents: ['r', 'g'] }] } as any)
+  await spawn($, 'r', { subagentType: 'caveman:cavecrew-investigator' })
+  await spawn($, 'g')
+  await stepAs($, 'a1', 'low')
+  await ui.drawn()
+  expect(await cardTexts(ui, 'o:agent:0:0')).toEqual([
+    ['status  ', '#4f5c68'], ['running', 'claude'],
+    ['type    ', '#4f5c68'], ['cavecrew-investigator', '#b3c46a'],
+    ['model   ', '#4f5c68'], ['haiku 5.5', undefined],
+    ['effort  ', '#4f5c68'], ['low', undefined],
+  ])
+  expect((await cardTexts(ui, 'o:agent:0:1')).map(([t]) => t.trim())).toEqual(['status', 'running', 'model', 'opus'])
+})
+
+test('modelName: a full id reads as name and version; anything else as given', () => {
+  expect(modelName('claude-haiku-5-5')).toBe('haiku 5.5')
+  expect(modelName('claude-opus-5-5[1m]')).toBe('opus 5.5')
+  expect(modelName('sonnet')).toBe('sonnet')
 })
 
 // A Button row posts no enter, so a card it overlaps would stay undrawn once a Client row is left.
