@@ -137,6 +137,7 @@ export const AUTO_MS = HOUR - 5 * 60_000
 // The auto compact comes at this many times compactNudge (0 = never); the fill at 1x.
 const DEFAULT_COLD = 2
 const FILL = '/claudzilla compact'
+export const HANDOFF = '/claudzilla handoff'
 type Config = { dir: string; base: number; cold: number }
 
 // The TTL the newest main-chat cache write chose, as hud-data.mjs reads it; a pure cache read keeps it.
@@ -176,14 +177,14 @@ export function replyAt(tail: string): number | undefined {
 }
 
 // Why a stage skips: not a 1h cache, or already cold (a timer that slept with the machine fires late).
-async function skip($: EngineInterface, dir: string): Promise<string | undefined> {
+async function skip($: EngineInterface, dir: string, late = true): Promise<string | undefined> {
   const found = await $.process.run(['find', `${dir}/projects`, '-maxdepth', '2', '-name', `${await $.session.id()}.jsonl`])
   const path = found.stdout.split('\n')[0]
   // shortcut: the last 1 MB only; a newer main-chat line past that (one huge tool result) reads as no TTL, so no stage runs.
   const tail = path ? (await $.process.run(['tail', '-c', '1000000', path])).stdout : ''
   if (ttlOf(tail) !== HOUR) return 'ttl'
   const at = replyAt(tail)
-  if (at !== undefined && (await $.clock.now()) - at >= HOUR) return 'cold'
+  if (late && at !== undefined && (await $.clock.now()) - at >= HOUR) return 'cold'
   return undefined
 }
 
@@ -213,9 +214,19 @@ async function coldCompact($: EngineInterface, dir: string, live: Live) {
   await clearFill($)
 }
 
+// Stage 3, at the hour: the cache is cold (late is fine), so offer a handoff over an empty box or the unsent compact fill.
+async function coldHandoff($: EngineInterface, dir: string) {
+  const why = await skip($, dir, false)
+  if (why) return t.event('cold.handoff', { skip: why }, 'debug')
+  const box = (await $.prompt.read()).text.trim()
+  if (box && box !== FILL) return t.event('cold.handoff', { skip: 'typed' })
+  t.event('cold.handoff', { filled: (await $.prompt.fill({ text: HANDOFF }).catch(() => ({ isFilled: false }))).isFilled })
+}
+
 // A compact takes a while: whoever came back meanwhile keeps what they typed.
 async function clearFill($: EngineInterface) {
-  if ((await $.prompt.read()).text.trim() === FILL) await $.prompt.fill({ text: '' }).catch(() => undefined)
+  const text = (await $.prompt.read()).text.trim()
+  if (text === FILL || text === HANDOFF) await $.prompt.fill({ text: '' }).catch(() => undefined)
 }
 
 type Timer = { cancel: () => void }
@@ -300,8 +311,8 @@ export const register: Register = on => {
         try {
           live.cold = [$.clock.after(FILL_MS, () => void coldFill($, dir, auto).catch(err => t.error('cold.fill.failed', err)))]
           if (auto) live.cold.push($.clock.after(AUTO_MS, () => void coldCompact($, dir, live).catch(err => t.error('cold.compact.failed', err))))
-          // A fill sent once the cache is cold reads it all back: past the hour it goes.
-          live.cold.push($.clock.after(HOUR, () => void clearFill($).catch(err => t.error('cold.clear.failed', err))))
+          // A compact sent once the cache is cold reads it all back: past the hour the offer is a handoff.
+          live.cold.push($.clock.after(HOUR, () => void coldHandoff($, dir).catch(err => t.error('cold.handoff.failed', err))))
         } catch {
           live.cold = []
         }
