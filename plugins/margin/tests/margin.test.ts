@@ -4894,6 +4894,8 @@ test('web rows: a page links in parts, a search says search; other rows name the
   await $.tool.call({ tool: 'WebSearch', query: 'ink overlay' } as any)
   await $.tool.call({ tool: 'WebFetch', url: 'https://github.com/vadimdemedes/ink?tab=api#position' } as any)
   await $.tool.call({ tool: 'mcp__claude_ai_slack__slack_send_message' } as any)
+  // Wide enough that the page is not cut.
+  await ui.redraw({ ...props, bodyColumns: 80 })
   await tapRow(ui, 'o:used:web')
   expect((await ui.find({ type: 'Link' }))?.props.href).toBe('https://github.com/vadimdemedes/ink?tab=api#position')
   expect(await hasInModal(ui, 'github.com')).toBe(true)
@@ -4906,6 +4908,13 @@ test('web rows: a page links in parts, a search says search; other rows name the
   expect(await hasInModal(ui, 'slack_send_message')).toBe(true)
   expect(await inModal(ui, 'slack_send_message')).toBeUndefined()
   expect(await inModal(ui, 'slack')).toBe('#4f5c68')
+})
+
+test('a web page too wide for the modal ends in …', async ($, on) => {
+  const ui = await usedPane($, on)
+  await $.tool.call({ tool: 'WebFetch', url: 'https://example.com/' + 'a'.repeat(300) } as any)
+  await tapRow(ui, 'o:used:web')
+  expect(await hasInModal(ui, /…$/)).toBe(true)
 })
 
 test('each FILES reader has its colour: Claude the accent, common types their own, any other name one of the set, an unknown agent faint', async ($, on) => {

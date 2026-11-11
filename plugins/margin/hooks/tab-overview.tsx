@@ -333,7 +333,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
       } else if (kind === 'memory') {
         pieces = [<Text>{shown(name)}</Text>]
       } else if (kind === 'web' && sourceFor(name) !== 'search') {
-        const rest = shown(name)
+        const rest = fit(shown(name), room)
         const q = rest.search(/[?#]/)
         const segs = (q < 0 ? rest : rest.slice(0, q)).split('/')
         pieces = [...parts(segs, k => (k ? SCOPE : undefined)), ...(q < 0 ? [] : [<Text color={HUD.faint}>{rest.slice(q)}</Text>])]
@@ -365,7 +365,9 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
         <Box justifyContent="space-between" gap={2}>
           {/* A Text's trailing space beside a sibling is dropped, so the gap holds the glyph's space. */}
           <Box flexShrink={1} overflow="hidden" gap={1}>
-            <Text color="promptBorder">{` ${glyph.trimEnd()}`}</Text>
+            <Box flexShrink={0}>
+              <Text color="promptBorder">{` ${glyph.trimEnd()}`}</Text>
+            </Box>
             {target}
           </Box>
           {hint ? (
