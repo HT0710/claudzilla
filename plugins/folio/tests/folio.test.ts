@@ -1626,6 +1626,7 @@ for (const [command, want] of [
   ['cat <<EOF > a.txt\nx\nEOF\necho done', ['a.txt']],
   ["cd sub && sed -i 's/a/b/' ./a.txt", ['sub/a.txt']],
   ['cd /abs && echo x > a.txt', ['/abs/a.txt']],
+  ["cd sub; sed -i 's/a/b/' a.txt", ['sub/a.txt']],
   ['ls 2>/dev/null; echo x >&2; echo y > /dev/null', []],
   ["sed 's/a/b/' a.txt", []],
   ['grep -n x a.txt | head', []],
@@ -1636,6 +1637,11 @@ for (const [command, want] of [
     expect(writeTargets(command)).toEqual([...want])
   })
 }
+
+test('writeTargets expands a leading cd to ~ with the home folder', () => {
+  expect(writeTargets('cd ~/w; echo x >> a.txt', '/home/u')).toEqual(['/home/u/w/a.txt'])
+  expect(writeTargets('cd ~ && echo x > a.txt', '/home/u')).toEqual(['/home/u/a.txt'])
+})
 
 // Files under /p as the engine's fs sees them; a Bash call beneath the mod applies `run` to them.
 function bashFs(on: any, files: Record<string, string>, run: (files: Record<string, string>) => void = () => {}, isError = false) {
@@ -1664,9 +1670,12 @@ for (const [name, command, before, after, want] of [
   ['a new file', 'printf "x\\ny\\n" > new.txt', {}, { '/p/new.txt': 'x\ny\n' }, ['● Created (new.txt)  +2']],
   ['two files', 'echo x | tee a.txt sub/b.txt', { '/p/a.txt': 'a\n' }, { '/p/a.txt': 'a\nx\n', '/p/sub/b.txt': 'x\n' }, ['● Ran (echo x | tee a.txt sub/b.txt)  +2']],
   ['a cd first', 'cd sub && echo x >> b.txt', { '/p/sub/b.txt': 'a\nb\n' }, { '/p/sub/b.txt': 'x\n' }, ['● Updated (sub/b.txt)  +1 −2']],
+  // The same name under the session root stays untouched: the write lands in the cd target.
+  ['a cd to ~ then ;', 'cd ~/w; echo x >> b.txt', { '/home/u/w/b.txt': 'a\n', '/p/b.txt': 'a\n' }, { '/home/u/w/b.txt': 'a\nx\n' }, ['● Updated (/home/u/w/b.txt)  +1']],
 ] as const) {
   test(`a Bash call that writes ${name} draws its edit rows`, async ($, on) => {
     native(on)
+    on('env.get', (_: any, e: any) => ({ value: e.name === 'HOME' ? '/home/u' : undefined }))
     bashFs(on, { ...before }, files => Object.assign(files, after))
     await bash($, command)
     expect([await textOf(await useRow($, call('b1', 'Bash', { command })), 'fold:b1')]).toEqual([...want])
