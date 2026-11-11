@@ -625,7 +625,7 @@ function handoffHost(on: Parameters<TestBody>[1], o: { find?: string; box?: stri
   on('prompt.submit', (_, e: any) => ({ text: e.text }) as any)
   on('turn.start', (_, e: any) => ({ turnId: e.turnId }) as any)
   on('turn.complete', () => ({ text: '' }) as any)
-  return { seen: Object.assign(seen, { toasts: base.toasts }), clock }
+  return { seen: Object.assign(seen, { toasts: base.toasts, registered: base.registered }), clock }
 }
 const handoff = ($: Parameters<TestBody>[0]) => $.command.run({ command: 'claudzilla', args: 'handoff', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })
 const submit = ($: Parameters<TestBody>[0], text = 'work') => $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } } as any)
@@ -642,6 +642,16 @@ test('/claudzilla handoff writes the note, then clears and fills @note after the
   await clock.advance(500)
   expect(seen.commands).toEqual(['clear'])
   expect(seen.fills).toEqual([`@${NOTE} `])
+})
+
+test('/claudzilla-handoff is registered and runs the same handoff', async ($, on) => {
+  const { seen, clock } = handoffHost(on)
+  await $.session.start(start)
+  expect(seen.registered).toContainEqual(expect.objectContaining({ name: 'claudzilla-handoff' }))
+  await $.command.run({ command: 'claudzilla-handoff', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })
+  expect(seen.writes[0]![0]).toBe(NOTE)
+  await clock.advance(500)
+  expect(seen.commands).toEqual(['clear'])
 })
 
 test('/claudzilla handoff passes the transcript path as $1, not in the script', async ($, on) => {

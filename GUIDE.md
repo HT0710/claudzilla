@@ -538,7 +538,7 @@ Type a word or command at the prompt and press **Enter**. Items marked "if insta
 | `/claudzilla [topic]` | open or close this guide, or open one section |
 | `/claudzilla report [what happened]` | draft a problem report from the local trace |
 | `/claudzilla compact` | draft a `/compact` line into the prompt box |
-| `/claudzilla handoff` | start fresh with a note from this session |
+| `/claudzilla handoff` or `/claudzilla-handoff` | start fresh with a note from this session |
 | `/rule-review` | count how often each claudzilla rule slipped |
 | `/margin` | open or close the margin (if installed) |
 | `/caveman` | turn caveman on (if installed) |
