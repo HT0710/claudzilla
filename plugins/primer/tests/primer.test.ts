@@ -533,16 +533,31 @@ test('handoffNote: where we were from the last margin intent', () => {
     tool('mcp__margin__intent', { now: 2 }),
   )
   expect(n).toContain('NEW ask')
-  expect(n).toContain('- [completed] one')
-  expect(n).toContain('- [in_progress] two')
-  expect(n).toContain('Now: step 2')
+  expect(n).toContain('- one')
+  expect(n).toContain('- two')
+  expect(n).not.toContain('[completed]')
+  expect(n).toContain('Last step started: 2')
+  expect(n).not.toContain('Now: step')
   expect(n).not.toContain('OLD ask')
 })
 
-test('handoffNote: last reply cut to 2000 characters', () => {
-  const n = note(asst([{ type: 'text', text: 'x'.repeat(2500) }]))
-  expect(n).toContain('x'.repeat(2000) + '…')
-  expect(n).not.toContain('x'.repeat(2001))
+test('handoffNote: a long last reply keeps its head and its closing Next line', () => {
+  const long = 'a'.repeat(800) + 'Q'.repeat(1400) + 'z'.repeat(1200 - '\n**Next:** say "go"'.length) + '\n**Next:** say "go"'
+  expect(long.length).toBe(3400)
+  const n = note(typed('q'), asst([{ type: 'text', text: long }]))
+  expect(n).toContain('> ' + 'a'.repeat(800) + '…')
+  expect(n).toContain('**Next:** say "go"')
+  expect(n).not.toContain('Q')
+})
+
+test('handoffNote: a reply of 2000 characters or less is kept whole', () => {
+  expect(note(typed('q'), asst([{ type: 'text', text: 'x'.repeat(2000) }]))).toContain('> ' + 'x'.repeat(2000) + '\n')
+})
+
+test('handoffNote: every line of the last reply is quoted', () => {
+  const n = note(typed('q'), asst([{ type: 'text', text: '## Heading\nbody\n\nend' }]))
+  expect(n).toContain('> ## Heading\n> body\n> \n> end')
+  expect(n).not.toContain('\n## Heading')
 })
 
 test('handoffNote: last 3 typed prompts, tool results and commands skipped', () => {
@@ -561,19 +576,110 @@ test('handoffNote: last 3 typed prompts, tool results and commands skipped', () 
   for (const s of ['p1', 'p2', 'RESULT', 'command-name', 'META', 'SUMMARY', 'interrupted']) expect(n).not.toContain(s)
 })
 
-test('handoffNote: away recap only when newer than the last reply', () => {
-  const reply = asst([{ type: 'text', text: 'done' }], { timestamp: '2026-01-01T10:00:00Z' })
-  const recap = (ts: string) => J({ type: 'system', subtype: 'away_summary', content: 'RECAP', timestamp: ts })
-  expect(note(reply, recap('2026-01-01T11:00:00Z'))).toContain('RECAP')
-  expect(note(reply, recap('2026-01-01T09:00:00Z'))).not.toContain('RECAP')
+test('handoffNote: housekeeping compact turns do not set the goal or the replies', () => {
+  const cmd = typed('<command-message>claudzilla-compact</command-message>\n<command-name>/claudzilla-compact</command-name>')
+  const rows = (c: string) => [
+    typed('real'), tool('mcp__margin__intent', { wants: 'REAL goal' }), asst([{ type: 'text', text: 'REAL reply' }]),
+    c, tool('mcp__margin__intent', { wants: 'HOUSE goal' }), tool('mcp__margin__intent', { now: 3 }), asst([{ type: 'text', text: 'HOUSE reply' }]),
+  ]
+  for (const c of [cmd, typed('/compact Keep: x.'), typed('<command-name>/compact</command-name>')]) {
+    const n = note(...rows(c))
+    expect(n).toContain('REAL goal')
+    expect(n).toContain('REAL reply')
+    for (const s of ['HOUSE', 'Last step started', '/compact', 'claudzilla-compact']) expect(n).not.toContain(s)
+  }
+  const after = note(...rows(cmd), typed('next'), tool('mcp__margin__intent', { wants: 'NEXT goal' }), asst([{ type: 'text', text: 'NEXT reply' }]))
+  expect(after).toContain('NEXT goal')
+  expect(after).toContain('NEXT reply')
+  expect(after).not.toContain('HOUSE')
 })
 
-test('handoffNote: last 10 unique edited files', () => {
-  const rows = Array.from({ length: 12 }, (_, i) => tool(i % 2 ? 'Write' : 'Edit', { file_path: `/f/${i}` }))
-  rows.push(tool('Edit', { file_path: '/f/3' }))
-  const n = note(...rows)
-  const list = n.slice(n.indexOf('## Edited files')).split('\n').filter(l => l.startsWith('- /f/'))
-  expect(list).toEqual(['/f/3', '/f/11', '/f/10', '/f/9', '/f/8', '/f/7', '/f/6', '/f/5', '/f/4', '/f/2'].map(f => `- ${f}`))
+test('handoffNote: recent turns pair each prompt with its own last text reply', () => {
+  const r = (text: string) => asst([{ type: 'text', text }])
+  const n = note(
+    typed('p1'), r('R1'), typed('p2'), r('R2a'), tool('Bash', {}), r('R2b'), typed('p3'), tool('Bash', {}),
+    typed('p4'), r('R4'), typed('p5'), r('R5'),
+  )
+  expect(n).toContain('## Recent turns\n\n- You: p3\n\n- You: p4\n\n> R4\n\n- You: p5\n\n> R5\n')
+  for (const s of ['p1', 'p2', 'R2', 'Last reply', 'Last prompts']) expect(n).not.toContain(s)
+})
+
+test('handoffNote: a turn keeps its longest text reply, the later one on a tie', () => {
+  const r = (text: string) => asst([{ type: 'text', text }])
+  const n = note(typed('p1'), r('LONG result'), typed('<task-notification>done</task-notification>'), r('short'), typed('p2'), r('aa'), r('bb'))
+  expect(n).toContain('- You: p1\n\n> LONG result\n')
+  expect(n).not.toContain('short')
+  expect(n).toContain('> bb')
+  expect(n).not.toContain('> aa')
+})
+
+test('handoffNote: a long compact summary keeps its head and its end', () => {
+  const sum = '9:' + typed('H'.repeat(3000) + '~'.repeat(2000) + 'T'.repeat(5000), { isCompactSummary: true })
+  const n = handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: tail(typed('hi')), summary: sum })
+  expect(n).toContain('H'.repeat(3000) + '…' + 'T'.repeat(5000) + '\nCut; full text at line 9.')
+  expect(n).not.toContain('~')
+})
+
+test('handoffNote: away recap older than the last reply still shows, with time and line', () => {
+  const reply = asst([{ type: 'text', text: 'done' }], { timestamp: '2026-01-01T10:00:00Z' })
+  const n = note(J({ type: 'system', subtype: 'away_summary', content: 'RECAP push pending', timestamp: '2026-01-01T09:00:00Z' }), reply)
+  expect(n).toContain('RECAP push pending')
+  expect(n).toContain('line 1, 2026-01-01T09:00:00Z')
+})
+
+test('handoffNote: away recap older than the last typed prompt says so', () => {
+  const recap = J({ type: 'system', subtype: 'away_summary', content: 'RECAP' })
+  const line = 'Older than the last prompt; its Next may be done.'
+  expect(note(recap, typed('later'))).toContain(line)
+  expect(note(typed('earlier'), recap)).not.toContain(line)
+  expect(note(recap, typed('tool', { isMeta: true }))).not.toContain(line)
+})
+
+test('handoffNote: away recap before the last compact summary is dropped', () => {
+  const recap = J({ type: 'system', subtype: 'away_summary', content: 'RECAP' })
+  expect(note(recap, typed('S', { isCompactSummary: true }))).not.toContain('RECAP')
+  expect(handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: tail(recap), summary: '5:' + typed('S', { isCompactSummary: true }) })).not.toContain('RECAP')
+  expect(note(typed('S', { isCompactSummary: true }), recap)).toContain('RECAP')
+})
+
+test('handoffNote: git output in its own section, omitted without it', () => {
+  const g = handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: tail(typed('hi')), git: 'Branch: b...origin/b [ahead 7]\nCommits on no remote: 7' })
+  expect(g).toContain('## Git')
+  expect(g).toContain('Commits on no remote: 7')
+  expect(note(typed('hi'))).not.toContain('## Git')
+})
+
+test('handoffNote: earlier asks are the last 5 distinct wants, newest last, with lines', () => {
+  const at = (n: number, w: string) => `${n}:` + tool('mcp__margin__intent', { wants: w })
+  const intents = [at(10, 'a1'), at(20, 'a2'), at(30, 'a3'), at(40, 'a4'), at(50, 'a5'), at(60, 'a2'), at(70, 'a6')].join('\n')
+  const n = handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: tail(typed('hi')), intents })
+  const list = n.slice(n.indexOf('## Earlier asks')).split('\n').filter(l => l.startsWith('- Line'))
+  expect(list).toEqual(['- Line 30: a3', '- Line 40: a4', '- Line 50: a5', '- Line 60: a2', '- Line 70: a6'])
+})
+
+test('handoffNote: earlier asks ignore blob rows and skip the current ask', () => {
+  const at = (n: number, w: string, type = 'assistant') => `${n}:` + J({ type, message: { content: [{ type: 'tool_use', name: 'mcp__margin__intent', input: { wants: w } }] } })
+  const intents = [at(10, 'old'), at(20, 'BLOB', 'api-request-blob'), at(30, 'CURRENT')].join('\n')
+  const n = handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: tail(tool('mcp__margin__intent', { wants: 'CURRENT' })), intents })
+  const asks = n.slice(n.indexOf('## Earlier asks'))
+  expect(asks).toContain('- Line 10: old')
+  expect(asks).not.toContain('BLOB')
+  expect(n.split('CURRENT')).toHaveLength(2)
+})
+
+test('handoffNote: earlier asks skip intents made during compact housekeeping', () => {
+  const at = (n: number, w: string) => `${n}:` + tool('mcp__margin__intent', { wants: w })
+  const numbered = tail(typed('real'), tool('mcp__margin__intent', { wants: 'REAL' }), typed('/compact Keep: x.'), tool('mcp__margin__intent', { wants: 'HOUSE' }))
+  const n = handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered, intents: [at(2, 'REAL'), at(4, 'HOUSE'), at(9, 'OLD')].join('\n') })
+  const asks = n.slice(n.indexOf('## Earlier asks'))
+  expect(asks).toContain('- Line 9: OLD')
+  expect(asks).not.toContain('HOUSE')
+})
+
+test('handoffNote: steps print without status', () => {
+  const n = note(tool('mcp__margin__intent', { wants: 'W', steps: [{ text: 'one', status: 'completed' }] }))
+  expect(n).toContain('\n- one\n')
+  expect(n).not.toContain('completed')
 })
 
 test('handoffNote: compact draft inline with its line', () => {
@@ -584,19 +690,51 @@ test('handoffNote: compact draft inline with its line', () => {
   expect(n).toContain('line 42')
 })
 
+test('handoffNote: compact draft only when after the last compact summary', () => {
+  const d = '42:' + tool('mcp__primer__compact_draft', { keep: 'K', drop: 'D' })
+  const mk = (n: number) => handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: tail(typed('hi')), draft: d, summary: `${n}:` + typed('S', { isCompactSummary: true }) })
+  expect(mk(41)).toContain('Compact draft')
+  expect(mk(42)).not.toContain('Compact draft')
+  expect(mk(99)).not.toContain('Compact draft')
+})
+
+test('handoffNote: a deferred_tools_record naming compact_draft is not a draft', () => {
+  const rec = '4686:' + J({ type: 'attachment', attachment: { type: 'deferred_tools_record', names: ['mcp__primer__compact_draft'] } })
+  expect(handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: tail(typed('hi')), draft: rec })).not.toContain('Compact draft')
+})
+
 test('handoffNote: a partial first line is skipped', () => {
   const n = handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: '7:{"type":"user","mess\n' + tail(typed('kept')) })
   expect(n).toContain('kept')
 })
 
+test('handoffNote: no Edited files section', () => {
+  expect(note(tool('Edit', { file_path: '/f/1' }))).not.toContain('Edited files')
+})
+
 test('handoffNote: empty sections are left out', () => {
   const n = note(typed('only'))
-  for (const h of ['Where we were', 'Edited files', 'Compact draft']) expect(n).not.toContain(h)
+  for (const h of ['Where we were', 'Git', 'Earlier asks', 'Away recap', 'Compact draft']) expect(n).not.toContain('## ' + h)
+})
+
+test('handoffNote: last compact summary inline with its line, only when present', () => {
+  const mk = (text?: string) => handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: tail(typed('hi')), summary: text === undefined ? undefined : '77:' + typed(text, { isCompactSummary: true }) })
+  const n = mk('GOAL and decisions')
+  expect(n).toContain('## Last compact summary\n\nAt line 77.\nGOAL and decisions\n')
+  expect(n).not.toContain('Last compact summary: line')
+  expect(mk()).not.toContain('Last compact summary')
+  const long = mk('a'.repeat(8001))
+  expect(long).toContain('a'.repeat(3000) + '…' + 'a'.repeat(5000) + '\nCut; full text at line 77.')
+  expect(mk('a'.repeat(8000))).not.toContain('Cut;')
+})
+
+test('handoffNote: how to dig says only the Git block was checked', () => {
+  expect(note(typed('hi'))).toContain('The Git block was checked when this note was written. Everything else is the old session\'s claim: re-check it before acting on it.')
 })
 
 test('handoffNote: how to dig names grep, haiku and compact summaries', () => {
   const n = note(typed('hi'))
-  for (const s of ['grep -n', 'haiku', 'isCompactSummary', 'Never Read it whole']) expect(n).toContain(s)
+  for (const s of ['Check git before saying what is pending. Don\'t restate the last reply.', 'grep -n', 'isCompactSummary', 'Never Read it whole', 'Read with `offset` and `limit`', 'the old transcript yourself, by line number']) expect(n).toContain(s)
 })
 
 const CFG = '/cfg'
@@ -604,7 +742,7 @@ const NOTE = `${CFG}/claudzilla-handoff/s1.md`
 const done = (extra = {}) => ({ answer: 'x', reason: 'answer' as const, durationMs: 1, isAborted: false, turnId: 't1', ...extra })
 
 // A session idle after a reply: transcript found, greps answered, box as given.
-function handoffHost(on: Parameters<TestBody>[1], o: { find?: string; box?: string; writeFails?: boolean; clearFails?: boolean; filled?: boolean; drop?: boolean } = {}) {
+function handoffHost(on: Parameters<TestBody>[1], o: { find?: string; box?: string; writeFails?: boolean; clearFails?: boolean; filled?: boolean; drop?: boolean; git?: string } = {}) {
   const seen = { order: [] as string[], writes: [] as [string, string][], commands: [] as string[], fills: [] as string[], argvs: [] as string[] }
   const clock = mock.clock(on, { now: 0 })
   const base = host(on, {
@@ -612,12 +750,14 @@ function handoffHost(on: Parameters<TestBody>[1], o: { find?: string; box?: stri
       seen.argvs.push(c)
       if (c.includes('chmod 700')) seen.order.push('mkdir')
       if (c.startsWith('find ')) return ran(0, o.find ?? '/cfg/projects/p/s1.jsonl\n')
+      if (c.includes('rev-parse')) return o.git === undefined ? ran(0, '') : ran(0, o.git)
       if (c.includes('compact_draft')) return ran(0, '7:{"x":1}\n')
       return ran(0, '1:{"type":"user","message":{"content":"hi"}}\n')
     },
   })
   on('env.get', (_, e: any) => ({ value: e.name === 'CLAUDE_CONFIG_DIR' ? CFG : undefined }) as any)
   on('session.id', () => ({ value: 's1' }) as any)
+  on('session.cwd', () => ({ value: '/proj' }) as any)
   on('fs.write', (_, e: any) => { if (o.writeFails) throw new Error('disk full'); seen.order.push('write'); seen.writes.push([e.path, e.text ?? e.content]); return { value: undefined } as any })
   on('command.run', (_, e: any) => { if (e.command === 'clear') { seen.commands.push('clear'); if (o.clearFails) throw new Error('no'); } return { value: {} } as any })
   on('prompt.read', () => ({ value: { text: o.box ?? '', cursor: 0 } }) as any)
@@ -658,8 +798,8 @@ test('/claudzilla handoff passes the transcript path as $1, not in the script', 
   const { seen } = handoffHost(on)
   await $.session.start(start)
   await handoff($)
-  const sh = seen.argvs.filter(a => a.startsWith('sh -c') && !a.includes('chmod'))
-  expect(sh).toHaveLength(2)
+  const sh = seen.argvs.filter(a => a.startsWith('sh -c') && !a.includes('chmod') && !a.includes('rev-parse'))
+  expect(sh).toHaveLength(4)
   for (const a of sh) {
     expect(a.split('/cfg/projects/p/s1.jsonl')).toHaveLength(2)
     expect(a.endsWith('/cfg/projects/p/s1.jsonl')).toBe(true)
@@ -763,4 +903,46 @@ test('/claudzilla handoff toasts the note path when the fill fails', async ($, o
   await handoff($)
   await clock.advance(500)
   expect(seen.toasts.some(t => t.includes(NOTE))).toBe(true)
+})
+
+test('/claudzilla handoff runs git in the session cwd and puts it in the note', async ($, on) => {
+  const { seen } = handoffHost(on, { git: 'Branch: b\nCommits on no remote: 7\n' })
+  await $.session.start(start)
+  await handoff($)
+  expect(seen.argvs.some(a => a.includes('rev-parse') && a.endsWith(' /proj'))).toBe(true)
+  expect(seen.writes[0]![1]).toContain('Commits on no remote: 7')
+})
+
+test('/claudzilla handoff lists unpushed commits of HEAD only', async ($, on) => {
+  const { seen } = handoffHost(on)
+  await $.session.start(start)
+  await handoff($)
+  const g = seen.argvs.find(a => a.includes('rev-parse'))!
+  expect(g).toContain('log --oneline HEAD --not --remotes')
+  expect(g).not.toContain('--branches')
+})
+
+test('/claudzilla handoff git script prints HEAD after Branch', async ($, on) => {
+  const { seen } = handoffHost(on)
+  await $.session.start(start)
+  await handoff($)
+  const g = seen.argvs.find(a => a.includes('rev-parse --git-dir'))!
+  expect(g).toContain('echo "HEAD: $(git -C "$1" rev-parse --short HEAD)"')
+  expect(g.indexOf('echo "Branch:')).toBeLessThan(g.indexOf('echo "HEAD:'))
+})
+
+test('/claudzilla handoff: no git output leaves the Git section out', async ($, on) => {
+  const { seen } = handoffHost(on)
+  await $.session.start(start)
+  await handoff($)
+  expect(seen.writes[0]![1]).not.toContain('## Git')
+})
+
+test('/claudzilla handoff anchors the draft and intent greps on the tool_use call', async ($, on) => {
+  const { seen } = handoffHost(on)
+  await $.session.start(start)
+  await handoff($)
+  expect(seen.argvs.some(a => a.includes('"type":"tool_use","id":"[^"]*","name":"mcp__primer__compact_draft"'))).toBe(true)
+  expect(seen.argvs.some(a => a.includes('mcp__margin__intent') && a.includes('tail -40'))).toBe(true)
+  expect(seen.argvs.some(a => a.includes('"isCompactSummary":true'))).toBe(true)
 })
