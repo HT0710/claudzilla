@@ -3828,8 +3828,14 @@ const agentsPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1
 const spawn = ($: Parameters<TestBody>[0], description: string, extra = {}) => $.agent.spawn({ prompt: 'p', description, ...extra } as any)
 const texts = (node: any): any[] => (node?.type === 'Text' ? [node] : (node?.children ?? []).flatMap(texts))
 // An Overview row Client's left pieces, by its row key.
-const pieces = async (ui: { find: (q: any) => Promise<any> }, key: string) =>
-  (await ui.find({ key: `row:${key}` }))?.props?.props?.left as { text: string; color?: string; bold?: boolean; inverse?: boolean }[] | undefined
+const flat = (n: any): string => (typeof n === 'string' ? n : !n || typeof n !== 'object' ? '' : [n.children, n.props?.children].flat().map(flat).join(''))
+// A row that switches the view is a Button (kit.tsx row `press`): its Texts, flattened with their styles.
+const pieces = async (ui: { find: (q: any) => Promise<any> }, key: string) => {
+  const client = await ui.find({ key: `row:${key}` })
+  if (client) return client.props?.props?.left as { text: string; color?: string; bold?: boolean; inverse?: boolean }[] | undefined
+  const button = await ui.find({ key: `git:${key}` })
+  return button && (texts(button).map(t => ({ ...t.props, hover: t.hover, text: flat(t) })).filter(x => x.text.trim()) as { text: string; color?: string; bold?: boolean; inverse?: boolean }[])
+}
 // A USED row's first piece matching `re`.
 const usedPiece = async (ui: { find: (q: any) => Promise<any> }, kind: string, re: RegExp) => ((await pieces(ui, `o:used:${kind}`)) ?? []).find(x => re.test(x.text))
 const agentRow = async (ui: { find: (q: any) => Promise<any> }, step: number, n: number) => {
@@ -3837,6 +3843,7 @@ const agentRow = async (ui: { find: (q: any) => Promise<any> }, step: number, n:
   return p && { text: p.map(x => x.text).join(''), glyph: p[1]?.color, color: p[2]?.color }
 }
 const tapRow = async (ui: any, key: string) => {
+  if (await ui.find({ key: `git:${key}` })) return ui.press({ key: `git:${key}` })
   await ui.resize({ columns: 30, rows: 1, in: `row:${key}` })
   await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: `row:${key}` })
   await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: `row:${key}` })
@@ -3871,6 +3878,36 @@ test('an agent card names its status in its mark color', async ($, on) => {
   await ui.drawn()
   const words = [['done', '#5d9678'], ['not started', '#4f5c68'], ['stopped', '#8c7850'], ['failed', '#e06c75'], ['running', 'claude'], ['not started', '#4f5c68']]
   for (const [n, [word, color]] of words.entries()) expect((await cardTexts(ui, `o:agent:0:${n}`))[1]).toEqual([word, color])
+})
+
+// A Button row posts no enter, so a card it overlaps would stay undrawn once a Client row is left.
+test("a live agent row's card shows after the pointer leaves the step row above it", async ($, on) => {
+  const clock = mock.clock(on)
+  on('tool.call', () => ({ result: {} }) as any)
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('fs.read', () => ({ value: '' }))
+  on('agent.spawn', () => ({ model: 'm', agentId: 'a1' }) as any)
+  on('agent.list', () => ({ value: [{ id: 'a1', description: 'a1', type: 'Explore', status: 'running' }] }) as any)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await $.tool.call({ tool: INTENT, ...AGENTS_REPORT } as any)
+  await spawn($, 'Read code')
+  await ui.drawn()
+  await hoverRow(ui, 'o:step:0')
+  await ui.pointer({ type: 'leave', x: 0, y: 0, in: 'row:o:step:0' })
+  await clock.advance(30)
+  expect(!!(await cardBox(ui, 'o:agent:0:0'))).toBe(true)
+})
+
+// A Button row is in the line hover groups as a row Client is: the step above dims it, and it dims the row under it.
+test('a live agent row dims under the step above and heats its own line for the row under it', async ($, on) => {
+  const ui = await agentsPane($, on, { a1: 'running' })
+  await $.tool.call({ tool: INTENT, ...AGENTS_REPORT } as any)
+  await spawn($, 'Read code')
+  const tree = await ui.drawn()
+  expect((await pieces(ui, 'o:agent:0:0'))?.map(x => (x as any).hover?.scope)).toEqual(['line:0', 'line:0', 'line:0'])
+  const line = findIn(tree, n => n.type === 'Box' && (n.hover ?? n.props?.hover)?.scope === 'line:1')
+  expect(line.some(box => findIn(box, n => n.props?.key === 'git:o:agent:0:0').length > 0)).toBe(true)
 })
 
 // 14 body rows: steps 1 to 5 shown on tab rows 4 to 8 over a ↓ cue; 8 + 4 + 1 passes the 12 tab rows.
@@ -4166,6 +4203,10 @@ test("clicking a live agent row opens its transcript, its whole row lit while in
   await $.tool.call({ tool: INTENT, ...AGENTS_REPORT } as any)
   await spawn($, 'Read code')
   await ui.drawn()
+  // A Button: $.ui.view runs only from the person's own press, and a row Client's post is code.
+  expect(await ui.find({ key: 'git:o:agent:0:0' })).toBeDefined()
+  // Padded to the row's end, so the pointer's invert covers the whole row as the lit one does.
+  expect(flat(await ui.find({ key: 'git:o:agent:0:0' }))).toHaveLength(40 - 4 - 7)
   // The planned 'Check API' has no agent to open.
   await tapRow(ui, 'o:agent:1:0')
   expect(views).toEqual([])
@@ -4192,7 +4233,20 @@ test('an agent the engine will not show says why', async ($, on) => {
   expect(toasts).toEqual(['no such agent'])
 })
 
-test("in an agent's transcript, its step's row goes back to the main conversation", async ($, on) => {
+// Behind a modal fadeTree swaps every Button for a Text (kit.tsx), so an agent row neither inverts nor presses.
+test('behind an open modal a live agent row is no Button', async ($, on) => {
+  on('tool.call', () => ({ result: {} }) as any)
+  const ui = await agentsPane($, on, { a1: 'running' })
+  await $.tool.call({ tool: INTENT, ...AGENTS_REPORT } as any)
+  await spawn($, 'Read code')
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts' } as any)
+  await ui.drawn()
+  expect(await ui.find({ key: 'git:o:agent:0:0' })).toBeDefined()
+  await tapRow(ui, 'o:used:files')
+  expect(await ui.find({ key: 'git:o:agent:0:0' })).toBeUndefined()
+})
+
+test("a step row never switches the view, in an agent's transcript too", async ($, on) => {
   const views: (string | undefined)[] = []
   on('ui.view', (_, e) => {
     views.push(e.agentId)
@@ -4203,12 +4257,10 @@ test("in an agent's transcript, its step's row goes back to the main conversatio
   await spawn($, 'Read code')
   await ui.drawn()
   await tapRow(ui, 'o:step:0')
-  expect(views).toEqual([])
   await ui.redraw({ ...props, view: { agentId: 'a1' } })
-  // Only the step the viewed agent hangs under.
-  expect((await pieces(ui, 'o:step:0'))?.map(x => x.text).join('')).toBe('● spec')
+  expect(await ui.find({ key: 'git:o:step:0' })).toBeUndefined()
   await tapRow(ui, 'o:step:0')
-  expect(views).toEqual([undefined])
+  expect(views).toEqual([])
 })
 
 // The store a session keeps across sessions, `/margin` and the pane's opens and closes, each open placed or waiting; `opened`, `closed` and `registered` record the calls.
@@ -4711,7 +4763,7 @@ test('a row press while a draw waits on its reads still acts', async ($, on) => 
   // The press settles only with every draw, the held one too: not awaited.
   tapRow(ui, 'o:used:files').catch(() => {})
   await reading
-  void ui.post({ press: true }, { in: 'row:o:agent:0:0' })
+  void ui.press({ key: 'git:o:agent:0:0' })
   await viewing
   expect(views).toEqual(['a1'])
 })
