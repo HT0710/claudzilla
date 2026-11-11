@@ -100,6 +100,13 @@ const todoLines = (text: string) =>
     return m ? [{ cmd: m[1]!, sha: m[2]!.slice(0, 7), subject: printable(m[3]!) }] : []
   })
 
+// Files in the git dir while a rebase, merge, cherry-pick or revert is in progress.
+const BUSY = ['rebase-merge', 'rebase-apply', 'MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD']
+const AUTO_FETCH_MS = 15 * 60e3
+// The Git tab's own fetch: 15 minutes after the last fetch by any session, and after its own last try.
+export const fetchDue = (f: { fetchedAt: number | undefined; triedAt: number; names: string[]; now: number }) =>
+  !f.names.some(name => BUSY.includes(name)) && f.now - (f.fetchedAt ?? 0) >= AUTO_FETCH_MS && f.now - f.triedAt >= AUTO_FETCH_MS
+
 const conflict = (path: string, counts?: Counts): Conflict => ({ path, additions: counts && counts !== 'bin' ? counts.add : 0, deletions: counts && counts !== 'bin' ? counts.del : 0 })
 
 // The files git stopped on, with their line counts; once none is unmerged, the staged ones, which hold the fixes.

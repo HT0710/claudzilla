@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Check, CheckState, Pr, PrState } from '../types'
 
-import { age, ago, branches, changeOf, cutMiddle, parseStatusZ, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows, worktrees } from '../hooks/git-data'
+import { age, ago, branches, changeOf, cutMiddle, fetchDue, parseStatusZ, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows, worktrees } from '../hooks/git-data'
 
 // A gh pr list row with every field the parser reads.
 const fixture = (over: Record<string, unknown> = {}) => ({
@@ -262,4 +262,18 @@ test('a staged rename reads as its new path', () => {
 test('a binary conflict counts no lines', () => {
   const op = parseRebase({ headName: HEAD_NAME, onto: ONTO, done: ONE + TWO, todo: THREE, numstat: '-\t-\ta.png\x00', cached: '', unmerged: 'a.png\x00' })
   expect(op.conflicts).toEqual([{ path: 'a.png', additions: 0, deletions: 0 }])
+})
+
+test('an auto fetch waits 15 minutes after the last fetch and the last try', () => {
+  const now = 100 * 60e3
+  expect(fetchDue({ fetchedAt: undefined, triedAt: 0, names: [], now })).toBe(true)
+  expect(fetchDue({ fetchedAt: now - 15 * 60e3, triedAt: 0, names: [], now })).toBe(true)
+  expect(fetchDue({ fetchedAt: now - 14 * 60e3, triedAt: 0, names: [], now })).toBe(false)
+  // A failed fetch leaves FETCH_HEAD old: the try time holds the next one back.
+  expect(fetchDue({ fetchedAt: undefined, triedAt: now - 60e3, names: [], now })).toBe(false)
+})
+
+test('an auto fetch skips a rebase, merge, cherry-pick or revert in progress', () => {
+  for (const name of ['rebase-merge', 'rebase-apply', 'MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD'])
+    expect(fetchDue({ fetchedAt: undefined, triedAt: 0, names: ['HEAD', name], now: 100 * 60e3 })).toBe(false)
 })
