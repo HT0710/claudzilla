@@ -112,8 +112,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const usedNow = await read($, used)
   const usedShown = shown.waiting ? (usedNow.last ?? {}) : usedNow.kinds
   const width = props.bodyColumns - 2 * PAD
-  // Only the first read builds the list; every later one updates the topics shown.
-  const readSlot = about.running ? (about.topics.length ? 'updating…' : 'reading…') : about.failed ? 'update failed' : ''
+  const readSlot = about.running ? 'updating…' : about.failed ? 'update failed' : ''
   const done = shown.steps.filter(step => step.status === 'completed').length
   // Ended with every step closed: an answer; else interrupted or failed, as Claude left it.
   // Working is lit as History lights the prompt in view; done is the branch row's green; stopped Git's dirty amber.
@@ -144,7 +143,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const agentText = (status: AgentRow['status']) => (WORKING.includes(status) ? undefined : status === 'planned' || status === 'pending' ? HUD.faint : SCOPE)
   const shade = (color?: string) => (shown.waiting ? HUD.faint : color)
   const count = (text: string) => (shown.waiting ? text : counted(ctx.el, text))
-  const hasAbout = about.topics.length > 0 || about.running || !!about.failed
+  // No topics yet, reading or failed: a lone TOPIC heading over no list reads as empty.
+  const hasAbout = about.topics.length > 0
   const hasReport = !!(shown.wants || shown.waiting || shown.ended)
   // The tab body the modal sits in, under the tabs and their rule.
   const tabRows = props.scroll.bodyRows - 2 - BAR_ROWS
