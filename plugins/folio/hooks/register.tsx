@@ -712,7 +712,7 @@ export const register: Register = on => {
     <Text wrap="truncate-end">
       {dot} <Text bold>{label}</Text>
       <Text color="promptBorder"> (</Text>{tone ? <Text color={tone}>{arg}</Text> : arg}<Text color="promptBorder">)</Text>
-      {tag && <Text><Text color="promptBorder"> [</Text><Text color="inactive">{tag}</Text><Text color="promptBorder">]</Text></Text>}
+      {tag && <Text><Text color="promptBorder"> [</Text>{tag.split(' · ').flatMap((part, i) => [...(i ? [<Text color="promptBorder"> · </Text>] : []), <Text color="inactive">{part}</Text>])}<Text color="promptBorder">]</Text></Text>}
       {tail && '  '}{tail}
     </Text>
   )

@@ -2223,7 +2223,8 @@ test('a running agent row tags the model it spawned on and the effort its reques
   await spawnAgent($, on, 'claude-opus-5-5', 'high')
   const ui = await mountRow($, 'Agent', undefined, { input: { description: 'Fix login bug', effort: 'max' }, isRunning: true }, '/p/a.txt', 'a1')
   expect(await textOf(ui, 'a1')).toBe('● Agent (Fix login bug) [opus · high]  running')
-  expect((await ui.find({ type: 'Text', text: /^opus · high$/ }))?.props.color).toBe('inactive')
+  for (const part of [/^opus$/, /^high$/]) expect((await ui.find({ type: 'Text', text: part }))?.props.color).toBe('inactive')
+  expect((await ui.find({ type: 'Text', text: /^ · $/ }))?.props.color).toBe('promptBorder')
   expect((await ui.find({ type: 'Text', text: /^ \[$/ }))?.props.color).toBe('promptBorder')
 })
 
