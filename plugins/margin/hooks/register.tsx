@@ -86,11 +86,41 @@ export const useOf = (call: { tool: string } & Record<string, unknown>): { kind:
   return undefined
 }
 
+// A search or read command at the start of a part, after VAR= settings, rtk or a path.
+const BASH_SEARCH = /^\s*((\w+=\S*|rtk)\s+)*(\S*\/)?(git\s+grep|grep|rg|find|fd|ag|ack|cat|ls)(\s|$)/
+
+// Every use a call counts as: each search part of a Bash command, else useOf's one.
+export const usesOf = (call: { tool: string } & Record<string, unknown>): { kind: UseKind; name: string; source?: string }[] => {
+  if (call.tool !== 'Bash') {
+    const use = useOf(call)
+    return use ? [use] : []
+  }
+  const cmd = str(call.command) ?? ''
+  // Same-length blanking keeps indexes aligned: heredoc bodies, escapes, quoted text and fd redirects are data, not commands.
+  const blank = (m: string) => '_'.repeat(m.length)
+  const bare = cmd
+    .replace(/(<<-?\s*(['"]?)(\w+)\2[^\n]*\n)([\s\S]*?\n[ \t]*\3[ \t]*(?=\n|$))/g, (_, head: string, _q, _w, body: string) => head + blank(body))
+    .replace(/\\[\s\S]/g, blank)
+    .replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, blank)
+    .replace(/\d*>&\d+|&>/g, blank)
+  const uses: { kind: UseKind; name: string; source?: string }[] = []
+  let at = 0
+  for (const m of [...bare.matchAll(/&&|\|\||[;|&\n()`]/g), { index: cmd.length, 0: '' }]) {
+    const part = bare.slice(at, m.index)
+    // A heredoc feeds the command text; `cat > f <<EOF` writes, it reads nothing.
+    if (BASH_SEARCH.test(part) && !part.includes('<<')) uses.push({ kind: 'other', name: cmd.slice(at, m.index).trim(), source: 'bash' })
+    at = m.index! + m[0].length
+  }
+  return uses
+}
+
+export const recordUse = (used: Used, call: { tool: string } & Record<string, unknown>): Used =>
+  usesOf(call).reduce((u, use) => recordOne(u, call, use), used)
+
 // shortcut: an agent spawned before the prompt that first calls after it still counts; read spawn times from `spawns` to fix.
-export const recordUse = (used: Used, call: { tool: string } & Record<string, unknown>): Used => {
-  const use = useOf(call)
+const recordOne = (used: Used, call: { tool: string } & Record<string, unknown>, use: { kind: UseKind; name: string; source?: string }): Used => {
   const id = str(call.agentId)
-  if (!use || (id && used.stale.includes(id))) return used
+  if (id && used.stale.includes(id)) return used
   const was = used.kinds[use.kind] ?? { main: 0, agents: 0, names: [], fromAgents: [] }
   // Stored before fromAgents, agentOf and sourceOf existed.
   const fromAgents = was.fromAgents ?? []
@@ -1241,9 +1271,9 @@ export const register: Register = (on, options) => {
   })
 
   // Recorded after the call runs: a call that fails or is refused used nothing.
-  on('tool.call', { tool: /^(Read|Grep|Glob|WebSearch|WebFetch|Skill|mcp__.+)$/ }, async ($, e, next) => {
+  on('tool.call', { tool: /^(Read|Grep|Glob|WebSearch|WebFetch|Skill|Bash|mcp__.+)$/ }, async ($, e, next) => {
     const result = await next(e)
-    if (useOf(e as never)) await update($, used, u => recordUse(u, e as never))
+    if (usesOf(e as never).length) await update($, used, u => recordUse(u, e as never))
 
     return result
   })

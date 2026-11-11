@@ -5,7 +5,7 @@ import type { Spawn, Step } from '../types'
 import { fileKey } from '../hooks/git-data'
 import { hoverOf, readersOf, rowHovers } from '../hooks/kit'
 
-import { EMPTY_USED, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, resetUsed, stampPattern, useOf, wrapLines, zoneWindow } from '../hooks/register'
+import { EMPTY_USED, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, resetUsed, stampPattern, useOf, usesOf, wrapLines, zoneWindow } from '../hooks/register'
 
 // A process.run result with `stdout`.
 const ran = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -672,6 +672,28 @@ test('useOf names each kind and skips calls it does not know', () => {
   expect(useOf({ tool: 'Read' })).toBeUndefined()
   expect(useOf({ tool: 'Bash', command: 'cat x' })).toBeUndefined()
   expect(useOf({ tool: 'mcp__margin__intent', wants: 'x' })).toBeUndefined()
+})
+
+test('usesOf: each search or read part of a Bash command counts under other, source bash', () => {
+  const bash = (command: string) => usesOf({ tool: 'Bash', command }).map(u => u.name)
+  expect(usesOf({ tool: 'Bash', command: 'cat x' })).toEqual([{ kind: 'other', name: 'cat x', source: 'bash' }])
+  expect(bash('cd ~/r && grep -n foo a.ts | head -3; ls -la')).toEqual(['grep -n foo a.ts', 'ls -la'])
+  expect(bash("rg 'a|b' src || find . -name '*.ts'")).toEqual(["rg 'a|b' src", "find . -name '*.ts'"])
+  expect(bash('LC_ALL=C rtk git grep -n x && /usr/bin/fd y')).toEqual(['LC_ALL=C rtk git grep -n x', '/usr/bin/fd y'])
+  expect(bash("cat > f.py <<'EOF'\ngrep x\nls\nEOF\npython3 f.py")).toEqual([])
+  expect(bash('git status && sed -n 1,5p a && catalog x')).toEqual([])
+  expect(bash('rg x src 2>&1 | head; ls &>/dev/null')).toEqual(['rg x src 2>&1', 'ls &>/dev/null'])
+  expect(bash('grep -rn foo \\\n  src/')).toEqual(['grep -rn foo \\\n  src/'])
+  expect(usesOf({ tool: 'Bash' })).toEqual([])
+  expect(usesOf({ tool: 'Read', file_path: '/r/a.ts' })).toEqual([{ kind: 'files', name: '/r/a.ts' }])
+  expect(usesOf({ tool: 'Edit', file_path: '/r/a.ts' })).toEqual([])
+})
+
+test('recordUse counts each search part of one Bash call', () => {
+  const u = recordUse(EMPTY_USED, { tool: 'Bash', command: 'grep -n x a.ts && ls' })
+  expect(u.kinds.other!.main).toBe(2)
+  expect(u.kinds.other!.names).toEqual(['ls', 'grep -n x a.ts'])
+  expect(u.kinds.other!.sourceOf).toEqual({ ls: 'bash', 'grep -n x a.ts': 'bash' })
 })
 
 // A fetched URL becomes a link: only a web page's, stored as the parsed href.
@@ -3360,6 +3382,15 @@ test('a USED name with control characters draws on its one row as spaces', async
   await $.tool.call({ tool: 'Grep', pattern: 'a\nb\x1bc' } as any)
   await ui.drawn()
   expect(await usedPiece(ui, 'other', /^a b c$/)).toBeDefined()
+})
+
+test('USED lists a Bash search under other', async ($, on) => {
+  on('tool.call', () => ({ result: {} }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await $.tool.call({ tool: 'Bash', command: 'cd r && ls src' } as any)
+  await ui.drawn()
+  expect(await usedPiece(ui, 'other', /^ls src$/)).toBeDefined()
 })
 
 test('USED kinds pad to the longest shown plus 2 spaces', async ($, on) => {
