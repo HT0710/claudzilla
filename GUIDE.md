@@ -403,7 +403,7 @@ The ballot card appears after a reply with one `Decision` table of two or more o
 **To answer:**
 
 - Type a row's digit into the empty prompt, then pause. The option's id and text, such as `2: push + PR`, go into the prompt box. Press **Enter** to send.
-- The recommended answer waits dim in the empty prompt. Press **→** or **Tab**, then **Enter**, to send it.
+- The recommended answer waits dim in the empty prompt. Press **→** or **Tab**, then **Enter**, to send it. When the Next or Picks line says more than the pick, such as `say go and I'll run X` or `B, fixes 1–3`, that waits instead.
 - Pick `go ahead, except…` to get `go, but ` in the prompt box, then type your changes, such as `go, but 2B`.
 - Press **alt+k** to move into the ballot card, on the recommended row. **Arrow keys** move between rows, **Enter** puts the answer in the prompt box, and **Esc** goes back without one. Without the claudzilla key, `ctrl+x tab` does the same. On macOS, alt is the Option key, and your terminal must send it as Meta; see [Option key shortcuts on macOS](https://code.claude.com/docs/en/terminal-config#enable-option-key-shortcuts-on-macos).
 - Or ignore the ballot card and type your own answer.
