@@ -125,7 +125,7 @@ export const bashPaths = (cmd: string, cwd: string, home?: string): string[] => 
       const word = cmd.slice(from + head[0].length + w.index!, from + head[0].length + w.index! + w[0].length)
       // A redirect, and its target when apart: `> out.txt`.
       if (skip || /[<>]/.test(word) || word.startsWith('-')) {
-        skip = /^\d*[<>]+$/.test(word)
+        skip = /^(\d*|&)[<>]+$/.test(word)
         continue
       }
       const path = abs(base, word)
@@ -1167,10 +1167,17 @@ export const register: Register = (on, options) => {
     })
 
     // Effort is on no spawn field: a subagent's first model request carries it.
+    // On every subagent request: once stored, an agent costs no store read, and a failed write never fails the request.
+    const withEffort = new Set<string>()
     on('turn.step', async function* ($, e, next) {
-      const effort = e.effort
-      if (e.agentId && typeof effort === 'string' && (await read($, spawns)).some(one => one.id === e.agentId && !one.effort))
-        await update($, spawns, now => now.map(one => (one.id === e.agentId ? { ...one, effort } : one)))
+      const { agentId: id, effort } = e
+      if (id && typeof effort === 'string' && !withEffort.has(id))
+        try {
+          if ((await read($, spawns)).some(one => one.id === id)) {
+            await update($, spawns, now => now.map(one => (one.id === id && !one.effort ? { ...one, effort } : one)))
+            withEffort.add(id)
+          }
+        } catch {}
       return yield* next(e)
     })
   }
@@ -1309,10 +1316,13 @@ export const register: Register = (on, options) => {
 
   // Recorded after the call runs: a call that fails or is refused used nothing.
   on('tool.call', { tool: /^(Read|Grep|Glob|WebSearch|WebFetch|Skill|Bash|mcp__.+)$/ }, async ($, e, next) => {
-    // Before the call: a `cd` in it moves the session's cwd.
-    const cwd = e.tool === 'Bash' ? await $.session.cwd().catch(() => '') : ''
+    const command = e.tool === 'Bash' ? String((e as { command?: unknown }).command ?? '') : ''
+    // Before the call: a `cd` in it moves the session's cwd. A command naming no search word skips both reads.
+    const bash = /\b(grep|rg|find|fd|ag|ack|cat|ls)\b/.test(command)
+    const cwd = bash ? await $.session.cwd().catch(() => '') : ''
     const result = await next(e)
-    const uses = e.tool === 'Bash' ? await bashFiles($, String((e as { command?: unknown }).command ?? ''), cwd) : [useOf(e as never)].filter(u => !!u)
+    if ('deny' in result) return result
+    const uses = e.tool !== 'Bash' ? [useOf(e as never)].filter(u => !!u) : bash ? await bashFiles($, command, cwd) : []
     if (uses.length) await update($, used, u => recordUse(u, e as never, uses))
 
     return result
