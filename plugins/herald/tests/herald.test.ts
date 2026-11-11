@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import type { On } from 'claude-code'
 
-import { AUTO_MS, CHECK_MS, contextToast, crossed, due, EVERY_MS, FILL_MS, HOUR, parse, ttlOf } from '../hooks/register'
+import { AUTO_MS, CHECK_MS, coldText, contextToast, crossed, due, EVERY_MS, FILL_MS, HOUR, parse, ttlOf } from '../hooks/register'
 
 const S = 1_000_000
 const ran = (exitCode: number, stdout: string) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -644,5 +644,99 @@ for (const [name, e] of [
     await $.session.compact(e as any)
     await clock.advance(FILL_MS)
     expect(fills).toEqual(['/claudzilla compact'])
+  })
+}
+
+const key = ($: any, inputText = 'a') => $.prompt.edit({ origin: { kind: 'composer' }, text: '', cursor: 0, start: 0, end: 0, inputText })
+const keyed = (on: On) => on('prompt.edit', (_, e: any) => ({ text: e.inputText, cursor: 1 }) as any)
+const cs = (status: (string | undefined)[]) => status.filter(s => s?.startsWith('Cache cold'))
+
+test('coldText: tier word and tokens', () => {
+  expect(coldText(2, 312_400)).toBe('Cache cold · suggest: /claudzilla handoff starts fresh with a note, or send to re-read 312k')
+})
+
+test('the first key after an hour away, past 1x, shows the cold status once', async ($, on) => {
+  const { clock, status } = idle(on)
+  keyed(on)
+  await $.session.start(start)
+  await ctxMeasure($, L1)
+  await clock.advance(HOUR)
+  await key($)
+  await key($)
+  await until(() => cs(status).length > 0)
+  await tick()
+  expect(cs(status)).toEqual([coldText(1, L1)])
+})
+
+test('the key passes through unchanged', async ($, on) => {
+  const { clock } = idle(on)
+  keyed(on)
+  await $.session.start(start)
+  await ctxMeasure($, L1)
+  await clock.advance(HOUR)
+  expect(await key($, 'x')).toEqual({ text: 'x', cursor: 1 })
+})
+
+for (const [name, opts, tokens, wait] of [
+  ['a key before the hour', {}, L1, HOUR - 1],
+  ['context under 1x', {}, L1 - 1, HOUR],
+  ['a 5m TTL', { transcript: reply(M5) }, L1, HOUR],
+  ['compactNudge 0', { cfg: '{"rulesGuard":{"compactNudge":0}}' }, 900_000, HOUR],
+] as const) {
+  test(`${name} shows nothing`, async ($, on) => {
+    const { clock, status } = idle(on, opts)
+    keyed(on)
+    await $.session.start(start)
+    await ctxMeasure($, tokens)
+    await clock.advance(wait)
+    await key($)
+    await tick()
+    expect(cs(status)).toEqual([])
+  })
+}
+
+test('a key during the next turn shows nothing', async ($, on) => {
+  const { clock, status } = idle(on)
+  keyed(on)
+  await $.session.start(start)
+  await ctxMeasure($, L1)
+  await clock.advance(HOUR)
+  await $.prompt.submit({ text: 'back', wait: false, origin: { kind: 'composer' } } as any)
+  await key($)
+  await tick()
+  expect(cs(status)).toEqual([])
+})
+
+test('a sent prompt clears the cold status and arms it again', async ($, on) => {
+  const { clock, status } = idle(on)
+  keyed(on)
+  await $.session.start(start)
+  await ctxMeasure($, L1)
+  await clock.advance(HOUR)
+  await key($)
+  await until(() => cs(status).length > 0)
+  await $.prompt.submit({ text: 'back', wait: false, origin: { kind: 'composer' } } as any)
+  expect(status.at(-1)).toBeUndefined()
+  await ctxMeasure($, L1)
+  await clock.advance(HOUR)
+  await key($)
+  await until(() => cs(status).length > 1)
+  expect(cs(status)).toHaveLength(2)
+})
+
+for (const [name, drop] of [
+  ['/clear', ($: any) => $.session.end({ reason: 'clear' })],
+  ['a compact', ($: any) => $.session.compact({ trigger: 'manual', messages: [{ role: 'user', text: 'summary', toolUses: [] }] })],
+] as const) {
+  test(`after ${name}, a key shows nothing`, async ($, on) => {
+    const { clock, status } = idle(on)
+    keyed(on)
+    await $.session.start(start)
+    await ctxMeasure($, L1)
+    await drop($)
+    await clock.advance(HOUR)
+    await key($)
+    await tick()
+    expect(cs(status)).toEqual([])
   })
 }

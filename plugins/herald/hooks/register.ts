@@ -107,6 +107,9 @@ export type Ctx = { level: number; at: number }
 const TIERS = ['optional', 'suggest', 'recommend']
 const contextText = (level: number) => `Compact — ${TIERS[level - 1]}: /claudzilla compact, or /clear for new work`
 
+export const coldText = (level: number, tokens: number) =>
+  `Cache cold · ${TIERS[level - 1]}: ${HANDOFF} starts fresh with a note, or send to re-read ${Math.round(tokens / 1000)}k`
+
 // Toasts each level once and again 30 min after the last toast; dropping below 1x (a compact or clear) starts over.
 export function contextToast(tokens: number, base: number, ctx: Ctx, nowMs: number): { text?: string; ctx: Ctx } {
   if (base <= 0) return { ctx }
@@ -223,6 +226,24 @@ async function coldHandoff($: EngineInterface, dir: string) {
   t.event('cold.handoff', { filled: (await $.prompt.fill({ text: HANDOFF }).catch(() => ({ isFilled: false }))).isFilled })
 }
 
+// The first key back after an hour away: the cache is cold, so say what a send costs and the way around it.
+async function coldStatus($: EngineInterface, live: Live, cfg: Promise<Config>) {
+  const { dir, base } = await cfg
+  const now = await $.clock.now()
+  const tokens = live.tokens
+  // Re-checked after the awaits: a second key may have run the same check meanwhile.
+  if (live.coldShown || base <= 0 || tokens < base || now - live.endAt < HOUR) return
+  live.coldShown = true
+  const why = await skip($, dir, false)
+  if (why) return t.event('cold.status', { skip: why }, 'debug')
+  // A prompt sent meanwhile has cleared the line already.
+  if (live.tokens !== tokens) return
+  const level = tokens >= 4 * base ? 3 : tokens >= 2 * base ? 2 : 1
+  t.event('cold.status', { level })
+  $.ui.status(coldText(level, tokens))
+  live.pinned = true
+}
+
 // A compact takes a while: whoever came back meanwhile keeps what they typed.
 async function clearFill($: EngineInterface) {
   const text = (await $.prompt.read()).text.trim()
@@ -230,7 +251,7 @@ async function clearFill($: EngineInterface) {
 }
 
 type Timer = { cancel: () => void }
-type Live = { ctx: Ctx; idle?: Timer; cold: Timer[]; pinned: boolean }
+type Live = { ctx: Ctx; idle?: Timer; cold: Timer[]; pinned: boolean; endAt: number; tokens: number; coldShown: boolean }
 
 // A turn is no idle time; a compact or /clear drops the context the levels were counted on.
 function stopIdle($: EngineInterface, live: Live, reset: boolean) {
@@ -240,7 +261,10 @@ function stopIdle($: EngineInterface, live: Live, reset: boolean) {
   live.cold = []
   if (live.pinned) $.ui.status(undefined)
   live.pinned = false
-  if (reset) live.ctx = { level: 0, at: 0 }
+  if (reset) {
+    live.ctx = { level: 0, at: 0 }
+    live.tokens = 0
+  }
 }
 
 export const register: Register = on => {
@@ -248,7 +272,7 @@ export const register: Register = on => {
   let interactive = false
   let cfg: Promise<Config> = Promise.resolve({ dir: '', base: 0, cold: 0 })
   // Module memory, not $.store: the store is shared by every open session, and context is this session's own.
-  const live: Live = { ctx: { level: 0, at: 0 }, cold: [], pinned: false }
+  const live: Live = { ctx: { level: 0, at: 0 }, cold: [], pinned: false, endAt: 0, tokens: 0, coldShown: false }
 
   on('session.start', async ($, e, next) => {
     await t.start(traceIo($))
@@ -265,6 +289,8 @@ export const register: Register = on => {
 
   on('prompt.submit', async ($, e, next) => {
     stopIdle($, live, false)
+    live.tokens = 0
+    live.coldShown = false
     t.turn()
     void t.flush(traceIo($))
     if (note === undefined) return next(e)
@@ -289,6 +315,8 @@ export const register: Register = on => {
       const { dir, base: b, cold } = await cfg
       const shown = contextToast(tokens, b, live.ctx, await $.clock.now())
       live.ctx = shown.ctx
+      live.endAt = await $.clock.now()
+      live.tokens = tokens
       if (shown.text) {
         t.event('context.toast', { level: live.ctx.level, idle: false })
         $.ui.toast(shown.text, { timeoutMs: 10000 })
@@ -318,6 +346,12 @@ export const register: Register = on => {
         }
       }
     }
+    return next(e)
+  })
+
+  on('prompt.edit', ($, e, next) => {
+    // No await before this check: a key never waits on a read.
+    if (interactive && !live.coldShown && live.tokens > 0) void coldStatus($, live, cfg).catch(err => t.error('cold.status.failed', err))
     return next(e)
   })
 
