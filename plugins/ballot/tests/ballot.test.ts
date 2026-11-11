@@ -311,6 +311,19 @@ test('no card without 2+ options: go, with Picks or the run as detail, or the lo
   expect(shown).toEqual(['1B, 2A, then run executing-plans', 'run executing-plans', 'go', 'A: no retry', 'A, fixes 1–3', 'A: no retry'])
 })
 
+test('a Next or Picks saying more than the bare pick is the suggestion, over the picked row', async ($, on) => {
+  const shown: string[] = []
+  engine(on)
+  on('prompt.suggest', (_: any, e: any) => { shown.push(e.text); return { isShown: true } })
+  const b = LETTERS.replace('**Recommend: A**', '**Recommend: B**').replace('\n\n**Next:** say go.', '')
+  for (const tail of ["**Next:** say go and I'll run brainstorming.", "**Next:** say B and I'll brainstorm it.", '**Picks:** B, fixes 1–3', '**Next:** say go.']) {
+    await $.turn.complete(done(`${b}\n\n${tail}`))
+  }
+  await $.turn.complete(done(`${b.replace('**Recommend: B**', '')}\n\n**Next:** say go and I'll run brainstorming.`))
+  await $.turn.complete(done(`${b.replace('**Recommend: B**', '**Recommend: A**')}\n\n**Picks:** B`))
+  expect(shown).toEqual(['run brainstorming', 'B: brainstorm it', 'B, fixes 1–3', 'B: retry', 'run brainstorming', 'B: retry'])
+})
+
 test('rows with none picked: no suggestion, as the card has no go row', async ($, on) => {
   const shown: string[] = []
   engine(on)

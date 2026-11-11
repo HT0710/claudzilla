@@ -180,10 +180,13 @@ export function parse(answer: string): Offer | null {
 
 // The id answers Claude; the option keeps the history readable.
 const answer = (row: Row) => `${row.id}: ${voice(row.text)}`
-// Dim in the empty prompt box; → or Tab, then Enter, sends it. Rows, none picked: no card row to match.
+// Dim in the empty prompt box; → or Tab, then Enter, sends it. Rows, none picked: only an act, as no card row matches.
 const suggestion = (o: Offer) => {
-  if (o.rows.length < 2) return o.go
+  const hit = o.rows.find(row => row.id === o.go)
+  if (hit) return answer(hit)
   const pick = o.rows.find(row => row.picked)
+  // A Next or Picks saying more than the bare pick wins over the row.
+  if (o.rows.length < 2 || (o.go !== 'go' && o.go !== pick?.id)) return o.go
   return pick ? answer(pick) : null
 }
 
