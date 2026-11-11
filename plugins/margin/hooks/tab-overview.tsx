@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { AgentRow, Modal, Spawn, Step, Take } from '../types'
 import { printable } from './git-data'
-import { BAR_ROWS, DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, LIT, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, counted, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, readersOf, row as kitRow, rowHovers, toPieces, zoneWindow } from './kit'
+import { BAR_ROWS, DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, LIT, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, contentFrame, counted, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, readersOf, row as kitRow, rowHovers, toPieces, zoneWindow } from './kit'
 import type { Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, UseKind, Zone } from './kit'
 
 const intent = atom({ plugin: 'margin', key: 'intent' } as const, EMPTY_INTENT)
@@ -283,7 +283,26 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
         }),
       ]
     })
-    const inner = modalFrame(props.bodyColumns, tabRows, 0).width - 4
+    const countOf = (count?: number) => (count && count > 1 ? `×${count}` : '')
+    const named = items.filter(x => x.branch === undefined)
+    const cw = Math.max(0, ...named.map(x => countOf(x.count).length))
+    const sw = Math.max(0, ...named.map(x => sourceFor(x.name)?.length ?? 0))
+    // Each column padded to its widest, so counts end in one column and sources start in one.
+    const hintOf = (name: string, count?: number) =>
+      [...(cw ? [countOf(count).padStart(cw)] : []), ...(sw ? [(sourceFor(name) ?? '').padEnd(sw)] : [])].join('  ')
+    const hintW = cw && sw ? cw + 2 + sw : cw + sw
+    const shown = (name: string) => {
+      const text = printable(name)
+      if (kind === 'files') return cwd && text.startsWith(`${cwd}/`) ? text.slice(cwd.length + 1) : home && text.startsWith(`${home}/`) ? `~/${text.slice(home.length + 1)}` : text
+      if (kind === 'memory') return shortName('memory', text)
+      if (kind === 'web' && sourceFor(name) !== 'search') return text.replace(/^https?:\/\//, '')
+      return text
+    }
+    const total = `${entry.main + entry.agents} total`
+    // As wide as its rows, not the pane, so a short list keeps each hint beside its name.
+    const widest = Math.max(kind.length + total.length + 2, ...items.map(x => x.glyph.length + 1 + (x.branch ?? shown(x.name)).length + (x.branch === undefined && hintW ? hintW + 2 : 0)))
+    const f = contentFrame(modalFrame(props.bodyColumns, tabRows, 5 + items.length), widest)
+    const inner = f.width - 4
     let itemAt = 0
     const rows = items.map(({ name, glyph, count, branch, tone }) => {
       if (branch !== undefined)
@@ -294,8 +313,10 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
           </Text>
         )
       const i = itemAt++
-      const hint = [sourceFor(name), count && count > 1 ? `×${count}` : ''].filter(Boolean).join('  ')
-      const room = Math.max(1, inner - (glyph.length + 1) - (hint ? hint.length + 2 : 0))
+      // A row with neither count nor source keeps its blank columns out of the draw.
+      const padded = hintOf(name, count)
+      const hint = padded.trim() ? padded : ''
+      const room = Math.max(1, inner - (glyph.length + 1) - (hintW ? hintW + 2 : 0))
       const text = printable(name)
       // Path or URL pieces: a folder or path part SCOPE, every slash the border colour.
       const parts = (segs: string[], tone: (i: number) => string | undefined) =>
@@ -305,14 +326,14 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
         ])
       let pieces: JSX.Element[] = [<Text>{text}</Text>]
       if (kind === 'files') {
-        const rel = cwd && text.startsWith(`${cwd}/`) ? text.slice(cwd.length + 1) : home && text.startsWith(`${home}/`) ? `~/${text.slice(home.length + 1)}` : text
+        const rel = shown(name)
         const cut = rel.length > room ? `…${rel.slice(1 - room)}` : rel
         const segs = cut.split('/')
         pieces = parts(segs, k => (k < segs.length - 1 ? SCOPE : undefined))
       } else if (kind === 'memory') {
-        pieces = [<Text>{shortName('memory', text)}</Text>]
+        pieces = [<Text>{shown(name)}</Text>]
       } else if (kind === 'web' && sourceFor(name) !== 'search') {
-        const rest = text.replace(/^https?:\/\//, '')
+        const rest = shown(name)
         const q = rest.search(/[?#]/)
         const segs = (q < 0 ? rest : rest.slice(0, q)).split('/')
         pieces = [...parts(segs, k => (k ? SCOPE : undefined)), ...(q < 0 ? [] : [<Text color={HUD.faint}>{rest.slice(q)}</Text>])]
@@ -355,8 +376,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
         </Box>
       )
     })
-    const f = modalFrame(props.bodyColumns, tabRows, 5 + rows.length)
-    return drawLayer($, lc, 'm', f, { top: f.top, left: f.left - PAD }, [], [heading(ctx.el, kind.toUpperCase(), <Text color={HUD.faint}>{`${entry.main + entry.agents} total`}</Text>)], rows, modalNow!.top)
+    return drawLayer($, lc, 'm', f, { top: f.top, left: f.left - PAD }, [], [heading(ctx.el, kind.toUpperCase(), <Text color={HUD.faint}>{total}</Text>)], rows, modalNow!.top)
   }
   const modalBox = topicsOpen ? topicsModal() : usedKind && usedEntry ? usedModal(usedKind, usedEntry) : null
   // Its list gone (a new prompt or /clear emptied it), the modal closes: left open, it would come back with the next list.
