@@ -506,14 +506,57 @@ test('a stage that fires once the cache is cold, as after sleep, fills and compa
   expect(cold(toasts)).toEqual([])
 })
 
-test('a fill still unsent when the cache goes cold is cleared', async ($, on) => {
+test('a compact fill still unsent at cold becomes /claudzilla handoff', async ($, on) => {
   const { clock, fills, box } = idle(on)
   await $.session.start(start)
   await ctxMeasure($, L1)
   await clock.advance(FILL_MS)
   box.text = '/claudzilla compact'
   await clock.advance(HOUR - FILL_MS)
-  expect(fills).toEqual(['/claudzilla compact', ''])
+  expect(fills).toEqual(['/claudzilla compact', '/claudzilla handoff'])
+})
+
+test('the handoff fill still lands when the hour timer fires late', async ($, on) => {
+  const { clock, fills } = idle(on, { transcript: reply(H1, { timestamp: new Date(NOW - 20 * 60_000).toISOString() }) })
+  await $.session.start(start)
+  await ctxMeasure($, L1)
+  await clock.advance(HOUR)
+  expect(fills.at(-1)).toBe('/claudzilla handoff')
+})
+
+test('an empty box at cold gets /claudzilla handoff', async ($, on) => {
+  const { clock, fills } = idle(on)
+  await $.session.start(start)
+  await ctxMeasure($, L1)
+  await clock.advance(HOUR)
+  expect(fills.at(-1)).toBe('/claudzilla handoff')
+})
+
+test('typed text at cold stays', async ($, on) => {
+  const { clock, fills } = idle(on, { box: 'half typed' })
+  await $.session.start(start)
+  await ctxMeasure($, L1)
+  await clock.advance(HOUR)
+  expect(fills).toEqual([])
+})
+
+test('a 5m TTL gets no handoff fill', async ($, on) => {
+  const { clock, fills } = idle(on, { transcript: reply(M5) })
+  await $.session.start(start)
+  await ctxMeasure($, L1)
+  await clock.advance(HOUR)
+  expect(fills).toEqual([])
+})
+
+test('a compact before cold: no handoff fill', async ($, on) => {
+  const { clock, fills, compacts } = idle(on)
+  await $.session.start(start)
+  await ctxMeasure($, L2)
+  await clock.advance(AUTO_MS)
+  expect(compacts.length).toBe(1)
+  const before = fills.length
+  await clock.advance(HOUR - AUTO_MS)
+  expect(fills.slice(before)).toEqual([])
 })
 
 test('under 2x by default: fill, no compact', async ($, on) => {
