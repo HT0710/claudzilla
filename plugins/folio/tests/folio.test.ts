@@ -2211,10 +2211,10 @@ test('rows name files from the session root, not the folder a shell cd left', as
 })
 
 // Core's spawn of Agent call a1 as agent g1 on `model`; then g1's first request, at `effort`.
-async function spawnAgent($: any, on: any, model: string, effort?: string) {
+async function spawnAgent($: any, on: any, model: string, effort?: string, spawn: object = {}) {
   on('agent.spawn', () => ({ model, agentId: 'g1' }) as any)
   on('turn.step', async function* (_: any, e: any) { return { turnId: e.turnId, index: e.index, answer: '', toolUses: [] } } as any)
-  await $.agent.spawn({ prompt: 'p', description: 'Slow task', tool_use_id: 'a1' } as any)
+  await $.agent.spawn({ prompt: 'p', description: 'Slow task', tool_use_id: 'a1', ...spawn } as any)
   if (effort) for await (const _ of $.turn.step({ turnId: 't', index: 0, model, effort, messageCount: 1, agentId: 'g1' } as any));
 }
 
@@ -2253,6 +2253,30 @@ test("a finish row takes the spawn's description when the call's row drew none",
   const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
     props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 'a1', status: 'completed', durationMs: 1_000 } }, viewport: VIEW })
   expect(await textOf(ui)).toBe('● Agent (Slow task) [haiku · medium]  done · 1s')
+})
+
+// The description in the type's colour, as margin's PLAN draws agents: a common type its own, any other hashed by name.
+const label = async (ui: any, text = /^d$/) => (await ui.find({ type: 'Text', text }))?.props.color
+test("a running agent's description takes its spawned type's colour", async ($, on) => {
+  native(on)
+  await spawnAgent($, on, 'claude-haiku-5-5', 'low', { subagentType: 'caveman:cavecrew-investigator' })
+  expect(await label(await mountRow($, 'Agent', undefined, { input: { description: 'd' }, isRunning: true }, '/p/a.txt', 'a1'))).toBe('#b3c46a')
+})
+
+test("a finished agent's description takes its input type's colour", async ($, on) => {
+  native(on)
+  expect(await label(await mountRow($, 'Agent', agentDone, { input: { description: 'd', subagent_type: 'general-purpose' } }, '/p/a.txt', 'a1'))).toBe('#e8927c')
+})
+
+test("another type's description is one of the hashed colours", async ($, on) => {
+  native(on)
+  expect(['#7f9cb0', '#8a8fe0']).toContain(await label(await mountRow($, 'Agent', agentDone, { input: { description: 'd', subagent_type: 'Plan' } }, '/p/a.txt', 'a1')))
+})
+
+test("a background agent's finish row keeps its description colour", async ($, on) => {
+  finished(on)
+  await spawnAgent($, on, 'claude-haiku-5-5', 'medium', { subagentType: 'caveman:cavecrew-reviewer' })
+  expect(await label(await notice($, { status: 'completed', durationMs: 9_000 }), /^Slow task$/)).toBe('#d17fcf')
 })
 
 const reloaded = (command: string, hunks: object[], output: object = {}) =>

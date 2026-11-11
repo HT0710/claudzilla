@@ -59,6 +59,15 @@ const host = (url: string) => {
   }
 }
 const size = (bytes: number) => (bytes < 1024 ? `${bytes} B` : bytes < 1024 ** 2 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`)
+// Margin's agent colours (`plugins/margin/hooks/tab-overview.tsx`), so an agent reads the same in chat and in PLAN.
+const AGENT_FIXED: Record<string, string> = { 'general-purpose': '#e8927c', 'cavecrew-reviewer': '#d17fcf', 'cavecrew-investigator': '#b3c46a', 'cavecrew-builder': '#c8b08a' }
+const AGENT_HASHED = ['#7f9cb0', '#8a8fe0']
+const agentTone = ({ name, type }: { name?: string; type?: string }) => {
+  const fixed = AGENT_FIXED[(type ?? '').replace(/^[^:]+:/, '')]
+  if (fixed) return fixed
+  const shown = name || (type ?? '').replace(/^[^:]+:/, '') || 'agent'
+  return AGENT_HASHED[[...shown].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 0) % AGENT_HASHED.length]
+}
 const AGENT_TAIL: Record<string, string> = { completed: 'done', async_launched: 'backgrounded', remote_launched: 'remote' }
 
 // Other tools' one-line rows as label, argument and tail; undefined where the engine's own rows should draw.
@@ -667,7 +676,7 @@ export const register: Register = on => {
   }
   // Agent calls by tool_use_id: a finish notification names only the call. Model and effort as the spawn and the
   // agent's own requests report them, which an agent definition or a fork may set apart from the call's input.
-  type AgentRow = { description?: string; model?: string; effort?: string }
+  type AgentRow = { description?: string; model?: string; effort?: string; name?: string; type?: string }
   const agents = new Map<string, AgentRow>()
   // Agent calls' tool_use_id by agentId, which their requests carry.
   const spawned = new Map<string, string>()
@@ -699,16 +708,16 @@ export const register: Register = on => {
   ]
   const head = (mark: string, color: string, label: string): Piece[] => [{ text: mark, color }, { text: ' ' }, { text: label, bold: true }]
   // Plain text, not the fold's Client: nothing opens on a press, so nothing lights under the pointer.
-  const textLine = ({ Text }: Elements['terminal'], dot: RenderNode, [label, arg, tail]: [string, string, RenderNode], tag = '') => (
+  const textLine = ({ Text }: Elements['terminal'], dot: RenderNode, [label, arg, tail]: [string, string, RenderNode], tag = '', tone?: string) => (
     <Text wrap="truncate-end">
       {dot} <Text bold>{label}</Text>
-      <Text color="promptBorder"> (</Text>{arg}<Text color="promptBorder">)</Text>
+      <Text color="promptBorder"> (</Text>{tone ? <Text color={tone}>{arg}</Text> : arg}<Text color="promptBorder">)</Text>
       {tag && <Text><Text color="promptBorder"> [</Text><Text color="inactive">{tag}</Text><Text color="promptBorder">]</Text></Text>}
       {tail && '  '}{tail}
     </Text>
   )
-  const textRow = (elements: Elements['terminal'], dot: RenderNode, row: [string, string, RenderNode], tag?: string) => (
-    <elements.Box marginTop={1}>{textLine(elements, dot, row, tag)}</elements.Box>
+  const textRow = (elements: Elements['terminal'], dot: RenderNode, row: [string, string, RenderNode], tag?: string, tone?: string) => (
+    <elements.Box marginTop={1}>{textLine(elements, dot, row, tag, tone)}</elements.Box>
   )
   // An opened file's diff under its tree row, the tree line beside it; `hasNext` runs the line on to the next row.
   const diffBox = ({ Box, Code, Text }: Elements['terminal'], columns: number, entry: { file: string; diff?: string }, hasNext = false) => entry.diff && (
@@ -726,7 +735,7 @@ export const register: Register = on => {
     if (!result.deny && result.agentId && e.tool_use_id) {
       if (spawned.size > 500) spawned.clear()
       spawned.set(result.agentId, e.tool_use_id)
-      agents.set(e.tool_use_id, { ...agents.get(e.tool_use_id), description: e.description, model: result.model })
+      agents.set(e.tool_use_id, { ...agents.get(e.tool_use_id), description: e.description, model: result.model, name: e.name, type: e.subagentType })
     }
     return result
   })
@@ -948,10 +957,10 @@ export const register: Register = on => {
     const run = runs.get(e.requestId)
     if (tool === 'Agent') {
       if (agents.size > 500) agents.clear()
-      const args = (input ?? {}) as AgentRow
+      const args = (input ?? {}) as AgentRow & { subagent_type?: string }
       const known = agents.get(e.requestId)
       const resolved = (output as { resolvedModel?: string } | undefined)?.resolvedModel
-      agents.set(e.requestId, { description: args.description ?? known?.description, model: resolved ?? known?.model ?? args.model, effort: known?.effort ?? args.effort })
+      agents.set(e.requestId, { description: args.description ?? known?.description, model: resolved ?? known?.model ?? args.model, effort: known?.effort ?? args.effort, name: known?.name ?? args.name, type: known?.type ?? args.subagent_type })
     }
     // A Client draws nothing on mobile.
     if (!hideEditDiff || e.surface !== 'terminal' || isExpanded) return native
@@ -1011,7 +1020,7 @@ export const register: Register = on => {
     if (other) {
       const elements = $.ui.resolve(e)
       const { Text } = elements
-      return textRow(elements, isLive ? <Text color="inactive">{isLit ? '●' : ' '}</Text> : <Text color="success">●</Text>, other, tool === 'Agent' ? agentTag(agents.get(e.requestId)!) : '')
+      return textRow(elements, isLive ? <Text color="inactive">{isLit ? '●' : ' '}</Text> : <Text color="success">●</Text>, other, ...(tool === 'Agent' ? [agentTag(agents.get(e.requestId)!), agentTone(agents.get(e.requestId)!)] : []))
     }
     if (!run) return native
     const summary = !isRunning && !isInterrupted ? editSummary(tool, output, isErrored) : undefined
@@ -1117,7 +1126,7 @@ export const register: Register = on => {
     const elements = $.ui.resolve(e)
     const { Text } = elements
     const [tail, color] = ended
-    return textRow(elements, <Text color={color}>●</Text>, [agent ? 'Agent' : 'Bash', arg, task.durationMs === undefined ? tail : `${tail} · ${took(task.durationMs)}`], agent ? agentTag(agent) : '')
+    return textRow(elements, <Text color={color}>●</Text>, [agent ? 'Agent' : 'Bash', arg, task.durationMs === undefined ? tail : `${tail} · ${took(task.durationMs)}`], ...(agent ? [agentTag(agent), agentTone(agent)] : []))
   })
 
   // A reply still streaming skips the hook below, so md-display.pl draws its lines from this width.
