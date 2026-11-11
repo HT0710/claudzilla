@@ -13,6 +13,7 @@ When to delegate:
 - This section counts as the user asking, so the Agent tool's "do not spawn unless the user asks" does not apply here.
 - Delegate live UI trials, such as tmux sessions or repeated clicks, and work expected to dump screens or logs into context.
 - Break delegated work into separate tasks, one agent each. Keep parts in one agent only when they depend on each other or share context.
+- Launch independent agents in one message. Wait for one only when the next prompt needs its result.
 - Check what comes back by reading the cited `file:line`. Never re-run the agent's search yourself. An empty or weak result means retry one level up, such as haiku to sonnet.
 - Before retrying one level up, ask the same agent (SendMessage) to check its result with a test, build or command when one exists.
 
