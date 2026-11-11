@@ -238,7 +238,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     const sourceFor = (name: string) => (Object.hasOwn(sourceOf, name) ? sourceOf[name] : undefined)
     const agentName = (id?: string) => {
       const one = id && sparks.find(s => s.id === id)
-      return (one && fit(printable(one.name ?? (one.type ?? '').replace(/^[^:]+:/, '')), 14)) || 'agent'
+      return (one && printable(one.name ?? (one.type ?? '').replace(/^[^:]+:/, ''))) || 'agent'
     }
     // A branch per reader, Claude first; on the web, a page sits under the search that led to it.
     const readers = readersOf(entry)
@@ -273,7 +273,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
         return (
           <Text>
             <Text color="promptBorder">{` ${glyph}`}</Text>
-            <Text>{branch}</Text>
+            <Text>{fit(branch, Math.max(1, inner - (glyph.length + 1)))}</Text>
           </Text>
         )
       const i = itemAt++

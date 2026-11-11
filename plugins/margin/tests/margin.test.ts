@@ -4786,7 +4786,7 @@ test('the FILES branch name: launch name, else type without the plugin, else age
   await $.tool.call({ tool: 'Read', file_path: '/proj/c.ts', agentId: 'zz' } as any)
   await tapRow(ui, 'o:used:files')
   const texts = (await modalTexts(ui)).map(t => t.text)
-  expect(texts.filter(t => ['scout', 'cavecrew-inve…', 'agent'].includes(t))).toEqual(['scout', 'cavecrew-inve…', 'agent'])
+  expect(texts.filter(t => ['scout', 'cavecrew-investigator', 'agent'].includes(t))).toEqual(['scout', 'cavecrew-investigator', 'agent'])
   expect((await usedRow(ui, 0)).hint).toEqual([])
 })
 
