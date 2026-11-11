@@ -161,7 +161,7 @@ export function draft(input: { keep?: unknown; drop?: unknown; clear?: unknown }
   return keep ? `/compact Keep: ${keep}.` + (drop ? ` Drop: ${drop}.` : '') : undefined
 }
 
-export type HandoffInput = { sessionId: string; path: string; now: number; numbered: string; draft?: string }
+export type HandoffInput = { sessionId: string; path: string; now: number; numbered: string; draft?: string; summary?: string; intents?: string; git?: string }
 
 type Row = { type?: string; subtype?: string; content?: unknown; timestamp?: string; isSidechain?: boolean; isMeta?: boolean; isCompactSummary?: boolean; message?: { content?: unknown } }
 type Block = { type?: string; text?: string; name?: string; input?: Record<string, unknown> }
@@ -187,44 +187,71 @@ const textOf = (row: Row): string => {
 
 // The note a cold session leaves for its successor: built from the transcript tail, no model call.
 export function handoffNote(input: HandoffInput): string {
-  const rows = input.numbered.split('\n').map(numberedRow).filter((r): r is { n: number; row: Row } => !!r && !r.row.isSidechain).map(r => r.row)
+  const rows = input.numbered.split('\n').map(numberedRow).filter((r): r is { n: number; row: Row } => !!r && !r.row.isSidechain)
   let wants: { wants: string; steps: { text?: string; status?: string }[] } | undefined
   let now: unknown
-  let reply: Row | undefined
-  let away: Row | undefined
-  const prompts: string[] = []
-  const files: string[] = []
-  for (const row of rows) {
+  let away: { n: number; row: Row } | undefined
+  const turns: { p: string; reply?: Row }[] = []
+  let promptLine = 0
+  let housekeeping = false
+  const houseLines = new Set<number>()
+  for (const { n, row } of rows) {
     if (row.type === 'assistant') {
-      if (textOf(row)) reply = row
+      if (housekeeping) { houseLines.add(n); continue }
+      const cur = turns[turns.length - 1]
+      if (textOf(row) && cur && textOf(row).length >= (cur.reply ? textOf(cur.reply).length : 0)) cur.reply = row
       for (const b of blocks(row)) {
         const i = b.input
         if (b.type !== 'tool_use' || !i) continue
         if (b.name === 'mcp__margin__intent') {
           if (typeof i.wants === 'string') { wants = { wants: i.wants, steps: Array.isArray(i.steps) ? i.steps : [] }; now = undefined }
           if (i.now !== undefined) now = i.now
-        } else if ((b.name === 'Edit' || b.name === 'Write') && typeof i.file_path === 'string') files.push(i.file_path)
+        }
       }
     } else if (row.type === 'user' && !row.isMeta && !row.isCompactSummary) {
       const t = textOf(row).trim()
-      if (t && !t.startsWith('<') && !t.startsWith('[Request interrupted')) prompts.push(t)
-    } else if (row.type === 'system' && row.subtype === 'away_summary') away = row
+      if (/<command-message>claudzilla-compact|<command-name>\/compact|^\/compact/.test(t)) housekeeping = true
+      else if (t && !t.startsWith('<') && !t.startsWith('[Request interrupted')) { turns.push({ p: t }); promptLine = n; housekeeping = false }
+    } else if (row.type === 'user' && row.isCompactSummary) away = undefined
+    else if (row.type === 'system' && row.subtype === 'away_summary') away = { n, row }
   }
-  const time = (r?: Row) => Date.parse(r?.timestamp ?? '') || 0
+  // Intent calls from the whole file: the last 5 distinct asks, newest last.
+  // shortcut: houseLines covers the 1 MB tail only, so older compact asks still show; grep housekeeping prompts file-wide if they do.
+  const asks = new Map<string, number>()
+  for (const line of (input.intents ?? '').split('\n')) {
+    const r = numberedRow(line)
+    for (const b of r?.row.type === 'assistant' ? blocks(r.row) : []) {
+      const w = b.name === 'mcp__margin__intent' && b.input?.wants
+      if (typeof w === 'string' && w !== wants?.wants && !houseLines.has(r!.n)) { asks.delete(w); asks.set(w, r!.n) }
+    }
+  }
   const out = [`# Handoff from ${input.sessionId}`, '', `Written ${new Date(input.now).toISOString()}. Resume the old session with \`claude --resume ${input.sessionId}\`. Its transcript: ${input.path}`]
   const add = (heading: string, body: string) => out.push('', `## ${heading}`, '', body)
-  if (wants) add('Where we were', [wants.wants, ...wants.steps.map(s => `- [${s.status}] ${s.text}`), ...(now !== undefined ? [`Now: step ${now}`] : [])].join('\n'))
-  if (reply) add('Last reply', cut(textOf(reply), 2000))
-  if (prompts.length) add('Last prompts', prompts.slice(-3).map(p => `- ${cut(p, 500)}`).join('\n'))
-  if (away && typeof away.content === 'string' && time(away) > time(reply)) add('Away recap', away.content)
-  const edited = [...new Set(files.reverse())].slice(0, 10)
-  if (edited.length) add('Edited files', edited.map(f => `- ${f}`).join('\n'))
+  if (wants) add('Where we were', [wants.wants, ...wants.steps.map(s => `- ${s.text}`), ...(now !== undefined ? [`Last step started: ${now}`] : [])].join('\n'))
+  if (input.git?.trim()) add('Git', '```text\n' + input.git.trim() + '\n```')
+  if (asks.size) add('Earlier asks', [...asks].slice(-5).map(([w, n]) => `- Line ${n}: ${cut(w, 500)}`).join('\n'))
+  if (turns.length) {
+    const quote = (row: Row) => {
+      const t = textOf(row)
+      return (t.length > 2000 ? t.slice(0, 800) + '…' + t.slice(-1200) : t).split('\n').map(l => `> ${l}`).join('\n')
+    }
+    add('Recent turns', turns.slice(-3).map(({ p, reply }) => `- You: ${cut(p, 500)}` + (reply ? `\n\n${quote(reply)}` : '')).join('\n\n'))
+  }
+  const sum = input.summary && numberedRow(input.summary)
+  const since = sum ? sum.n : 0
+  if (sum) {
+    const t = textOf(sum.row)
+    add('Last compact summary', `At line ${sum.n}.\n${t.length > 8000 ? `${t.slice(0, 3000)}…${t.slice(-5000)}\nCut; full text at line ${sum.n}.` : t}`)
+  }
+  if (away && typeof away.row.content === 'string' && away.n > since) add('Away recap', `At line ${away.n}${away.row.timestamp ? `, ${away.row.timestamp}` : ''}.\n${away.row.content}${promptLine > away.n ? '\nOlder than the last prompt; its Next may be done.' : ''}`)
   const d = input.draft && numberedRow(input.draft)
-  const call = d && blocks(d.row).find(b => b.name === 'mcp__primer__compact_draft')
-  if (d && call?.input) add('Compact draft', `At line ${d.n}${d.row.timestamp ? `, ${d.row.timestamp}` : ''}.\nKeep: ${call.input.keep ?? ''}\nDrop: ${call.input.drop ?? ''}`)
+  const call = d && blocks(d.row).find(b => b.type === 'tool_use' && b.name === 'mcp__primer__compact_draft')
+  if (d && call?.input && d.n > since) add('Compact draft', `At line ${d.n}${d.row.timestamp ? `, ${d.row.timestamp}` : ''}.\nKeep: ${call.input.keep ?? ''}\nDrop: ${call.input.drop ?? ''}`)
   add('How to dig', [
+    'Check git before saying what is pending. Don\'t restate the last reply.',
+    'The Git block was checked when this note was written. Everything else is the old session\'s claim: re-check it before acting on it.',
     'Use this note as is when your ask needs nothing more.',
-    'For more detail, send haiku agents at effort low into the old transcript, by line number, with `grep -n` or `jq`. Engine compact summaries are rows with `"isCompactSummary":true`. Never Read it whole: it can be over 60 MB.',
+    'For more detail, `grep -n` or `jq` the old transcript yourself, by line number. Engine compact summaries are rows with `"isCompactSummary":true`. Never Read it whole: it can be over 60 MB. Where Bash is denied, Read with `offset` and `limit` around a line number.',
   ].join('\n'))
   return out.join('\n') + '\n'
 }
@@ -264,7 +291,20 @@ async function handOff($: EngineInterface, command: string, args: string) {
 let busy = false
 
 const NUMBERED = `grep -n '' "$1" | tail -c 1000000`
-const DRAFT = `grep -n '"name":"mcp__primer__compact_draft"' "$1" | tail -1`
+const DRAFT = `grep -n '"type":"tool_use","id":"[^"]*","name":"mcp__primer__compact_draft"' "$1" | tail -1`
+const SUMMARY = `grep -n '"isCompactSummary":true' "$1" | tail -1`
+const INTENTS = `grep -n '"type":"tool_use","id":"[^"]*","name":"mcp__margin__intent"' "$1" | tail -40`
+// $1 is the session cwd; prints nothing outside a git repo.
+const GIT = `export GIT_OPTIONAL_LOCKS=0
+git -C "$1" rev-parse --git-dir >/dev/null 2>&1 || exit 0
+echo "Branch: $(git -C "$1" status -sb | head -1 | cut -c4-)"
+echo "HEAD: $(git -C "$1" rev-parse --short HEAD)"
+u=$(git -C "$1" log --oneline HEAD --not --remotes)
+echo "Commits on no remote: $(printf '%s' "$u" | grep -c .)"
+[ -n "$u" ] && printf '%s\n' "$u" | head -10
+d=$(git -C "$1" status --porcelain | head -20)
+[ -n "$d" ] && printf 'Dirty files:\n%s\n' "$d"
+git -C "$1" diff --stat HEAD | tail -1`
 
 // Writes the note for this session, then clears and fills @note once the hook has returned (command.run rejects inside its own hook).
 async function coldHandoff($: EngineInterface): Promise<{ text: string } | Record<string, never>> {
@@ -276,11 +316,13 @@ async function coldHandoff($: EngineInterface): Promise<{ text: string } | Recor
   const path = found?.stdout.split('\n')[0]
   if (!path) return { text: 'No transcript for this session yet, so there is nothing to hand off.' }
   const grep = async (script: string) => (await $.process.run(['sh', '-c', script, 'sh', path]).catch(() => undefined))?.stdout ?? ''
-  const [numbered, draft] = await Promise.all([grep(NUMBERED), grep(DRAFT)])
+  const cwd = await $.session.cwd().catch(() => '')
+  const git = async () => (cwd ? (await $.process.run(['sh', '-c', GIT, 'sh', cwd]).catch(() => undefined))?.stdout ?? '' : '')
+  const [numbered, draft, summary, intents, gitOut] = await Promise.all([grep(NUMBERED), grep(DRAFT), grep(SUMMARY), grep(INTENTS), git()])
   const file = `${dir}/claudzilla-handoff/${sessionId}.md`
   try {
     await $.process.run(['sh', '-c', 'mkdir -p "$1" && chmod 700 "$1"', 'sh', `${dir}/claudzilla-handoff`])
-    await $.fs.write(file, handoffNote({ sessionId, path, now: await $.clock.now(), numbered, draft: draft.trim() || undefined }))
+    await $.fs.write(file, handoffNote({ sessionId, path, now: await $.clock.now(), numbered, draft: draft.trim() || undefined, summary: summary.trim() || undefined, intents, git: gitOut.trim() || undefined }))
   } catch (err) {
     $.ui.toast(`Handoff note not written: ${err instanceof Error ? err.message : String(err)}`)
 
