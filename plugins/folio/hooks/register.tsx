@@ -686,7 +686,7 @@ export const register: Register = on => {
   const agents = new Map<string, AgentRow>()
   // Agent calls' tool_use_id by agentId, which their requests carry.
   const spawned = new Map<string, string>()
-  // Background Bash commands' first line by tool_use_id, for the same finish notification.
+  // Bash commands' first line by tool_use_id, for a background command's finish notification.
   const shells = new Map<string, string>()
   const agentTag = ({ model, effort }: AgentRow) => [/opus|sonnet|haiku|fable/.exec(model ?? '')?.[0], effort].filter(Boolean).join(' · ')
   // Files each Bash call changed, by tool_use_id; and the Bash groups a click opened, by requestId, to the file rows
@@ -756,9 +756,10 @@ export const register: Register = on => {
   // Bash calls whose writes git status found, as a script's: they keep their command, and show its output while their row is open.
   const scripts = new Set<string>()
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    // Here, not on the row: calls drawn in a group never draw a ToolUse row.
-    if (e.tool_use_id && (e as { run_in_background?: unknown }).run_in_background === true) {
-      if (shells.size > 500) shells.clear()
+    // Here, not on the row: calls drawn in a group never draw a ToolUse row. Every call, because one past its timeout moves to the background.
+    if (e.tool_use_id) {
+      // Oldest out, so a long-running background command keeps its line.
+      if (shells.size > 5000) shells.delete(shells.keys().next().value!)
       shells.set(e.tool_use_id, e.command.split('\n')[0]!)
     }
     if (!hideEditDiff) return next(e)

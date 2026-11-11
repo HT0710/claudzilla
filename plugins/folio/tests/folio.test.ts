@@ -1465,9 +1465,19 @@ test("a background shell's notification reads its command's first line", async (
   expect(await textOf(ui)).toBe("● Bash (cd /p; python3 - <<'EOF')  done · 12s")
 })
 
-test("a foreground shell's notification stays native", async ($, on) => {
+test("a shell moved to the background after its timeout reads its command's first line", async ($, on) => {
   finished(on)
-  expect(await textOf(await shellNotice($, on, { command: 'ls' }, { status: 'completed' }))).toBe('native')
+  expect(await textOf(await shellNotice($, on, { command: 'sleep 200\necho hi' }, { status: 'completed' }))).toBe('● Bash (sleep 200)  done')
+})
+
+test('a background shell keeps its line through many later calls', async ($, on) => {
+  finished(on)
+  on('tool.call', () => ({ result: { stdout: '', stderr: '' } }) as any)
+  await $.tool.call({ tool: 'Bash', tool_use_id: 'old', command: 'npm run dev', run_in_background: true } as any)
+  for (let i = 0; i < 600; i++) await $.tool.call({ tool: 'Bash', tool_use_id: `c${i}`, command: 'ls' } as any)
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
+    props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 'old', status: 'completed' } }, viewport: VIEW })
+  expect(await textOf(ui)).toBe('● Bash (npm run dev)  done')
 })
 
 test('hideEditDiff false keeps the native notification row', async ($, on) => {
