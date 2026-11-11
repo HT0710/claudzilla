@@ -89,13 +89,9 @@ export const useOf = (call: { tool: string } & Record<string, unknown>): { kind:
 // A search or read command at the start of a part, after VAR= settings, rtk or a path.
 const BASH_SEARCH = /^\s*((\w+=\S*|rtk)\s+)*(\S*\/)?(git\s+grep|grep|rg|find|fd|ag|ack|cat|ls)(\s|$)/
 
-// Every use a call counts as: each search part of a Bash command, else useOf's one.
-export const usesOf = (call: { tool: string } & Record<string, unknown>): { kind: UseKind; name: string; source?: string }[] => {
-  if (call.tool !== 'Bash') {
-    const use = useOf(call)
-    return use ? [use] : []
-  }
-  const cmd = str(call.command) ?? ''
+// The paths a Bash command's search or read parts name, absolute: from `cwd`, or the last plain `cd` before
+// them; a grep's pattern is in too, as only a stat tells it from a file. Redirects and flags are not.
+export const bashPaths = (cmd: string, cwd: string, home?: string): string[] => {
   // Same-length blanking keeps indexes aligned: heredoc bodies, escapes, quoted text and fd redirects are data, not commands.
   const blank = (m: string) => '_'.repeat(m.length)
   const bare = cmd
@@ -103,19 +99,52 @@ export const usesOf = (call: { tool: string } & Record<string, unknown>): { kind
     .replace(/\\[\s\S]/g, blank)
     .replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, blank)
     .replace(/\d*>&\d+|&>/g, blank)
-  const uses: { kind: UseKind; name: string; source?: string }[] = []
+  const abs = (base: string, word: string) => {
+    const w = word.replace(/^["']|["']$/g, '')
+    const full = home ? w.replace(/^(~|\$HOME|\$\{HOME\})(?=\/|$)/, home) : w
+    if (!full.startsWith('/') && !base) return undefined
+    const segs: string[] = []
+    for (const seg of (full.startsWith('/') ? full : `${base}/${full}`).split('/')) if (seg === '..') segs.pop(); else if (seg && seg !== '.') segs.push(seg)
+    return `/${segs.join('/')}`
+  }
+  const paths: string[] = []
+  let base = cwd
   let at = 0
   for (const m of [...bare.matchAll(/&&|\|\||[;|&\n()`]/g), { index: cmd.length, 0: '' }]) {
     const part = bare.slice(at, m.index)
-    // A heredoc feeds the command text; `cat > f <<EOF` writes, it reads nothing.
-    if (BASH_SEARCH.test(part) && !part.includes('<<')) uses.push({ kind: 'other', name: cmd.slice(at, m.index).trim(), source: 'bash' })
+    const orig = cmd.slice(at, m.index)
+    const from = at
     at = m.index! + m[0].length
+    const cd = /^\s*cd\s+(\S+)\s*$/.exec(orig)
+    if (cd) base = abs(base, cd[1]) ?? base
+    const head = BASH_SEARCH.exec(part)
+    // A heredoc feeds the command text; `cat > f <<EOF` writes, it reads nothing.
+    if (cd || !head || part.includes('<<')) continue
+    let skip = false
+    for (const w of part.slice(head[0].length).matchAll(/\S+/g)) {
+      const word = cmd.slice(from + head[0].length + w.index!, from + head[0].length + w.index! + w[0].length)
+      // A redirect, and its target when apart: `> out.txt`.
+      if (skip || /[<>]/.test(word) || word.startsWith('-')) {
+        skip = /^\d*[<>]+$/.test(word)
+        continue
+      }
+      const path = abs(base, word)
+      if (path) paths.push(path)
+    }
   }
-  return uses
+  return paths
 }
 
-export const recordUse = (used: Used, call: { tool: string } & Record<string, unknown>): Used =>
-  usesOf(call).reduce((u, use) => recordOne(u, call, use), used)
+// Each use, given or the call's own, recorded in turn.
+export const recordUse = (used: Used, call: { tool: string } & Record<string, unknown>, uses = [useOf(call)].filter(u => !!u)): Used =>
+  uses.reduce((u, use) => recordOne(u, call, use), used)
+
+// The files a Bash command reached, each counted as its Read would be; folders, patterns and missing paths none.
+const bashFiles = async ($: EngineInterface, cmd: string, cwd: string) => {
+  const home = await $.env.get('HOME').catch(() => undefined)
+  const found = await Promise.all([...new Set(bashPaths(cmd, cwd, home))].map(path => $.fs.stat(path).then(s => (s.kind === 'file' ? path : undefined), () => undefined)))
+  return found.flatMap(path => (path ? [{ ...useOf({ tool: 'Read', file_path: path })!, source: 'bash' }] : []))
+}
 
 // shortcut: an agent spawned before the prompt that first calls after it still counts; read spawn times from `spawns` to fix.
 const recordOne = (used: Used, call: { tool: string } & Record<string, unknown>, use: { kind: UseKind; name: string; source?: string }): Used => {
@@ -1280,8 +1309,11 @@ export const register: Register = (on, options) => {
 
   // Recorded after the call runs: a call that fails or is refused used nothing.
   on('tool.call', { tool: /^(Read|Grep|Glob|WebSearch|WebFetch|Skill|Bash|mcp__.+)$/ }, async ($, e, next) => {
+    // Before the call: a `cd` in it moves the session's cwd.
+    const cwd = e.tool === 'Bash' ? await $.session.cwd().catch(() => '') : ''
     const result = await next(e)
-    if (usesOf(e as never).length) await update($, used, u => recordUse(u, e as never))
+    const uses = e.tool === 'Bash' ? await bashFiles($, String((e as { command?: unknown }).command ?? ''), cwd) : [useOf(e as never)].filter(u => !!u)
+    if (uses.length) await update($, used, u => recordUse(u, e as never, uses))
 
     return result
   })
