@@ -65,7 +65,7 @@ const AGENT_HASHED = ['#7f9cb0', '#8a8fe0']
 const agentTone = ({ name, type }: { name?: string; type?: string }) => {
   const fixed = AGENT_FIXED[(type ?? '').replace(/^[^:]+:/, '')]
   if (fixed) return fixed
-  const shown = name || (type ?? '').replace(/^[^:]+:/, '') || 'agent'
+  const shown = (name ?? (type ?? '').replace(/^[^:]+:/, '')) || 'agent'
   return AGENT_HASHED[[...shown].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 0) % AGENT_HASHED.length]
 }
 const AGENT_TAIL: Record<string, string> = { completed: 'done', async_launched: 'backgrounded', remote_launched: 'remote' }
