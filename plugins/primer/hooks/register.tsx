@@ -388,6 +388,7 @@ export const register: Register = on => {
     await t.start(traceIo($))
     HUD.label = (await readPalette($)).palette.shared.label
     await $.command.register({ name: 'claudzilla', description: 'The claudzilla guide, one section at a time', argumentHint: '[topic | report [what happened] | compact | handoff | experimental [id on|off]]', immediate: true })
+    await $.command.register({ name: 'claudzilla-handoff', description: 'Start fresh with a note from this session', immediate: true })
     await $.tool.register(COMPACT_SPEC).catch(() => undefined)
 
     return next(e)
@@ -442,7 +443,8 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: 'claudzilla' }, async ($, e) => {
+  on('command.run', { command: ['claudzilla', 'claudzilla-handoff'] }, async ($, e) => {
+    if (e.command === 'claudzilla-handoff' || /^handoff$/i.test(e.args.trim())) return coldHandoff($)
     const description = reportArgs(e.args)
     if (description !== undefined) {
       t.event('report.snapshot', await snapshot($, e.presentation?.columns).catch(() => ({})))
@@ -451,7 +453,6 @@ export const register: Register = on => {
 
       return {}
     }
-    if (/^handoff$/i.test(e.args.trim())) return coldHandoff($)
     const lab = experimentalArgs(e.args)
     if (/^compact$/i.test(e.args.trim())) {
       await handOff($, 'claudzilla-compact', '')
