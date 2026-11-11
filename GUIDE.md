@@ -342,7 +342,7 @@ To open or close the margin, type `/margin`, or press a tab's key (see the key t
 **Overview** shows a status row: whether Claude is `● working`, `✓ done` or `■ stopped`, or, when its turn ended with background agents still running, `◌ waiting on N agents`. It sits at the bottom of the tab, over the lower tab bar. The tab holds:
 
 - **SESSION:** the whole chat in one sentence, written by the same Opus read as TOPIC, up to 4 rows.
-- **TOPIC:** what your latest prompts are about. After each prompt, while the tab shows, Opus groups your prompts, and only your prompts, into topics. Press `show all` to open a TOPICS modal that lists every topic, newest first. While Opus reads, the SESSION header shows `reading…` or `updating…`, and `update failed` if the read fails. With no summary, the TOPIC header shows it.
+- **TOPIC:** what your latest prompts are about. After each prompt, while the tab shows, Opus groups your prompts, and only your prompts, into topics. Press `show all` to open a TOPICS modal that lists every topic, newest first. SESSION and TOPIC appear once the first read returns topics. While a later read runs, the SESSION header shows `updating…`, and `update failed` if the read fails. With no summary, the TOPIC header shows it.
 - **ASK:** how Claude read your request.
 - **TAKE:** Claude's reaction to your ask before it starts: `✓` fine, `!` concern, `✗` against, `?` unsure, a short label, and a reason when it has one. On a question, the reason names what Claude will check or doubt, never the answer.
 - **PLAN:** its steps: `✓` done, `●` in progress, `○` pending.
