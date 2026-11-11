@@ -27,13 +27,13 @@ Which model:
 
 Effort defaults:
 
-- Haiku runs at low and sonnet at medium.
-- Work that already belongs on opus runs at high for process work such as debugging, and at xhigh for refactors and plans. This line sets effort, not the model.
+- Haiku runs at low, except as plan writer, and sonnet at medium.
+- Work that already belongs on opus runs at high for process work such as debugging, and at xhigh for refactors. This line sets effort, not the model.
 - A task that fails at every effort needs a better brief, not a higher level.
 
 In superpowers skills:
 
-This table replaces the model choice in `subagent-driven-development` (its Model Selection section) and `executing-plans`. Set both `model` and `effort` on every dispatch, because the skill templates leave effort out.
+This table replaces the model choice in `subagent-driven-development` (its Model Selection section) and `executing-plans`, and sets the plan roles for `writing-plans`. Set both `model` and `effort` on every dispatch, because the skill templates leave effort out.
 
 | role | model | effort |
 |---|---|---|
@@ -42,3 +42,6 @@ This table replaces the model choice in `subagent-driven-development` (its Model
 | fix rounds 4 and 5, after a stuck implementer | opus | high |
 | final whole-branch review (`caveman:cavecrew-reviewer`, see `superpowers.md`) | opus | high |
 | `dispatching-parallel-agents` agent, which finds and fixes its own problem | sonnet | medium |
+| plan writer, from a settled spec, and its fix round (SendMessage to the same agent) | haiku | xhigh |
+| plan reviewer, a fresh agent that reads the spec, plan and code before the user sees the plan | opus | high |
+| plan re-check, scoped to the reviewer's findings | sonnet | medium |
