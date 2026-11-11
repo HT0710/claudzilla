@@ -3715,13 +3715,24 @@ test('with a report, a topics read shows on the TOPIC header and the footer keep
   expect(await right()).toEqual(['updating…', 'show all'])
 })
 
-test('the first TOPICS read, with none shown yet, says reading…', async ($, on) => {
+test('the first TOPICS read, with none shown yet, draws no TOPIC row', async ($, on) => {
   const { ui, clock } = await overviewPane($, on, () => new Promise(() => undefined))
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await ui.press({ key: 'Overview' })
   await clock.advance(0)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: 'reading…' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'reading…' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'TOPIC' })).toBeUndefined()
+})
+
+test('a failed first TOPICS read draws no TOPIC row', async ($, on) => {
+  const { ui, clock } = await overviewPane($, on, () => ({ isAnswered: false, reason: 'api-error', usage: {} }))
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'update failed' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'TOPIC' })).toBeUndefined()
 })
 
 test('a now ping after an interrupt picks the stopped report back up', async ($, on) => {
