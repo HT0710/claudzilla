@@ -668,6 +668,40 @@ test('the first key after an hour away, past 1x, shows the cold status once', as
   expect(cs(status)).toEqual([coldText(1, L1)])
 })
 
+const suggested = (on: On) => {
+  const s: string[] = []
+  on('prompt.suggest', (_, e: any) => { s.push(e.text); return { isShown: true } as any })
+  return s
+}
+
+test('emptying the box after the cold status suggests /claudzilla handoff', async ($, on) => {
+  const { clock, status } = idle(on)
+  keyed(on)
+  const s = suggested(on)
+  await $.session.start(start)
+  await ctxMeasure($, L1)
+  await clock.advance(HOUR)
+  await key($, 'x')
+  await until(() => cs(status).length > 0)
+  await tick()
+  expect(s).toEqual([])
+  await key($, '')
+  await until(() => s.length > 0)
+  expect(s).toEqual(['/claudzilla handoff'])
+})
+
+test('emptying the box before the cache is cold suggests nothing', async ($, on) => {
+  const { clock } = idle(on)
+  keyed(on)
+  const s = suggested(on)
+  await $.session.start(start)
+  await ctxMeasure($, L1)
+  await clock.advance(HOUR - 1)
+  await key($, '')
+  await tick()
+  expect(s).toEqual([])
+})
+
 test('the key passes through unchanged', async ($, on) => {
   const { clock } = idle(on)
   keyed(on)
