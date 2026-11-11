@@ -4926,7 +4926,7 @@ test('the WEB modal: pages sit under their search, an unparented page under the 
   expect(await inModal(ui, 'search')).toBe('#4f5c68')
   expect(await inModal(ui, '×2')).toBe('#4f5c68')
   const glyphs = (await modalTexts(ui)).map(t => t.text).filter(t => /^ [ │├└ ]+$/.test(t) && t.trim() !== '')
-  expect(glyphs).toEqual([' ├ ', ' │ └ ', ' └ ', '   ├ ', '   │ └ ', '   ├ ', '   │ ├ ', '   │ └ ', '   └ '])
+  expect(glyphs).toEqual([' ├ ', ' │ └', ' └ ', '   ├', '   │ └', '   ├', '   │ ├', '   │ └', '   └'])
 })
 
 test('the other modal: an agent Grep sits under its agent with grep at the right and no agent name there', async ($, on) => {
