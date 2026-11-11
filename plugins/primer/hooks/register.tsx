@@ -161,6 +161,74 @@ export function draft(input: { keep?: unknown; drop?: unknown; clear?: unknown }
   return keep ? `/compact Keep: ${keep}.` + (drop ? ` Drop: ${drop}.` : '') : undefined
 }
 
+export type HandoffInput = { sessionId: string; path: string; now: number; numbered: string; draft?: string }
+
+type Row = { type?: string; subtype?: string; content?: unknown; timestamp?: string; isSidechain?: boolean; isMeta?: boolean; isCompactSummary?: boolean; message?: { content?: unknown } }
+type Block = { type?: string; text?: string; name?: string; input?: Record<string, unknown> }
+
+const cut = (t: string, n: number) => (t.length > n ? t.slice(0, n) + '…' : t)
+
+// A "N:<json>" line; undefined when the JSON is cut off (the first line of a tail) or not a row.
+function numberedRow(line: string): { n: number; row: Row } | undefined {
+  const i = line.indexOf(':')
+  try {
+    const row = JSON.parse(line.slice(i + 1)) as Row
+    return row && typeof row === 'object' ? { n: Number(line.slice(0, i)), row } : undefined
+  } catch {
+    return undefined
+  }
+}
+
+const blocks = (row: Row): Block[] => (Array.isArray(row.message?.content) ? (row.message!.content as Block[]) : [])
+const textOf = (row: Row): string => {
+  const c = row.message?.content
+  return typeof c === 'string' ? c : blocks(row).filter(b => b.type === 'text').map(b => b.text ?? '').join('\n')
+}
+
+// The note a cold session leaves for its successor: built from the transcript tail, no model call.
+export function handoffNote(input: HandoffInput): string {
+  const rows = input.numbered.split('\n').map(numberedRow).filter((r): r is { n: number; row: Row } => !!r && !r.row.isSidechain).map(r => r.row)
+  let wants: { wants: string; steps: { text?: string; status?: string }[] } | undefined
+  let now: unknown
+  let reply: Row | undefined
+  let away: Row | undefined
+  const prompts: string[] = []
+  const files: string[] = []
+  for (const row of rows) {
+    if (row.type === 'assistant') {
+      if (textOf(row)) reply = row
+      for (const b of blocks(row)) {
+        const i = b.input
+        if (b.type !== 'tool_use' || !i) continue
+        if (b.name === 'mcp__margin__intent') {
+          if (typeof i.wants === 'string') { wants = { wants: i.wants, steps: Array.isArray(i.steps) ? i.steps : [] }; now = undefined }
+          if (i.now !== undefined) now = i.now
+        } else if ((b.name === 'Edit' || b.name === 'Write') && typeof i.file_path === 'string') files.push(i.file_path)
+      }
+    } else if (row.type === 'user' && !row.isMeta && !row.isCompactSummary) {
+      const t = textOf(row).trim()
+      if (t && !t.startsWith('<') && !t.startsWith('[Request interrupted')) prompts.push(t)
+    } else if (row.type === 'system' && row.subtype === 'away_summary') away = row
+  }
+  const time = (r?: Row) => Date.parse(r?.timestamp ?? '') || 0
+  const out = [`# Handoff from ${input.sessionId}`, '', `Written ${new Date(input.now).toISOString()}. Resume the old session with \`claude --resume ${input.sessionId}\`. Its transcript: ${input.path}`]
+  const add = (heading: string, body: string) => out.push('', `## ${heading}`, '', body)
+  if (wants) add('Where we were', [wants.wants, ...wants.steps.map(s => `- [${s.status}] ${s.text}`), ...(now !== undefined ? [`Now: step ${now}`] : [])].join('\n'))
+  if (reply) add('Last reply', cut(textOf(reply), 2000))
+  if (prompts.length) add('Last prompts', prompts.slice(-3).map(p => `- ${cut(p, 500)}`).join('\n'))
+  if (away && typeof away.content === 'string' && time(away) > time(reply)) add('Away recap', away.content)
+  const edited = [...new Set(files.reverse())].slice(0, 10)
+  if (edited.length) add('Edited files', edited.map(f => `- ${f}`).join('\n'))
+  const d = input.draft && numberedRow(input.draft)
+  const call = d && blocks(d.row).find(b => b.name === 'mcp__primer__compact_draft')
+  if (d && call?.input) add('Compact draft', `At line ${d.n}${d.row.timestamp ? `, ${d.row.timestamp}` : ''}.\nKeep: ${call.input.keep ?? ''}\nDrop: ${call.input.drop ?? ''}`)
+  add('How to dig', [
+    'Use this note as is when your ask needs nothing more.',
+    'For more detail, send haiku agents at effort low into the old transcript, by line number, with `grep -n` or `jq`. Engine compact summaries are rows with `"isCompactSummary":true`. Never Read it whole: it can be over 60 MB.',
+  ].join('\n'))
+  return out.join('\n') + '\n'
+}
+
 const COMPACT_SPEC = {
   name: 'compact_draft',
   description: 'Only from the claudzilla-compact skill: puts the drafted /compact (or /clear) line in the prompt box.',

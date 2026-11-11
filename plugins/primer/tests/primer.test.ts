@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { draft, experimentalArgs, featureLines, find, fit, parse, reportArgs, rows } from '../hooks/register'
+import { draft, experimentalArgs, featureLines, find, fit, handoffNote, parse, reportArgs, rows } from '../hooks/register'
 
 const MD = '# claudzilla guide\n\n## Basics\n\n### What claudzilla is\n<!-- topic: start -->\n\nIntro.\n\n### Talk to Claude\n<!-- topic: talk -->\n\nSay it.\n\n## Screen\n\n### The picks card\n<!-- topic: picks -->\n\nDigits.\n'
 
@@ -511,4 +511,90 @@ test("experimental shows the script's refusal", async ($, on) => {
 test('experimental without the core install', async ($, on) => {
   labs(on, { list: ran(1, '') })
   expect(await texts(await open($, 'experimental'))).toContain('Experimental features need the claudzilla core install.')
+})
+
+const J = (o: object) => JSON.stringify(o)
+const asst = (content: unknown, extra: object = {}) => J({ type: 'assistant', message: { content }, ...extra })
+const tool = (name: string, input: object, extra: object = {}) => asst([{ type: 'tool_use', name, input }], extra)
+const typed = (text: string, extra: object = {}) => J({ type: 'user', message: { content: text }, ...extra })
+const tail = (...r: string[]) => r.map((l, i) => `${i + 1}:${l}`).join('\n')
+const note = (...r: string[]) => handoffNote({ sessionId: 's1', path: '/t/s1.jsonl', now: 0, numbered: tail(...r) })
+
+test('handoffNote: header names the session, resume command and transcript', () => {
+  const n = note(typed('hi'))
+  expect(n).toContain('claude --resume s1')
+  expect(n).toContain('/t/s1.jsonl')
+})
+
+test('handoffNote: where we were from the last margin intent', () => {
+  const n = note(
+    tool('mcp__margin__intent', { wants: 'OLD ask', steps: [{ text: 'old', status: 'pending' }] }),
+    tool('mcp__margin__intent', { wants: 'NEW ask', steps: [{ text: 'one', status: 'completed' }, { text: 'two', status: 'in_progress' }] }),
+    tool('mcp__margin__intent', { now: 2 }),
+  )
+  expect(n).toContain('NEW ask')
+  expect(n).toContain('- [completed] one')
+  expect(n).toContain('- [in_progress] two')
+  expect(n).toContain('Now: step 2')
+  expect(n).not.toContain('OLD ask')
+})
+
+test('handoffNote: last reply cut to 2000 characters', () => {
+  const n = note(asst([{ type: 'text', text: 'x'.repeat(2500) }]))
+  expect(n).toContain('x'.repeat(2000) + '…')
+  expect(n).not.toContain('x'.repeat(2001))
+})
+
+test('handoffNote: last 3 typed prompts, tool results and commands skipped', () => {
+  const n = note(
+    typed('p1'), typed('p2'), typed('p3'),
+    J({ type: 'user', message: { content: [{ type: 'tool_result', content: 'RESULT' }] } }),
+    typed('<command-name>/x</command-name>'),
+    typed('META', { isMeta: true }),
+    typed('SUMMARY', { isCompactSummary: true }),
+    typed('p4'),
+    typed('[Request interrupted by user]'),
+    typed('p5'),
+  )
+  expect(n.indexOf('p3')).toBeLessThan(n.indexOf('p4'))
+  expect(n.indexOf('p4')).toBeLessThan(n.indexOf('p5'))
+  for (const s of ['p1', 'p2', 'RESULT', 'command-name', 'META', 'SUMMARY', 'interrupted']) expect(n).not.toContain(s)
+})
+
+test('handoffNote: away recap only when newer than the last reply', () => {
+  const reply = asst([{ type: 'text', text: 'done' }], { timestamp: '2026-01-01T10:00:00Z' })
+  const recap = (ts: string) => J({ type: 'system', subtype: 'away_summary', content: 'RECAP', timestamp: ts })
+  expect(note(reply, recap('2026-01-01T11:00:00Z'))).toContain('RECAP')
+  expect(note(reply, recap('2026-01-01T09:00:00Z'))).not.toContain('RECAP')
+})
+
+test('handoffNote: last 10 unique edited files', () => {
+  const rows = Array.from({ length: 12 }, (_, i) => tool(i % 2 ? 'Write' : 'Edit', { file_path: `/f/${i}` }))
+  rows.push(tool('Edit', { file_path: '/f/3' }))
+  const n = note(...rows)
+  const list = n.slice(n.indexOf('## Edited files')).split('\n').filter(l => l.startsWith('- /f/'))
+  expect(list).toEqual(['/f/3', '/f/11', '/f/10', '/f/9', '/f/8', '/f/7', '/f/6', '/f/5', '/f/4', '/f/2'].map(f => `- ${f}`))
+})
+
+test('handoffNote: compact draft inline with its line', () => {
+  const n = handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: tail(typed('hi')), draft: '42:' + tool('mcp__primer__compact_draft', { keep: 'K', drop: 'D' }) })
+  expect(n).toContain('Compact draft')
+  expect(n).toContain('K')
+  expect(n).toContain('D')
+  expect(n).toContain('line 42')
+})
+
+test('handoffNote: a partial first line is skipped', () => {
+  const n = handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: '7:{"type":"user","mess\n' + tail(typed('kept')) })
+  expect(n).toContain('kept')
+})
+
+test('handoffNote: empty sections are left out', () => {
+  const n = note(typed('only'))
+  for (const h of ['Where we were', 'Edited files', 'Compact draft']) expect(n).not.toContain(h)
+})
+
+test('handoffNote: how to dig names grep, haiku and compact summaries', () => {
+  const n = note(typed('hi'))
+  for (const s of ['grep -n', 'haiku', 'isCompactSummary', 'Never Read it whole']) expect(n).toContain(s)
 })
