@@ -144,9 +144,15 @@ const resolve = (base: string, path: string) => {
   return out.join('/')
 }
 
-// Files a Bash command writes, under a leading `cd DIR &&`.
+// The folder a leading `cd DIR &&` or `cd DIR;` moves to, with ~ as the home folder.
+function leadDir(command: string, home?: string) {
+  const dir = command.match(/^\s*cd\s+([^\s;&|]+)\s*(?:&&|;)/)?.[1]
+  return dir && home ? dir.replace(/^~(?=\/|$)/, home) : dir
+}
+
+// Files a Bash command writes, under a leading `cd DIR &&` or `cd DIR;`.
 // shortcut: regex parse of common write forms (sed -i, >, >>, tee), not a shell parser; a false hit costs a read, and after a reload hides the command's output.
-export function writeTargets(command: string): string[] {
+export function writeTargets(command: string, home?: string): string[] {
   const quoted: string[] = []
   // Heredoc bodies hold text, not commands; quoted text holds no redirection.
   const cmd = command
@@ -165,7 +171,7 @@ export function writeTargets(command: string): string[] {
       plain.slice(hasScript ? 0 : 1).forEach(w => out.add(word(w)))
     }
   }
-  const dir = cmd.match(/^\s*cd\s+([^\s;&|]+)\s*&&/)?.[1]
+  const dir = leadDir(cmd, home)
   return [...out].filter(f => !f.startsWith('/dev/')).map(f => resolve(dir ? word(dir) : '', f))
 }
 
@@ -756,7 +762,8 @@ export const register: Register = on => {
       shells.set(e.tool_use_id, e.command.split('\n')[0]!)
     }
     if (!hideEditDiff) return next(e)
-    const targets = writeTargets(e.command)
+    const home = /^\s*cd\s+~/.test(e.command) ? await $.env.get('HOME').catch(() => undefined) : undefined
+    const targets = writeTargets(e.command, home)
     const cwd = await $.session.cwd().catch(() => '')
     const read = (f: string) => $.fs.read(f).then(text => text as string, () => undefined)
     const git = (dir: string, ...args: string[]) => $.process.run(['git', '--no-optional-locks', '-C', dir, ...args], { timeoutMs: 5000 })
@@ -766,7 +773,7 @@ export const register: Register = on => {
       const out = await git(top, 'status', '--porcelain', '-z', '--no-renames', '--untracked-files=all')
       return out === undefined ? undefined : new Map(out.split('\0').filter(Boolean).map(r => [`${top}/${r.slice(3)}`, r.slice(0, 2)]))
     }
-    const cd = e.command.match(/^\s*cd\s+([^\s;&|]+)\s*&&/)?.[1]
+    const cd = leadDir(e.command, home)
     const dir = cd ? resolve(cwd, cd) : cwd
     // Only under the session root: git status runs a repo's config (core.fsmonitor, filters), and this runs before approval.
     const root = targets.length ? '' : await $.session.root().catch(() => '')
