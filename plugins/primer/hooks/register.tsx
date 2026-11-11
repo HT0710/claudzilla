@@ -260,6 +260,53 @@ async function handOff($: EngineInterface, command: string, args: string) {
   }
 }
 
+// A main-chat turn is running: set by the main chat's turn.start, cleared by the main chat's turn.complete.
+let busy = false
+
+const NUMBERED = `grep -n '' "$1" | tail -c 1000000`
+const DRAFT = `grep -n '"name":"mcp__primer__compact_draft"' "$1" | tail -1`
+
+// Writes the note for this session, then clears and fills @note once the hook has returned (command.run rejects inside its own hook).
+async function coldHandoff($: EngineInterface): Promise<{ text: string } | Record<string, never>> {
+  if (busy) return { text: 'A turn is running. Run /claudzilla handoff when it ends.' }
+  const home = await $.env.get('HOME').catch(() => undefined)
+  const dir = (await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined)) || `${home}/.claude`
+  const sessionId = await $.session.id()
+  const found = await $.process.run(['find', `${dir}/projects`, '-maxdepth', '2', '-name', `${sessionId}.jsonl`]).catch(() => undefined)
+  const path = found?.stdout.split('\n')[0]
+  if (!path) return { text: 'No transcript for this session yet, so there is nothing to hand off.' }
+  const grep = async (script: string) => (await $.process.run(['sh', '-c', script, 'sh', path]).catch(() => undefined))?.stdout ?? ''
+  const [numbered, draft] = await Promise.all([grep(NUMBERED), grep(DRAFT)])
+  const file = `${dir}/claudzilla-handoff/${sessionId}.md`
+  try {
+    await $.process.run(['sh', '-c', 'mkdir -p "$1" && chmod 700 "$1"', 'sh', `${dir}/claudzilla-handoff`])
+    await $.fs.write(file, handoffNote({ sessionId, path, now: await $.clock.now(), numbered, draft: draft.trim() || undefined }))
+  } catch (err) {
+    $.ui.toast(`Handoff note not written: ${err instanceof Error ? err.message : String(err)}`)
+
+    return {}
+  }
+  const lost = () => $.ui.toast(`Note is at ${file}. Type @${file}.`)
+  const go = async () => {
+    try {
+      await $.command.run({ command: 'clear' })
+    } catch {
+      return lost()
+    }
+    const box = await $.prompt.read().catch(() => ({ text: '' }))
+    const text = box.text.trim() ? `${box.text.trimEnd()} @${file} ` : `@${file} `
+    const { isFilled } = await $.prompt.fill({ text }).catch(() => ({ isFilled: false }))
+    if (!isFilled) lost()
+  }
+  try {
+    await Promise.resolve($.clock.after(500, go))
+  } catch {
+    lost()
+  }
+
+  return {}
+}
+
 // Filled once the turn ends: the box may not take text while a turn runs.
 let pending: string | undefined
 
@@ -340,7 +387,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await t.start(traceIo($))
     HUD.label = (await readPalette($)).palette.shared.label
-    await $.command.register({ name: 'claudzilla', description: 'The claudzilla guide, one section at a time', argumentHint: '[topic | report [what happened] | compact | experimental [id on|off]]', immediate: true })
+    await $.command.register({ name: 'claudzilla', description: 'The claudzilla guide, one section at a time', argumentHint: '[topic | report [what happened] | compact | handoff | experimental [id on|off]]', immediate: true })
     await $.tool.register(COMPACT_SPEC).catch(() => undefined)
 
     return next(e)
@@ -349,6 +396,12 @@ export const register: Register = on => {
   on('prompt.submit', async ($, e, next) => {
     t.turn()
     void t.flush(traceIo($))
+
+    return next(e)
+  })
+
+  on('turn.start', async (_, e, next) => {
+    if (!e.agentId) busy = true
 
     return next(e)
   })
@@ -373,6 +426,7 @@ export const register: Register = on => {
 
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
+    if (!e.agentId) busy = false
     if (pending === undefined || e.agentId) return result
     const text = pending
     pending = undefined
@@ -397,6 +451,7 @@ export const register: Register = on => {
 
       return {}
     }
+    if (/^handoff$/i.test(e.args.trim())) return coldHandoff($)
     const lab = experimentalArgs(e.args)
     if (/^compact$/i.test(e.args.trim())) {
       await handOff($, 'claudzilla-compact', '')

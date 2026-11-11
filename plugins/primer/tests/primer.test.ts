@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
 import { draft, experimentalArgs, featureLines, find, fit, handoffNote, parse, reportArgs, rows } from '../hooks/register'
@@ -34,7 +34,7 @@ const props = (bodyColumns = 100, placement: 'dock' | 'inline' = 'dock', bodyRow
 
 // Stands for the clone lookup and GUIDE.md; drives /claudzilla the way a session does.
 function host(on: Parameters<TestBody>[1], { stdout = '/repo\nv1.4.0\n', exitCode = 0, guide = MD as string | null, proc = undefined as ((c: string) => ReturnType<typeof ran>) | undefined, files = undefined as ((p: string) => string | undefined) | undefined } = {}) {
-  const seen = { registered: [] as unknown[], opened: [] as any[], closed: [] as any[], read: [] as string[] }
+  const seen = { registered: [] as unknown[], opened: [] as any[], closed: [] as any[], read: [] as string[], toasts: [] as string[] }
   on('process.run', (_, e: any) => proc?.(e.argv.join(' ')) ?? ran(exitCode, stdout))
   on('fs.read', (_, e: any) => {
     if (e.path.endsWith('/.off')) throw new Error('ENOENT')
@@ -62,7 +62,7 @@ function host(on: Parameters<TestBody>[1], { stdout = '/repo\nv1.4.0\n', exitCod
     seen.closed.push(e)
     return { value: undefined } as any
   })
-  on('ui.toast', () => ({ value: undefined }))
+  on('ui.toast', (_, e) => { seen.toasts.push(e.text); return { value: undefined } })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   return seen
 }
@@ -80,7 +80,7 @@ const wheel = ($: Parameters<TestBody>[0], by: number, pointer?: { column: numbe
 test('registers /claudzilla with the experimental hint', async ($, on) => {
   const seen = host(on)
   await $.session.start(start)
-  expect(seen.registered).toContainEqual(expect.objectContaining({ name: 'claudzilla', argumentHint: '[topic | report [what happened] | compact | experimental [id on|off]]' }))
+  expect(seen.registered).toContainEqual(expect.objectContaining({ name: 'claudzilla', argumentHint: '[topic | report [what happened] | compact | handoff | experimental [id on|off]]' }))
 })
 
 test('bare /claudzilla toggles the guide; a topic opens it either way', async ($, on) => {
@@ -579,8 +579,8 @@ test('handoffNote: last 10 unique edited files', () => {
 test('handoffNote: compact draft inline with its line', () => {
   const n = handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: tail(typed('hi')), draft: '42:' + tool('mcp__primer__compact_draft', { keep: 'K', drop: 'D' }) })
   expect(n).toContain('Compact draft')
-  expect(n).toContain('K')
-  expect(n).toContain('D')
+  expect(n).toContain('Keep: K')
+  expect(n).toContain('Drop: D')
   expect(n).toContain('line 42')
 })
 
@@ -597,4 +597,160 @@ test('handoffNote: empty sections are left out', () => {
 test('handoffNote: how to dig names grep, haiku and compact summaries', () => {
   const n = note(typed('hi'))
   for (const s of ['grep -n', 'haiku', 'isCompactSummary', 'Never Read it whole']) expect(n).toContain(s)
+})
+
+const CFG = '/cfg'
+const NOTE = `${CFG}/claudzilla-handoff/s1.md`
+const done = (extra = {}) => ({ answer: 'x', reason: 'answer' as const, durationMs: 1, isAborted: false, turnId: 't1', ...extra })
+
+// A session idle after a reply: transcript found, greps answered, box as given.
+function handoffHost(on: Parameters<TestBody>[1], o: { find?: string; box?: string; writeFails?: boolean; clearFails?: boolean; filled?: boolean; drop?: boolean } = {}) {
+  const seen = { order: [] as string[], writes: [] as [string, string][], commands: [] as string[], fills: [] as string[], argvs: [] as string[] }
+  const clock = mock.clock(on, { now: 0 })
+  const base = host(on, {
+    proc: c => {
+      seen.argvs.push(c)
+      if (c.includes('chmod 700')) seen.order.push('mkdir')
+      if (c.startsWith('find ')) return ran(0, o.find ?? '/cfg/projects/p/s1.jsonl\n')
+      if (c.includes('compact_draft')) return ran(0, '7:{"x":1}\n')
+      return ran(0, '1:{"type":"user","message":{"content":"hi"}}\n')
+    },
+  })
+  on('env.get', (_, e: any) => ({ value: e.name === 'CLAUDE_CONFIG_DIR' ? CFG : undefined }) as any)
+  on('session.id', () => ({ value: 's1' }) as any)
+  on('fs.write', (_, e: any) => { if (o.writeFails) throw new Error('disk full'); seen.order.push('write'); seen.writes.push([e.path, e.text ?? e.content]); return { value: undefined } as any })
+  on('command.run', (_, e: any) => { if (e.command === 'clear') { seen.commands.push('clear'); if (o.clearFails) throw new Error('no'); } return { value: {} } as any })
+  on('prompt.read', () => ({ value: { text: o.box ?? '', cursor: 0 } }) as any)
+  on('prompt.fill', (_, e: any) => { seen.fills.push(e.text); return { isFilled: o.filled ?? true } as any })
+  on('prompt.submit', (_, e: any) => ({ text: e.text }) as any)
+  on('turn.start', (_, e: any) => ({ turnId: e.turnId }) as any)
+  on('turn.complete', () => ({ text: '' }) as any)
+  return { seen: Object.assign(seen, { toasts: base.toasts }), clock }
+}
+const handoff = ($: Parameters<TestBody>[0]) => $.command.run({ command: 'claudzilla', args: 'handoff', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })
+const submit = ($: Parameters<TestBody>[0], text = 'work') => $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } } as any)
+const turnStart = ($: Parameters<TestBody>[0], extra = {}) => $.turn.start({ text: 'work', turnId: 't1', ...extra } as any)
+
+test('/claudzilla handoff writes the note, then clears and fills @note after the hook returns', async ($, on) => {
+  const { seen, clock } = handoffHost(on)
+  await $.session.start(start)
+  await handoff($)
+  expect(seen.writes).toHaveLength(1)
+  expect(seen.writes[0]![0]).toBe(NOTE)
+  expect(seen.writes[0]![1]).toContain('claude --resume s1')
+  expect(seen.commands).toEqual([])
+  await clock.advance(500)
+  expect(seen.commands).toEqual(['clear'])
+  expect(seen.fills).toEqual([`@${NOTE} `])
+})
+
+test('/claudzilla handoff passes the transcript path as $1, not in the script', async ($, on) => {
+  const { seen } = handoffHost(on)
+  await $.session.start(start)
+  await handoff($)
+  const sh = seen.argvs.filter(a => a.startsWith('sh -c') && !a.includes('chmod'))
+  expect(sh).toHaveLength(2)
+  for (const a of sh) {
+    expect(a.split('/cfg/projects/p/s1.jsonl')).toHaveLength(2)
+    expect(a.endsWith('/cfg/projects/p/s1.jsonl')).toBe(true)
+  }
+})
+
+test('/claudzilla handoff mid-turn answers and does nothing', async ($, on) => {
+  const { seen, clock } = handoffHost(on)
+  await $.session.start(start)
+  await turnStart($)
+  const r: any = await handoff($)
+  expect(r.text).toContain('turn')
+  await clock.advance(500)
+  expect(seen.writes).toEqual([])
+  expect(seen.commands).toEqual([])
+})
+
+test("/claudzilla handoff after a subagent's turn.complete still counts the turn running", async ($, on) => {
+  const { seen } = handoffHost(on)
+  await $.session.start(start)
+  await turnStart($)
+  await $.turn.complete(done({ agentId: 'g1' }) as any)
+  const r: any = await handoff($)
+  expect(r.text).toContain('turn')
+  expect(seen.writes).toEqual([])
+})
+
+test("/claudzilla handoff: a subagent's turn.start does not make it refuse", async ($, on) => {
+  const { seen } = handoffHost(on)
+  await $.session.start(start)
+  await turnStart($, { agentId: 'g1' })
+  await handoff($)
+  expect(seen.writes).toHaveLength(1)
+})
+
+test('/claudzilla handoff: a prompt.submit alone does not make it refuse', async ($, on) => {
+  const { seen } = handoffHost(on)
+  await $.session.start(start)
+  await submit($)
+  await handoff($)
+  expect(seen.writes).toHaveLength(1)
+})
+
+test('/claudzilla handoff after the main turn completes runs', async ($, on) => {
+  const { seen } = handoffHost(on)
+  await $.session.start(start)
+  await turnStart($)
+  await $.turn.complete(done() as any)
+  await handoff($)
+  expect(seen.writes).toHaveLength(1)
+})
+
+test('/claudzilla handoff with no transcript answers and does nothing', async ($, on) => {
+  const { seen, clock } = handoffHost(on, { find: '' })
+  await $.session.start(start)
+  const r: any = await handoff($)
+  expect(r.text).toBeTruthy()
+  await clock.advance(500)
+  expect(seen.writes).toEqual([])
+  expect(seen.commands).toEqual([])
+})
+
+test('/claudzilla handoff skips /clear when the write fails', async ($, on) => {
+  const { seen, clock } = handoffHost(on, { writeFails: true })
+  await $.session.start(start)
+  await handoff($)
+  await clock.advance(500)
+  expect(seen.toasts.some(t => t.startsWith('Handoff note not written'))).toBe(true)
+  expect(seen.commands).toEqual([])
+})
+
+test('/claudzilla handoff makes the note folder 0700 before writing', async ($, on) => {
+  const { seen } = handoffHost(on)
+  await $.session.start(start)
+  await handoff($)
+  const i = seen.argvs.indexOf(`sh -c mkdir -p "$1" && chmod 700 "$1" sh ${CFG}/claudzilla-handoff`)
+  expect(i).toBeGreaterThanOrEqual(0)
+  expect(seen.writes).toHaveLength(1)
+  expect(seen.order.indexOf('mkdir')).toBeLessThan(seen.order.indexOf('write'))
+})
+
+test('/claudzilla handoff keeps typed text', async ($, on) => {
+  const { seen, clock } = handoffHost(on, { box: 'fix it' })
+  await $.session.start(start)
+  await handoff($)
+  await clock.advance(500)
+  expect(seen.fills).toEqual([`fix it @${NOTE} `])
+})
+
+test('/claudzilla handoff toasts the note path when /clear fails', async ($, on) => {
+  const { seen, clock } = handoffHost(on, { clearFails: true })
+  await $.session.start(start)
+  await handoff($)
+  await clock.advance(500)
+  expect(seen.toasts.some(t => t.includes(NOTE) && !t.includes('new session'))).toBe(true)
+})
+
+test('/claudzilla handoff toasts the note path when the fill fails', async ($, on) => {
+  const { seen, clock } = handoffHost(on, { filled: false })
+  await $.session.start(start)
+  await handoff($)
+  await clock.advance(500)
+  expect(seen.toasts.some(t => t.includes(NOTE))).toBe(true)
 })
