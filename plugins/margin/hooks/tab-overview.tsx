@@ -92,6 +92,22 @@ export const wrapLines = (text: string, w: number): string[] =>
     return [...lines, cur]
   })
 
+// Agent colours, none near one that already means something (memory: one colour per meaning): the common types
+// (99% of calls, transcripts since 2026-10-01) their own, any other name one of AGENT_HASHED, so never a fixed one.
+const AGENT_FIXED: Record<string, string> = { 'general-purpose': '#e8927c', 'cavecrew-reviewer': '#d17fcf', 'cavecrew-investigator': '#b3c46a', 'cavecrew-builder': '#c8b08a' }
+const AGENT_HASHED = ['#7f9cb0', '#8a8fe0']
+// An agent's shown name: its launch name, else its type without the plugin; `agent` for one no longer listed.
+const agentShown = (one?: Spawn) => (one && printable(one.name ?? (one.type ?? '').replace(/^[^:]+:/, ''))) || 'agent'
+// An agent's colour in PLAN and every USED modal: a common type its own, a launch name included; any other by its
+// shown name's hash; one no longer listed faint.
+const agentTone = (one?: Spawn) => {
+  if (!one) return HUD.faint
+  const fixed = AGENT_FIXED[(one.type ?? '').replace(/^[^:]+:/, '')]
+  if (fixed) return fixed
+  const name = agentShown(one)
+  return AGENT_HASHED[[...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 0) % AGENT_HASHED.length]
+}
+
 export type OverviewCtx = TabCtx & {
   // The agent whose transcript the main view shows; read when drawn and when pressed.
   viewing: () => string | undefined
@@ -236,15 +252,14 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const usedModal = (kind: UseKind, entry: NonNullable<typeof usedEntry>) => {
     const { sourceOf = {} } = entry
     const sourceFor = (name: string) => (Object.hasOwn(sourceOf, name) ? sourceOf[name] : undefined)
-    const agentName = (id?: string) => {
-      const one = id && sparks.find(s => s.id === id)
-      return (one && printable(one.name ?? (one.type ?? '').replace(/^[^:]+:/, ''))) || 'agent'
-    }
+    const agentName = (id?: string) => agentShown(sparks.find(s => s.id === id))
+    // A reader's colour: Claude the accent, an agent its own.
+    const toneOf = (reader: string) => (reader === 'main' ? 'claude' : agentTone(sparks.find(s => s.id === reader)))
     // A branch per reader, Claude first; on the web, a page sits under the search that led to it.
     const readers = readersOf(entry)
       .filter(([, m]) => m.length)
       .sort(([a], [b]) => Number(b === 'main') - Number(a === 'main'))
-    type Item = { name: string; glyph: string; count?: number; branch?: string }
+    type Item = { name: string; glyph: string; count?: number; branch?: string; tone?: string }
     const items: Item[] = readers.flatMap(([reader, m], ri) => {
       const last = ri === readers.length - 1
       const stem = last ? '  ' : '│ '
@@ -255,7 +270,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
       const under = (q: string) => m.filter(x => !isSearch(x) && parentOf(x[0]) === q)
       const top = [...searches, ...m.filter(x => !isSearch(x) && !searches.some(([q]) => q === parentOf(x[0])))]
       return [
-        { name: '', glyph: last ? '└ ' : '├ ', branch: reader === 'main' ? 'Claude' : agentName(reader) },
+        ((branch: string) => ({ name: '', glyph: last ? '└ ' : '├ ', branch, tone: toneOf(reader) }))(reader === 'main' ? 'Claude' : agentName(reader)),
         ...top.flatMap(([name, count], k) => {
           const end = k === top.length - 1
           const pages = isSearch([name, count]) ? under(name) : []
@@ -268,12 +283,12 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     })
     const inner = modalFrame(props.bodyColumns, tabRows, 0).width - 4
     let itemAt = 0
-    const rows = items.map(({ name, glyph, count, branch }) => {
+    const rows = items.map(({ name, glyph, count, branch, tone }) => {
       if (branch !== undefined)
         return (
           <Text>
             <Text color="promptBorder">{` ${glyph}`}</Text>
-            <Text>{fit(branch, Math.max(1, inner - (glyph.length + 1)))}</Text>
+            <Text color={tone}>{fit(branch, Math.max(1, inner - (glyph.length + 1)))}</Text>
           </Text>
         )
       const i = itemAt++
@@ -571,7 +586,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                             : (marks => (row.id ? padded(marks, tree.length + 2 + text.length) : marks))([
                                 <Text key="tree" color={shade('promptBorder')}>{tree}</Text>,
                                 <Text key="mark" color={shade(color)}>{`${glyph} `}</Text>,
-                                <Text key="text" color={shade(agentText(row.status))}>{text}</Text>,
+                                // The mark keeps the status colour; the text takes the agent's own once it runs.
+                                <Text key="text" color={shade((one => (one ? agentTone(one) : agentText(row.status)))(row.id ? sparks.find(s => s.id === row.id) : undefined))}>{text}</Text>,
                               ])
                         return { key, left, word: AGENT_WORD[row.status], mark: shade(color) }
                       }

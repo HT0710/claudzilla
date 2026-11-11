@@ -3817,6 +3817,8 @@ test("hang: an agent spawned before this turn's report hangs under its in-progre
   expect(hang([S('b', 'in_progress')], [sp('1', 'x', 'old step', 3)], 3)[0]).toHaveLength(1)
 })
 
+// An agent row's text takes its agent's colour: a test spawn has no type, so it shows `agent`, which hashes to indigo.
+const AGENT_TONE = '#8a8fe0'
 const AGENTS_REPORT = { ...REPORT, steps: [{ text: 'spec', status: 'in_progress', agents: ['Read code'] }, { text: 'plan', status: 'pending', agents: ['Check API'] }] }
 // Core's spawn answers ids a1, a2, ...; the list answers each id's status from `status`.
 const agentsPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], status: Record<string, string>, extra: Record<string, object> = {}) => {
@@ -4041,7 +4043,7 @@ test('a listed agent shows planned, then live under its step', async ($, on) => 
   expect((await agentRow(ui, 1, 0))?.text).toBe('└ ○ Check API')
   await spawn($, 'Read code')
   await ui.drawn()
-  expect(await agentRow(ui, 0, 0)).toEqual({ text: '└ ◌ Read code', glyph: 'claude', color: undefined })
+  expect(await agentRow(ui, 0, 0)).toEqual({ text: '└ ◌ Read code', glyph: 'claude', color: AGENT_TONE })
   status.a1 = 'failed'
   await turnEnd($, 'a1')
   await ui.drawn()
@@ -4056,11 +4058,11 @@ test('each agent status draws its glyph and color, in the order Claude listed th
   await ui.drawn()
   const rows = await Promise.all([0, 1, 2, 3, 4].map(n => agentRow(ui, 0, n)))
   expect(rows).toEqual([
-    { text: '├ ✓ c', glyph: '#5d9678', color: '#808286' },
-    { text: '├ ◌ p', glyph: '#4f5c68', color: '#4f5c68' },
-    { text: '├ ■ k', glyph: '#8c7850', color: '#808286' },
-    { text: '├ ✗ f', glyph: '#e06c75', color: '#808286' },
-    { text: '├ ◌ r', glyph: 'claude', color: undefined },
+    { text: '├ ✓ c', glyph: '#5d9678', color: AGENT_TONE },
+    { text: '├ ◌ p', glyph: '#4f5c68', color: AGENT_TONE },
+    { text: '├ ■ k', glyph: '#8c7850', color: AGENT_TONE },
+    { text: '├ ✗ f', glyph: '#e06c75', color: AGENT_TONE },
+    { text: '├ ◌ r', glyph: 'claude', color: AGENT_TONE },
   ])
 })
 
@@ -4112,7 +4114,7 @@ test('an answer closes the steps but agent rows keep their own marks', async ($,
   await turnEnd($)
   await ui.drawn()
   expect(await textOf(ui, 'count')).toBe('2/2 steps')
-  expect(await agentRow(ui, 0, 0)).toEqual({ text: '└ ■ Read code', glyph: '#8c7850', color: '#808286' })
+  expect(await agentRow(ui, 0, 0)).toEqual({ text: '└ ■ Read code', glyph: '#8c7850', color: AGENT_TONE })
 })
 
 test('a long agent description is fitted to the pane', async ($, on) => {
@@ -4827,6 +4829,27 @@ test('web rows: a page links in parts, a search says search; other rows name the
   expect(await hasInModal(ui, 'slack_send_message')).toBe(true)
   expect(await inModal(ui, 'slack_send_message')).toBeUndefined()
   expect(await inModal(ui, 'slack')).toBe('#4f5c68')
+})
+
+test('each FILES reader has its colour: Claude the accent, common types their own, any other name one of the set, an unknown agent faint', async ($, on) => {
+  const ui = await usedPane($, on)
+  await spawn($, 'one', { subagentType: 'general-purpose' })
+  await spawn($, 'two', { subagentType: 'caveman:cavecrew-reviewer' })
+  await spawn($, 'three', { subagentType: 'caveman:cavecrew-investigator' })
+  await spawn($, 'four', { subagentType: 'caveman:cavecrew-builder' })
+  await spawn($, 'five', { name: 'scout' })
+  // A launch name keeps its type's colour: this reviewer shows as critic, in the reviewer's colour.
+  await spawn($, 'six', { name: 'critic', subagentType: 'caveman:cavecrew-reviewer' })
+  await $.tool.call({ tool: 'Read', file_path: '/proj/m.ts' } as any)
+  for (const n of [1, 2, 3, 4, 5, 6]) await $.tool.call({ tool: 'Read', file_path: `/proj/${n}.ts`, agentId: `a${n}` } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/z.ts', agentId: 'zz' } as any)
+  // Tall enough for all 8 readers and their files.
+  await ui.redraw({ ...props, scroll: { offset: 0, bodyRows: 40 + BAR_ROWS } })
+  await tapRow(ui, 'o:used:files')
+  const colour = new Map((await modalTexts(ui)).map(t => [t.text, t.color]))
+  expect(['Claude', 'general-purpose', 'cavecrew-reviewer', 'cavecrew-investigator', 'cavecrew-builder', 'critic', 'agent'].map(n => colour.get(n))).toEqual(['claude', '#e8927c', '#d17fcf', '#b3c46a', '#c8b08a', '#d17fcf', '#4f5c68'])
+  // Any other name takes a colour no common type has.
+  expect(['#7f9cb0', '#8a8fe0']).toContain(colour.get('scout'))
 })
 
 test('the FILES branch name: launch name, else type without the plugin, else agent', async ($, on) => {
