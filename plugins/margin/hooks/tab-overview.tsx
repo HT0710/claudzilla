@@ -538,8 +538,9 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                       const shownRows = rows.slice(w.top, w.top + w.shown).map((r, n) => {
                         if (!r.key) return r.node
                         const k = w.top + n
-                        kitCard(rc, `card:${r.key}`, atOf(k), 'center', kitKv(rc, 'status', <Text color={r.mark}>{r.word}</Text>))
-                        return kitRow(rc, r.key, r.left!, [], { pieces: (key, node) => dimOn(k, toPieces(node)), line: k, act: false, lit: true })
+                        // A Button row posts no enter, so the left Client row's card cannot hide its card: hover alone shows it.
+                        kitCard(r.key in acts ? { ...rc, gone: undefined } : rc, `card:${r.key}`, atOf(k), 'center', kitKv(rc, 'status', <Text color={r.mark}>{r.word}</Text>))
+                        return kitRow(rc, r.key, r.left!, [], { pieces: (key, node) => dimOn(k, toPieces(node)), line: k, act: false, lit: true, press: r.key in acts })
                       })
                       return [w.above > 0 && stepCues.up, ...shownRows, w.below > 0 && stepCues.down]
                     })(shown.steps.map((step, i) => {
@@ -552,7 +553,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                         .map(glyph => [glyph, hidden.filter(row => AGENT_MARK[row.status][0] === glyph).length] as const)
                         .flatMap(([glyph, n]) => (n ? `${n} ${glyph}` : []))
                         .join(' ')
-                      // In an agent's transcript, that agent's step leads back to the main conversation.
+                      // A row that is a Button inverts only its text under the pointer: padded, the whole row does, as the lit row.
+                      const padded = (left: JSX.Element[], used: number) => [...left, <Text key="pad">{' '.repeat(Math.max(0, width - LABEL - used))}</Text>]
                       const stepLine = [
                         <Text key="mark" color={shade(MARK_SHADE[step.status])}>{`${MARK[step.status]} `}</Text>,
                         <Text key="text" color={shade(TEXT_SHADE[step.status])}>{count(fit(step.text, width - LABEL - 2))}</Text>,
@@ -566,11 +568,11 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                         const left =
                           row.id && row.id === ctx.viewing()
                             ? [<Text bold inverse color={shade('claude')}>{`${tree}${glyph} ${text}`.padEnd(width - LABEL)}</Text>]
-                            : [
+                            : (marks => (row.id ? padded(marks, tree.length + 2 + text.length) : marks))([
                                 <Text key="tree" color={shade('promptBorder')}>{tree}</Text>,
                                 <Text key="mark" color={shade(color)}>{`${glyph} `}</Text>,
                                 <Text key="text" color={shade(agentText(row.status))}>{text}</Text>,
-                              ]
+                              ])
                         return { key, left, word: AGENT_WORD[row.status], mark: shade(color) }
                       }
                       const toggle = (key: string, label: string, to: number): StepLine => ({
@@ -582,7 +584,6 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                         ),
                       })
                       const stepKey = `o:step:${i}`
-                      if (all.some(row => row.id && row.id === ctx.viewing())) acts[stepKey] = () => view()
                       return [
                         { key: stepKey, left: stepLine, word: STEP_WORD[step.status], mark: shade(MARK_SHADE[step.status]) },
                         ...rows.map((row, j) => agentLine(row, j === rows.length - 1 && !folds ? '└ ' : '├ ', j)),

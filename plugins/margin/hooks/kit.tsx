@@ -338,18 +338,39 @@ export type RowCtx = {
   up: (at: number, n: number) => boolean
 }
 export type LayerCtx = { el: Els; layers: { m?: Layer; s?: Layer }; setModal: (change: (m: Modal | null) => Modal | null) => Promise<void> }
-export const row = (rc: RowCtx, key: string, left: any[], right: any[], o: { pieces: (key: string, node: any[]) => Piece[]; line: number; act: boolean; lit?: boolean; width?: number }): JSX.Element => {
-  const { Box, Button } = rc.el
+export const row = (rc: RowCtx, key: string, left: any[], right: any[], o: { pieces: (key: string, node: any[]) => Piece[]; line: number; act: boolean; lit?: boolean; press?: boolean; width?: number }): JSX.Element => {
+  const { Box, Button, Text } = rc.el
   const Client = 'Client' in rc.el ? rc.el.Client : undefined
-  return Client ? (
+  // A `press` row's pieces as row.tsx draws them, so the lines above and below dim it; innermost, the accent its own
+  // hover lights, as each piece's colour beats the Button's.
+  const hot = (pieces: Piece[]) =>
+    pieces.map(({ text, under, hover, ...style }) => {
+      const inner = <Text hover={{ color: 'claude', bold: true }}>{text}</Text>
+      return (
+        <Text {...style} hover={hover}>
+          {under ? <Text hover={under}>{inner}</Text> : inner}
+        </Text>
+      )
+    })
+  // `press`: a Button even beside a Client, as $.ui.view runs only from the person's own press, and a Client's post is code.
+  return Client && !o.press ? (
     <Box flexDirection="column" height={1} hover={rc.dimmed ? undefined : { scope: `card:${key}`, ...(!o.act && (o.lit || key in rc.hover.acts) && { backgroundColor: LIT }) }} {...(o.width !== undefined && { width: o.width, flexShrink: 0 })}>
       <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left: o.pieces(key, left), right: o.pieces(key, right), ...(!rc.dimmed && { line: `line:${o.line}` }) }} />
     </Box>
   ) : (
     <Box key={`hov:${key}`} hover={rc.dimmed ? undefined : { scope: `card:${key}` }} justifyContent="space-between" height={1} overflow="hidden" {...(o.width !== undefined && { flexShrink: 0 })}>
-      <Button key={`git:${key}`} plain onPress={() => rc.hover.acts[key]?.()}>
-        {left}
-      </Button>
+      {o.press ? (
+        // Its line's hover group, as a row Client's: the row under it dims while it is hovered.
+        <Box flexGrow={1} hover={rc.dimmed ? undefined : { scope: `line:${o.line}` }}>
+          <Button key={`git:${key}`} plain onPress={() => rc.hover.acts[key]?.()}>
+            {hot(o.pieces(key, left))}
+          </Button>
+        </Box>
+      ) : (
+        <Button key={`git:${key}`} plain onPress={() => rc.hover.acts[key]?.()}>
+          {left}
+        </Button>
+      )}
       <Box flexShrink={0}>{right}</Box>
     </Box>
   )
