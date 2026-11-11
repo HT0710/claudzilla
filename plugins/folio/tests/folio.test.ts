@@ -2269,10 +2269,15 @@ test("a finished agent's description takes its input type's colour", async ($, o
   expect(await label(await mountRow($, 'Agent', agentDone, { input: { description: 'd', subagent_type: 'general-purpose' } }, '/p/a.txt', 'a1'))).toBe('#e8927c')
 })
 
-test("another type's description is one of the hashed colours", async ($, on) => {
-  native(on)
-  expect(['#7f9cb0', '#8a8fe0']).toContain(await label(await mountRow($, 'Agent', agentDone, { input: { description: 'd', subagent_type: 'Plan' } }, '/p/a.txt', 'a1')))
-})
+for (const [name, input, want] of [
+  ['another type hashes its name', { subagent_type: 'Plan' }, '#8a8fe0'],
+  ['a named agent of another type hashes its launch name', { subagent_type: 'Plan', name: 'scout' }, '#7f9cb0'],
+] as const) {
+  test(`${name}: ${want}`, async ($, on) => {
+    native(on)
+    expect(await label(await mountRow($, 'Agent', agentDone, { input: { description: 'd', ...input } }, '/p/a.txt', 'a1'))).toBe(want)
+  })
+}
 
 test("a background agent's finish row keeps its description colour", async ($, on) => {
   finished(on)
