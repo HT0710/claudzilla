@@ -12,7 +12,7 @@ After a reply with one `Decision — <topic>` (or `Decision: <topic>`, or an `##
 - **Compact line:** a reply ending with a **Compact** line and no `Next:` offers its command (`/claudzilla compact` or `/clear`) as the dim suggestion.
 - **Last row, `go ahead, except…`:** puts `go, but ` in the prompt box for your exceptions (`go, but 2B`).
 
-A digit typed into an empty prompt, then a short pause, picks a row. The recommended row's answer (or the `go` answer) waits dim in the empty prompt: → or Tab, then Enter, sends it. alt+k (`abovePrompt:focus`, which claudzilla's `install.sh` binds; `ctrl+x tab` by default) focuses the card on that row: arrows move, Enter puts the answer in the prompt box and returns there, Esc returns without one. The card hides while Claude works and goes once you send any prompt. When a Stop hook sends Claude back to finish with a "no claim" reply, the offer survives: the card keeps the ask from the message before it.
+A digit typed into an empty prompt, then a short pause, picks a row. The recommended row's answer (or the `go` answer, also when a Next or Picks line says more than the pick, such as `X` from `say go and I'll X`) waits dim in the empty prompt: → or Tab, then Enter, sends it. alt+k (`abovePrompt:focus`, which claudzilla's `install.sh` binds; `ctrl+x tab` by default) focuses the card on that row: arrows move, Enter puts the answer in the prompt box and returns there, Esc returns without one. The card hides while Claude works and goes once you send any prompt. When a Stop hook sends Claude back to finish with a "no claim" reply, the offer survives: the card keeps the ask from the message before it.
 
 ## Install
 
