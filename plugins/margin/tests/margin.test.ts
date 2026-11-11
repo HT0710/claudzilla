@@ -683,6 +683,7 @@ test('bashPaths: each path word of a search or read part, resolved from the cwd 
   expect(bashPaths("cat > f.py <<'EOF'\ncat a\nEOF\npython3 f.py", '/r')).toEqual([])
   expect(bashPaths('git status && sed -n 1,5p a && catalog x', '/r')).toEqual([])
   expect(bashPaths('cat a /abs/b', '')).toEqual(['/abs/b'])
+  expect(bashPaths('grep x a.ts &> out.log; cat b 2> err.log', '/r')).toEqual(['/r/x', '/r/a.ts', '/r/b'])
 })
 
 test('recordUse records the uses it is given, with their source', () => {
@@ -3394,6 +3395,17 @@ test('USED lists the files a Bash search reaches under files, source bash; folde
   await ui.drawn()
   expect(await usedPiece(ui, 'files', /a\.ts/)).toBeDefined()
   expect(await pieces(ui, 'o:used:other')).toBeUndefined()
+})
+
+test('a denied Bash call records no file', async ($, on) => {
+  on('tool.call', () => ({ deny: 'no' }) as any)
+  on('session.cwd', () => ({ value: '/proj' }) as any)
+  on('fs.stat', () => ({ value: { kind: 'file', size: 1, mtimeMs: 0 } }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await $.tool.call({ tool: 'Bash', command: 'cat a.ts' } as any)
+  await ui.drawn()
+  expect(await pieces(ui, 'o:used:files')).toBeUndefined()
 })
 
 test('USED kinds pad to the longest shown plus 2 spaces', async ($, on) => {
