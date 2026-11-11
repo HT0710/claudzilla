@@ -340,8 +340,9 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
       )
       return (
         <Box justifyContent="space-between" gap={2}>
-          <Box flexShrink={1} overflow="hidden">
-            <Text color="promptBorder">{` ${glyph}`}</Text>
+          {/* A Text's trailing space beside a sibling is dropped, so the gap holds the glyph's space. */}
+          <Box flexShrink={1} overflow="hidden" gap={1}>
+            <Text color="promptBorder">{` ${glyph.trimEnd()}`}</Text>
             {target}
           </Box>
           {hint ? (
