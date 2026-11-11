@@ -40,7 +40,7 @@ export function resetStepsHeld() {
 const STEP_WORD: Record<Step['status'], string> = { completed: 'done', in_progress: 'working', pending: 'not started' }
 const AGENT_WORD: Record<AgentRow['status'], string> = { completed: 'done', pending: 'not started', planned: 'not started', running: 'running', waiting: 'waiting', idle: 'idle', failed: 'failed', killed: 'stopped' }
 // A STEPS row: a step or agent with its card, or a fold toggle.
-type StepLine = { key?: string; left?: JSX.Element[]; word?: string; mark?: string; node?: JSX.Element }
+type StepLine = { key?: string; left?: JSX.Element[]; word?: string; mark?: string; node?: JSX.Element; more?: JSX.Element[] }
 
 const WORKING = ['running', 'waiting', 'idle']
 export const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
@@ -98,6 +98,8 @@ const AGENT_FIXED: Record<string, string> = { 'general-purpose': '#e8927c', 'cav
 const AGENT_HASHED = ['#7f9cb0', '#8a8fe0']
 // An agent's shown name: its launch name, else its type without the plugin; `agent` for one no longer listed.
 const agentShown = (one?: Spawn) => (one && printable(one.name ?? (one.type ?? '').replace(/^[^:]+:/, ''))) || 'agent'
+// A model id as name and version (`claude-haiku-5-5` reads `haiku 5.5`); an alias or other id as given.
+export const modelName = (id: string) => id.replace(/^claude-([a-z]+)-(\d+)-(\d+)\b.*$/, '$1 $2.$3')
 // An agent's colour in PLAN and every USED modal: a common type its own, a launch name included; any other by its
 // shown name's hash; one no longer listed faint.
 const agentTone = (one?: Spawn) => {
@@ -555,7 +557,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                         if (!r.key) return r.node
                         const k = w.top + n
                         // A Button row posts no enter, so the left Client row's card cannot hide its card: hover alone shows it.
-                        kitCard(r.key in acts ? { ...rc, gone: undefined } : rc, `card:${r.key}`, atOf(k), 'center', kitKv(rc, 'status', <Text color={r.mark}>{r.word}</Text>))
+                        kitCard(r.key in acts ? { ...rc, gone: undefined } : rc, `card:${r.key}`, atOf(k), 'center', kitKv(rc, 'status', <Text color={r.mark}>{r.word}</Text>), ...(r.more ?? []))
                         return kitRow(rc, r.key, r.left!, [], { pieces: (key, node) => dimOn(k, toPieces(node)), line: k, act: false, lit: true, press: r.key in acts })
                       })
                       return [w.above > 0 && stepCues.up, ...shownRows, w.below > 0 && stepCues.down]
@@ -590,7 +592,14 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                                 // The mark keeps the status colour; the text takes the agent's own once it runs.
                                 <Text key="text" color={shade((one => (one ? agentTone(one) : agentText(row.status)))(row.id ? sparks.find(s => s.id === row.id) : undefined))}>{text}</Text>,
                               ])
-                        return { key, left, word: AGENT_WORD[row.status], mark: shade(color) }
+                        const one = row.id ? sparks.find(s => s.id === row.id) : undefined
+                        const type = one?.type?.replace(/^[^:]+:/, '')
+                        const more = [
+                          ...(type ? [kitKv(rc, 'type', <Text color={agentTone(one)}>{printable(type)}</Text>)] : []),
+                          ...(one?.model ? [kitKv(rc, 'model', printable(modelName(one.model)))] : []),
+                          ...(one?.effort ? [kitKv(rc, 'effort', one.effort)] : []),
+                        ]
+                        return { key, left, word: AGENT_WORD[row.status], mark: shade(color), more }
                       }
                       const toggle = (key: string, label: string, to: number): StepLine => ({
                         node: (

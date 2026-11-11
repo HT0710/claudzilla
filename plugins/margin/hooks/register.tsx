@@ -1128,13 +1128,21 @@ export const register: Register = (on, options) => {
         const shown = await read($, intent)
         const turn = await read($, turns)
         const step = shown.steps.find(one => one.status === 'in_progress')?.text ?? ''
-        await update($, spawns, now => [...now, { id, description: e.description, step, turn, status: 'pending', name: e.name, type: e.subagentType }])
+        await update($, spawns, now => [...now, { id, description: e.description, step, turn, status: 'pending', name: e.name, type: e.subagentType, model: result.model }])
         // Whether Claude listed it: how often it does is the later consistency check.
         t.event('agent.spawn', { listed: shown.steps.some(one => one.agents?.some(listed => same(listed, e.description))) })
       }
       await refreshSpawns($)
 
       return result
+    })
+
+    // Effort is on no spawn field: a subagent's first model request carries it.
+    on('turn.step', async function* ($, e, next) {
+      const effort = e.effort
+      if (e.agentId && typeof effort === 'string' && (await read($, spawns)).some(one => one.id === e.agentId && !one.effort))
+        await update($, spawns, now => now.map(one => (one.id === e.agentId ? { ...one, effort } : one)))
+      return yield* next(e)
     })
   }
 
