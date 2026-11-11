@@ -134,6 +134,18 @@ test('fetch button shows the fetch age, presses git fetch origin', async ($, on)
   expect(await piece(ui, 'fetch', '◌ fetching')).toBeUndefined()
 })
 
+test('opening the Git tab 15 minutes after the last fetch fetches origin, with no prompts', async ($, on) => {
+  quiet(on, 20 * MIN)
+  let fetched = (_: string) => {}
+  const run = new Promise<string>(r => (fetched = r))
+  on('process.run', async (_, e) => {
+    if (e.argv.join(' ').includes('git fetch')) fetched(e.argv.join(' '))
+    return ran(git(repoOn('a'))(e.argv) ?? '')
+  })
+  await mount($)
+  expect(await run).toMatch(/^env GIT_TERMINAL_PROMPT=0 GIT_ASKPASS= GCM_INTERACTIVE=never sh -c .*BatchMode=yes" exec git fetch --no-auto-gc origin$/)
+})
+
 test('a long branch name leaves room for "◌ fetching" while a fetch runs', async ($, on) => {
   quiet(on)
   const name = `feat/${'x'.repeat(80)}`

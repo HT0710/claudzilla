@@ -8,7 +8,7 @@ import type { Prompt, Readers, TabCtx, TabDraw, UseEntry, UseKind, Used, Zone } 
 import { capped } from './modal'
 import { readPalette } from './palette'
 import { draw as drawFile } from './tab-file'
-import { draw as drawGit, resetGitReads } from './tab-git'
+import { autoFetch, draw as drawGit, resetGitReads } from './tab-git'
 import { draw as drawHistory } from './tab-history'
 import { draw as drawOverview, resetStepsHeld, same } from './tab-overview'
 import { tracer } from './trace'
@@ -839,7 +839,11 @@ const pick = async ($: EngineInterface, next: Tab) => {
   // Each write draws the pane; a second draw could land before the first, and the terminal
   // then dropped the next click.
   if ((await read($, notices)).includes(next)) await update($, notices, list => list.filter(one => one !== next))
-  if (next === 'Git') await readGh($)
+  if (next === 'Git') {
+    // Not awaited: a fetch can take a minute.
+    void autoFetch($)
+    await readGh($)
+  }
 }
 const tabCommand = (name: string) => `margin-${name.toLowerCase()}`
 // A pane waiting for room is not shown: the person's open places it.
@@ -992,10 +996,10 @@ export const register: Register = (on, options) => {
     await update($, overview, now => (now.running ? { ...now, running: false } : now))
     // immediate: a key mid-turn opens the pane now, not once the turn ends; it prints nothing.
     await $.command.register({ name: 'margin', description: 'Toggle the margin', immediate: true })
-    // GitHub's PRs while the Git tab shows; its redraw also ages the fetch time.
+    // GitHub's PRs and a due fetch while the Git tab shows; its redraw also ages the fetch time.
     $.clock.every(60_000, () => {
       void (async () => {
-        if ((await read($, tab)) === 'Git' && (await isPlaced($))) await readGh($)
+        if ((await read($, tab)) === 'Git' && (await isPlaced($))) await Promise.all([readGh($), autoFetch($)])
       })()
     })
     for (const name of Object.keys(KEYS)) await $.command.register({ name: tabCommand(name), description: `Margin: ${name} tab`, immediate: true })

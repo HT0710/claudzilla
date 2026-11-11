@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { Check, CheckState, CommitView, Counts, FileView, Gh, LogRow, Modal, ModalKey, Op, Pr, PrState, PrView, Stage, Word } from '../types'
-import { LOG_FORMAT, age, ago, branches, cutMiddle, fileKey, incomingPrs, ownPrs, parseHead, parseLog, parseMerge, parseNumstat, parseRebase, parseShortstat, parseStatusZ, printable, sortChecks, stashCount, syncMark, treeRows, worktrees, worst } from './git-data'
+import { LOG_FORMAT, age, ago, branches, cutMiddle, fetchDue, fileKey, incomingPrs, ownPrs, parseHead, parseLog, parseMerge, parseNumstat, parseRebase, parseShortstat, parseStatusZ, printable, sortChecks, stashCount, syncMark, treeRows, worktrees, worst } from './git-data'
 import { AHEAD, BAR_ROWS, BEHIND, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, capped, card as kitCard, clock, configDir, contentFrame, counted as kitCounted, cues, dayName, dim, drawLayer as kitDrawLayer, emptyNote, fade, fadeBg, fileView, fit, heading as kitHeading, kv as kitKv, line as kitLine, modalFrame, modalZone, nudge, readTheme, row as kitRow, rowHovers, stackFrame, textLength, toPieces, zoneWindow } from './kit'
 import type { Frame, Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, Zone } from './kit'
 import { mdRows } from './markdown'
@@ -52,6 +52,42 @@ export const gitWeb = (remote: string) => {
     branch: (name: string) => `${base}/${paths.branch}/${name.split('/').map(encodeURIComponent).join('/')}`,
   }
 }
+// The git dir's files, and the shared one's in a linked worktree: the newer FETCH_HEAD is the last fetch.
+function readGitDir($: EngineInterface) {
+  return $.process
+    .run(['git', 'rev-parse', '--absolute-git-dir', '--path-format=absolute', '--git-common-dir', '--show-toplevel'])
+    .then(async run => {
+      if (run.exitCode) return undefined
+      // No top level in the answer: the files sit beside .git.
+      const [dir = '', common = dir, root = dir.replace(/\/\.git(\/.*)?$/, '')] = run.stdout.trim().split('\n')
+      const [files, shared] = await Promise.all([dir, common].map(one => $.fs.list(one).catch(() => [])))
+      const fetched = [...files!, ...(common === dir ? [] : shared!)].filter(one => one.name === 'FETCH_HEAD').map(one => one.mtimeMs)
+      return { dir, root, files: files!, fetchedAt: fetched.length ? Math.max(...fetched) : undefined }
+    })
+    .catch(() => undefined)
+}
+// When this session last tried an auto fetch, per git dir: a failed one leaves FETCH_HEAD old.
+const autoTried = new Map<string, number>()
+// No prompt can hang it: an empty GIT_ASKPASS skips core.askPass and SSH_ASKPASS dialogs, and ssh
+// gets BatchMode on top of the user's own ssh command.
+const QUIET_FETCH = 'GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-$(git config core.sshCommand || echo ssh)} -o BatchMode=yes" exec git fetch --no-auto-gc origin'
+// Fetches origin when due, while the Git tab shows. Quiet on failure, as no one asked.
+export async function autoFetch($: EngineInterface) {
+  if (await read($, fetching)) return
+  const [gitDir, now] = await Promise.all([readGitDir($), $.clock.now()])
+  if (!gitDir || !fetchDue({ fetchedAt: gitDir.fetchedAt, triedAt: autoTried.get(gitDir.dir) ?? 0, names: gitDir.files.map(one => one.name), now })) return
+  // A click may have started a fetch while the git dir was read.
+  if (await read($, fetching)) return
+  autoTried.set(gitDir.dir, now)
+  await update($, fetching, () => true)
+  // Env through `env`, as the engine's own is kept.
+  await $.process
+    .run(['env', 'GIT_TERMINAL_PROMPT=0', 'GIT_ASKPASS=', 'GCM_INTERACTIVE=never', 'sh', '-c', QUIET_FETCH], { timeoutMs: 60_000 })
+    .catch(() => undefined)
+  await update($, fetching, () => false)
+  // As fetchNow: the tab reads git again.
+  await update($, toolCalls, n => n + 1)
+}
 // The Git tab's reads, in the session's folder, which follows a shell `cd`. No optional locks: a
 // status run beside the model's own git command must not hold index.lock.
 function readGit($: EngineInterface) {
@@ -65,18 +101,7 @@ function readGit($: EngineInterface) {
     $.process.run(['git', 'rev-list', 'HEAD', '--not', '--remotes']).catch(() => undefined),
     $.process.run(['git', 'rev-list', '--count', 'HEAD']).catch(() => undefined),
     $.process.run(['git', 'remote', 'get-url', 'origin']).catch(() => undefined),
-    // The git dir's files, and the shared one's in a linked worktree: the newer FETCH_HEAD is the last fetch.
-    $.process
-      .run(['git', 'rev-parse', '--absolute-git-dir', '--path-format=absolute', '--git-common-dir', '--show-toplevel'])
-      .then(async run => {
-        if (run.exitCode) return undefined
-        // No top level in the answer: the files sit beside .git.
-        const [dir = '', common = dir, root = dir.replace(/\/\.git(\/.*)?$/, '')] = run.stdout.trim().split('\n')
-        const [files, shared] = await Promise.all([dir, common].map(one => $.fs.list(one).catch(() => [])))
-        const fetched = [...files!, ...(common === dir ? [] : shared!)].filter(one => one.name === 'FETCH_HEAD').map(one => one.mtimeMs)
-        return { dir, root, files: files!, fetchedAt: fetched.length ? Math.max(...fetched) : undefined }
-      })
-      .catch(() => undefined),
+    readGitDir($),
     $.process.run(['git', 'stash', 'list', '--format=%gs']).catch(() => undefined),
     $.process.run(['git', 'for-each-ref', 'refs/heads', '--format=%(refname:short)%09%(upstream:short)%09%(upstream:track)%09%(committerdate:unix)']).catch(() => undefined),
     $.process.run(['git', 'worktree', 'list', '--porcelain']).catch(() => undefined),
