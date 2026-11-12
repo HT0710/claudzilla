@@ -768,7 +768,7 @@ test('handoffNote: how to dig says only the Git block was checked', () => {
 
 test('handoffNote: how to dig names grep, haiku and compact summaries', () => {
   const n = note(typed('hi'))
-  for (const s of ['Check git before saying what is pending. Don\'t restate the last reply.', 'grep -n', 'isCompactSummary', 'Never Read it whole', 'Read with `offset` and `limit`', 'the old transcript yourself, by line number']) expect(n).toContain(s)
+  for (const s of ['If this note is your whole prompt, say in one line what you loaded, then wait for the user\'s ask.', 'Check git before saying what is pending. Don\'t restate the last reply.', 'grep -n', 'isCompactSummary', 'Never Read it whole', 'Read with `offset` and `limit`', 'the old transcript yourself, by line number']) expect(n).toContain(s)
 })
 
 const CFG = '/cfg'
@@ -776,8 +776,8 @@ const NOTE = `${CFG}/claudzilla-handoff/s1.md`
 const done = (extra = {}) => ({ answer: 'x', reason: 'answer' as const, durationMs: 1, isAborted: false, turnId: 't1', ...extra })
 
 // A session idle after a reply: transcript found, greps answered, box as given.
-function handoffHost(on: Parameters<TestBody>[1], o: { find?: string; box?: string; writeFails?: boolean; clearFails?: boolean; filled?: boolean; drop?: boolean; git?: string } = {}) {
-  const seen = { order: [] as string[], writes: [] as [string, string][], commands: [] as string[], fills: [] as string[], argvs: [] as string[] }
+function handoffHost(on: Parameters<TestBody>[1], o: { find?: string; writeFails?: boolean; clearFails?: boolean; submitFails?: boolean; submitDrop?: boolean; filled?: boolean; drop?: boolean; git?: string } = {}) {
+  const seen = { order: [] as string[], writes: [] as [string, string][], commands: [] as string[], fills: [] as string[], submits: [] as any[], argvs: [] as string[] }
   const clock = mock.clock(on, { now: 0 })
   const base = host(on, {
     proc: c => {
@@ -794,9 +794,8 @@ function handoffHost(on: Parameters<TestBody>[1], o: { find?: string; box?: stri
   on('session.cwd', () => ({ value: '/proj' }) as any)
   on('fs.write', (_, e: any) => { if (o.writeFails) throw new Error('disk full'); seen.order.push('write'); seen.writes.push([e.path, e.text ?? e.content]); return { value: undefined } as any })
   on('command.run', (_, e: any) => { if (e.command === 'clear') { seen.commands.push('clear'); if (o.clearFails) throw new Error('no'); } return { value: {} } as any })
-  on('prompt.read', () => ({ value: { text: o.box ?? '', cursor: 0 } }) as any)
   on('prompt.fill', (_, e: any) => { seen.fills.push(e.text); return { isFilled: o.filled ?? true } as any })
-  on('prompt.submit', (_, e: any) => ({ text: e.text }) as any)
+  on('prompt.submit', (_, e: any) => { if (e.origin?.kind === 'plugin') { seen.submits.push(e); if (o.submitFails) throw new Error('no'); if (o.submitDrop) return { drop: 'refused' } as any } return { text: e.text } as any })
   on('turn.start', (_, e: any) => ({ turnId: e.turnId }) as any)
   on('turn.complete', () => ({ text: '' }) as any)
   return { seen: Object.assign(seen, { toasts: base.toasts, registered: base.registered }), clock }
@@ -805,7 +804,7 @@ const handoff = ($: Parameters<TestBody>[0]) => $.command.run({ command: 'claudz
 const submit = ($: Parameters<TestBody>[0], text = 'work') => $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } } as any)
 const turnStart = ($: Parameters<TestBody>[0], extra = {}) => $.turn.start({ text: 'work', turnId: 't1', ...extra } as any)
 
-test('/claudzilla handoff writes the note, then clears and fills @note after the hook returns', async ($, on) => {
+test('/claudzilla handoff writes the note, then clears and sends the note as the user after the hook returns', async ($, on) => {
   const { seen, clock } = handoffHost(on)
   await $.session.start(start)
   await handoff($)
@@ -815,6 +814,24 @@ test('/claudzilla handoff writes the note, then clears and fills @note after the
   expect(seen.commands).toEqual([])
   await clock.advance(500)
   expect(seen.commands).toEqual(['clear'])
+  expect(seen.submits).toHaveLength(1)
+  expect(seen.submits[0]).toMatchObject({ text: seen.writes[0]![1], origin: { kind: 'plugin', asUser: true } })
+  expect(seen.fills).toEqual([])
+})
+
+test('/claudzilla handoff fills @note when the send fails', async ($, on) => {
+  const { seen, clock } = handoffHost(on, { submitFails: true })
+  await $.session.start(start)
+  await handoff($)
+  await clock.advance(500)
+  expect(seen.fills).toEqual([`@${NOTE} `])
+})
+
+test('/claudzilla handoff fills @note when the send is refused', async ($, on) => {
+  const { seen, clock } = handoffHost(on, { submitDrop: true })
+  await $.session.start(start)
+  await handoff($)
+  await clock.advance(500)
   expect(seen.fills).toEqual([`@${NOTE} `])
 })
 
@@ -915,24 +932,17 @@ test('/claudzilla handoff makes the note folder 0700 before writing', async ($, 
   expect(seen.order.indexOf('mkdir')).toBeLessThan(seen.order.indexOf('write'))
 })
 
-test('/claudzilla handoff keeps typed text', async ($, on) => {
-  const { seen, clock } = handoffHost(on, { box: 'fix it' })
-  await $.session.start(start)
-  await handoff($)
-  await clock.advance(500)
-  expect(seen.fills).toEqual([`fix it @${NOTE} `])
-})
-
 test('/claudzilla handoff toasts the note path when /clear fails', async ($, on) => {
   const { seen, clock } = handoffHost(on, { clearFails: true })
   await $.session.start(start)
   await handoff($)
   await clock.advance(500)
   expect(seen.toasts.some(t => t.includes(NOTE) && !t.includes('new session'))).toBe(true)
+  expect(seen.submits).toEqual([])
 })
 
-test('/claudzilla handoff toasts the note path when the fill fails', async ($, on) => {
-  const { seen, clock } = handoffHost(on, { filled: false })
+test('/claudzilla handoff toasts the note path when the send and the fill fail', async ($, on) => {
+  const { seen, clock } = handoffHost(on, { submitFails: true, filled: false })
   await $.session.start(start)
   await handoff($)
   await clock.advance(500)
