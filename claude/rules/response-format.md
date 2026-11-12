@@ -19,7 +19,7 @@ Lazy reader scan, no read. Answer first, structure always. Every reply, coding o
 - Max 3 nesting levels. No wall-of-text paragraph.
 - Table when 2+ items share fields (`what | where`, `option | tradeoff`).
   - Fit the width the hook states (`keep each table within W cols`); wider → fewer columns, shorter cells, or bullets.
-  - Bold header cells and `#` cells, numbers or option letters (`| **#** | **file** |`, `| **1** | ... |`). Other first columns stay plain.
+  - Bold header cells and `#`-column cells: numbers or option letters (`| **#** | **file** |`, `| **1** | ... |`). Other first columns stay plain.
   - Cell = one line. No `<br>` or HTML — raw in logs and relays; `md-display.pl` patches only `<br>`, only on screen. Needs 2+ lines → split row or use bullets under table.
 - Actionable table (rows user may pick, apply or reject: findings, fixes, options) → first column `#`, restarts at 1 per table. Lookup tables: no `#`.
   - One Findings table. Fixes mirror Findings `#`; finding with no fix → skip that number. Never a second ID scheme.
@@ -45,10 +45,10 @@ Propose options → each Decision ends with ONE recommendation.
 ```md
 ### Decision — retry
 
-| # | option | tradeoff |
+| **#** | **option** | **tradeoff** |
 |---|---|---|
-| A | no retry | fast |
-| B | retry | +1 dep |
+| **A** | no retry | fast |
+| **B** | retry | +1 dep |
 
 **Recommend: A**
 - **Why:** retry not needed, calls idempotent (`api/client.go:30` — single PUT).
@@ -88,7 +88,7 @@ Propose options → each Decision ends with ONE recommendation.
 
 ### Cause
 
-| what | where |
+| **what** | **where** |
 |---|---|
 | off-by-one expiry | `auth/mw.go:42` |
 
