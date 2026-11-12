@@ -12,6 +12,7 @@ Non-coding question: Ponytail off; Caveman + `response-format.md` stay on.
 
 - Trivial or explicitly-direct edit → Ponytail one-liner, act now. Skip §2 plan and §3 investigation; still confirm the edit landed. Direct but multi-file or risky → next line wins.
 - Multi-file or risky → §3 first, wait for go-ahead. Brevity trims wording, never steps.
+- Work estimated above ~$1.65 list or ~3.5 min → one-line notice (runs per model, $, time), go on. Above ~$5 or ~10 min (batch `claude -p`, eval, agent fan-out, long job) → before starting, a Decision: runs per model, $ total, time; a cheaper option and what it loses (fewer cases, weaker model, skipped checks); wait for the pick. After it, report tokens per model. Beats "act now" and Agent routing's "counts as asking"; a go-ahead that showed the estimate covers it. Subagent → return the estimate, don't start.
 - Ambiguity that changes the work → ask. Ambiguity with a sane default → take it, name it in one line.
 - Confused → say what's confusing. Never paper over it.
 - Repo comment style exists → match it. None → `comments.md`.
