@@ -2,6 +2,7 @@
 # Cost trace tests: claude/hooks/cost-trace.mjs.
 #   bash tests/cost-trace.test.sh
 set -uo pipefail
+set +B # bash 3.2 (macOS) brace-expands {a, b} inside the quoted js snippets
 export TZ=UTC
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
@@ -77,7 +78,7 @@ jx() { LOG="$LOG" FX="${FXD:-$FX}" js "$IX $1"; }
 check "walk: main files with agents; missing meta is null" [ "$(js "const w = m.walk(process.env.FX + '/projects'); const a = w.find(f => f.sessionId === 's-a'); out([w.map(f => f.project + '/' + f.sessionId).join(), w.every(f => f.name === f.sessionId + '.jsonl'), a.agents.find(g => g.agentId === 'z').meta])")" = '["-other/o1,-proj-a/s-a,-proj-a/s-b,-proj-a/s-c,-proj-a/s-d,-proj-a/s-live,-proj-a/s-old,-proj-a/s-x,-proj-a-wt/w1",true,null]' ]
 FXD="$TMP/fx1"; FXP="$FXD"
 jx "m.index({ root: process.env.FX + '/projects', log })" >/dev/null
-check "index: fresh log has mode 600" [ "$(stat -c %a "$LOG")" = 600 ]
+check "index: fresh log has mode 600" [ "$(node -e 'console.log((require("fs").statSync(process.argv[1]).mode & 0o777).toString(8))' "$LOG")" = 600 ]
 N1=$(wc -l <"$LOG")
 jx "m.index({ root: process.env.FX + '/projects', log })" >/dev/null
 check "index: second run writes no rows" [ "$(wc -l <"$LOG")" = "$N1" ]
@@ -121,7 +122,7 @@ check "index: two parallel runs leave a readable log" [ "$(LOG="$TMP/par/claudzi
 # Report. State: fresh copy, s-d stripped of its cost-state (file run, running), s-live closed (stage 2 lines),
 # s-b newest in run 1794474000000 and ending in m3 (running). w1 and o1 end in cost-state (closed).
 CFG4="$TMP/cfg4"; mkdir -p "$CFG4"; cp -r "$FX/projects" "$CFG4/projects"; R4="$CFG4/projects/-proj-a"
-sed -i '/"type":"cost-state"/d' "$R4/s-d.jsonl"
+perl -ni -e 'print unless /"type":"cost-state"/' "$R4/s-d.jsonl"
 printf '%s\n' '{"type":"user","uuid":"p10","timestamp":"2026-11-12T10:50:00.000Z","message":{"role":"user","content":"live 2"},"turnOrigin":"human"}' '{"type":"assistant","uuid":"u-m10","timestamp":"2026-11-12T10:51:00.000Z","message":{"id":"m10","model":"claude-opus-5-5","usage":{"output_tokens":50}}}' '{"type":"cost-state","sessionId":"s-live","startTime":1794480300000,"totalCostUSD":0.5,"totalAPIDuration":1000,"totalDuration":2000,"modelUsage":{}}' >>"$R4/s-live.jsonl"
 find "$CFG4/projects" -name '*.jsonl' -exec touch -d '2026-11-12 10:00' {} +
 touch -d '2026-11-12 11:00' "$R4/s-b.jsonl"
@@ -175,7 +176,7 @@ check "index after split: every key on a split run, none twice" [ "$(PXJ "out([.
 PB="$TMP/pb"; mkdir -p "$PB/projects/-p"; PX="$PB"; pl q-1 qa 1 0 0; pl q-2 qb 2 0 0; jx_px
 check "group with no snapshot at all stays one run" [ "$(PXJ "out([...l.sessions.keys()])")" = '["-p/1794700000000"]' ]
 P2="$TMP/p2"; mkdir -p "$P2/projects/-p" "$P2/projects/-q"; PX="$P2"
-pl q-1 qa 1 4 100; cp "$P2/projects/-p/q-1.jsonl" "$P2/projects/-q/q-9.jsonl"; sed -i 's/"qa"/"qz"/;s/"uqa"/"uqz"/' "$P2/projects/-q/q-9.jsonl"; jx_px
+pl q-1 qa 1 4 100; cp "$P2/projects/-p/q-1.jsonl" "$P2/projects/-q/q-9.jsonl"; perl -pi -e 's/"qa"/"qz"/;s/"uqa"/"uqz"/' "$P2/projects/-q/q-9.jsonl"; jx_px
 check "index: same startTime in two projects keeps both rows" [ "$(PXJ "out([...l.sessions.keys()].sort())")" = '["-p/1794700000000","-q/1794700000000"]' ]
 
 IC="$TMP/inc"; mkdir -p "$IC/projects/-p"
