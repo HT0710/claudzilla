@@ -55,17 +55,26 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - run: npm i -g @anthropic-ai/claude-code@2.1.319
-      - name: All suites
+      - name: Shell suites
         run: |
           failed=
-          for s in tests/*.test.sh plugins/*/; do
-            s=${s%/}
+          for s in tests/*.test.sh; do
             echo "::group::$s"
-            case $s in
-              plugins/*) claude plugin test "$s" ;;
-              *) bash "$s" ;;
-            esac || failed="$failed $s"
+            bash "$s" || failed="$failed $s"
+            echo "::endgroup::"
+          done
+          [ -z "$failed" ] || { echo "::error::failed:$failed"; exit 1; }
+      # Installed after the shell suites, so they run without claude on PATH, as on ubuntu.
+      - if: ${{ !cancelled() }}
+        run: npm i -g @anthropic-ai/claude-code@2.1.319
+      - name: Plugin suites
+        if: ${{ !cancelled() }}
+        run: |
+          failed=
+          for t in plugins/*/tests; do
+            s=${t%/tests}
+            echo "::group::$s"
+            claude plugin test "$s" || failed="$failed $s"
             echo "::endgroup::"
           done
           [ -z "$failed" ] || { echo "::error::failed:$failed"; exit 1; }
