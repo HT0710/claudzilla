@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { draft, experimentalArgs, featureLines, find, fit, handoffNote, parse, reportArgs, rows } from '../hooks/register'
+import { costArgs, draft, experimentalArgs, featureLines, find, fit, handoffNote, parse, reportArgs, rows } from '../hooks/register'
 
 const MD = '# claudzilla guide\n\n## Basics\n\n### What claudzilla is\n<!-- topic: start -->\n\nIntro.\n\n### Talk to Claude\n<!-- topic: talk -->\n\nSay it.\n\n## Screen\n\n### The picks card\n<!-- topic: picks -->\n\nDigits.\n'
 
@@ -80,7 +80,7 @@ const wheel = ($: Parameters<TestBody>[0], by: number, pointer?: { column: numbe
 test('registers /claudzilla with the experimental hint', async ($, on) => {
   const seen = host(on)
   await $.session.start(start)
-  expect(seen.registered).toContainEqual(expect.objectContaining({ name: 'claudzilla', argumentHint: '[topic | report [what happened] | compact | handoff | experimental [id on|off]]' }))
+  expect(seen.registered).toContainEqual(expect.objectContaining({ name: 'claudzilla', argumentHint: '[topic | report [what happened] | compact | handoff | experimental [id on|off] | cost [session-id | all [--since d] [--until d] [--project p]]]' }))
 })
 
 test('bare /claudzilla toggles the guide; a topic opens it either way', async ($, on) => {
@@ -465,6 +465,12 @@ test('experimentalArgs: malformed gives usage', () => {
   expect(experimentalArgs('experimental agentRouting')).toEqual({ error })
   expect(experimentalArgs('experimental agentRouting maybe')).toEqual({ error })
 })
+test('costArgs: bare, id, all with flags', () => {
+  expect(costArgs('cost', 's1')).toEqual(['--session', 's1'])
+  expect(costArgs('cost abc', 's1')).toEqual(['--session', 'abc'])
+  expect(costArgs('cost all --since 2026-11-01', 's1')).toEqual(['all', '--since', '2026-11-01'])
+  expect(costArgs('report x', 's1')).toBeUndefined()
+})
 test('featureLines: one line per feature', () => {
   expect(featureLines([{ id: 'a', description: 'First.', on: true }, { id: 'b', description: '', on: false }])).toBe('a: on — First.\nb: off — ')
   expect(featureLines([])).toBe('No experimental features.')
@@ -511,6 +517,34 @@ test("experimental shows the script's refusal", async ($, on) => {
 test('experimental without the core install', async ($, on) => {
   labs(on, { list: ran(1, '') })
   expect(await texts(await open($, 'experimental'))).toContain('Experimental features need the claudzilla core install.')
+})
+
+function cost(on: Parameters<TestBody>[1], res: ReturnType<typeof ran>) {
+  const calls: string[] = []
+  on('session.id', () => ({ value: 's1' }) as any)
+  on('session.cwd', () => ({ value: '/proj' }) as any)
+  on('env.get', (_, e: any) => ({ value: e.name === 'CLAUDE_CONFIG_DIR' ? '/cfg' : undefined }) as any)
+  host(on, { guide: LABS, proc: c => (c.includes('cost-trace.mjs') ? (calls.push(c), res) : ran(0, '/repo\nv1.4.0\n')) })
+  return calls
+}
+const FAIL = (stderr: string) => ({ value: { exitCode: 1, stdout: '', stderr, isStdoutTruncated: false, isStderrTruncated: false } })
+
+test('cost runs report with the session and cwd', async ($, on) => {
+  const calls = cost(on, ran(0, 'Session x'))
+  await open($, 'cost')
+  expect(calls).toEqual(['node /cfg/hooks/cost-trace.mjs report --session s1 --cwd /proj'])
+})
+test('cost shows the report lines', async ($, on) => {
+  cost(on, ran(0, 'Session s1  list $1.20\nrouting off'))
+  expect(await texts(await open($, 'cost'))).toContain('Session s1  list $1.20')
+})
+test('cost with a failing script shows its message', async ($, on) => {
+  cost(on, FAIL('boom\n'))
+  expect(await texts(await open($, 'cost'))).toContain('boom')
+})
+test('cost with a silent failure gives a fallback line', async ($, on) => {
+  cost(on, FAIL(''))
+  expect(await texts(await open($, 'cost'))).toContain('Could not read the cost log.')
 })
 
 const J = (o: object) => JSON.stringify(o)

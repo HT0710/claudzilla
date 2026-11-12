@@ -426,6 +426,12 @@ Every request to Claude uses *tokens*: the text it reads, writes and thinks. On 
 - Run `/usage` to see your plan limits and when they reset.
 - If you installed the status line, its `5h` and `wk` meters show the same, with the time to each reset. See *The status line* (`/claudzilla hud`).
 - If you installed the `herald` part, a toast shows when the 5-hour or weekly limit passes 50%, 75% and 90%, such as `5-hour usage 77% · resets in 2h10m`. Each point shows once per limit window, even across sessions.
+- Run `/claudzilla cost` to see what this session cost. `/claudzilla cost <session-id>` reports one session.
+- Run `/claudzilla cost all --since <date>` for totals and per-group lines of the sessions started since that date, split by Agent routing on and off.
+- The `all` report covers the current project by default. Add `--project all` for every project.
+- Every dollar amount is an API list price. A subscription is not billed per token, so your real bill differs.
+- The cost log keeps its rows after Claude Code deletes old transcripts.
+- The log fills automatically only while Agent routing is on. `/claudzilla cost` works for everyone and reads the transcripts it can find.
 
 #### What uses more
 
