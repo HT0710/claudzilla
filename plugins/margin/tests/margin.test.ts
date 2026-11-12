@@ -722,12 +722,11 @@ test('useOf: Grep and Glob are other, a search is marked, MCP tools name their s
   for (const own of ['ballot', 'byline', 'folio', 'herald', 'ledger', 'margin', 'primer']) expect(useOf({ tool: `mcp__${own}__x` })).toBeUndefined()
 })
 
-test('recordUse keeps 50 unique names per kind, newest first, with sources and agent ids', () => {
+test('recordUse keeps every unique name per kind, newest first, with sources and agent ids', () => {
   let u = EMPTY_USED
   for (let i = 0; i < 52; i++) u = recordUse(u, { tool: 'Read', file_path: `/r/f${i}.ts` })
-  expect(u.kinds.files!.names).toHaveLength(50)
+  expect(u.kinds.files!.names).toHaveLength(52)
   expect(u.kinds.files!.names[0]).toBe('/r/f51.ts')
-  expect(u.kinds.files!.names).not.toContain('/r/f1.ts')
   expect(u.kinds.files!.main).toBe(52)
   u = recordUse(u, { tool: 'Grep', pattern: 'x', agentId: 'a1' })
   expect(u.kinds.other).toEqual({ main: 0, agents: 1, names: ['x'], fromAgents: ['x'], agentOf: { x: 'a1' }, sourceOf: { x: 'grep' }, byReader: [['a1', [['x', 1]]]], parentOf: [] })
@@ -736,7 +735,7 @@ test('recordUse keeps 50 unique names per kind, newest first, with sources and a
   expect(u.kinds.other!.agentOf).toEqual({})
 })
 
-test('recordUse byReader: counts per reader and name, readers in first-read order, a re-read moves to newest, pruned to kept names', () => {
+test('recordUse byReader: counts per reader and name, readers in first-read order, a re-read moves to newest', () => {
   const read = (u: typeof EMPTY_USED, f: string, agentId?: string) => recordUse(u, { tool: 'Read', file_path: `/r/${f}`, ...(agentId && { agentId }) })
   let u = read(EMPTY_USED, 'a.ts', 'a1')
   u = read(u, 'a.ts')
@@ -747,10 +746,11 @@ test('recordUse byReader: counts per reader and name, readers in first-read orde
     ['a1', [['/r/c.ts', 1], ['/r/a.ts', 1]]],
     ['main', [['/r/a.ts', 2], ['/r/b.ts', 1]]],
   ])
-  let v = EMPTY_USED
-  for (let i = 0; i < 51; i++) v = read(v, `f${i}.ts`)
-  expect(v.kinds.files!.byReader![0]![1]).toHaveLength(50)
-  expect(v.kinds.files!.byReader![0]![1].some(([n]) => n === '/r/f0.ts')).toBe(false)
+  // Agents' reads never push out Claude's.
+  let v = read(EMPTY_USED, 'mine.ts')
+  for (let i = 0; i < 60; i++) v = read(v, `f${i}.ts`, 'a1')
+  expect(v.kinds.files!.byReader).toContainEqual(['main', [['/r/mine.ts', 1]]])
+  expect(v.kinds.files!.byReader!.find(([r]) => r === 'a1')![1]).toHaveLength(60)
 })
 
 test('recordUse byReader: integer-like names keep read order and __proto__ is an ordinary name', () => {
