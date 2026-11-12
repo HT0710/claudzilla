@@ -26,7 +26,7 @@ check "CI runs release tests" grep -q 'tests/release.test.sh' "$REPO/.github/wor
 # The matrix lists suites by hand, so a new test file or plugin must be added there.
 check "CI runs every test file and plugin" bash -c 'cd "$1" && for t in tests/*.test.sh plugins/*/tests; do grep -q "^ *- ${t%/tests}$" .github/workflows/test.yml || { echo "not in CI: $t"; exit 1; }; done' _ "$REPO"
 check "CI release skips a run behind main" grep -q 'origin/main' "$REPO/.github/workflows/test.yml"
-check "CI release waits for tests" grep -q 'needs: test' "$REPO/.github/workflows/test.yml"
+check "CI release waits for tests" grep -q 'needs: \[test, macos\]' "$REPO/.github/workflows/test.yml"
 check "CI release has no schedule" bash -c "! grep -q 'schedule:' '$REPO/.github/workflows/test.yml'"
 check "CI release runs on demand" grep -q '^  workflow_dispatch:' "$REPO/.github/workflows/test.yml"
 check "CI releases per push" grep -q "if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'" "$REPO/.github/workflows/test.yml"
