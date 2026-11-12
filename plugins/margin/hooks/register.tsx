@@ -40,7 +40,6 @@ const MAX_PROMPTS = 100
 // Built-in tools that never change files: their calls leave the Git tab's reads standing.
 const READ_ONLY = new Set(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'])
 
-const USE_NAMES = 50
 const OWN_PLUGINS = ['ballot', 'byline', 'folio', 'herald', 'ledger', 'margin', 'primer']
 const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined)
 
@@ -155,12 +154,12 @@ const recordOne = (used: Used, call: { tool: string } & Record<string, unknown>,
   const fromAgents = was.fromAgents ?? []
   const agentOf = was.agentOf ?? {}
   const sourceOf = was.sourceOf ?? {}
-  const names = [use.name, ...was.names.filter(n => n !== use.name)].slice(0, USE_NAMES)
+  const names = [use.name, ...was.names.filter(n => n !== use.name)]
   // A name stays an agent's until Claude uses it too.
   const agentOnly = id && (!was.names.includes(use.name) || fromAgents.includes(use.name))
-  const keptFrom = [...(agentOnly ? [use.name] : []), ...fromAgents.filter(n => n !== use.name && names.includes(n))]
+  const keptFrom = [...(agentOnly ? [use.name] : []), ...fromAgents.filter(n => n !== use.name)]
   const keep = <T,>(rec: Record<string, T>, own?: [string, T]) =>
-    Object.fromEntries([...(own ? [own] : []), ...Object.entries(rec).filter(([n]) => n !== use.name && names.includes(n))])
+    Object.fromEntries([...(own ? [own] : []), ...Object.entries(rec).filter(([n]) => n !== use.name)])
   const reader = id ?? 'main'
   const prev = readersOf(was)
   const mine = prev.find(([r]) => r === reader)?.[1] ?? []
@@ -168,7 +167,7 @@ const recordOne = (used: Used, call: { tool: string } & Record<string, unknown>,
   const byReader: Readers = (prev.some(([r]) => r === reader) ? prev : [...prev, [reader, []] as Readers[number]]).map(([r, ns]): Readers[number] => [r, (r === reader ? read : ns).filter(([n]) => names.includes(n))])
   // A page fetched under this reader's latest search; its first parent stays.
   const latest = mine.find(([n]) => sourceOf[n] === 'search')?.[0]
-  const pages = (was.parentOf ?? []).map(([r, ps]): [string, [string, string][]] => [r, ps.filter(([u]) => names.includes(u))])
+  const pages = was.parentOf ?? []
   const mineP = pages.find(([r]) => r === reader)?.[1] ?? []
   const parentOf: NonNullable<UseEntry['parentOf']> =
     use.kind === 'web' && !use.source && latest && !mine.some(([n]) => n === use.name)

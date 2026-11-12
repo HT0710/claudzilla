@@ -218,8 +218,8 @@ export type TabDraw = {
 }
 export type UseKind = 'files' | 'memory' | 'web' | 'skills' | 'other'
 export const USE_KINDS: UseKind[] = ['files', 'memory', 'web', 'skills', 'other']
-// `names`: full values (path, URL, query, pattern, MCP tool), newest first, at most 50. `agentOf`: an agent-only
-// name's agent id. `sourceOf`: an `other` name's source, `search` for a web search. Both keyed only by kept names.
+// `names`: full values (path, URL, query, pattern, MCP tool), newest first, every one this turn. `agentOf`: an
+// agent-only name's agent id. `sourceOf`: an `other` name's source, `search` for a web search.
 export type UseEntry = { main: number; agents: number; names: string[]; fromAgents: string[]; agentOf?: Record<string, string>; sourceOf?: Record<string, string>; byReader?: Readers; parentOf?: [reader: string, pages: [url: string, query: string][]][] }
 // Arrays, not objects: integer-like names sort first in an object and `__proto__` breaks its lookups.
 export type Readers = [reader: string, names: [name: string, count: number][]][]
