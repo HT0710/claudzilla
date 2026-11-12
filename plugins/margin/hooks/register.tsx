@@ -164,7 +164,8 @@ const recordOne = (used: Used, call: { tool: string } & Record<string, unknown>,
   const prev = readersOf(was)
   const mine = prev.find(([r]) => r === reader)?.[1] ?? []
   const read: [string, number][] = [[use.name, (mine.find(([n]) => n === use.name)?.[1] ?? 0) + 1], ...mine.filter(([n]) => n !== use.name)]
-  const byReader: Readers = (prev.some(([r]) => r === reader) ? prev : [...prev, [reader, []] as Readers[number]]).map(([r, ns]): Readers[number] => [r, (r === reader ? read : ns).filter(([n]) => names.includes(n))])
+  // The reader reading now moves to the front: readers list latest first.
+  const byReader: Readers = [[reader, read], ...prev.filter(([r]) => r !== reader)]
   // A page fetched under this reader's latest search; its first parent stays.
   const latest = mine.find(([n]) => sourceOf[n] === 'search')?.[0]
   const pages = was.parentOf ?? []
