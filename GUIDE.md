@@ -101,10 +101,10 @@ claudzilla's rules shape every reply so you can scan it instead of reading it al
 
 ### Decision — fix
 
-| # | option | tradeoff |
+| **#** | **option** | **tradeoff** |
 |---|---|---|
-| A | change `<` to `<=` | one line |
-| B | rewrite the check | more to test |
+| **A** | change `<` to `<=` | one line |
+| **B** | rewrite the check | more to test |
 
 **Recommend: A**
 - **Why:** only the comparison is wrong (`auth/mw.go:42`).
@@ -113,7 +113,7 @@ claudzilla's rules shape every reply so you can scan it instead of reading it al
 ```
 
 - **TL;DR** (short for "too long; didn't read"): the first line gives the answer. A reply of three lines or fewer has no label and no headers.
-- **Headers and tables:** headers split each part; a table holds items that share fields, such as a cause and where it is. Its header row and `#` column are bold.
+- **Headers and tables:** headers split each part; a table holds items that share fields, such as a cause and where it is. Its header row is bold, and so is its `#` column when it has one.
 - **Evidence:** a claim carries a `file:line` reference (file and line number) or the command that showed it. A claim Claude did not check is marked *unverified*; treat it as a guess.
 - **Decision:** options `A`, `B` in a table, then `**Recommend:**` with one pick and a **Why:** line with its source. With several decisions, they are numbered: `Decision 1`, `Decision 2`.
 - **Picks:** with two or more choices, a `**Picks:**` line lists the recommended answers, such as `1B, 2A`.
