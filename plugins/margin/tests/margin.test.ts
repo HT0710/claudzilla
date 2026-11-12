@@ -735,7 +735,7 @@ test('recordUse keeps every unique name per kind, newest first, with sources and
   expect(u.kinds.other!.agentOf).toEqual({})
 })
 
-test('recordUse byReader: counts per reader and name, readers in first-read order, a re-read moves to newest', () => {
+test('recordUse byReader: counts per reader and name, the latest reader first, a re-read moves to newest', () => {
   const read = (u: typeof EMPTY_USED, f: string, agentId?: string) => recordUse(u, { tool: 'Read', file_path: `/r/${f}`, ...(agentId && { agentId }) })
   let u = read(EMPTY_USED, 'a.ts', 'a1')
   u = read(u, 'a.ts')
@@ -746,6 +746,10 @@ test('recordUse byReader: counts per reader and name, readers in first-read orde
     ['a1', [['/r/c.ts', 1], ['/r/a.ts', 1]]],
     ['main', [['/r/a.ts', 2], ['/r/b.ts', 1]]],
   ])
+  // A reader reading again moves to the front.
+  const w = read(read(EMPTY_USED, 'a.ts', 'a1'), 'b.ts', 'a2')
+  expect(w.kinds.files!.byReader!.map(([r]) => r)).toEqual(['a2', 'a1'])
+  expect(read(w, 'c.ts', 'a1').kinds.files!.byReader!.map(([r]) => r)).toEqual(['a1', 'a2'])
   // Agents' reads never push out Claude's.
   let v = read(EMPTY_USED, 'mine.ts')
   for (let i = 0; i < 60; i++) v = read(v, `f${i}.ts`, 'a1')
@@ -4949,7 +4953,8 @@ test('the FILES branch name: launch name, else type without the plugin, else age
   await ui.redraw({ ...props, bodyColumns: 60 })
   await tapRow(ui, 'o:used:files')
   const texts = (await modalTexts(ui)).map(t => t.text)
-  expect(texts.filter(t => ['scout', 'cavecrew-investigator', 'agent'].includes(t))).toEqual(['scout', 'cavecrew-investigator', 'agent'])
+  // Latest reader first.
+  expect(texts.filter(t => ['scout', 'cavecrew-investigator', 'agent'].includes(t))).toEqual(['agent', 'cavecrew-investigator', 'scout'])
   expect((await usedRow(ui, 0)).hint).toEqual([])
 })
 
