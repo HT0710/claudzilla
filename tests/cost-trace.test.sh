@@ -124,8 +124,8 @@ check "index: two parallel runs leave a readable log" [ "$(LOG="$TMP/par/claudzi
 CFG4="$TMP/cfg4"; mkdir -p "$CFG4"; cp -r "$FX/projects" "$CFG4/projects"; R4="$CFG4/projects/-proj-a"
 perl -ni -e 'print unless /"type":"cost-state"/' "$R4/s-d.jsonl"
 printf '%s\n' '{"type":"user","uuid":"p10","timestamp":"2026-11-12T10:50:00.000Z","message":{"role":"user","content":"live 2"},"turnOrigin":"human"}' '{"type":"assistant","uuid":"u-m10","timestamp":"2026-11-12T10:51:00.000Z","message":{"id":"m10","model":"claude-opus-5-5","usage":{"output_tokens":50}}}' '{"type":"cost-state","sessionId":"s-live","startTime":1794480300000,"totalCostUSD":0.5,"totalAPIDuration":1000,"totalDuration":2000,"modelUsage":{}}' >>"$R4/s-live.jsonl"
-find "$CFG4/projects" -name '*.jsonl' -exec touch -d '2026-11-12 10:00' {} +
-touch -d '2026-11-12 11:00' "$R4/s-b.jsonl"
+find "$CFG4/projects" -name '*.jsonl' -exec touch -t 202611121000 {} +
+touch -t 202611121100 "$R4/s-b.jsonl"
 rp() { CLAUDE_CONFIG_DIR="$CFG4" node "$SCRIPT" report "$@"; }
 has() { grep -qF -- "$2" <<<"$1"; }
 SA=$(rp --session s-a); SOLD=$(rp --session s-old); SC=$(rp --session s-c); SD=$(rp --session s-d); AL=$(rp all --cwd /proj/a)
@@ -152,7 +152,7 @@ check "session lookup by any file" has "$(rp --session s-b)" "run 1794474000000"
 NOPE=$(rp --session nope); check "unknown session: one line, exit 0" bash -c '[ "$(wc -l <<<"$1")" = 1 ] && grep -qF "No session" <<<"$1"' _ "$NOPE"
 check "date range: run start" [ "$(rp all --until 2026-11-11 --cwd /proj/a)" = "No sessions in this range." ]
 EXP=$(CLAUDE_CONFIG_DIR="$CFG4" js "const L = m.readLog(process.env.CLAUDE_CONFIG_DIR + '/claudzilla-cost.jsonl'); const c = (f) => [...L.sessions.values()].filter(s => !s.running && f(s.project)).length; out(c(p => p === '-proj-a' || p === '-proj-a-wt') + ',' + c(() => true))" | tr -d '"')
-N() { grep -oE 'sessions [0-9]+' <<<"$1" | cut -d' ' -f2 | paste -sd+ | bc; }
+N() { grep -oE 'sessions [0-9]+' <<<"$1" | cut -d' ' -f2 | paste -sd+ - | bc; }
 check "default project by prefix" [ "$(N "$AL"),$(N "$(rp all --project all)")" = "$EXP" ]
 check "project prefix excludes other and keeps worktree" [ "$(N "$AL")" -gt "$(N "$(rp all --cwd /proj/a/wt)")" ] && [ "$(N "$AL")" != "$(N "$(rp all --project all)")" ]
 mkdir -p "$TMP/cfg-empty"
@@ -182,7 +182,7 @@ check "index: same startTime in two projects keeps both rows" [ "$(PXJ "out([...
 IC="$TMP/inc"; mkdir -p "$IC/projects/-p"
 ICJ="const d = process.env.ICD + '/projects/-p', log = process.env.ICD + '/cost.log'; const mk = (sid, st, id, usd) => fs.writeFileSync(d + '/' + sid + '.jsonl', [JSON.stringify({ type: 'assistant', uuid: 'u' + id, timestamp: '2026-11-15T00:30:00.000Z', message: { id, model: 'claude-opus-5-5', stop_reason: 'end_turn', content: [], usage: { input_tokens: 1000000 } } }), JSON.stringify({ type: 'cost-state', sessionId: sid, startTime: st, totalCostUSD: usd, totalAPIDuration: 100, totalDuration: 1, modelUsage: {} })].join('\\n') + '\\n'); const idx = () => m.index({ root: process.env.ICD + '/projects', log });"
 ICD="$IC" js "$ICJ mk('i-1', 1794700000000, 'a1', 4); mk('i-2', 1794700100000, 'b1', 5); mk('i-3', 1794700100000, 'b2', 5); idx()"
-touch -d '2026-11-15 01:00' "$IC/projects/-p/i-2.jsonl"
+touch -t 202611150100 "$IC/projects/-p/i-2.jsonl"
 check "index: unchanged file of another run is not re-read" [ "$(ICD="$IC" js "$ICJ const F = (await import('node:fs')).default, real = F.readFileSync; const seen = []; F.readFileSync = (p, ...a) => { seen.push(String(p).split('/').pop()); return real(p, ...a); }; (await import('node:module')).syncBuiltinESMExports(); idx(); out([seen.filter(x => x.startsWith('i-')).sort(), m.readLog(log).sessions.size])")" = '[["i-2.jsonl","i-3.jsonl"],2]' ]
 
 # --- gate ---
