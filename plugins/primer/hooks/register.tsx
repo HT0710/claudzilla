@@ -256,6 +256,7 @@ export function handoffNote(input: HandoffInput): string {
   const call = d && blocks(d.row).find(b => b.type === 'tool_use' && b.name === 'mcp__primer__compact_draft')
   if (d && call?.input && d.n > since) add('Compact draft', `At line ${d.n}${d.row.timestamp ? `, ${d.row.timestamp}` : ''}.\nKeep: ${call.input.keep ?? ''}\nDrop: ${call.input.drop ?? ''}`)
   add('How to dig', [
+    'If this note is your whole prompt, say in one line what you loaded, then wait for the user\'s ask.',
     'Check git before saying what is pending. Don\'t restate the last reply.',
     'The Git block was checked when this note was written. Everything else is the old session\'s claim: re-check it before acting on it.',
     'Use this note as is when your ask needs nothing more.',
@@ -314,7 +315,7 @@ d=$(git -C "$1" status --porcelain | head -20)
 [ -n "$d" ] && printf 'Dirty files:\n%s\n' "$d"
 git -C "$1" diff --stat HEAD | tail -1`
 
-// Writes the note for this session, then clears and fills @note once the hook has returned (command.run rejects inside its own hook).
+// Writes the note for this session, then clears and sends it once the hook has returned (command.run rejects inside its own hook).
 async function coldHandoff($: EngineInterface): Promise<{ text: string } | Record<string, never>> {
   if (busy) return { text: 'A turn is running. Run /claudzilla handoff when it ends.' }
   const home = await $.env.get('HOME').catch(() => undefined)
@@ -328,9 +329,11 @@ async function coldHandoff($: EngineInterface): Promise<{ text: string } | Recor
   const git = async () => (cwd ? (await $.process.run(['sh', '-c', GIT, 'sh', cwd]).catch(() => undefined))?.stdout ?? '' : '')
   const [numbered, draft, summary, intents, gitOut] = await Promise.all([grep(NUMBERED), grep(DRAFT), grep(SUMMARY), grep(INTENTS), git()])
   const file = `${dir}/claudzilla-handoff/${sessionId}.md`
+  let note: string
   try {
+    note = handoffNote({ sessionId, path, now: await $.clock.now(), numbered, draft: draft.trim() || undefined, summary: summary.trim() || undefined, intents, git: gitOut.trim() || undefined })
     await $.process.run(['sh', '-c', 'mkdir -p "$1" && chmod 700 "$1"', 'sh', `${dir}/claudzilla-handoff`])
-    await $.fs.write(file, handoffNote({ sessionId, path, now: await $.clock.now(), numbered, draft: draft.trim() || undefined, summary: summary.trim() || undefined, intents, git: gitOut.trim() || undefined }))
+    await $.fs.write(file, note)
   } catch (err) {
     $.ui.toast(`Handoff note not written: ${err instanceof Error ? err.message : String(err)}`)
 
@@ -343,9 +346,10 @@ async function coldHandoff($: EngineInterface): Promise<{ text: string } | Recor
     } catch {
       return lost()
     }
-    const box = await $.prompt.read().catch(() => ({ text: '' }))
-    const text = box.text.trim() ? `${box.text.trimEnd()} @${file} ` : `@${file} `
-    const { isFilled } = await $.prompt.fill({ text }).catch(() => ({ isFilled: false }))
+    // Inline, because a plugin's prompt does not expand @file.
+    const sent = await $.prompt.submit({ text: note, asUser: true }).then(r => !r.drop, () => false)
+    if (sent) return
+    const { isFilled } = await $.prompt.fill({ text: `@${file} ` }).catch(() => ({ isFilled: false }))
     if (!isFilled) lost()
   }
   try {
