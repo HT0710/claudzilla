@@ -1,0 +1,13 @@
+{"type": "attachment", "uuid": "att1", "timestamp": "2026-11-12T09:05:00.000Z", "attachment": {"type": "hook_success", "hookEvent": "SessionStart", "hookName": "SessionStart:startup", "stdout": "{\"hookSpecificOutput\": {\"hookEventName\": \"SessionStart\", \"additionalContext\": \"# Other first\\nx\\n\\n# Agent routing\\nSearches go to haiku.\\n\\n# Other heading\\nlater text\"}}"}}
+{"type": "user", "uuid": "p1", "timestamp": "2026-11-12T10:00:00.000Z", "message": {"role": "user", "content": "first prompt"}, "turnOrigin": "human", "promptSource": "queued"}
+{"type": "user", "uuid": "p1", "timestamp": "2026-11-12T10:00:01.000Z", "message": {"role": "user", "content": "first prompt"}, "turnOrigin": "human", "promptSource": "queued"}
+{"type": "assistant", "uuid": "u-m110:00:30.000", "timestamp": "2026-11-12T10:00:30.000Z", "effort": "high", "message": {"id": "m1", "model": "claude-opus-5-5", "usage": {"output_tokens": 10}}}
+{"type": "assistant", "uuid": "u-m110:00:40.000", "timestamp": "2026-11-12T10:00:40.000Z", "effort": "high", "message": {"id": "m1", "model": "claude-opus-5-5", "usage": {"output_tokens": 25}}}
+{"type": "assistant", "uuid": "u-m210:05:00.000", "timestamp": "2026-11-12T10:05:00.000Z", "effort": "high", "message": {"id": "m2", "model": "claude-opus-5-5", "usage": {"output_tokens": 5}}}
+{"type": "user", "uuid": "tn", "timestamp": "2026-11-12T10:06:00.000Z", "message": {"role": "user", "content": "<task-notification>x</task-notification>"}, "turnOrigin": "task_notification"}
+{"type": "user", "uuid": "lim", "timestamp": "2026-11-12T10:07:00.000Z", "message": {"role": "user", "content": "Claude usage limit has reset."}, "turnOrigin": "human"}
+{"type": "user", "uuid": "clr", "timestamp": "2026-11-12T10:08:00.000Z", "message": {"role": "user", "content": "<command-name>/clear</command-name>"}, "turnOrigin": "human"}
+{"type": "user", "uuid": "int", "timestamp": "2026-11-12T10:09:00.000Z", "message": {"role": "user", "content": "[Request interrupted by user]"}}
+{"type": "assistant", "uuid": "u-syn10:10:00.000", "timestamp": "2026-11-12T10:10:00.000Z", "effort": "high", "message": {"id": "syn", "model": "<synthetic>", "usage": {"output_tokens": 1}}}
+{"type": "user", "uuid": "p2", "timestamp": "2026-11-12T10:20:00.000Z", "message": {"role": "user", "content": "second prompt"}, "turnOrigin": "human", "promptSource": "suggestion_accepted"}
+{"type": "cost-state", "sessionId": "s-a", "startTime": 1794474000000, "totalCostUSD": 2.5, "totalAPIDuration": 1000, "totalDuration": 2000, "modelUsage": {}}

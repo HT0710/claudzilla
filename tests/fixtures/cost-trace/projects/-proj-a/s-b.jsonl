@@ -1,0 +1,7 @@
+{"type":"cost-state","sessionId":"s-a","startTime":1794474000000,"totalCostUSD":2.5,"totalAPIDuration":1000,"totalDuration":2000,"modelUsage":{}}
+{"type":"cost-state","sessionId":"s-b","startTime":1794474000000,"totalCostUSD":4,"totalAPIDuration":1000,"totalDuration":2000,"modelUsage":{}}
+{"type":"user","uuid":"p1","timestamp":"2026-11-12T10:00:00.000Z","message":{"role":"user","content":"first prompt"},"turnOrigin":"human"}
+{"type":"assistant","uuid":"u-m110:00:40","timestamp":"2026-11-12T10:00:40.000Z","effort":"high","message":{"id":"m1","model":"claude-opus-5-5","usage":{"output_tokens":25}}}
+{"type":"assistant","uuid":"u-m008:50:00","timestamp":"2026-11-12T08:50:00.000Z","effort":"medium","message":{"id":"m0","model":"claude-sonnet-5-5","usage":{"output_tokens":1000}}}
+{"type":"user","uuid":"p3","timestamp":"2026-11-12T11:00:00.000Z","message":{"role":"user","content":"third prompt"},"turnOrigin":"human"}
+{"type":"assistant","uuid":"u-m311:01:00","timestamp":"2026-11-12T11:01:00.000Z","effort":"high","message":{"id":"m3","model":"claude-opus-5-5","usage":{"output_tokens":7}}}
