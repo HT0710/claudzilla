@@ -148,6 +148,14 @@ export function experimentalArgs(args: string): { id?: string; state?: 'on' | 'o
   return rest.length === 2 && (s === 'on' || s === 'off') ? { id, state: s } : { error: EXPERIMENTAL_USAGE }
 }
 
+// `cost` is this session, `cost <id>` one session, `cost all ...` the flags for the all-sessions list; the argv after `report`.
+export function costArgs(args: string, sessionId: string): string[] | undefined {
+  const [first, ...rest] = args.trim().split(/\s+/)
+  if (first?.toLowerCase() !== 'cost') return undefined
+  if (!rest.length) return ['--session', sessionId]
+  return rest[0]!.toLowerCase() === 'all' ? ['all', ...rest.slice(1)] : rest.length === 1 ? ['--session', rest[0]!] : undefined
+}
+
 export function featureLines(list: { id: string; description: string; on: boolean }[]): string {
   return list.length ? list.map(f => `${f.id}: ${f.on ? 'on' : 'off'} — ${f.description}`).join('\n') : 'No experimental features.'
 }
@@ -429,7 +437,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await t.start(traceIo($))
     HUD.label = (await readPalette($)).palette.shared.label
-    await $.command.register({ name: 'claudzilla', description: 'The claudzilla guide, one section at a time', argumentHint: '[topic | report [what happened] | compact | handoff | experimental [id on|off]]', immediate: true })
+    await $.command.register({ name: 'claudzilla', description: 'The claudzilla guide, one section at a time', argumentHint: '[topic | report [what happened] | compact | handoff | experimental [id on|off] | cost [session-id | all [--since d] [--until d] [--project p]]]', immediate: true })
     await $.command.register({ name: 'claudzilla-handoff', description: 'Start fresh with a note from this session', immediate: true })
     await $.tool.register(COMPACT_SPEC).catch(() => undefined)
 
@@ -508,6 +516,14 @@ export const register: Register = on => {
       return {}
     }
     let labNote: string | undefined
+    const cost = costArgs(e.args, await $.session.id().catch(() => ''))
+    if (cost) {
+      const home = await $.env.get('HOME').catch(() => undefined)
+      const dir = (await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined)) || `${home}/.claude`
+      const cwd = await $.session.cwd().catch(() => '')
+      const out = await $.process.run(['node', `${dir}/hooks/cost-trace.mjs`, 'report', ...cost, '--cwd', cwd]).catch(() => undefined)
+      labNote = out?.exitCode === 0 ? out.stdout.trimEnd() : out?.stderr.trim() || 'Could not read the cost log.'
+    }
     if (lab) {
       const home = await $.env.get('HOME').catch(() => undefined)
       const dir = (await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined)) || `${home}/.claude`
@@ -530,7 +546,7 @@ export const register: Register = on => {
     // Read again on each run: GUIDE.md changes with the clone.
     guide = load($)
     const { sections } = await guide
-    const hit = find(sections ?? [], lab ? 'labs' : e.args)
+    const hit = find(sections ?? [], lab ? 'labs' : cost ? 'limits' : e.args)
     if (hit.section) slug = hit.section.slug
     note = labNote ?? hit.note
     if (hit.section) await update($, bodyTop, () => 0)
