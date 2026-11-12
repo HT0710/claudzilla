@@ -42,6 +42,7 @@ Shape:
 - git.md wins on push / PR. Skill commits = automation (git.md Commits): local, reorganized before push.
 - TDD: keep red-first order; test count per Ponytail (smallest check that fails).
 - Skill asks questions (`brainstorming` included) → this beats its one-open-question-per-message flow: ask only what changes the design and the request, code or repo can't answer; the rest take a sane default, listed as one `Assumed:` line the user can correct. Open question with no options yet → plain text. Otherwise one `Decision — <topic>` table per reply (ballot draws the card), with Recommend + Why; next question after the answer. Never `AskUserQuestion`. Nothing design-changing left → present the design.
+- `brainstorming` builder check → add to its prompt: also read the code the spec cites, and list any two spec lines that disagree, with both line numbers.
 - Skill asks for a long spec/plan → keep response-format.md (TL;DR, tables, no prose).
 - Skill asks to announce itself ("Announce at start", "Using [skill] to…") → skip it; the skill name shows in the tool row.
 - Skill reports to the user (SDD / executing-plans progress, end report, finishing summary) → response-format.md, caveman voice. Ledgers and report files the skill reads back keep its format.
