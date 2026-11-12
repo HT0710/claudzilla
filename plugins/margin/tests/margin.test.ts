@@ -3,7 +3,7 @@ import type { TestBody } from 'claude-code/testing'
 import type { AgentStatus, Register } from 'claude-code'
 import type { Spawn, Step } from '../types'
 import { fileKey } from '../hooks/git-data'
-import { hoverOf, readersOf, rowHovers } from '../hooks/kit'
+import { DIMMED, hoverOf, readersOf, rowHovers } from '../hooks/kit'
 
 import { EMPTY_USED, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, resetUsed, stampPattern, useOf, bashPaths, wrapLines, zoneWindow } from '../hooks/register'
 import { modelName } from '../hooks/tab-overview'
@@ -4929,8 +4929,8 @@ test('each FILES reader has its colour: Claude the accent, common types their ow
   await $.tool.call({ tool: 'Read', file_path: '/proj/m.ts' } as any)
   for (const n of [1, 2, 3, 4, 5, 6]) await $.tool.call({ tool: 'Read', file_path: `/proj/${n}.ts`, agentId: `a${n}` } as any)
   await $.tool.call({ tool: 'Read', file_path: '/proj/z.ts', agentId: 'zz' } as any)
-  // Tall enough for all 8 readers and their files.
-  await ui.redraw({ ...props, scroll: { offset: 0, bodyRows: 40 + BAR_ROWS } })
+  // Tall enough for all 8 readers and their files, wide enough for each name beside its total.
+  await ui.redraw({ ...props, bodyColumns: 60, scroll: { offset: 0, bodyRows: 40 + BAR_ROWS } })
   await tapRow(ui, 'o:used:files')
   const colour = new Map((await modalTexts(ui)).map(t => [t.text, t.color]))
   expect(['Claude', 'general-purpose', 'cavecrew-reviewer', 'cavecrew-investigator', 'cavecrew-builder', 'critic', 'agent'].map(n => colour.get(n))).toEqual(['claude', '#e8927c', '#d17fcf', '#b3c46a', '#c8b08a', '#d17fcf', '#4f5c68'])
@@ -4945,6 +4945,8 @@ test('the FILES branch name: launch name, else type without the plugin, else age
   await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts', agentId: 'a1' } as any)
   await $.tool.call({ tool: 'Read', file_path: '/proj/b.ts', agentId: 'a2' } as any)
   await $.tool.call({ tool: 'Read', file_path: '/proj/c.ts', agentId: 'zz' } as any)
+  // Wide enough for each name beside its total.
+  await ui.redraw({ ...props, bodyColumns: 60 })
   await tapRow(ui, 'o:used:files')
   const texts = (await modalTexts(ui)).map(t => t.text)
   expect(texts.filter(t => ['scout', 'cavecrew-investigator', 'agent'].includes(t))).toEqual(['scout', 'cavecrew-investigator', 'agent'])
@@ -4978,6 +4980,61 @@ test('the FILES modal: Claude first, a file under two readers shows twice, a re-
   expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
 })
 
+test('a USED modal reader shows its 3 newest and its total; show all opens the whole list stacked', async ($, on) => {
+  const ui = await usedPane($, on)
+  await spawn($, 'one', { name: 'scout' })
+  await $.tool.call({ tool: 'Read', file_path: '/proj/mine.ts' } as any)
+  for (let i = 0; i < 60; i++) await $.tool.call({ tool: 'Read', file_path: `/proj/f${i}.ts`, agentId: 'a1' } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/f0.ts', agentId: 'a1' } as any)
+  await tapRow(ui, 'o:used:files')
+  expect(await ui.find({ type: 'Text', text: '62 total' })).toBeDefined()
+  expect(await hasInModal(ui, '1 total')).toBe(true)
+  expect(await hasInModal(ui, '61 total')).toBe(true)
+  const rows = await Promise.all([0, 1, 2, 3, 4].map(i => usedRow(ui, i)))
+  expect(rows.map(r => r.text)).toEqual([' │ └ mine.ts', '   ├ f0.ts', '   ├ f59.ts', '   └ f58.ts', ''])
+  // One column further in than the names, which start at column 5.
+  const texts = (await modalTexts(ui)).map(t => t.text)
+  expect(texts[texts.indexOf('show all') - 1]).toBe('      ')
+  await ui.press({ key: 'm:all:a1' })
+  const stack = await textsUnder(ui, 'stack')
+  expect(stack.some(t => t.text === 'scout')).toBe(true)
+  expect(stack.some(t => t.text === '61 total')).toBe(true)
+  expect((await ui.find({ key: 'row:o:s:use:0' }))?.props?.props.left.map((x: { text: string }) => x.text).join('')).toBe(' ├ f0.ts')
+  expect(stack.some(t => t.text.includes('more'))).toBe(true)
+  await ui.press({ key: 's:x' })
+  expect(await ui.find({ type: 'Box', key: 'stack' })).toBeUndefined()
+  expect(await ui.find({ type: 'Box', key: 'modal' })).toBeDefined()
+})
+
+test('a web reader caps its pages too: a search with many pages shows 3 rows, then show all', async ($, on) => {
+  const ui = await usedPane($, on)
+  await spawn($, 'one', { name: 'scout' })
+  await $.tool.call({ tool: 'WebSearch', query: 'ink overlay', agentId: 'a1' } as any)
+  for (let i = 0; i < 6; i++) await $.tool.call({ tool: 'WebFetch', url: `https://e.com/p${i}`, agentId: 'a1' } as any)
+  await tapRow(ui, 'o:used:web')
+  const links = findIn(await ui.drawn(), n => n.type === 'Link' && findIn(n, () => true).length >= 0).map(n => n.props.href)
+  expect(links).toHaveLength(2)
+  expect(await ui.find({ key: 'm:all:a1' })).toBeDefined()
+  const glyphs = (await modalTexts(ui)).map(t => t.text).filter(t => /^ [ │├└ ]+$/.test(t) && t.trim() !== '')
+  expect(glyphs).toEqual([' └ ', '   └', '     ├', '     └'])
+})
+
+test('under a show all stack the USED modal fades, and each layer is as wide as its own rows', async ($, on) => {
+  const ui = await usedPane($, on)
+  await spawn($, 'one', { name: 'scout' })
+  await ui.redraw({ ...props, bodyColumns: 80 })
+  // Long paths first, so they sit behind "show all"; the 3 newest are short.
+  for (const n of ['a', 'b', 'c']) await $.tool.call({ tool: 'Read', file_path: `/proj/${'deep/'.repeat(6)}${n}.ts`, agentId: 'a1' } as any)
+  for (const n of ['x', 'y', 'z']) await $.tool.call({ tool: 'Read', file_path: `/proj/${n}.ts`, agentId: 'a1' } as any)
+  await tapRow(ui, 'o:used:files')
+  const before = (await ui.find({ type: 'Box', key: 'modal' }))!.props.width
+  await ui.press({ key: 'm:all:a1' })
+  expect((await ui.find({ type: 'Box', key: 'modal' }))!.props.width).toBe(before)
+  expect((await ui.find({ type: 'Box', key: 'stack' }))!.props.width).toBeGreaterThan(before)
+  expect((await modalTexts(ui)).find(t => t.text === 'FILES')?.color).toBe(DIMMED)
+  expect((await textsUnder(ui, 'stack')).find(t => t.text === 'scout')?.color).not.toBe(DIMMED)
+})
+
 // A modal row's drawn text without its glyphs, from Clients (pages are Links, so also from Texts).
 const treeRows = async (ui: { drawn: () => Promise<unknown> }) =>
   (await modalTexts(ui)).map(t => t.text)
@@ -4996,23 +5053,28 @@ test('the WEB modal: pages sit under their search, an unparented page under the 
   await call('WebFetch', { url: 'https://github.com/vadimdemedes/ink/issues/12' }, 'a1')
   await tapRow(ui, 'o:used:web')
   expect(await ui.find({ type: 'Text', text: '8 total' })).toBeDefined()
+  // The modal shows scout's first 3 rows, its pages counted; show all has the rest.
   const links = findIn(await ui.drawn(), n => n.type === 'Link').map(n => n.props.href)
-  expect(links).toEqual([
-    'https://code.claude.com/docs/en/hooks',
-    'https://github.com/vadimdemedes/ink/issues/12',
-    'https://npmjs.com/package/ink',
-    'https://github.com/vadimdemedes/ink?tab=api',
-    'https://docs.anthropic.com/claude-code',
-  ])
+  expect(links).toEqual(['https://code.claude.com/docs/en/hooks', 'https://github.com/vadimdemedes/ink/issues/12'])
   const texts = await treeRows(ui)
   expect(texts.indexOf('Claude')).toBeLessThan(texts.indexOf('scout'))
   expect(texts.indexOf('ink box hover scope')).toBeLessThan(texts.indexOf('ink absolute position overlay'))
   expect(await inModal(ui, 'ink box hover scope')).toBeUndefined()
   expect(texts.filter(t => t === '    search')).toHaveLength(2)
   expect(await inModal(ui, '    search')).toBe('#4f5c68')
-  expect(await inModal(ui, '×2        ')).toBe('#4f5c68')
   const glyphs = (await modalTexts(ui)).map(t => t.text).filter(t => /^ [ │├└ ]+$/.test(t) && t.trim() !== '')
-  expect(glyphs).toEqual([' ├ ', ' │ └', ' └ ', '   ├', '   │ └', '   ├', '   │ ├', '   │ └', '   └'])
+  expect(glyphs).toEqual([' ├ ', ' │ └', ' └ ', '   ├', '   │ └', '   └'])
+  await ui.press({ key: 'm:all:a1' })
+  const stack = (await ui.find({ type: 'Box', key: 'stack' }))!
+  expect(findIn(stack, n => n.type === 'Link').map(n => n.props.href)).toEqual([
+    'https://github.com/vadimdemedes/ink/issues/12',
+    'https://npmjs.com/package/ink',
+    'https://github.com/vadimdemedes/ink?tab=api',
+    'https://docs.anthropic.com/claude-code',
+  ])
+  const inStack = await textsUnder(ui, 'stack')
+  expect(inStack.find(t => t.text === '×2        ')?.color).toBe('#4f5c68')
+  expect(inStack.map(t => t.text).filter(t => /^ [ │├└ ]+$/.test(t) && t.trim() !== '')).toEqual([' ├', ' │ └', ' ├', ' │ ├', ' │ └', ' └'])
 })
 
 test('the other modal: an agent Grep sits under its agent with grep at the right and no agent name there', async ($, on) => {
@@ -5128,8 +5190,8 @@ test('a USED modal row without a hint draws no right side, so its gap takes no r
     walk(kids, here)
   }
   walk(await ui.drawn(), false)
-  // The heading keeps its right text; the one row has none.
-  expect(rows).toEqual([2, 1])
+  // The heading and the reader keep their right text; the one row has none.
+  expect(rows).toEqual([2, 2, 1])
 })
 
 test('numbers in ASK, TAKE and PLAN are counted; ids, versions and times are not', async ($, on) => {

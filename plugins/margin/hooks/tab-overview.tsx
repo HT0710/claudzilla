@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { AgentRow, Modal, Spawn, Step, Take } from '../types'
 import { printable } from './git-data'
-import { BAR_ROWS, DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, LIT, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, contentFrame, counted, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, readersOf, row as kitRow, rowHovers, toPieces, zoneWindow } from './kit'
+import { BAR_ROWS, DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, LIT, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, contentFrame, capped, counted, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, readersOf, stackFrame, row as kitRow, rowHovers, toPieces, zoneWindow } from './kit'
 import type { Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, UseKind, Zone } from './kit'
 
 const intent = atom({ plugin: 'margin', key: 'intent' } as const, EMPTY_INTENT)
@@ -261,30 +261,43 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     const readers = readersOf(entry)
       .filter(([, m]) => m.length)
       .sort(([a], [b]) => Number(b === 'main') - Number(a === 'main'))
-    type Item = { name: string; glyph: string; count?: number; branch?: string; tone?: string }
-    const items: Item[] = readers.flatMap(([reader, m], ri) => {
-      const last = ri === readers.length - 1
-      const stem = last ? '  ' : '│ '
+    type Item = { name: string; glyph: string; count?: number; branch?: string; tone?: string; total?: string; all?: string }
+    const branchOf = (reader: string) => (reader === 'main' ? 'Claude' : agentName(reader))
+    const totalOf = (m: [string, number][]) => `${m.reduce((n, [, c]) => n + c, 0)} total`
+    // A reader's names under `stem`; `cap`: its newest few, then "show all" one column further in than the names.
+    const treeOf = (reader: string, m: [string, number][], stem: string, cap: boolean): Item[] => {
       const parents = entry.parentOf?.find(([r]) => r === reader)?.[1] ?? []
       const isSearch = ([n]: [string, number]) => kind === 'web' && sourceFor(n) === 'search'
       const searches = m.filter(isSearch)
       const parentOf = (n: string) => parents.find(([u]) => u === n)?.[1]
       const under = (q: string) => m.filter(x => !isSearch(x) && parentOf(x[0]) === q)
       const top = [...searches, ...m.filter(x => !isSearch(x) && !searches.some(([q]) => q === parentOf(x[0])))]
+      // Pages count against the cap: a search with many pages still shows only the first few rows.
+      const flat = top.flatMap(([name, count]) => [{ name, count, page: false }, ...(isSearch([name, count]) ? under(name) : []).map(([p, c]) => ({ name: p, count: c, page: true }))])
+      const cut = cap ? capped(flat) : { rows: flat, more: false }
+      // Glyphs from the rows shown: the last top row shown ends the branch, the last page shown ends its search.
+      const topAfter = (i: number) => cut.rows.slice(i + 1).some(r => !r.page)
       return [
-        ((branch: string) => ({ name: '', glyph: last ? '└ ' : '├ ', branch, tone: toneOf(reader) }))(reader === 'main' ? 'Claude' : agentName(reader)),
-        ...top.flatMap(([name, count], k) => {
-          const end = k === top.length - 1
-          const pages = isSearch([name, count]) ? under(name) : []
-          return [
-            { name, count, glyph: `${stem}${end ? '└ ' : '├ '}` },
-            ...pages.map(([page, n], j) => ({ name: page, count: n, glyph: `${stem}${end ? '  ' : '│ '}${j === pages.length - 1 ? '└ ' : '├ '}` })),
-          ]
-        }),
+        ...cut.rows.map(({ name, count, page }, i) =>
+          page
+            ? { name, count, glyph: `${stem}${topAfter(i) ? '│ ' : '  '}${cut.rows[i + 1]?.page ? '├ ' : '└ '}` }
+            : { name, count, glyph: `${stem}${topAfter(i) ? '├ ' : '└ '}` },
+        ),
+        ...(cut.more ? [{ name: '', glyph: `${stem}   `, all: reader }] : []),
       ]
+    }
+    const items: Item[] = readers.flatMap(([reader, m], ri) => {
+      const last = ri === readers.length - 1
+      return [{ name: '', glyph: last ? '└ ' : '├ ', branch: branchOf(reader), tone: toneOf(reader), total: totalOf(m) }, ...treeOf(reader, m, last ? '  ' : '│ ', true)]
     })
+    const subKey = modalNow?.sub?.key
+    const subReader = subKey !== undefined ? readers.find(([r]) => r === subKey) : undefined
+    // As for the Git tab: a stacked list whose reader has gone closes.
+    if (subKey !== undefined && !subReader && !ctx.signal.aborted) $.clock.after(0, () => ctx.setModal(m => (m?.sub?.key === subKey ? { ...m, sub: undefined } : m)))
+    const subItems = subReader ? treeOf(subReader[0], subReader[1], '', false) : []
     const countOf = (count?: number) => (count && count > 1 ? `×${count}` : '')
-    const named = items.filter(x => x.branch === undefined)
+    // Columns from every name, shown or behind "show all", so both layers line up the same.
+    const named = readers.flatMap(([r, m]) => treeOf(r, m, '', false))
     const cw = Math.max(0, ...named.map(x => countOf(x.count).length))
     const sw = Math.max(0, ...named.map(x => sourceFor(x.name)?.length ?? 0))
     // Each column padded to its widest, so counts end in one column and sources start in one.
@@ -299,86 +312,112 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
       return text
     }
     const total = `${entry.main + entry.agents} total`
+    const widthOf = (x: Item) =>
+      x.glyph.length + 1 + (x.branch !== undefined ? x.branch.length + 2 + (x.total?.length ?? 0) : x.all !== undefined ? 'show all'.length : shown(x.name).length + (hintW ? hintW + 2 : 0))
     // As wide as its rows, not the pane, so a short list keeps each hint beside its name.
-    const widest = Math.max(kind.length + total.length + 2, ...items.map(x => x.glyph.length + 1 + (x.branch ?? shown(x.name)).length + (x.branch === undefined && hintW ? hintW + 2 : 0)))
-    const f = contentFrame(modalFrame(props.bodyColumns, tabRows, 5 + items.length), widest)
-    const inner = f.width - 4
-    let itemAt = 0
-    const rows = items.map(({ name, glyph, count, branch, tone }) => {
-      if (branch !== undefined)
-        return (
-          <Text>
-            <Text color="promptBorder">{` ${glyph}`}</Text>
-            <Text color={tone}>{fit(branch, Math.max(1, inner - (glyph.length + 1)))}</Text>
-          </Text>
+    const widest = Math.max(kind.length + total.length + 2, ...items.map(widthOf))
+    const full = modalFrame(props.bodyColumns, tabRows, 5 + items.length)
+    const f = contentFrame(full, widest)
+    const rowsOf = (list: Item[], layer: 'm' | 's', inner: number) => {
+      let itemAt = 0
+      return list.map(({ name, glyph, count, branch, tone, total: own, all }) => {
+        if (branch !== undefined)
+          return (
+            <Box justifyContent="space-between" gap={2}>
+              <Text>
+                <Text color="promptBorder">{` ${glyph}`}</Text>
+                <Text color={tone}>{fit(branch, Math.max(1, inner - (glyph.length + 1) - 2 - (own?.length ?? 0)))}</Text>
+              </Text>
+              <Box flexShrink={0}>
+                <Text color={HUD.faint}>{own}</Text>
+              </Box>
+            </Box>
+          )
+        if (all !== undefined)
+          return (
+            <Box>
+              <Text color="promptBorder">{` ${glyph}`}</Text>
+              <Button key={`m:all:${all}`} plain onPress={() => ctx.setModal(m => m && { ...m, sub: { key: all, top: 0 } })}>
+                <Text color="claude">show all</Text>
+              </Button>
+            </Box>
+          )
+        const i = itemAt++
+        // A row with neither count nor source keeps its blank columns out of the draw.
+        const padded = hintOf(name, count)
+        const hint = padded.trim() ? padded : ''
+        const room = Math.max(1, inner - (glyph.length + 1) - (hintW ? hintW + 2 : 0))
+        const text = printable(name)
+        // Path or URL pieces: a folder or path part SCOPE, every slash the border colour.
+        const parts = (segs: string[], tone: (i: number) => string | undefined) =>
+          segs.flatMap((seg, k) => [
+            ...(k ? [<Text key={`/${k}`} color="promptBorder">/</Text>] : []),
+            ...(seg ? [<Text key={`s${k}`} color={tone(k)}>{seg}</Text>] : []),
+          ])
+        let pieces: JSX.Element[] = [<Text>{text}</Text>]
+        if (kind === 'files') {
+          const rel = shown(name)
+          const cut = rel.length > room ? `…${rel.slice(1 - room)}` : rel
+          const segs = cut.split('/')
+          pieces = parts(segs, k => (k < segs.length - 1 ? SCOPE : undefined))
+        } else if (kind === 'memory') {
+          pieces = [<Text>{shown(name)}</Text>]
+        } else if (kind === 'web' && sourceFor(name) !== 'search') {
+          const rest = fit(shown(name), room)
+          const q = rest.search(/[?#]/)
+          const segs = (q < 0 ? rest : rest.slice(0, q)).split('/')
+          pieces = [...parts(segs, k => (k ? SCOPE : undefined)), ...(q < 0 ? [] : [<Text color={HUD.faint}>{rest.slice(q)}</Text>])]
+        }
+        const main = <Text wrap="truncate-end">{pieces}</Text>
+        const path = kind === 'skills' ? ctx.skillPath(name) : kind === 'files' || kind === 'memory' ? name : undefined
+        const web = kind === 'web' && sourceFor(name) !== 'search'
+        if (path && !web && Client) {
+          const key = `o:${layer}:use:${i}`
+          hv.acts[key] = () => $.margin.show({ path, line: 1 })
+          const left = toPieces([<Text color="promptBorder">{` ${glyph}`}</Text>, ...pieces])
+          return (
+            // Keyed, its own hover scope: unkeyed, it would light whenever the pointer is anywhere in the modal.
+            <Box key={`${key}:box`} flexDirection="column" height={1} hover={{ backgroundColor: LIT }}>
+              <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left, right: hint ? toPieces(<Text color={HUD.faint}>{hint}</Text>) : [] }} />
+            </Box>
+          )
+        }
+        const target = web ? (
+          <Link href={name}>{main}</Link>
+        ) : path ? (
+          <Button key={`${layer}:use:${i}`} plain onPress={() => $.margin.show({ path, line: 1 })}>
+            {main}
+          </Button>
+        ) : (
+          main
         )
-      const i = itemAt++
-      // A row with neither count nor source keeps its blank columns out of the draw.
-      const padded = hintOf(name, count)
-      const hint = padded.trim() ? padded : ''
-      const room = Math.max(1, inner - (glyph.length + 1) - (hintW ? hintW + 2 : 0))
-      const text = printable(name)
-      // Path or URL pieces: a folder or path part SCOPE, every slash the border colour.
-      const parts = (segs: string[], tone: (i: number) => string | undefined) =>
-        segs.flatMap((seg, k) => [
-          ...(k ? [<Text key={`/${k}`} color="promptBorder">/</Text>] : []),
-          ...(seg ? [<Text key={`s${k}`} color={tone(k)}>{seg}</Text>] : []),
-        ])
-      let pieces: JSX.Element[] = [<Text>{text}</Text>]
-      if (kind === 'files') {
-        const rel = shown(name)
-        const cut = rel.length > room ? `…${rel.slice(1 - room)}` : rel
-        const segs = cut.split('/')
-        pieces = parts(segs, k => (k < segs.length - 1 ? SCOPE : undefined))
-      } else if (kind === 'memory') {
-        pieces = [<Text>{shown(name)}</Text>]
-      } else if (kind === 'web' && sourceFor(name) !== 'search') {
-        const rest = fit(shown(name), room)
-        const q = rest.search(/[?#]/)
-        const segs = (q < 0 ? rest : rest.slice(0, q)).split('/')
-        pieces = [...parts(segs, k => (k ? SCOPE : undefined)), ...(q < 0 ? [] : [<Text color={HUD.faint}>{rest.slice(q)}</Text>])]
-      }
-      const main = <Text wrap="truncate-end">{pieces}</Text>
-      const path = kind === 'skills' ? ctx.skillPath(name) : kind === 'files' || kind === 'memory' ? name : undefined
-      const web = kind === 'web' && sourceFor(name) !== 'search'
-      if (path && !web && Client) {
-        const key = `o:m:use:${i}`
-        hv.acts[key] = () => $.margin.show({ path, line: 1 })
-        const left = toPieces([<Text color="promptBorder">{` ${glyph}`}</Text>, ...pieces])
         return (
-          // Keyed, its own hover scope: unkeyed, it would light whenever the pointer is anywhere in the modal.
-          <Box key={`${key}:box`} flexDirection="column" height={1} hover={{ backgroundColor: LIT }}>
-            <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left, right: hint ? toPieces(<Text color={HUD.faint}>{hint}</Text>) : [] }} />
+          <Box justifyContent="space-between" gap={2}>
+            {/* A Text's trailing space beside a sibling is dropped, so the gap holds the glyph's space. */}
+            <Box flexShrink={1} overflow="hidden" gap={1}>
+              <Box flexShrink={0}>
+                <Text color="promptBorder">{` ${glyph.trimEnd()}`}</Text>
+              </Box>
+              {target}
+            </Box>
+            {hint ? (
+              <Box flexShrink={0}>
+                <Text color={HUD.faint}>{hint}</Text>
+              </Box>
+            ) : null}
           </Box>
         )
-      }
-      const target = web ? (
-        <Link href={name}>{main}</Link>
-      ) : path ? (
-        <Button key={`m:use:${i}`} plain onPress={() => $.margin.show({ path, line: 1 })}>
-          {main}
-        </Button>
-      ) : (
-        main
-      )
-      return (
-        <Box justifyContent="space-between" gap={2}>
-          {/* A Text's trailing space beside a sibling is dropped, so the gap holds the glyph's space. */}
-          <Box flexShrink={1} overflow="hidden" gap={1}>
-            <Box flexShrink={0}>
-              <Text color="promptBorder">{` ${glyph.trimEnd()}`}</Text>
-            </Box>
-            {target}
-          </Box>
-          {hint ? (
-            <Box flexShrink={0}>
-              <Text color={HUD.faint}>{hint}</Text>
-            </Box>
-          ) : null}
-        </Box>
-      )
-    })
-    return drawLayer($, lc, 'm', f, { top: f.top, left: f.left - PAD }, [], [heading(ctx.el, kind.toUpperCase(), <Text color={HUD.faint}>{total}</Text>)], rows, modalNow!.top)
+      })
+    }
+    const head = drawLayer($, lc, 'm', f, { top: f.top, left: f.left - PAD }, [], [heading(ctx.el, kind.toUpperCase(), <Text color={HUD.faint}>{total}</Text>)], rowsOf(items, 'm', f.width - 4), modalNow!.top)
+    if (!subReader) return head
+    // The stacked list is drawn after the modal, not in it, so the modal's border never paints over it.
+    // Stacked over the modal's full width, then narrowed to its own rows: the modal's narrowing would cut its names.
+    const subTotal = totalOf(subReader[1])
+    const subHead = heading(ctx.el, branchOf(subReader[0]), <Text color={HUD.faint}>{subTotal}</Text>)
+    const subWidest = Math.max(branchOf(subReader[0]).length + subTotal.length + 2, ...subItems.map(widthOf))
+    const sf = contentFrame(stackFrame(props.bodyColumns, tabRows, { ...f, left: full.left, width: full.width }, 5 + subItems.length), subWidest)
+    return [head, drawLayer($, lc, 's', sf, { top: sf.top, left: sf.left - PAD }, [], [subHead], rowsOf(subItems, 's', sf.width - 4), modalNow!.sub!.top)]
   }
   const modalBox = topicsOpen ? topicsModal() : usedKind && usedEntry ? usedModal(usedKind, usedEntry) : null
   // Its list gone (a new prompt or /clear emptied it), the modal closes: left open, it would come back with the next list.
@@ -686,5 +725,5 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
         {modalBox}
       </Box>
     )
-  return { body, zones: drawn, trace, ...(topicsOpen && { fade: { keep: new Set(['modal']), open: 'o:topics:all' } }), ...(modalBox && usedKind && { fade: { keep: new Set(['modal']), open: `${'Client' in ctx.el ? 'row' : 'hov'}:o:used:${usedKind}` } }) }
+  return { body, zones: drawn, trace, ...(topicsOpen && { fade: { keep: new Set(['modal']), open: 'o:topics:all' } }), ...(modalBox && usedKind && { fade: { keep: new Set([layers.s ? 'stack' : 'modal']), open: `${'Client' in ctx.el ? 'row' : 'hov'}:o:used:${usedKind}` } }) }
 }
