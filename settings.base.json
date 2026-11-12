@@ -91,6 +91,15 @@
         ]
       },
       {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/cost-trace.mjs\"",
+            "async": true
+          }
+        ]
+      },
+      {
         "matcher": "startup|clear",
         "hooks": [
           {

@@ -1,0 +1,3 @@
+{"type":"user","uuid":"po1","timestamp":"2026-11-12T15:01:00.000Z","message":{"role":"user","content":"other prompt"},"turnOrigin":"human"}
+{"type":"assistant","uuid":"u-mo1","timestamp":"2026-11-12T15:02:00.000Z","message":{"id":"mo1","model":"claude-haiku-5-5","usage":{"output_tokens":1000}}}
+{"type":"cost-state","sessionId":"o1","startTime":1794495600000,"totalCostUSD":0.01,"totalAPIDuration":1000,"totalDuration":2000,"modelUsage":{}}

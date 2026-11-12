@@ -1,0 +1,2 @@
+{"type":"user","uuid":"p9","timestamp":"2026-11-12T10:46:00.000Z","message":{"role":"user","content":"live prompt"},"turnOrigin":"human"}
+{"type":"assistant","uuid":"u-m9","timestamp":"2026-11-12T10:47:00.000Z","message":{"id":"m9","model":"claude-opus-5-5","usage":{"output_tokens":100}}}

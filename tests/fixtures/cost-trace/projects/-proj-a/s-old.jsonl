@@ -1,0 +1,4 @@
+{"type":"user","uuid":"p0","timestamp":"2026-11-12T08:45:00.000Z","message":{"role":"user","content":"old prompt"},"turnOrigin":"human"}
+{"type": "queue-operation", "timestamp": "2026-11-12T08:46:00.000Z", "content": "please read # Agent routing in the rules"}
+{"type":"assistant","uuid":"u-m008:50:00","timestamp":"2026-11-12T08:50:00.000Z","effort":"medium","message":{"id":"m0","model":"claude-sonnet-5-5","usage":{"output_tokens":1000}}}
+{"type":"cost-state","sessionId":"s-old","startTime":1794472800000,"totalCostUSD":0.3,"totalAPIDuration":1000,"totalDuration":2000,"modelUsage":{}}
