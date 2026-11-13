@@ -9,7 +9,7 @@ SPEEDS="$REPO/.github/visuals/speeds.txt"
 # shellcheck source=lib.sh
 . "$REPO/.github/visuals/lib.sh"
 DEMO="$HOME/acme-api"
-SHOTS="statusline statusline-compact ballot margin edits primer run"
+SHOTS="statusline statusline-compact ballot margin edits primer run fix"
 
 # ask PROMPT SECS: send PROMPT, wait until its turn ends: a "✻ Sautéed for 21s · done 5:03 am" line
 # not on screen before (a long reply scrolls the prompt itself away).
@@ -185,6 +185,26 @@ shot_run() {
     click $(copy_at json) && wait_for '✓ Copied' 3; ok=$?
   sleep 2; touch "$d/stop"; wait "$f"
   [ "$ok" = 0 ] && has "$d" '✔ accepts' && clip run "$d"
+}
+
+# The README's debugging flow, three stills: the answer, its Decision, and the fix after "go".
+shot_fix() {
+  local top dec end
+  # Tall, so the whole answer and its Decision fit on screen at once.
+  start "$DEMO" 110 90 && margin_want off || return 1
+  ask "why does the auth test fail?" 200 && wait_for 'Recommend' 5 && sleep 2 || return 1
+  top=$(row '❯ why does the auth test fail?')
+  dec=$(tm capture-pane -t "$SHOT" -p | grep -n 'Decision' | head -1 | cut -d: -f1)
+  # Down to just above the turn's done line: no ballot card under it.
+  end=$(($(row ' · done ') - 1))
+  [ -n "$top" ] && [ -n "$dec" ] && [ "$dec" -gt $((top + 2)) ] && [ "$end" -gt "$dec" ] || return 1
+  # The answer stops above the divider that opens the Decision.
+  grab "$WORK/answer.ansi" "$top" $((dec - 4)) && grab "$WORK/decision.ansi" $((dec - 1)) "$end" || return 1
+  ask "go" 240 && sleep 2 || return 1
+  top=$(row '❯ go'); end=$(($(tm capture-pane -t "$SHOT" -p | grep -n '^─\{20,\}' | head -1 | cut -d: -f1) - 2))
+  [ -n "$top" ] || return 1
+  grab "$WORK/fix.ansi" $((top + 2)) "$end" &&
+    still "$WORK/answer.ansi" "$A/answer.png" && still "$WORK/decision.ansi" "$A/decision.png" && still "$WORK/fix.ansi" "$A/fix.png"
 }
 
 [ $# -gt 0 ] || set -- $SHOTS

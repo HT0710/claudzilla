@@ -92,7 +92,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 ### Code that stays small
 - **Lazy by default:** the smallest change that fully works ([ponytail](https://github.com/DietrichGebert/ponytail)).
 
-  <img src=".github/assets/fix.png" alt="A one-line test fix shown as a +2 -2 diff, then Claude reports the test now passes" width="720">
+  <img src=".github/assets/fix.png" alt="A one-line fix shown as one row, Updated auth/token.js +1 −1, then Claude reports the test now passes" width="720">
 
 - **Disciplined workflow:** debugging, TDD, plans and reviews via [superpowers](https://github.com/obra/superpowers).
 - **Fewer tokens:** short-form voice ([caveman](https://github.com/JuliusBrussee/caveman)), and every Bash call is filtered through [`rtk`](https://github.com/rtk-ai/rtk).
