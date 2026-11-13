@@ -298,6 +298,8 @@ async function handOff($: EngineInterface, command: string, args: string) {
 
 // A main-chat turn is running: set by the main chat's turn.start, cleared by the main chat's turn.complete.
 let busy = false
+// A handoff is written or waiting to run; a second one would clear while the first note's turn runs.
+let handing = false
 
 const NUMBERED = `grep -n '' "$1" | tail -c 1000000`
 const DRAFT = `grep -n '"type":"tool_use","id":"[^"]*","name":"mcp__primer__compact_draft"' "$1" | tail -1`
@@ -318,12 +320,27 @@ git -C "$1" diff --stat HEAD | tail -1`
 // Writes the note for this session, then clears and sends it once the hook has returned (command.run rejects inside its own hook).
 async function coldHandoff($: EngineInterface): Promise<{ text: string } | Record<string, never>> {
   if (busy) return { text: 'A turn is running. Run /claudzilla handoff when it ends.' }
+  if (handing) return { text: 'A handoff is already running.' }
+  handing = true
+  try {
+    return await writeHandoff($)
+  } catch (err) {
+    handing = false
+    throw err
+  }
+}
+
+async function writeHandoff($: EngineInterface): Promise<{ text: string } | Record<string, never>> {
   const home = await $.env.get('HOME').catch(() => undefined)
   const dir = (await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined)) || `${home}/.claude`
   const sessionId = await $.session.id()
   const found = await $.process.run(['find', `${dir}/projects`, '-maxdepth', '2', '-name', `${sessionId}.jsonl`]).catch(() => undefined)
   const path = found?.stdout.split('\n')[0]
-  if (!path) return { text: 'No transcript for this session yet, so there is nothing to hand off.' }
+  if (!path) {
+    handing = false
+
+    return { text: 'No transcript for this session yet, so there is nothing to hand off.' }
+  }
   const grep = async (script: string) => (await $.process.run(['sh', '-c', script, 'sh', path]).catch(() => undefined))?.stdout ?? ''
   const cwd = await $.session.cwd().catch(() => '')
   const git = async () => (cwd ? (await $.process.run(['sh', '-c', GIT, 'sh', cwd]).catch(() => undefined))?.stdout ?? '' : '')
@@ -336,25 +353,36 @@ async function coldHandoff($: EngineInterface): Promise<{ text: string } | Recor
     await $.fs.write(file, note)
   } catch (err) {
     $.ui.toast(`Handoff note not written: ${err instanceof Error ? err.message : String(err)}`)
+    handing = false
 
     return {}
   }
   const lost = () => $.ui.toast(`Note is at ${file}. Type @${file}.`)
   const go = async () => {
-    try {
-      await $.command.run({ command: 'clear' })
-    } catch {
-      return lost()
+    if (busy) {
+      handing = false
+
+      return $.ui.toast('A turn is running. Run /claudzilla handoff when it ends.')
     }
-    // Inline, because a plugin's prompt does not expand @file.
-    const sent = await $.prompt.submit({ text: note, asUser: true }).then(r => !r.drop, () => false)
-    if (sent) return
-    const { isFilled } = await $.prompt.fill({ text: `@${file} ` }).catch(() => ({ isFilled: false }))
-    if (!isFilled) lost()
+    try {
+      try {
+        await $.command.run({ command: 'clear' })
+      } catch {
+        return lost()
+      }
+      // Inline, because a plugin's prompt does not expand @file.
+      const sent = await $.prompt.submit({ text: note, asUser: true }).then(r => !r.drop, () => false)
+      if (sent) return
+      const { isFilled } = await $.prompt.fill({ text: `@${file} ` }).catch(() => ({ isFilled: false }))
+      if (!isFilled) lost()
+    } finally {
+      handing = false
+    }
   }
   try {
     await Promise.resolve($.clock.after(500, go))
   } catch {
+    handing = false
     lost()
   }
 
@@ -439,6 +467,7 @@ async function snapshot($: EngineInterface, columns: number | undefined) {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
+    handing = false
     await t.start(traceIo($))
     HUD.label = (await readPalette($)).palette.shared.label
     await $.command.register({ name: 'claudzilla', description: 'The claudzilla guide, one section at a time', argumentHint: '[topic | report [what happened] | compact | handoff | experimental [id on|off] | cost [session-id | all [--since d] [--until d] [--project p]]]', immediate: true })

@@ -417,6 +417,22 @@ test('/claudzilla compact hands off to the skill after the hook returns, and ope
   expect(seen.opened).toHaveLength(0)
 })
 
+test('a second handoff while one is waiting schedules nothing', async ($, on) => {
+  const timers: number[] = []
+  const writes: string[] = []
+  host(on, { proc: c => ({ value: { exitCode: 0, stdout: c.includes('find') ? '/cfg/projects/p/s1.jsonl\n' : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }) })
+  on('env.get', (_, e: any) => ({ value: e.name === 'CLAUDE_CONFIG_DIR' ? '/cfg' : undefined }) as any)
+  on('session.id', () => ({ value: 's1' }) as any)
+  on('clock.now', () => ({ value: 0 }) as any)
+  on('fs.write', (_, e: any) => { writes.push(e.path); return { value: undefined } as any })
+  on('clock.after', (_, e: any) => { timers.push(e.ms); return { value: undefined } as any })
+  await $.session.start(start)
+  await run($, 'handoff')
+  await run($, 'handoff')
+  expect(timers.filter(ms => ms === 500)).toHaveLength(1)
+  expect(writes).toHaveLength(1)
+})
+
 test('compact_draft fills the box once the turn ends; a subagent call fills nothing', async ($, on) => {
   const filled: string[] = []
   const registered: any[] = []
