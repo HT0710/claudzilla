@@ -1008,7 +1008,7 @@ export const register: Register = on => {
       )
     }
     // Without a record, as after a reload, a write keeps one row and not the engine's block.
-    const command = tool === 'Bash' && !bashEdits.has(e.requestId) ? String((input as { command?: unknown } | undefined)?.command ?? '') : ''
+    const command = tool === 'Bash' && !bashEdits.has(e.requestId) && !shells.has(e.requestId) ? String((input as { command?: unknown } | undefined)?.command ?? '') : ''
     if (command && !isRunning && !isErrored && !isInterrupted && writeTargets(command).length) {
       if (lostWrites.size > 500) lostWrites.clear()
       // The result block may have drawn before this row marked it.
