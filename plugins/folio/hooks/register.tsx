@@ -767,7 +767,7 @@ export const register: Register = on => {
     const targets = writeTargets(e.command, home)
     const cwd = await $.session.cwd().catch(() => '')
     const read = (f: string) => $.fs.read(f).then(text => text as string, () => undefined)
-    const git = (dir: string, ...args: string[]) => $.process.run(['git', '--no-optional-locks', '-C', dir, ...args], { timeoutMs: 5000 })
+    const git = (dir: string, ...args: string[]) => $.process.run(['git', '--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', dir, ...args], { timeoutMs: 5000 })
       .then(r => (r.exitCode === 0 ? r.stdout : undefined), () => undefined)
     // Dirty files by path, from git status, for commands whose writes the parse can't see.
     const dirty = async (top: string) => {
@@ -776,15 +776,22 @@ export const register: Register = on => {
     }
     const cd = leadDir(e.command, home)
     const dir = cd ? resolve(cwd, cd) : cwd
-    // Only under the session root: git status runs a repo's config (core.fsmonitor, filters), and this runs before approval.
+    // Only the session root's own repo: git status runs a repo's config (filters), and this runs before approval.
     const root = targets.length ? '' : await $.session.root().catch(() => '')
     const isTrusted = !!root && (dir === root || dir.startsWith(`${root}/`))
-    if (isTrusted && !tops.has(dir)) {
-      const found = (await git(dir, 'rev-parse', '--show-toplevel'))?.trim()
+    if (isTrusted && !tops.has(root)) {
+      const found = (await git(root, 'rev-parse', '--show-toplevel'))?.trim()
       // Not cached when missing, so a later `git init` counts.
-      if (found) tops.set(dir, found)
+      if (found) tops.set(root, found)
     }
-    const top = isTrusted ? tops.get(dir) ?? '' : ''
+    // A repo of its own between dir and the root, such as a clone, gets no snapshot.
+    const nested = async () => {
+      for (let d = dir; d !== root && d.startsWith(`${root}/`); d = d.slice(0, d.lastIndexOf('/'))) {
+        if (await $.fs.stat(`${d}/.git`).then(() => true, () => false)) return true
+      }
+      return false
+    }
+    const top = isTrusted && tops.has(root) && !(await nested()) ? tops.get(root)! : ''
     const was = top ? await dirty(top) : undefined
     // shortcut: a tree with over 100 dirty files skips script writes, as reading each on every call costs too much; upgrade by hashing with git hash-object.
     if (!targets.length && (!was || was.size > 100)) return next(e)
