@@ -8,7 +8,7 @@ here=$(dirname "$(readlink "$0" || echo "$0")")
 repo=$(git -C "$here" rev-parse --show-toplevel 2>/dev/null) || exit 0
 gd=$(git -C "$repo" rev-parse --absolute-git-dir)
 log=$gd/claudzilla-update.log res=$gd/claudzilla-update.result lock=$gd/claudzilla-update.lock
-ev=$gd/claudzilla-update.events
+ev=$gd/claudzilla-update.events seen=$gd/claudzilla-update.seen
 # Set by herald's timer in an open session: no SessionStart notices, which belong to the next session.
 timer=${CLAUDZILLA_UPDATE_TIMER:-}
 # Local trace line for this stage; no session id, since reading stdin would hang a caller that keeps it open; never changes output or exit code.
@@ -21,6 +21,9 @@ ver() { git -C "$repo" describe --tags --always "$@" 2>/dev/null; }
 # Newest release tag on upstream; a fork with no tags follows the branch.
 rel() { git -C "$repo" describe --tags --abbrev=0 --match 'v[0-9]*' "$up" 2>/dev/null || echo "$up"; }
 behind() { git -C "$repo" rev-list --count "HEAD..$(rel)" 2>/dev/null; }
+# The release a session was last told of, by commit: any fetch can bring a tag, not only this hook's.
+relsha() { git -C "$repo" rev-parse -q --verify "$(rel)^{commit}"; }
+told() { relsha > "$seen"; }
 list() { paste -sd, - | sed 's/,/, /g'; }
 # A path's part: its first two segments (plugins/margin, claude/hud), or the path itself.
 parts() { sed -E 's#^([^/]+/[^/]+)/.*#\1#' | sort -u; }
@@ -58,6 +61,7 @@ fi
 n=$(behind)
 trace update.check info "behind=${n:-0}" "auto=$auto" "target=$to"
 if [ -z "$timer" ] && [ "${n:-0}" -gt 0 ]; then
+  told
   [ "$auto" = true ] && why=$(blocked)
   if [ "$auto" = true ] && [ -z "$why" ]; then
     user="${user:+$user | }claudzilla: updating to $(ver --match 'v[0-9]*' "$to") in background - restart Claude to apply"
@@ -80,24 +84,24 @@ elif [ -n "$user" ]; then
 fi
 
 stale=$({ [ -f "$gd/shallow" ] || [ -z "$(find "$gd/FETCH_HEAD" -mmin -60 2>/dev/null)" ]; } && echo 1)
-[ -n "$stale" ] || { [ "$auto" = true ] && [ "${n:-0}" -gt 0 ]; } || exit 0
+[ -n "$stale" ] || [ "${n:-0}" -gt 0 ] || exit 0
 find "$lock" -maxdepth 0 -mmin +60 -exec rmdir {} \; 2>/dev/null   # left by a killed job
 (
   mkdir "$lock" 2>/dev/null || exit 0   # another session's job is running
   trap '' HUP   # Claude exiting mid-install must not leave a half install and a stuck lock
   trap 'rmdir "$lock"' EXIT
   # A curl install is a --depth 1 clone: no tags until its history is fetched.
-  was=$(git -C "$repo" rev-parse -q --verify "$(rel)^{commit}")
   [ -z "$stale" ] || GIT_TERMINAL_PROMPT=0 git -C "$repo" fetch -q $([ -f "$gd/shallow" ] && echo --unshallow --tags)
   [ "$(behind)" -gt 0 ] 2>/dev/null || exit 0
-  moved=$([ "$(git -C "$repo" rev-parse -q --verify "$(rel)^{commit}")" = "$was" ] || echo 1)
-  # A release this fetch brought: open sessions hear of it now, not only the next session.
+  moved=$([ "$(relsha)" = "$(cat "$seen" 2>/dev/null)" ] || echo 1)
+  # A release no session was told of: open sessions hear of it now, not only the next session.
   if [ "$auto" != true ] || [ -n "$(blocked)" ]; then
-    [ -z "$moved" ] || emit live "claudzilla: $(ver --match 'v[0-9]*' "$(rel)") released - ask Claude to update"
+    [ -z "$moved" ] || { told; emit live "claudzilla: $(ver --match 'v[0-9]*' "$(rel)") released - ask Claude to update"; }
     exit 0
   fi
   # A failed update retries at the next session start, not on every timer tick.
   [ -z "$timer" ] || [ -n "$moved" ] || exit 0
+  told
   to=$(ver --match 'v[0-9]*' "$(rel)"); emit live "claudzilla: updating to $to"
   if { git -C "$repo" merge -q --ff-only "$to" && bash "$repo/install.sh"; } >"$log" 2>&1
   then kept=$(git -C "$repo" diff --no-renames --name-only HEAD); msg="claudzilla: updated to $(ver)${kept:+, your edits kept}"; emit live "$msg - restart Claude to apply"
