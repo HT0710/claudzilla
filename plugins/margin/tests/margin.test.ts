@@ -941,7 +941,7 @@ test('a tab not built yet is dim and says when it comes', async ($, on) => {
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Tree' })
   // The same boxed note as an empty Overview, History or Git.
-  expect(await ui.find({ type: 'Text', text: 'Coming in v1.8' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Coming soon' })).toBeDefined()
   expect(await ui.find({ type: 'Box', borderStyle: 'round' } as any)).toBeDefined()
 })
 
