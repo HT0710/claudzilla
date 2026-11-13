@@ -118,7 +118,8 @@ export function parse(answer: string): Offer | null {
       inTable = false
       continue
     }
-    const cells = line.match(/^\|(.*)\|\s*$/)?.[1]?.split('|').map(c => c.trim())
+    // The table rule bolds the `#` column (`| **A** |`); the id is the bare letter.
+    const cells = line.match(/^\|(.*)\|\s*$/)?.[1]?.split('|').map((c, i) => (i ? c.trim() : c.trim().replace(/^\*\*(.*)\*\*$/, '$1')))
     if (current && cells) {
       // Only the decision's first table; its first line is the header; a short first cell marks an option row.
       if (!current.rows) {

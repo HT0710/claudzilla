@@ -243,6 +243,12 @@ test('parse: one Decision table gives its rows, the recommended one picked', () 
   ])
 })
 
+test('parse: bold header and option cells read like plain ones', () => {
+  const bold = LETTERS.replace('| # | option | tradeoff |', '| **#** | **option** | **tradeoff** |')
+    .replace('| A |', '| **A** |').replace('| B |', '| **B** |')
+  expect(parse(bold)?.rows).toEqual(parse(LETTERS)?.rows)
+})
+
 test("parse: the Why under Recommend is kept for the footer", () => {
   expect(parse(LONE)?.why).toBe('your finish-via-pr memory says PR, merge once CI is green.')
   expect(parse(LETTERS)?.why).toBe('')
