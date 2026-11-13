@@ -107,6 +107,16 @@ test('branch row: name, one mark only when needed, no counts', async ($, on) => 
   expect(await piece(ui, 'branch', / [↓↕✗]$/)).toBeUndefined()
 })
 
+test('branch row holds the width it was given', async ($, on) => {
+  quiet(on)
+  const repo = repoOn('a')
+  on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
+  const ui = await mount($)
+  const boxes = await ui.findAll({ type: 'Box' })
+  // '⎇ a' is 3 cells.
+  expect(boxes.some(box => box.props.width === 3)).toBe(true)
+})
+
 test('fetch button shows the fetch age, presses git fetch origin', async ($, on) => {
   quiet(on)
   const runs: string[] = []
