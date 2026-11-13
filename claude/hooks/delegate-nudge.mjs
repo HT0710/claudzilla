@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Blocks the third search of a turn with no Agent call; hook half of the Agent routing experimental feature.
-import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, lstatSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -25,8 +25,12 @@ try {
   if (enabled().agentRouting !== true) process.exit(0);
   const d = JSON.parse(raw);
   if (!d.session_id) process.exit(0);
-  const dir = join(tmpdir(), "delegate-nudge");
-  mkdirSync(dir, { recursive: true });
+  // Per user and private, because tmpdir is shared on Linux: another user's planted dir or symlink would get our writes.
+  const uid = process.getuid?.();
+  const dir = join(tmpdir(), `delegate-nudge-${uid ?? "u"}`);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const st = lstatSync(dir);
+  if (!st.isDirectory() || (uid !== undefined && st.uid !== uid) || st.mode & 0o077) process.exit(0);
   const file = join(dir, String(d.session_id).replace(/[^\w-]/g, ""));
   // Relative paths resolve from the last plain `cd` in the command, not only the session cwd.
   let base = d.cwd ?? ".";
