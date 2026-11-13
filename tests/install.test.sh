@@ -522,6 +522,12 @@ check "timer: new release is a live line" grep -qE $'^[0-9]+\tlive\tclaudzilla: 
 check "timer: no start line" bash -c '! grep -q "v1.3.0 available" "$1"' _ "$ev"
 touch -t 200001010000 "$gdir/FETCH_HEAD"; timer >/dev/null; waitjob
 check "timer: known release toasts once" [ "$(grep -c 'v1.3.0 released' "$ev")" = 1 ]
+# Another fetch (margin's Git tab, a manual one) pulled the tag first: the timer still tells the open session.
+g -C "$U/seed" commit --allow-empty -m tenb; g -C "$U/seed" tag v1.3.1; g -C "$U/seed" push origin main v1.3.1; g -C "$U/clone" fetch -q
+timer >/dev/null; waitjob
+check "timer: a release another fetch brought is a live line" grep -qF $'\tlive\tclaudzilla: v1.3.1 released' "$ev"
+timer >/dev/null; waitjob
+check "timer: that release toasts once" [ "$(grep -c 'v1.3.1 released' "$ev")" = 1 ]
 # autoUpdate on: a release the timer's fetch brings starts the update; a failed one waits for the next session.
 rm -f "$res" "$U/home/.claude/claudzilla.json"; printf 'mine\n' > "$U/clone/w"   # untracked w makes the merge fail
 printf 'up\n' > "$U/seed/w"; g -C "$U/seed" add w; g -C "$U/seed" commit -m eleven; g -C "$U/seed" tag v1.4.0; g -C "$U/seed" push origin main v1.4.0
