@@ -2139,6 +2139,23 @@ test('a script after a leading cd into a repo outside the session root runs no g
   expect(await textOf(await useRow($, call('b1', 'Bash', { command: 'cd /q && ./fix.sh' })), 'fold:b1')).toBe('native')
 })
 
+test('a cd into a nested repo runs no git there, and git runs without the repo fsmonitor', async ($, on) => {
+  native(on)
+  bashFs(on, {})
+  const calls: string[][] = []
+  on('process.run', (_: any, e: any) => {
+    calls.push(e.argv)
+    const dir = e.argv[e.argv.indexOf('-C') + 1]
+    return { value: { exitCode: 0, stdout: e.argv.includes('rev-parse') ? `${dir}\n` : '', stderr: '' } }
+  })
+  on('fs.stat', (_: any, e: any) => (e.path === '/p/nested/.git' ? { value: { kind: 'directory', size: 1, mtimeMs: 0, isLink: false } } : { deny: 'ENOENT' }))
+  await bash($, 'cd nested && ./fix.sh')
+  expect(calls.filter(a => a.includes('/p/nested'))).toEqual([])
+  await bash($, './fix.sh')
+  expect(calls.length).toBeGreaterThan(0)
+  expect(calls.every(a => a.includes('core.fsmonitor=false'))).toBe(true)
+})
+
 test('a script that makes an untracked file draws it as created', async ($, on) => {
   native(on)
   gitFs(on, {}, {}, files => (files['/p/new.txt'] = 'x\ny\n'))
