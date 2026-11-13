@@ -2396,6 +2396,17 @@ test('an expanded reloaded Bash result keeps the engine diff', async ($, on) => 
   expect(seen).toEqual([RELOADED_OUT, RELOADED_OUT])
 })
 
+test('a live Bash call whose write target folio cannot read keeps its output drawn', async ($, on) => {
+  native(on)
+  bashFs(on, {})
+  const command = 'make 2>&1 | tee ~/build.log'
+  await bash($, command)
+  expect(await rowsOf(await useRow($, call('b1', 'Bash', { command })))).toEqual([])
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolResult', requestId: 'b1',
+    props: { tool_use_id: 'b1', tool: 'Bash', output: { stdout: 'built' }, isErrored: false }, viewport: VIEW })
+  expect((await ui.find({ type: 'Text' }))?.text).toBe('native block')
+})
+
 test('a Bash result without bashEditDiff and a record keeps today\'s row', async ($, on) => {
   native(on)
   expect(await rowsOf(await useRow($, call('b1', 'Bash', { command: 'python fix.py' })))).toEqual([])
