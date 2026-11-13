@@ -1136,7 +1136,7 @@ export const register: Register = (on, options) => {
         // A report missing ASK or TAKE, or with a bad take, keeps the last ones, or the tab goes blank.
         await update($, intent, now => ({
           wants: flat(String(report.wants ?? now.wants)),
-          take: readTake(report.take) ?? now.take,
+          take: readTake(report.take) ?? (now.turn === turn ? now.take : undefined),
           steps: Array.isArray(report.steps)
             ? report.steps.map(step => ({ ...step, text: flat(String(step.text)), agents: Array.isArray(step.agents) ? step.agents.map(one => flat(String(one))) : undefined }))
             : [],
