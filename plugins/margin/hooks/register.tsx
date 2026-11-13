@@ -1455,7 +1455,7 @@ export const register: Register = (on, options) => {
       out = {
         body: emptyNote(
           e.props.scroll.bodyRows - BAR_ROWS - 2,
-          'Coming in v1.8',
+          'Coming soon',
           <Text color={HUD.faint}>Choices made in this chat</Text>,
           <Text color={HUD.faint}>and why they were made.</Text>,
         ),
@@ -1466,7 +1466,7 @@ export const register: Register = (on, options) => {
       out = {
         body: emptyNote(
           e.props.scroll.bodyRows - BAR_ROWS - 2,
-          'Coming in v1.8',
+          'Coming soon',
           <Text color={HUD.faint}>The repo's files as a tree,</Text>,
           <Text color={HUD.faint}>each one opens in File.</Text>,
         ),
