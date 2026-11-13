@@ -62,6 +62,18 @@ parallel() { warm; local o; o=$(for i in 1 2 3 4 5 6; do ev PreToolUse Grep & do
 check "parallel: all denied" eq "$(parallel)" 6
 pathesc() { local SID=../x; prompt; [ ! -e "$TMP/x" ]; }
 check "session id cannot escape tmpdir" pathesc
+private() { on; prompt; local d="$TMP/delegate-nudge-$(id -u)"; [ -f "$d/s1" ] && [ "$(ls -ld "$d" | cut -c1-10)" = drwx------ ]; }
+check "the counter lives in a private per-user dir" private
+planted() {
+  local d="$TMP/delegate-nudge-$(id -u)"; rm -rf "$d"; mkdir -p "$TMP/victim"; ln -s "$TMP/victim" "$d"; on; prompt
+  local ok=1; [ -z "$(ls -A "$TMP/victim")" ] || ok=0; rm "$d"; [ $ok -eq 1 ]
+}
+check "a planted symlink dir is never written through" planted
+open_dir() {
+  local d="$TMP/delegate-nudge-$(id -u)"; rm -rf "$d"; mkdir -p "$d"; chmod 777 "$d"; on; prompt
+  local ok=1; [ -z "$(ls -A "$d")" ] || ok=0; rm -rf "$d"; [ $ok -eq 1 ]
+}
+check "a dir others can write is never used" open_dir
 check "bad JSON exits 0" eq "$(echo nope | node "$H"; echo $?)" 0
 
 third() { warm; ev PreToolUse Grep; }
@@ -95,7 +107,7 @@ check "gate: broken loader fails open" broken
 nosid() {
   on; local SID="" o="" i
   for i in 1 2 3; do o+=$(ev PreToolUse Grep); done
-  [ -z "$o" ] && [ ! -e "$TMP/delegate-nudge/undefined" ]
+  [ -z "$o" ] && [ ! -e "$TMP/delegate-nudge-$(id -u)/undefined" ]
 }
 check "no session id: never counts" nosid
 
