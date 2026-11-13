@@ -492,13 +492,15 @@ test('a shell card still draws on a terminal too narrow for its text', async ($,
 
 test('a shell card breaks a line by terminal cells, so wide glyphs never push the tail off screen', async ($, on) => {
   fenced(on)
-  const long = `${'你'.repeat(40)} rm -rf ~`
-  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'AssistantMessage', requestId: 'r17',
-    props: { text: `\`\`\`bash\n${long}\n\`\`\``, isFirstOfReply: true }, viewport: { columns: 80, rows: 20 } })
-  const rows = (await ui.findAll({ type: 'Code' })).map((c: any) => c.props.source)
-  expect(rows.length).toBeGreaterThan(1)
-  expect(rows.join('')).toBe(long)
-  expect(rows.at(-1)).toContain('rm -rf ~')
+  for (const glyph of ['你', '⬛', '⏰', '︐', '𛀁']) {
+    const long = `${glyph.repeat(40)} rm -rf ~`
+    const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'AssistantMessage', requestId: `r17${glyph}`,
+      props: { text: `\`\`\`bash\n${long}\n\`\`\``, isFirstOfReply: true }, viewport: { columns: 80, rows: 20 } })
+    const rows = (await ui.findAll({ type: 'Code' })).map((c: any) => c.props.source)
+    expect([glyph, rows.length > 1]).toEqual([glyph, true])
+    expect(rows.join('')).toBe(long)
+    expect(rows.at(-1)).toContain('rm -rf ~')
+  }
 })
 
 test('output shows while the command runs, and Stop ends it', async ($, on) => {

@@ -117,10 +117,11 @@ function diffText(output: any) {
 }
 
 // Cells a string takes in a Code element, per grapheme: a tab, and a wide East Asian or emoji one, take two.
+// Plugins get no Bun.stringWidth, which the engine measures with; a glyph missed here can hide a Run card's tail.
 const graphemes = new Intl.Segmenter()
 const cells = (text: string) =>
   [...graphemes.segment(text)].reduce((sum, { segment }) =>
-    sum + (segment === '\t' || /[\u1100-\u115F\u2600-\u27BF\u2B50\u2B55\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6\u{1F000}-\u{1FAFF}\u{20000}-\u{3FFFF}]/u.test(segment) ? 2 : 1), 0)
+    sum + (segment === '\t' || /\p{Emoji_Presentation}|[\u1100-\u115F\u2329\u232A\u2600-\u27BF\u2B50\u2B55\u2E80-\uA4CF\uA960-\uA97C\uAC00-\uD7A3\uF900-\uFAFF\uFE10-\uFE19\uFE30-\uFE4F\uFE50-\uFE6B\uFF00-\uFF60\uFFE0-\uFFE6\u{16FE0}-\u{18CFF}\u{1AFF0}-\u{1B2FF}\u{1F000}-\u{1FAFF}\u{20000}-\u{3FFFF}]/u.test(segment) ? 2 : 1), 0)
 
 // Rows the Code element draws for a diff `width` cells wide: a `...` row between hunks, and each line one row
 // plus its wraps under the hunk's gutter (the widest line number, a space, a marker). `\ No newline` draws none.
