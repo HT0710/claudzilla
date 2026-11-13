@@ -454,20 +454,27 @@ const urlRanges = (s: string) => {
 const rowEnds = (cs: string[], width: number, urls: ReturnType<typeof urlRanges>, max = Infinity) => {
   const w = Math.max(width, 1)
   const ends: number[] = []
+  // First offset past `at` where the row's cells exceed `w`, always at least one character on.
+  const fit = (at: number) => {
+    let used = 0
+    let i = at
+    for (; i < cs.length && (i === at || used + cells(cs[i]!) <= w); i++) used += cells(cs[i]!)
+    return i
+  }
   let at = 0
-  while (cs.length - at > w && ends.length < max) {
-    let sp = cs.lastIndexOf(' ', at + w - 1)
+  while (fit(at) < cs.length && ends.length < max) {
+    const reach = fit(at)
+    let sp = cs.lastIndexOf(' ', reach - 1)
     // Break after the first space of a run, never right after the row's leading spaces.
     while (sp > at && cs[sp - 1] === ' ') sp = cs.lastIndexOf(' ', sp - 1)
-    let end = sp > at ? sp + 1 : at + w
+    let end = sp > at ? sp + 1 : reach
     const u = urls.find(([s, e]) => s > at && s < end && end < e && e - s <= w)
     ends.push((at = u ? u[0] : end))
   }
   return ends.length < max ? [...ends, cs.length] : ends
 }
 
-// shortcut: counts code points, so a line of wide glyphs or tabs still cuts; measure cells if one shows up.
-// One output row as rows of `width` code points; each piece keeps its span's paint, and a split URL's pieces keep its full href.
+// One output row as rows of `width` cells; each piece keeps its span's paint, and a split URL's pieces keep its full href.
 // With `max`, only the first `max` rows are cut, then one row counting the rest; shortcut: a URL running past them is read in full, and the count is UTF-16 units over `width`.
 const cutSpans = (spans: Span[], width: number, max = Infinity): Span[][] => {
   const w = Math.max(width, 1)
@@ -1219,7 +1226,7 @@ export const register: Register = on => {
             <Text color={copied.has(k) ? 'success' : 'text'}>{copied.has(k) ? '✓ Copied' : '⧉ Copy'}</Text>
           </Button>
         )
-        const wide = (l: string) => Array.from(l).length > room - 4
+        const wide = (l: string) => cells(l) > room - 4
         const isWrapped = wrapped.has(block)
         const cutNow = cmd ? output.some(l => wide(text(l))) : body.split('\n').some(wide)
         const wrapKey = `wrap:${block}`
