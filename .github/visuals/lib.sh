@@ -28,7 +28,8 @@ start() {
     set -g status off \; set -g focus-events on \; set -g mouse on || return 1
   trap finish EXIT
   LIVE=1
-  wait_for 'Try "' 40 || return 1
+  # The bypass line, not the empty box's `Try "` hint: that hint is gone when prompt suggestions are off.
+  wait_for 'bypass permissions on' 40 || return 1
   [ "$COLS" -ge 110 ] || return 0
   [ -n "${MARGIN0:-}" ] || margin_save
   # The dock border column depends on the terminal width: saved once per width.
