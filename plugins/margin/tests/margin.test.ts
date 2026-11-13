@@ -3713,6 +3713,17 @@ test('a report without a take, or with an invalid one, keeps the last take', asy
   expect(await ui.find({ type: 'Text', text: 'yay' })).toBeUndefined()
 })
 
+test('a report without a take on a new prompt does not keep last turn\'s take', async ($, on) => {
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT, take: { stance: 'unsure', label: 'needs repro' } } as any)
+  await turnEnd($)
+  await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } } as any)
+  await $.tool.call({ tool: INTENT, wants: 'again', steps: [] } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'needs repro' })).toBeUndefined()
+})
+
 test('a TAKE label past 16 characters is cut', async ($, on) => {
   const ui = await intentPane($, on)
   await $.tool.call({ tool: INTENT, ...REPORT, take: { stance: 'fine', label: 'abcdefghijklmnopqrst' } } as any)
