@@ -545,6 +545,8 @@ Type a word or command at the prompt and press **Enter**. Items marked "if insta
 | `/claudzilla report [what happened]` | draft a problem report from the local trace |
 | `/claudzilla compact` | draft a `/compact` line into the prompt box |
 | `/claudzilla handoff` or `/claudzilla-handoff` | start fresh with a note from this session |
+| `/claudzilla cost [session-id]` | show what this session or one session cost |
+| `/claudzilla experimental [<id> on\|off]` | list experimental features or switch one |
 | `/rule-review` | count how often each claudzilla rule slipped |
 | `/margin` | open or close the margin (if installed) |
 | `/caveman` | turn caveman on (if installed) |
@@ -709,6 +711,13 @@ Headline features of recent versions. Restart Claude after an update to use them
 
 #### v1.8.0
 
+- **Overview redesign:** the margin's Overview tab shows SESSION, TOPIC, ASK, TAKE and PLAN, and PLAN scrolls in place when it runs long. USED lists what Claude read this turn and opens a modal per kind. Hover a label for a card saying what it is (`/claudzilla margin`).
+- **Handoff:** `/claudzilla handoff` starts a fresh session with a note from this one. Herald offers it when the prompt cache goes cold (`/claudzilla context`).
+- **New-release toast:** herald checks for a new claudzilla release every 15 minutes, so a session you leave open hears of it too (`/claudzilla background`).
+- **Cost report:** `/claudzilla cost` shows what a session cost at API list prices (`/claudzilla limits`).
+- **Recolour claudzilla:** the `palette` key in `~/.claude/claudzilla.json` changes claudzilla's colours (`/claudzilla customize`).
+- **Git tab fetch:** while the Git tab shows, the margin fetches on its own every 15 minutes (`/claudzilla margin`).
+- **Wrap on code cards:** the `↩ Wrap` button on a code card wraps its long lines, or a shell card's output (`/claudzilla replies`).
 - **Experimental features:** try new behaviour before it becomes a rule, starting with Agent routing (`/claudzilla labs`).
 
 #### v1.7.0
@@ -730,13 +739,3 @@ Headline features of recent versions. Restart Claude after an update to use them
 - **Tab keys:** alt+o, alt+h, alt+l and alt+g open the margin on Overview, History, File and Git; the letter is underlined in each tab. The guide moves from alt+g to alt+q. alt+o replaces Claude Code's fast-mode key; `/fast` still works.
 - **New names:** the plugins are now margin (`/margin`, was panel), folio (response-dividers), ballot (picks), primer (guide), herald (update-toast) and byline (attribution), and install parts follow. The update moves you over: once, margin opens and asks to show its pane again, and a usage toast may repeat. A `settings.overrides.json` naming an old plugin id needs the new one.
 
-#### v1.5.0
-
-- The margin opens at the start of each session as you left it, open the first time. Its tabs sit in two bars: Overview, Decisions and History at the top; File, Tree and Git at the bottom.
-- Overview writes SESSION, TOPICS, ASK, TAKE and STEPS in the language you write in.
-- Agents Claude starts show as rows under the step that started them, and Overview shows `◌ waiting on N agents` while they run. Click one to open its transcript; click it again or press Esc to go back.
-- A file path in Claude's reply is a link: click it to see those lines in the margin's new File tab, ctrl+click to open the file.
-- In the Git tab, a pushed commit or branch links to its GitHub, GitLab, Codeberg or SourceHut page: alt+click opens it.
-- A ballot card answer goes into the prompt box in your voice: "show you the diff" becomes "show me the diff".
-- When context grows large, a **Compact** line and a toast say so; `/claudzilla compact` drafts a `/compact` line into your prompt box.
-- A toast shows when your 5-hour or weekly limit passes 50%, 75% and 90%.
