@@ -1471,6 +1471,7 @@ export const register: Register = (on, options) => {
       draw.end({ tab: current, columns: e.props.bodyColumns, bodyRows: e.props.scroll.bodyRows, ...zones, ...scroll })
     }
     const basic = await basicGlyphs($)
+    const flagged = await read($, notices)
     const top = railTop(e.props.scroll.bodyRows)
     const rail = Array.from({ length: Math.max(0, e.props.scroll.bodyRows) }, (_, row) => {
       const at = row - top
@@ -1487,7 +1488,7 @@ export const register: Register = (on, options) => {
                 <Text bold inverse color="claude">{glyph}</Text>
               ) : (
                 <Button key={one} plain onPress={() => pick($, one)}>
-                  <Text color={HUD.idle}>{glyph}</Text>
+                  <Text color={flagged.includes(one) ? 'warning' : HUD.idle}>{glyph}</Text>
                 </Button>
               )}
             </Box>
