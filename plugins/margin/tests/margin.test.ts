@@ -4999,6 +4999,16 @@ test('FILES branch names cut at one column, 2 before the widest total', async ($
   expect(b?.length).toBe(a?.length)
 })
 
+test('a FILES path with no hint stops 2 before the totals column', async ($, on) => {
+  const ui = await usedPane($, on)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/claude/rules/response-format.md' } as any)
+  await tapRow(ui, 'o:used:files')
+  const modal = await ui.find({ type: 'Box', key: 'modal' })
+  const row = await usedRow(ui, 0)
+  expect(row.hint).toEqual([])
+  expect(row.text.length + 2 + '1 total'.length).toBeLessThanOrEqual(modal!.props.width - 4)
+})
+
 test('a USED modal reader shows its 3 newest and its total; show all opens the whole list stacked', async ($, on) => {
   const ui = await usedPane($, on)
   await spawn($, 'one', { name: 'scout' })
