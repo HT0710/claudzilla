@@ -258,7 +258,7 @@ package Frozen;
 BEGIN { my $t = $ENV{FROZEN_TIME}; *CORE::GLOBAL::time = sub () { $t }; *CORE::GLOBAL::localtime = sub (;$) { CORE::localtime(@_ ? $_[0] : $t) } }
 1;
 EOF
-# a tagged clone copy (fixed version) that is also the dirty cwd (branch, dirty, churn), under a fake HOME (~/gold)
+# a tagged clone copy (fixed version) that is also the dirty cwd (branch, dirty), under a fake HOME (~/gold)
 GH="$TMP/ghome"; G="$GH/gold"; GC="$TMP/gcfg"; mkdir -p "$G/claude/hud" "$G/.github" "$GC/sessions"
 cp "$HUD/hud-filter.pl" "$G/claude/hud/"; cp "$REPO/.github/next-version.sh" "$G/.github/"; printf 'a\nb\n' > "$G/f"
 gg() { git -C "$G" -c user.name=t -c user.email=t@t "$@"; }

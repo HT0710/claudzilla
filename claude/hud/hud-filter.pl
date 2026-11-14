@@ -68,7 +68,6 @@ my $ver;
 }
 # branch + dirty from the session cwd; blank when not a repo
 my ($branch, $dirty);
-my $churn = '';
 if ($META_CWD) {
     my $d = $META_CWD; $d =~ s/'/'\\''/g;
     $branch = `git -C '$d' branch --show-current 2>/dev/null` // ''; $branch =~ s/\s+\z//; $branch = clean($branch);
@@ -77,9 +76,6 @@ if ($META_CWD) {
         my @st = split /\n/, (`git --no-optional-locks -C '$d' status --porcelain 2>/dev/null` // '');
         my $m = grep { !/^\?\?/ } @st; my $u = @st - $m;
         $dirty = join ' ', ($m ? "!$m" : ()), ($u ? "?$u" : ());
-        my $st = `git --no-optional-locks -C '$d' diff --shortstat 2>/dev/null` // '';
-        my ($ins) = $st =~ /(\d+) insertion/; my ($del) = $st =~ /(\d+) deletion/;
-        $churn = join ' ', ($ins ? "+$ins" : ()), ($del ? "-$del" : ());
     }
 }
 my ($model, $session, $skill, $thinking) = @f{qw(model up skill thinking)};
@@ -183,8 +179,7 @@ sub cwd_str {
                                 my $c = !defined $t ? undef : $type eq 'chore' ? 'shared_label' : $PAL{"types_$type"} ? "types_$type" : 'shared_faint';
                                 $dim->('  ') . fg('shared_action') . $G_BRANCH . ($G_BRANCH eq "\x{2387}" ? '  ' : ' ') . "\e[0m"
                                 . (defined $c ? fg($c) . "$t\e[0m" : '') . $rest }],
-                [$dirty,  sub { $dim->(' ')  . fg('shared_dirty') . "$_[0]\e[0m"  }],
-                [$churn,  sub { $dim->('  ') . fg('shared_churn') . "$_[0]\e[0m" }] );
+                [$dirty,  sub { $dim->(' ') . join '', map { fg(/^\?/ ? 'shared_faint' : 'shared_dirty') . " $_\e[0m" } split / /, $_[0] }] );
     my $build = sub {
         my $l = cwd_str($path);
         for my $o (@opt) { $l .= $o->[1]->($o->[0]) if defined $o->[0] }
@@ -196,7 +191,7 @@ sub cwd_str {
     if (!$fits->()) { $ver = undef }                         # version first
     if (!$fits->()) { $p =~ s/\@.*// }                       # profile: local part only
     if (!$fits->()) { $p = '' }                              # ...then drop it
-    for my $i (2,1,0) { last if $fits->(); $opt[$i][0] = undef }   # churn, dirty, branch
+    for my $i (1,0) { last if $fits->(); $opt[$i][0] = undef }     # dirty, branch
     if (!$fits->() && length($path) > 4) {                    # finally trim the path from the left
         my $room = $W - 1;
         if ($room > 2) { $path = substr($path, 1) while vis($path) > $room - 1; $path = "\x{2026}$path" }
@@ -369,7 +364,7 @@ print join("\n", @out), "\n";
 
 # Trace what the line shows, only when a field changed. State is compared before the writer is loaded, so an unchanged tick costs one small read.
 eval {
-    my %now = (branch => $branch, dirty => $dirty, churn => $churn, ver => $ver, cwd => $cwd, name => $sname, skill => $skill,
+    my %now = (branch => $branch, dirty => $dirty, ver => $ver, cwd => $cwd, name => $sname, skill => $skill,
                model => $model, effort => $EFFORT, ctx => $f{ctx}, '5h' => $f{'5h'}, wk => $f{wk});
     delete @now{grep { !defined $now{$_} || $now{$_} eq '' } keys %now};
     my $dir = ($ENV{TMPDIR} || '/tmp') . "/claudzilla-rules-$<";
