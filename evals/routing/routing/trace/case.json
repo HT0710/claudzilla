@@ -1,0 +1,4 @@
+{
+  "allowed_tools": ["Read", "Grep", "Glob", "Agent"],
+  "matrix": [{"model":"opus","effort":"medium","routing":"on","config":"/tmp/eval-cfg-old"},{"model":"opus","effort":"medium","routing":"on","config":"/tmp/eval-cfg-new"}]
+}

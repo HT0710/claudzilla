@@ -96,6 +96,8 @@ function runP(c, cell, wd) {
   // EVAL_ROUTING=off also turns off the local delegate-nudge hook, which would block every search with Agent gone.
   // Always set, so a value left in the operator's shell never leaks into other cells.
   const env = { ...process.env, PATH: `${join(wd, "bin")}${delimiter}${process.env.PATH}`, EVAL_ROUTING: cell.routing ?? "" };
+  // `config` swaps the whole config dir, e.g. one built by routing/mkcfg.sh to test other rule text.
+  if (cell.config) env.CLAUDE_CONFIG_DIR = cell.config;
   let sid = null;
   // Replay prompts name the original checkout; replays.mjs swapped it for {{WORKDIR}}.
   for (const prompt of [c.prompt, ...c.followups].map((p) => p.replaceAll("{{WORKDIR}}", wd))) {
@@ -132,7 +134,7 @@ function grade(c, wd, res) {
   return r.status === 0 ? "pass" : "fail";
 }
 
-const key = (r) => [r.case, r.model, r.effort, r.routing ?? "", r.run].join("|");
+const key = (r) => [r.case, r.model, r.effort, r.routing ?? "", r.config ?? "", r.run].join("|");
 const sh = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: "utf8", ...opts });
 
 function main(argv) {
@@ -146,9 +148,9 @@ function main(argv) {
   let streak = 0;
   for (const c of cases) {
     for (const cell of a.smoke ? [{ model: "haiku", effort: "low" }] : c.matrix) {
-      if (only && !only.has([c.id, cell.model, cell.effort, cell.routing].filter(Boolean).join(" "))) continue;
+      if (only && !only.has([c.id, cell.model, cell.effort, cell.routing, cell.config].filter(Boolean).join(" "))) continue;
       for (let run = 1; run <= a.runs; run++) {
-        const row = { case: c.id, role: c.role, agent: c.agent, model: cell.model, effort: cell.effort, ...(cell.routing ? { routing: cell.routing } : {}), run, claude, judge: c.judge };
+        const row = { case: c.id, role: c.role, agent: c.agent, model: cell.model, effort: cell.effort, ...(cell.routing ? { routing: cell.routing } : {}), ...(cell.config ? { config: cell.config } : {}), run, claude, judge: c.judge };
         if (done.has(key(row))) continue;
         const wd = mkdtempSync(join(tmpdir(), "eval-"));
         try {
@@ -160,7 +162,7 @@ function main(argv) {
           rmSync(wd, { recursive: true, force: true });
         }
         appendFileSync(rowsFile, `${JSON.stringify(row)}\n`);
-        console.log(`${row.status.padEnd(7)} ${c.id} ${cell.model} ${cell.effort}${cell.routing ? ` ${cell.routing}` : ""} #${run}`);
+        console.log(`${row.status.padEnd(7)} ${c.id} ${cell.model} ${cell.effort}${cell.routing ? ` ${cell.routing}` : ""}${cell.config ? ` ${cell.config}` : ""} #${run}`);
         streak = row.status === "errored" ? streak + 1 : 0;
         if (streak >= 2) { console.error("two errored runs in a row; stopping (re-run to resume)"); return 3; }
       }
