@@ -121,7 +121,7 @@ S5='const ser = () => JSON.stringify([...rl().sessions].sort(), (k, v) => v inst
 B5=$(jx "$S5 out(ser())")
 cat "$LOG" "$LOG" "$LOG" >"$TMP/ix5.3x"; mv "$TMP/ix5.3x" "$LOG"; chmod 644 "$LOG"
 jx "m.index({ root: process.env.FX + '/projects', log })" >/dev/null
-check "index: a log with 3 versions of every row is rewritten to the live rows" [ "$(wc -l <"$LOG")|$(jx "$S5 out(ser())")" = "$(jx "const r = rl(); out(Math.ceil(r.ids.size / 200) + r.agents.size + r.sessions.size)")|$B5" ]
+check "index: a log with 3 versions of every row is rewritten to the live rows" [ "$(wc -l <"$LOG" | tr -d " ")|$(jx "$S5 out(ser())")" = "$(jx "const r = rl(); out(Math.ceil(r.ids.size / 200) + r.agents.size + r.sessions.size)")|$B5" ]
 check "index: rewritten log has mode 600" [ "$(node -e 'console.log((require("fs").statSync(process.argv[1]).mode & 0o777).toString(8))' "$LOG")" = 600 ]
 check "index: rewrite leaves no temp file" [ "$(ls "$TMP" | grep -c '^ix5.jsonl\.')" = 0 ]
 check "readLog: ids flattened, later row wins, torn line skipped" [ "$(js "const f = '$TMP/rl.jsonl'; fs.writeFileSync(f, [{kind:'ids',keys:[{key:'m1',usd:1},{key:'m2',usd:5}]},{kind:'ids',keys:[{key:'m1',usd:2}]},{kind:'session',project:'p',run:7,n:1},{kind:'session',project:'p',run:7,n:2},{kind:'session',project:'q',run:7,n:3}].map(x => JSON.stringify(x)).join('\n') + '\n{\"kind\":\"ids\",\"ke'); const r = m.readLog(f); out([r.ids.get('m1').usd, r.ids.get('m2').usd, r.sessions.get('p/7').n, r.sessions.get('q/7').n])" 2>&1 | tail -1)" = '[2,5,2,3]' ]

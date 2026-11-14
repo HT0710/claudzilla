@@ -122,7 +122,7 @@ gated() {
     on; echo '{"x":1}' | PATH="$TMP/bin:$PATH" sh -c "$c"
     [ -e "$TMP/node.rec" ] && [ "$(cat "$TMP/node.in")" = '{"x":1}' ] || rc=1
   done <<<"$(gate_cmd)"
-  [ "$(gate_cmd | wc -l)" = 2 ] && return $rc
+  [ "$(gate_cmd | wc -l | tr -d " ")" = 2 ] && return $rc
 }
 check "settings: both nudge commands skip node when off, pass stdin when on" gated
 # Off, the shell gate exits before node, so it must drain the event itself: a big one must never meet a closed pipe.
