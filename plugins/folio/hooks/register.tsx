@@ -701,6 +701,12 @@ export const register: Register = on => {
   // whose diff a click opened.
   type BashEdit = { file: string; add: number; del: number; isNew: boolean; diff?: string }
   const bashEdits = new Map<string, BashEdit[]>()
+  // Past 500 records all go, with their shell lines, so a dropped write draws as a lost one, not as a plain command.
+  const dropEdits = () => {
+    if (bashEdits.size <= 500) return
+    for (const id of bashEdits.keys()) shells.delete(id)
+    for (const s of [bashEdits, scripts]) s.clear()
+  }
   // Bash writes drawn as a Ran row because folio holds no record of them, as after a reload.
   const lostWrites = new Set<string>()
   const openGroups = new Map<string, Set<string>>()
@@ -825,11 +831,7 @@ export const register: Register = on => {
     // No parsed target exists, as with `sed -i ... $f`: the parse misread it, so the engine's bashEditDiff stays adoptable.
     if (!was && files.every((_, i) => before[i] === undefined && after[i] === undefined)) return ran
     // Cleared together: a script row without its edit record would draw nothing.
-    // Their shell lines go too, so a dropped write draws as a lost one, not as a plain command.
-    if (bashEdits.size > 500) {
-      for (const id of bashEdits.keys()) shells.delete(id)
-      for (const s of [bashEdits, scripts]) s.clear()
-    }
+    dropEdits()
     if (was) scripts.add(e.tool_use_id)
     // A write that changed nothing still unfolds its group, so a rerun looks like the first run.
     bashEdits.set(e.tool_use_id, found)
@@ -846,11 +848,7 @@ export const register: Register = on => {
     const known = bashEdits.get(id)
     if (!files?.length || known?.length) return false
     const count = (hunks: Hunk[], sign: string) => hunks.flatMap(h => h.lines).filter(line => line[0] === sign).length
-    // Their shell lines go too, so a dropped write draws as a lost one, not as a plain command.
-    if (bashEdits.size > 500) {
-      for (const id of bashEdits.keys()) shells.delete(id)
-      for (const s of [bashEdits, scripts]) s.clear()
-    }
+    dropEdits()
     if (known || !writeTargets(command).length) scripts.add(id)
     // The engine writes a new file as one hunk with no old lines (@@ -1,0 +1,N @@); an existing file's hunk has context.
     bashEdits.set(id, files.map(({ filePath, hunks }) => ({ file: filePath, add: count(hunks, '+'), del: count(hunks, '-'),
