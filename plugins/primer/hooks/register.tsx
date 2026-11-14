@@ -148,7 +148,7 @@ export function experimentalArgs(args: string): { id?: string; state?: 'on' | 'o
   return rest.length === 2 && (s === 'on' || s === 'off') ? { id, state: s } : { error: EXPERIMENTAL_USAGE }
 }
 
-// `cost` is this session, `cost <id>` one session, `cost all ...` the flags for the all-sessions list; the argv after `report`.
+// `cost` is this session, `cost <id>` one session, `cost all ...` the flags for the all-sessions list; the argv after `report`, or the usage line.
 const COST_USAGE = 'Use: /claudzilla cost [session-id | all [--since d] [--until d] [--project p]]'
 export function costArgs(args: string, sessionId: string): string[] | { error: string } | undefined {
   const [first, ...rest] = args.trim().split(/\s+/)
@@ -236,7 +236,7 @@ export function handoffNote(input: HandoffInput): string {
   }
   const out = [`# Handoff from ${input.sessionId}`, '', `Written ${new Date(input.now).toISOString()}. Resume the old session with \`claude --resume ${input.sessionId}\`. Its transcript: ${input.path}`]
   const add = (heading: string, body: string) => out.push('', `## ${heading}`, '', body)
-  if (wants) add('Where we were', [cut(wants.wants, 500), ...wants.steps.map(s => `- ${cut(String(s.text ?? ''), 500)}`), ...(now !== undefined ? [`Last step started: ${now}`] : [])].join('\n'))
+  if (wants) add('Where we were', [cut(wants.wants, 500), ...wants.steps.slice(0, 20).map(s => `- ${cut(String(s.text ?? ''), 500)}`), ...(now !== undefined ? [`Last step started: ${now}`] : [])].join('\n'))
   if (input.git?.trim()) add('Git', '```text\n' + input.git.trim() + '\n```')
   if (asks.size) add('Earlier asks', [...asks].slice(-5).map(([w, n]) => `- Line ${n}: ${cut(w, 500)}`).join('\n'))
   if (turns.length) {
