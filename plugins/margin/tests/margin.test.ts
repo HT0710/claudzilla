@@ -881,11 +881,11 @@ test('Overview tab with nothing read yet shows a note', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'Nothing here yet' })).toBeDefined()
 })
 
-test('built tabs only: Overview, History, File, Git', async ($, on) => {
+test('built tabs only: Overview, History, Explorer, Git', async ($, on) => {
   noHistory(on)
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   const cells = (await ui.findAll({ type: 'Box' })).map(b => b.key).filter(key => key?.startsWith('tab:'))
-  expect(cells).toEqual(['tab:Overview', 'tab:History', 'tab:File', 'tab:Git'])
+  expect(cells).toEqual(['tab:Overview', 'tab:History', 'tab:Explorer', 'tab:Git'])
 })
 
 test('the shown tab is inverse; another tab presses', async ($, on) => {
@@ -920,7 +920,7 @@ test('basic glyphs draw the key letters', async ($, on) => {
   noHistory(on)
   on('fs.exists', (_, e) => ({ value: String((e as any).path ?? '').endsWith('.claudzilla-basic-glyphs') }))
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
-  for (const [tab, letter] of [['Overview', 'o'], ['History', 'h'], ['File', 'l'], ['Git', 'g']])
+  for (const [tab, letter] of [['Overview', 'o'], ['History', 'h'], ['Explorer', 'e'], ['Git', 'g']])
     expect((await textsUnder(ui, `tab:${tab}`)).map(t => t.text).join('').trim()).toBe(letter)
 })
 
@@ -4426,7 +4426,7 @@ const tabKey = ($: Parameters<TestBody>[0], name: string) => $.command.run({ com
 test('session start registers the four tab commands', async ($, on) => {
   const seen = openHost(on)
   await $.session.start(startHere)
-  for (const name of ['overview', 'history', 'file', 'git']) expect(seen.registered).toContainEqual([`margin-${name}`, true])
+  for (const name of ['overview', 'history', 'explorer', 'git']) expect(seen.registered).toContainEqual([`margin-${name}`, true])
 })
 
 test('tab commands are hidden', async ($, on) => {
@@ -4472,10 +4472,10 @@ test('tab key on a pane waiting for room opens it', async ($, on) => {
   const shown = shownTab(on)
   await $.session.start(startHere)
   const before = seen.opened.length
-  await tabKey($, 'file')
+  await tabKey($, 'explorer')
   expect(seen.closed).toHaveLength(0)
   expect(seen.opened.length).toBeGreaterThan(before)
-  expect(shown.tab).toBe('File')
+  expect(shown.tab).toBe('Explorer')
 })
 
 test('alt+o on an open pane with a stale tab closes it', async ($, on) => {
@@ -4503,22 +4503,22 @@ test('alt+o on a closed pane reads TOPICS once', async ($, on) => {
   expect(asks).toBe(1)
 })
 
-// The File tab's rows: the body less its header row.
+// The Explorer tab's rows: the body less its header row.
 const windowRows = props.scroll.bodyRows - 3 // header row + its rule
 const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\n')
-// The File tab as `$.margin.show` leaves it: the test's `$` carries no plugin noun, and a hook in a test module that
+// The Explorer tab as `$.margin.show` leaves it: the test's `$` carries no plugin noun, and a hook in a test module that
 // calls one is refused ("its hooks module does not call it (host rule; the scan lists no calls)"), so the two
 // values `show` writes are answered on read. An empty text stands for a file it could not show.
 const fileTab = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], file: ReturnType<typeof fileView> | undefined) => {
   noHistory(on)
   on('state.get', (_$, e, next) => {
-    const value = e.key === 'tab' ? 'File' : e.key === 'file' ? file : undefined
+    const value = e.key === 'tab' ? 'Explorer' : e.key === 'file' ? file : undefined
     return (value === undefined ? next(e) : { value: { value, version: 1 } }) as any
   })
   return $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
 }
 
-test('the File header is the path from the working directory, or from ~, with a rule under it', async ($, on) => {
+test('the Explorer header is the path from the working directory, or from ~, with a rule under it', async ($, on) => {
   on('session.cwd', () => ({ value: '/repo' }))
   const ui = await fileTab($, on, fileView('/repo/src/a.ts', 65, lines(200)))
   // As Git's branch row: the path in the action color, the line faint on the right.
@@ -4527,7 +4527,7 @@ test('the File header is the path from the working directory, or from ~, with a 
   expect(await ui.find({ type: 'Text', text: new RegExp(`^─{${props.bodyColumns - 4}}$`) })).toBeDefined()
 })
 
-test('a long File header keeps its line and cuts the path from the left', async ($, on) => {
+test('a long Explorer header keeps its line and cuts the path from the left', async ($, on) => {
   on('session.cwd', () => ({ value: '/repo' }))
   const ui = await fileTab($, on, fileView(`/repo/${'deep/'.repeat(20)}a.ts`, 65, lines(200)))
   const head = await ui.find({ type: 'Text', text: /^….*\/a\.ts$/ })
@@ -4535,14 +4535,14 @@ test('a long File header keeps its line and cuts the path from the left', async 
   expect(await ui.find({ type: 'Text', text: 'line 65' })).toBeDefined()
 })
 
-test('a File header outside the working directory starts from ~', async ($, on) => {
+test('an Explorer header outside the working directory starts from ~', async ($, on) => {
   on('session.cwd', () => ({ value: '/repo' }))
   // noHistory's env.get answers /home/me.
   const ui = await fileTab($, on, fileView('/home/me/notes.md', 3, lines(20)))
   expect(await ui.find({ type: 'Text', text: '~/notes.md' })).toBeDefined()
 })
 
-test('the File tab shows the file at the line, marked, with the path in its header', async ($, on) => {
+test('the Explorer tab shows the file at the line, marked, with the path in its header', async ($, on) => {
   const ui = await fileTab($, on, fileView('/repo/a.ts', 65, lines(200)))
   expect(await ui.find({ type: 'Text', text: 'line 65' })).toBeDefined()
   const code = await ui.find({ type: 'Code' })
@@ -4575,12 +4575,12 @@ test('a line past the end shows the last lines', async ($, on) => {
   expect(code?.props.startLine).toBe(1)
 })
 
-test('the File tab before any click says how to open one', async ($, on) => {
+test('the Explorer tab before any click says how to open one', async ($, on) => {
   const ui = await fileTab($, on, undefined)
   expect(await ui.find({ type: 'Text', text: 'No file open' })).toBeDefined()
 })
 
-test('a file that cannot be shown says so in the File tab', async ($, on) => {
+test('a file that cannot be shown says so in the Explorer tab', async ($, on) => {
   const ui = await fileTab($, on, fileView('/repo/a.ts', 3, undefined))
   expect(await ui.find({ type: 'Text', text: "Can't show this file" })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '/repo/a.ts' })).toBeDefined()
@@ -4848,7 +4848,7 @@ test('a row press while a draw waits on its reads still acts', async ($, on) => 
   expect(views).toEqual(['a1'])
 })
 
-test('a file press opens it in the File tab through $.margin.show', async ($, on) => {
+test('a file press opens it in the Explorer tab through $.margin.show', async ($, on) => {
   const ui = await usedPane($, on)
   await $.tool.call({ tool: 'Read', file_path: '/proj/hooks/kit.tsx' } as any)
   await tapRow(ui, 'o:used:files')
@@ -5324,7 +5324,7 @@ test('widened names sit on the narrow icon rows', async ($, on) => {
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   const { rows } = await wideRows(ui)
   const top = railTop(props.scroll.bodyRows - 1)
-  for (const [n, name] of ['Overview', 'History', 'File', 'Git'].entries()) expect(rows[1 + top + 2 * n]).toContain(name)
+  for (const [n, name] of ['Overview', 'History', 'Explorer', 'Git'].entries()) expect(rows[1 + top + 2 * n]).toContain(name)
 })
 
 test('a widened row is padded to the rail width, so it presses and lights across', async ($, on) => {
@@ -5336,7 +5336,7 @@ test('a widened row is padded to the rail width, so it presses and lights across
 test('widened names underline the key letter', async ($, on) => {
   noHistory(on)
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
-  expect(underlined(await ui.find({ key: 'wide:File' })).map(t => t.children?.[0])).toEqual(['l'])
+  expect(underlined(await ui.find({ key: 'wide:Explorer' })).map(t => t.children?.[0])).toEqual(['E'])
 })
 
 test('a flagged widened row shows its name then " !"', async ($, on) => {

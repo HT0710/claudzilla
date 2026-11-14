@@ -1,7 +1,7 @@
 import type { AgentStatus } from 'claude-code'
 import type { UseKind, Used } from '../hooks/kit'
 
-export type Tab = 'Overview' | 'Decisions' | 'History' | 'File' | 'Tree' | 'Git'
+export type Tab = 'Overview' | 'Decisions' | 'History' | 'Explorer' | 'Tree' | 'Git'
 export type Step = { text: string; status: 'pending' | 'in_progress' | 'completed'; agents?: string[] }
 // An agent the main loop started: the step in progress then, and the turn (user prompt) it came in.
 // `effort`: the level its first model request ran at.
