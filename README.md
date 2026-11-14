@@ -85,9 +85,9 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 
 - **Dividers and file links:** lines frame the TL;DR, `Next:` and each `---`, fitted to the chat width. A file path in a reply is a link: click it to see those lines in the margin. Each code block sits in a card with a Copy button. Two clicks on Run run a shell block, and its output streams into the card. An Edit or Write draws one row with its line counts in place of its diff, and a run of edits folds into one row; click it for the edited files and each diff ([details](plugins/folio/README.md)).
 
-  <img src=".github/assets/filelink.gif" alt="Clicking auth/token.js:3 in a reply opens the margin's File tab with line 3 marked" width="720">
+  <img src=".github/assets/filelink.gif" alt="Clicking auth/token.js:3 in a reply opens the margin's Explorer tab with line 3 marked" width="720">
 
-  *Real speed. Click `auth/token.js:3`: the File tab shows the lines around it, line 3 marked `▶`. Needs the fullscreen layout and the `folio` and `margin` parts. Your terminal's own link click, such as ctrl+click, opens the file; Claude Code does not.*
+  *Real speed. Click `auth/token.js:3`: the Explorer tab shows the lines around it, line 3 marked `▶`. Needs the fullscreen layout and the `folio` and `margin` parts. Your terminal's own link click, such as ctrl+click, opens the file; Claude Code does not.*
 
 ### Code that stays small
 - **Lazy by default:** the smallest change that fully works ([ponytail](https://github.com/DietrichGebert/ponytail)).

@@ -108,7 +108,7 @@ Only an exact `true` turns a feature on. Any other value leaves it off. claudzil
 
 ## Keybindings
 
-`~/.claude/keybindings.json` holds your keys. Install adds alt+o, alt+h, alt+l and alt+g for the margin's Overview, History, File and Git tabs, alt+k to focus the ballot card and alt+q to toggle the guide (`/claudzilla`), each with its part (removing the part removes the key), and each unless you bound that key (`Chat` or `Global`) or gave its action a key; a symlinked file is left alone; `"alt+o": null`, `"alt+h": null`, `"alt+l": null`, `"alt+g": null`, `"alt+k": null` or `"alt+q": null` in `Chat` opts out.
+`~/.claude/keybindings.json` holds your keys. Install adds alt+o, alt+h, alt+e and alt+g for the margin's Overview, History, Explorer and Git tabs, alt+k to focus the ballot card and alt+q to toggle the guide (`/claudzilla`), each with its part (removing the part removes the key), and each unless you bound that key (`Chat` or `Global`) or gave its action a key; a symlinked file is left alone; `"alt+o": null`, `"alt+h": null`, `"alt+e": null`, `"alt+g": null`, `"alt+k": null` or `"alt+q": null` in `Chat` opts out.
 
 ## Notes
 

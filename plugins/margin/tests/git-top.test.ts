@@ -1202,7 +1202,7 @@ test('commits heading N total; files heading N total +a −d; paths cut in the m
   expect(await rowText(ui, /…\/register\.tsx$/)).toBeDefined()
 })
 
-test('PR modal: a FILES row opens the file in the File tab', async ($, on) => {
+test('PR modal: a FILES row opens the file in the Explorer tab', async ($, on) => {
   quiet(on, 5 * MIN, false, { '/repo/b.ts': 'pr file text' })
   withPr(on, repoOn('a'), [prJson()], viewJson({ files: [{ path: 'b.ts', additions: 1, deletions: 0, changeType: 'MODIFIED' }] }))
   const ui = await openPr($)
@@ -1740,7 +1740,7 @@ test('file click opens the path from the top level', async ($, on) => {
   on('process.run', (_, e) => ran(git(changesRepo(' M a.ts\n', '', { '--absolute-git-dir': '/repo/.git\n/repo/.git\n/repo\n' }))(e.argv) ?? ''))
   const ui = await mount($)
   await tap(ui, fileKey('a.ts'))
-  // The File tab's header: the path from the top level, not from the session's folder.
+  // The Explorer tab's header: the path from the top level, not from the session's folder.
   expect(await ui.find({ type: 'Text', text: '/repo/a.ts' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'CHANGES' })).toBeUndefined()
 })
@@ -1976,7 +1976,7 @@ test('commit modal: FILES with N total and counts, middle-cut paths', async ($, 
   expect(await rowText(ui, /^\+8   $/)).toBeDefined()
 })
 
-test('commit modal: a file row lights under the pointer and opens the file in the File tab', async ($, on) => {
+test('commit modal: a file row lights under the pointer and opens the file in the Explorer tab', async ($, on) => {
   quiet(on, 5 * MIN, false, { '/repo/a.ts': 'file text' })
   on('process.run', (_, e) => ran(showRepo([A])(e.argv) ?? ''))
   const ui = await mount($)
@@ -1997,7 +1997,7 @@ test('commit modal: a file row lights under the pointer and opens the file in th
   expect(String((await ui.find({ key: `row:mf:${fileKey('a.ts')}` }))?.props.module)).toMatch(/row\.tsx$/)
   expect(await ui.find({ type: 'Button', key: 'm:file:a.ts' })).toBeUndefined()
   await tap(ui, `mf:${fileKey('a.ts')}`)
-  // The File tab's header: the path from the top level.
+  // The Explorer tab's header: the path from the top level.
   expect(await ui.find({ type: 'Text', text: '/repo/a.ts' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'COMMITS' })).toBeUndefined()
 })
@@ -2010,7 +2010,7 @@ test('commit modal: a deleted file row neither lights nor opens', async ($, on) 
   expect(await ui.find({ key: `row:mf:${fileKey('old.ts')}` })).toBeUndefined()
 })
 
-test('a file row whose file left the working tree toasts instead of opening an empty File tab', async ($, on) => {
+test('a file row whose file left the working tree toasts instead of opening an empty Explorer tab', async ($, on) => {
   quiet(on, 5 * MIN, false, { '/repo/gone.ts': null })
   const toasts: string[] = []
   on('ui.toast', (_, e) => {
@@ -2662,7 +2662,7 @@ test('a conflict path with a control character draws as a space on the rebase ca
   expect(texts.join('')).not.toContain('\x1b')
 })
 
-test('a conflict path with a control character opens in the File tab, drawn as a space', async ($, on) => {
+test('a conflict path with a control character opens in the Explorer tab, drawn as a space', async ($, on) => {
   quiet(on, 5 * MIN, false, { ...rebaseDir(2), '/repo/a\x1bb.ts': 'conflict text' })
   on('process.run', (_, e) => ran(git(conflictRepo({ '--diff-filter=U': 'a\x1bb.ts\0', '--numstat': '4\t0\ta\x1bb.ts\0' }))(e.argv) ?? ''))
   const ui = await mount($)
@@ -2671,7 +2671,7 @@ test('a conflict path with a control character opens in the File tab, drawn as a
   expect(await ui.find({ type: 'Text', text: '/repo/a b.ts' })).toBeDefined()
 })
 
-test('a file the File tab cannot show names its path with control characters as spaces', async ($, on) => {
+test('a file the Explorer tab cannot show names its path with control characters as spaces', async ($, on) => {
   quiet(on, 5 * MIN, false, rebaseDir(2))
   on('process.run', (_, e) => ran(git(conflictRepo({ '--diff-filter=U': 'a\x1bb.ts\0', '--numstat': '4\t0\ta\x1bb.ts\0' }))(e.argv) ?? ''))
   const ui = await mount($)
@@ -2761,7 +2761,7 @@ import type { Register } from 'claude-code'
 // Folio's file link, as it calls `$.margin.show` (plugins/folio/hooks/register.tsx:1283): a test's own `$` carries no
 // plugin noun, so a plugin beside margin calls it.
 const shower = { name: 'shower', register: (on => { on('command.run', { command: 'show-file' }, async $ => (await ($ as any).margin.show({ path: '/repo/a.ts', line: 3 }), {})) }) as Register }
-test('a jump to File closes an open Git modal, so Escape and the Git tab find none', { plugins: [shower] }, async ($, on) => {
+test('a jump to Explorer closes an open Git modal, so Escape and the Git tab find none', { plugins: [shower] }, async ($, on) => {
   quiet(on, 5 * MIN, false, { '/repo/a.ts': 'one\ntwo\nthree\n' })
   const opens: unknown[] = []
   on('ui.open', (_, e) => (opens.push((e as any).closeOnEscape), { value: { isPlaced: true } }) as any)

@@ -187,7 +187,7 @@ export const fit = (text: string, room: number) => (text.length > room ? `${text
 // window a slice, not the file.
 const FILE_SPAN = 200
 const FILE_LINE = 500
-// The File tab's view from a read: `text` empty stands for a file it cannot show (unreadable or binary).
+// The Explorer tab's view from a read: `text` empty stands for a file it cannot show (unreadable or binary).
 export const fileView = (raw: string, line: number, read: string | undefined): NonNullable<FileView> => {
   // Drawn only, and Text and Code refuse control characters: a path from git can hold one.
   const path = printable(raw)

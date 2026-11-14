@@ -112,7 +112,7 @@ shot_ballot() {
   [ "$ok" = 0 ] && clip ballot "$d"
 }
 
-# One session: the Overview fills during a fix (GIF), a cited path opens in the File tab (GIF),
+# One session: the Overview fills during a fix (GIF), a cited path opens in the Explorer tab (GIF),
 # then the Git and History tabs (stills).
 shot_margin() {
   local d="$WORK/overview" l="$WORK/filelink" f ok at
