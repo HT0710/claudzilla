@@ -555,6 +555,13 @@ test('cost shows the report lines', async ($, on) => {
   cost(on, ran(0, 'Session s1  list $1.20\nrouting off'))
   expect(await texts(await open($, 'cost'))).toContain('Session s1  list $1.20')
 })
+test('cost with a bad argument shows the usage line and runs nothing', async ($, on) => {
+  const calls = cost(on, ran(0, 'Session x'))
+  const shown = String(await texts(await open($, 'cost a b')))
+  expect(shown).toContain('Use: /claudzilla cost')
+  expect(shown).not.toContain('No topic')
+  expect(calls).toEqual([])
+})
 test('cost with a failing script shows its message', async ($, on) => {
   cost(on, FAIL('boom\n'))
   expect(await texts(await open($, 'cost'))).toContain('boom')
@@ -745,13 +752,15 @@ test('handoffNote: model-written sections are capped', () => {
   const big = (c: string) => c.repeat(5000)
   const n = handoffNote({
     sessionId: 's1', path: 'p', now: 0,
-    numbered: tail(tool('mcp__margin__intent', { wants: big('W'), steps: [{ text: big('S') }] }), J({ type: 'system', subtype: 'away_summary', content: big('R') })),
+    numbered: tail(tool('mcp__margin__intent', { wants: big('W'), steps: [{ text: big('S') }, ...Array.from({ length: 30 }, (_, i) => ({ text: `step${i}` }))] }), J({ type: 'system', subtype: 'away_summary', content: big('R') })),
     draft: '42:' + tool('mcp__primer__compact_draft', { keep: big('K'), drop: big('D') }),
   })
   for (const c of 'WSKD') expect(n).toContain(c.repeat(500) + '…')
   for (const c of 'WSKD') expect(n).not.toContain(c.repeat(501))
   expect(n).toContain('R'.repeat(2000) + '…')
   expect(n).not.toContain('R'.repeat(2001))
+  expect(n).toContain('- step18')
+  expect(n).not.toContain('- step19')
 })
 
 test('handoffNote: compact draft only when after the last compact summary', () => {
