@@ -161,8 +161,10 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const agentText = (status: AgentRow['status']) => (WORKING.includes(status) ? undefined : status === 'planned' || status === 'pending' ? HUD.faint : SCOPE)
   const shade = (color?: string) => (shown.waiting ? HUD.faint : color)
   const count = (text: string) => (shown.waiting ? text : counted(ctx.el, text))
-  // No topics yet, reading or failed: a lone TOPIC heading over no list reads as empty.
-  const hasAbout = about.topics.length > 0
+  // No topics and failed: a lone TOPIC heading over no list reads as empty.
+  // The first read, with no topics yet: faint words name what each row is waiting on the read fills.
+  const loading = about.running && !about.topics.length
+  const hasAbout = about.topics.length > 0 || loading
   const hasReport = !!(shown.wants || shown.waiting || shown.ended)
   // The tab body the modal sits in.
   const tabRows = props.scroll.bodyRows
@@ -220,17 +222,20 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     </Box>
   )
   const wrapRows = (text: string, w: number) => wrapLines(text, w).length
+  // A first prompt with no report yet: ASK, TAKE and PLAN hold their rows with faint words until it lands.
+  const pending = !!shown.waiting && !shown.wants
+  const ask = shown.wants || (pending ? 'parsing the ask…' : '')
   const take = shown.take
-  const takeText = take ? `${TAKE_MARK[take.stance][0]} ${take.label}${take.why ? `, ${take.why}` : ''}` : ''
+  const takeText = take ? `${TAKE_MARK[take.stance][0]} ${take.label}${take.why ? `, ${take.why}` : ''}` : pending ? 'forming an opinion…' : ''
   // ASK and TAKE as wrapped: the divider goes no lower than TAKE's last row over the footer.
-  const reportRows = wrapRows(shown.wants, Math.max(1, width - LABEL)) + (take ? 1 + wrapRows(takeText, Math.max(1, width - LABEL)) : 0)
+  const reportRows = wrapRows(ask, Math.max(1, width - LABEL)) + (takeText ? 1 + wrapRows(takeText, Math.max(1, width - LABEL)) : 0)
   // TOPIC shows the latest topic; "show all" opens the rest in a modal, newest first.
   const latest = about.topics.at(-1)
-  const latestRows = latest ? wrapRows(latest, Math.max(1, width - 2)) : 0
+  const latestRows = latest ? wrapRows(latest, Math.max(1, width - 2)) : loading ? 1 : 0
   // SESSION over TOPIC: its header, the summary cut at 4 rows (15 words ask for 2), a rule.
-  const summaryRows = about.summary && hasAbout ? Math.min(4, wrapRows(about.summary, Math.max(1, width - 2))) : 0
+  const summaryRows = loading ? 1 : about.summary && hasAbout ? Math.min(4, wrapRows(about.summary, Math.max(1, width - 2))) : 0
   const sessionRows = summaryRows && 2 + summaryRows
-  const zoned = !!shown.wants && hasAbout
+  const zoned = !!ask && hasAbout
   const layers: { m?: Layer; s?: Layer } = {}
   const lc: LayerCtx = { el: ctx.el, layers, setModal: change => ctx.setModal(change) }
   const topicsModal = () => {
@@ -444,17 +449,18 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const from = props.scroll.bodyRows - 2 - usedRows - stepRoom
   // The tab-body row each drawn label sits on, counted down the column; PLAN's and USED's come from STEPS.
   const askAt = sessionRows + (hasAbout ? 2 + latestRows : 0)
-  const askRows = wrapRows(shown.wants, Math.max(1, width - LABEL))
+  const askRows = wrapRows(ask, Math.max(1, width - LABEL))
   const takeAt = askAt + askRows + 1
-  const takeRows = take ? wrapRows(takeText, Math.max(1, width - LABEL)) : 0
+  const takeRows = takeText ? wrapRows(takeText, Math.max(1, width - LABEL)) : 0
   // The rule row under ASK, or under TAKE when there is one.
-  const ruleAt = take ? takeAt + takeRows : askAt + askRows
+  const ruleAt = takeText ? takeAt + takeRows : askAt + askRows
   const labelAt: Partial<Record<Label, number>> = {
     ...(summaryRows > 0 && { SESSION: 0 }),
     ...(hasAbout && { TOPIC: sessionRows }),
-    ...(shown.wants && { ASK: askAt }),
-    ...(shown.wants && take && { TAKE: takeAt }),
+    ...(ask && { ASK: askAt }),
+    ...(ask && takeText && { TAKE: takeAt }),
     ...(shown.wants && shown.steps.length > 0 && { PLAN: from }),
+    ...(pending && { PLAN: ruleAt + 1 }),
     ...(usedRows > 0 && { USED: ruleAt + 1 }),
   }
   const cardOf = (label: Label) => wrapLines(LABEL_CARD[label], rc.cardWidth - 4)
@@ -485,7 +491,9 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
           {dimText(dimFor(sessionRows + 1), about.running ? HUD.faint : undefined, latest, 'wrap')}
         </Box>,
       ]
-    : []
+    : loading
+      ? [<Box key="topic" paddingLeft={2} flexShrink={0}><Text color={HUD.faint}>naming the thread…</Text></Box>]
+      : []
   // The footer, pinned at the pane bottom: one place whether a report, TOPIC or both show.
   const statusRow = (
     <Box key="footer" flexDirection="column" flexShrink={0}>
@@ -528,10 +536,10 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                 ? [
                     <Box key="sessionHead" justifyContent="space-between">
                       {labelWord('SESSION')}
-                      <Text color={HUD.faint}>{readSlot}</Text>
+                      {!loading && <Text color={HUD.faint}>{readSlot}</Text>}
                     </Box>,
                     <Box key="summary" paddingLeft={2} height={summaryRows} overflow="hidden" flexShrink={0}>
-                      {dimText(dimFor(1), about.running ? HUD.faint : undefined, about.summary, 'wrap')}
+                      {loading ? <Text color={HUD.faint}>skimming the story so far…</Text> : dimText(dimFor(1), about.running ? HUD.faint : undefined, about.summary, 'wrap')}
                     </Box>,
                     <Box key="sessionRule" marginX={-PAD}>{dimText(dimFor(1 + summaryRows), 'promptBorder', '─'.repeat(width + 2 * PAD))}</Box>,
                   ]
@@ -548,11 +556,14 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                 </Box>
               </Box>,
               ...topicRows,
-              ...(shown.wants ? [<Box key="topicRule" marginX={-PAD}>{dimText(dimFor(sessionRows + 1 + latestRows), 'promptBorder', '─'.repeat(width + 2 * PAD))}</Box>] : []),
+              ...(ask ? [<Box key="topicRule" marginX={-PAD}>{dimText(dimFor(sessionRows + 1 + latestRows), 'promptBorder', '─'.repeat(width + 2 * PAD))}</Box>] : []),
             ]}
-            {shown.wants && [
-              labelled('ASK', shown.wants, shade(), dimFor(askAt, askRows, 'ASK')),
-              take && partRule('TAKE', askAt + askRows),
+            {ask && [
+              labelled('ASK', ask, shade(), dimFor(askAt, askRows, 'ASK')),
+              takeText && partRule('TAKE', askAt + askRows),
+              pending && labelled('TAKE', takeText, shade(), dimFor(takeAt, takeRows, 'TAKE')),
+              pending && partRule('STEPS', ruleAt),
+              pending && labelled('PLAN', 'sketching a route…', shade(), dimFor(ruleAt + 1, 1, 'PLAN')),
               take && (
                 <Box key="TAKE">
                   <Box width={LABEL} flexShrink={0}>
@@ -736,9 +747,9 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   // The body rows of the rules above, as drawn: the session's, the topic's, under ASK, under TAKE, over USED, over the footer.
   const rules = !hasReport && !hasAbout ? [] : [
     ...(hasAbout && summaryRows ? [sessionRows - 1] : []),
-    ...(hasAbout && shown.wants ? [askAt - 1] : []),
-    ...(shown.wants && take ? [askAt + askRows] : []),
-    ...(shown.wants && shown.steps.length ? [ruleAt] : []),
+    ...(hasAbout && ask ? [askAt - 1] : []),
+    ...(ask && takeText ? [askAt + askRows] : []),
+    ...((shown.wants && shown.steps.length) || pending ? [ruleAt] : []),
     ...(shown.wants && usedRows > 0 ? [labelAt.USED! - 1] : []),
     ...(hasReport ? [props.scroll.bodyRows - 2] : []),
   ]
