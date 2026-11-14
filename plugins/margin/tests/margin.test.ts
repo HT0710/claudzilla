@@ -912,7 +912,8 @@ test('the pane has a rule on its first row, joined to the rail border by ┬', a
   const root = (await ui.drawn()) as any
   const rows = [root].flat().flatMap((n: any) => [n.children, n.props?.children].flat())
   expect(JSON.stringify(rows.at(0))).toContain('┬')
-  expect(JSON.stringify(rows.slice(1))).not.toContain('┬')
+  // The widened rail's own top border joins the rule with ┬ too.
+  expect(JSON.stringify(rows.slice(1).filter((n: any) => n?.props?.key !== 'rail-wide'))).not.toContain('┬')
 })
 
 test('basic glyphs draw the key letters', async ($, on) => {
@@ -5274,13 +5275,56 @@ test('a press on a widened row switches; the shown row draws inverse', async ($,
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'wide:History' })
   // The engine keeps no key on a Text: its row Box (History is the second) holds it.
-  expect((await ui.find({ key: 'wide-row:1' }))?.children?.[0]).toMatchObject({ props: { inverse: true } })
+  expect((await ui.find({ key: 'wide-row:1' }))?.children?.[1]).toMatchObject({ props: { inverse: true } })
 })
 
-test('widened gaps are one row, so each name sits on its narrow icon row', async ($, on) => {
+// The widened rail's rows: each row's text, top to bottom.
+const wideRows = async (ui: { drawn: () => Promise<unknown> }) => {
+  const text = (n: any): string => (typeof n === 'string' ? n : !n || typeof n !== 'object' ? '' : Array.isArray(n) ? n.map(text).join('') : text([n.children ?? n.props?.children]))
+  const box = findIn(await ui.drawn(), n => n.props?.key === 'rail-wide')[0]
+  return { box, rows: [box.children ?? box.props.children].flat().map(text) }
+}
+
+test('the widened rail spans the pane height: top rule row to the last inner row', async ($, on) => {
   noHistory(on)
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
-  for (const n of [0, 1, 2, 3]) expect((await ui.find({ key: `wide-gap:${n}` }))?.props.height).toBe(1)
+  const { box, rows } = await wideRows(ui)
+  expect(rows.length).toBe(props.scroll.bodyRows)
+  expect(box.props.top ?? 0).toBe(0)
+  expect(box.props.backgroundColor).toBeUndefined()
+})
+
+test('the widened rail is bordered top and left, open below and at the right', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  const { rows } = await wideRows(ui)
+  expect(rows[0]).toBe('┬' + '─'.repeat(13))
+  for (const row of rows.slice(1)) expect(row[0]).toMatch(/[│┤]/)
+})
+
+test('in a short pane every widened tab keeps its row over the bottom edge', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll: { offset: 0, bodyRows: 8 } }, requestId: 'margin' })
+  // The shown tab's Text keeps no key: its row Box does.
+  for (const n of [0, 1, 2, 3]) expect(await ui.find({ key: `wide-row:${n}` })).toBeDefined()
+  expect(await ui.find({ key: 'wide:Git' })).toBeDefined()
+})
+
+test('every widened row is painted to the full width, so no body text shows through', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  const { rows } = await wideRows(ui)
+  for (const row of rows) expect([...row].length).toBe(14)
+  const all = JSON.stringify(findIn(await ui.drawn(), n => n.props?.key === 'rail-wide'))
+  expect(all).not.toContain('backgroundColor')
+})
+
+test('widened names sit on the narrow icon rows', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  const { rows } = await wideRows(ui)
+  const top = railTop(props.scroll.bodyRows - 1)
+  for (const [n, name] of ['Overview', 'History', 'File', 'Git'].entries()) expect(rows[1 + top + 2 * n]).toContain(name)
 })
 
 test('a widened row is padded to the rail width, so it presses and lights across', async ($, on) => {
