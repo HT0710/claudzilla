@@ -1995,6 +1995,16 @@ test('an errored Bash edit folds as a failed Ran row, keeps its error under it, 
   expect(await groupOf($, [call('b1', 'Bash', { command }, { isErrored: true })])).toBe('● Ran (1 command)')
 })
 
+test('an errored Bash edit off the fullscreen layout keeps its native row, not a success row', async ($, on) => {
+  native(on)
+  bashFs(on, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'), true)
+  const command = 'echo b > a.txt; false'
+  await bash($, command)
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolUse', requestId: 'b1',
+    props: call('b1', 'Bash', { command }, { isErrored: true }), viewport: { ...VIEW, isFullscreen: false } })
+  expect(await rowsOf(ui)).toEqual([])
+})
+
 test('a parsed Bash write whose engine diff names its file by another path stays one row, not a script', async ($, on) => {
   native(on)
   bashFs(on, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))
