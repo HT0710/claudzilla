@@ -3073,6 +3073,42 @@ test('a failed TOPICS read keeps the topics and says why', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'shipping the branch' })).toBeDefined()
 })
 
+test('the first topics read holds SESSION and TOPIC rows with faint words', async ($, on) => {
+  let answer: (value: unknown) => void = () => undefined
+  const { ui, clock } = await overviewPane($, on, () => new Promise(resolve => (answer = resolve)))
+  await ui.press({ key: 'Overview' })
+  await clock.advance(0)
+  await ui.drawn()
+  expect((await textsUnder(ui, 'sessionHead')).map(t => t.text)).toEqual(['SESSION'])
+  expect(await ui.find({ type: 'Text', text: 'skimming the story so far…' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'naming the thread…' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Nothing here yet' })).toBeUndefined()
+  answer({ isAnswered: true, text: SUMMED, usage: {} })
+  await clock.settle()
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'skimming the story so far…' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'naming the thread…' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'shipping the branch' })).toBeDefined()
+})
+
+test('a first prompt with no report holds ASK, TAKE and PLAN under SESSION and TOPIC, while they still load', async ($, on) => {
+  const { ui, clock } = await overviewPane($, on, () => new Promise(() => undefined))
+  await ui.press({ key: 'Overview' })
+  await clock.advance(0)
+  await send($, 'first thing')
+  await clock.advance(0)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'skimming the story so far…' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'parsing the ask…' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'forming an opinion…' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'sketching a route…' })).toBeDefined()
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'parsing the ask…' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'forming an opinion…' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'sketching a route…' })).toBeUndefined()
+})
+
 test('/clear empties TOPICS', async ($, on) => {
   const { ui, clock } = await overviewPane($, on)
   await ui.press({ key: 'Overview' })
@@ -3754,14 +3790,14 @@ test('with a report, a topics read shows on the TOPIC header and the footer keep
   expect(await right()).toEqual(['updating…', 'show all'])
 })
 
-test('the first TOPICS read, with none shown yet, draws no TOPIC row', async ($, on) => {
+test('the first TOPICS read, with a report, holds TOPIC with faint words', async ($, on) => {
   const { ui, clock } = await overviewPane($, on, () => new Promise(() => undefined))
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await ui.press({ key: 'Overview' })
   await clock.advance(0)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: 'reading…' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: 'TOPIC' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'TOPIC' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'naming the thread…' })).toBeDefined()
 })
 
 test('a failed first TOPICS read draws no TOPIC row', async ($, on) => {
