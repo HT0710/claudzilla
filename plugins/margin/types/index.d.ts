@@ -22,7 +22,7 @@ export type PrState = 'open' | 'draft' | 'merged' | 'closed'
 // `at`: when it was opened, merged or closed, as its state says.
 export type Pr = {
   n: number; title: string; state: PrState; head: string; base: string; author: string; at: number
-  additions: number; deletions: number; files: number; conflicting: boolean; checks: Check[]; url: string
+  additions: number; deletions: number; files: number; conflicting: boolean; checks: Check[]; url: string; fork?: boolean
 }
 export type Counts = { add: number; del: number } | 'bin'
 // One CHANGES row: git's two status letters, dim when only staged, and the card's words.

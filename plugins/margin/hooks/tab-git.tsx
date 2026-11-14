@@ -69,8 +69,9 @@ function readGitDir($: EngineInterface) {
 // When this session last tried an auto fetch, per git dir: a failed one leaves FETCH_HEAD old.
 const autoTried = new Map<string, number>()
 // No prompt can hang it: an empty GIT_ASKPASS skips core.askPass and SSH_ASKPASS dialogs, and ssh
-// gets BatchMode on top of the user's own ssh command.
-const QUIET_FETCH = 'GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-$(git config core.sshCommand || echo ssh)} -o BatchMode=yes" exec git fetch --no-auto-gc origin'
+// gets BatchMode on top of the user's own ssh command. Git picks GIT_SSH_COMMAND, then core.sshCommand,
+// then GIT_SSH; plink takes no ssh options.
+const QUIET_FETCH = 'c=${GIT_SSH_COMMAND:-$(git config core.sshCommand)}; [ -z "$c" ] && [ -n "${GIT_SSH:-}" ] || case ${c:-ssh} in *plink*) ;; *) export GIT_SSH_COMMAND="${c:-ssh} -o BatchMode=yes" ;; esac; exec git fetch --no-auto-gc origin'
 // Fetches origin when due, while the Git tab shows. Quiet on failure, as no one asked.
 export async function autoFetch($: EngineInterface) {
   if (await read($, fetching)) return
@@ -93,8 +94,12 @@ export async function autoFetch($: EngineInterface) {
 function readGit($: EngineInterface) {
   return Promise.all([
     // quotePath off: a non-ASCII path reads as itself, not octal escapes.
-    // Untracked folders file by file: each row opens a file.
-    $.process.run(['git', '--no-optional-locks', '-c', 'core.quotePath=false', 'status', '--porcelain', '-b', '-z', '--untracked-files=all']).catch(() => undefined),
+    // Untracked folders file by file: each row opens a file. None when the user's config turns them off, as a home-folder repo does.
+    $.process
+      .run(['git', 'config', '--get', 'status.showUntrackedFiles'])
+      .catch(() => undefined)
+      .then(config => $.process.run(['git', '--no-optional-locks', '-c', 'core.quotePath=false', 'status', '--porcelain', '-b', '-z', `--untracked-files=${/^(no|false|off|0)$/i.test(config?.stdout.trim() ?? '') ? 'no' : 'all'}`]))
+      .catch(() => undefined),
     // Staged and unstaged lines together, a rename under its new name.
     $.process.run(['git', '--no-optional-locks', 'diff', 'HEAD', '--numstat', '-z', '-M']).catch(() => undefined),
     // Local only: commits no remote has.
@@ -154,7 +159,7 @@ let treeRead: { key: string; signal: AbortSignal } | undefined
 // Each linked worktree's uncommitted files, null when its status failed.
 const treeStatus = new Map<string, number | null>()
 // The shown PR's local reads, kept per repo change and base: behind and ahead of the base, conflicting files.
-let prRead: { key: string; signal: AbortSignal; run: Promise<({ stdout: string } | undefined)[]> } | undefined
+let prRead: { key: string; signal: AbortSignal; run: Promise<({ exitCode: number; stdout: string } | undefined)[]> } | undefined
 // The rebase or merge in progress, kept as gitRead is.
 let opRead: { key: string; signal: AbortSignal; run: Promise<Op | undefined> } | undefined
 // Whether install.sh chose basic glyphs: read once a session.
@@ -260,7 +265,8 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
       ]),
     }
   const [behindRun, aheadRun, treeRun] = pr ? await prRead!.run : []
-  const behind = Number(behindRun?.stdout.trim()) || 0
+  // No origin/<base> to count against: unknown, not up to date.
+  const behind = behindRun?.exitCode === 0 ? Number(behindRun.stdout.trim()) || 0 : undefined
   const prCommits = Number(aheadRun?.stdout.trim()) || 0
   // Rows behind an open modal: dim, with no hover, card or link. A modal with nothing to show is not open.
   const dimmed = !!open && (open.key === 'branch' || (open.key === 'pr' && !!pr && pr.n === open.n) || (open.key === 'rebase' && !!op) || (open.key === 'prs' && !!summary) || (open.key === 'commit' && !!open.sha))
@@ -353,7 +359,8 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   const fetchedText = fetchedAt === undefined ? 'never' : `${clock(fetchedAt)} ${new Date(fetchedAt).toDateString() === new Date(now).toDateString() ? 'today' : dayName(new Date(fetchedAt))}`
   const fetchNow = async () => {
     await update($, fetching, () => true)
-    const run = await $.process.run(['git', 'fetch', 'origin']).catch(() => undefined)
+    // Quiet as auto-fetch, as no prompt can be answered here; the engine's longest, as a first fetch of a large repo outlasts its 30 s default.
+    const run = await $.process.run(['env', 'GIT_TERMINAL_PROMPT=0', 'GIT_ASKPASS=', 'GCM_INTERACTIVE=never', 'sh', '-c', QUIET_FETCH], { timeoutMs: 600_000 }).catch(() => undefined)
     await update($, fetching, () => false)
     if (run?.exitCode !== 0) $.ui.toast(`git fetch failed: ${(run?.stderr ?? '').split('\n')[0]}`)
     // As a tool call that may change the repo: the tab reads git again.
@@ -626,6 +633,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
           kv(
             'base',
             pr.conflicting ? <Text><Text color={TYPES.fix}>✗</Text> conflicts</Text>
+            : behind === undefined ? <Text color={HUD.faint}>unknown</Text>
             : behind ? <Text><Text color="warning">↓</Text>{counted(` ${behind} behind`)}</Text>
             : <Text><Text color={HUD.action}>✓</Text> up to date</Text>,
             pr.conflicting && conflictFiles.length ? <Text color={HUD.faint}>{plural(conflictFiles.length, 'file')}</Text> : undefined,

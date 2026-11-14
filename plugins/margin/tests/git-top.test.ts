@@ -127,7 +127,7 @@ test('fetch button shows the fetch age, presses git fetch origin', async ($, on)
   const gate = new Promise<void>(r => (release = r))
   on('process.run', async (_, e) => {
     runs.push(e.argv.join(' '))
-    if (e.argv[1] === 'fetch') {
+    if (e.argv.at(-1)?.includes('exec git fetch')) {
       started()
       await gate
     }
@@ -140,7 +140,7 @@ test('fetch button shows the fetch age, presses git fetch origin', async ($, on)
   expect(await piece(ui, 'fetch', '◌ fetching')).toBeDefined()
   release()
   await pressed
-  expect(runs).toContain('git fetch origin')
+  expect(runs.some(r => r.includes('exec git fetch --no-auto-gc origin'))).toBe(true)
   expect(await piece(ui, 'fetch', '◌ fetching')).toBeUndefined()
 })
 
@@ -153,7 +153,31 @@ test('opening the Git tab 15 minutes after the last fetch fetches origin, with n
     return ran(git(repoOn('a'))(e.argv) ?? '')
   })
   await mount($)
-  expect(await run).toMatch(/^env GIT_TERMINAL_PROMPT=0 GIT_ASKPASS= GCM_INTERACTIVE=never sh -c .*BatchMode=yes" exec git fetch --no-auto-gc origin$/)
+  expect(await run).toMatch(/^env GIT_TERMINAL_PROMPT=0 GIT_ASKPASS= GCM_INTERACTIVE=never sh -c .*BatchMode=yes.*; exec git fetch --no-auto-gc origin$/)
+})
+
+test('a pressed fetch runs as quiet as auto-fetch and may run 10 minutes, not the 30 s default', async ($, on) => {
+  quiet(on)
+  const fetches: unknown[][] = []
+  on('process.run', (_, e) => {
+    if (e.argv.at(-1)?.includes('git fetch')) fetches.push([e.argv.slice(0, 2).join(' '), e.init?.timeoutMs])
+    return ran(git(repoOn('a'))(e.argv) ?? '')
+  })
+  const ui = await mount($)
+  await tap(ui, 'fetch')
+  expect(fetches).toContainEqual(['env GIT_TERMINAL_PROMPT=0', 600_000])
+})
+
+test('status.showUntrackedFiles=no is kept: CHANGES reads no untracked files', async ($, on) => {
+  quiet(on)
+  const statuses: string[] = []
+  on('process.run', (_, e) => {
+    if (e.argv.includes('status')) statuses.push(e.argv.join(' '))
+    return ran(git(repoOn('a', { config: 'no\n' }))(e.argv) ?? '')
+  })
+  await mount($)
+  expect(statuses.length).toBeGreaterThan(0)
+  expect(statuses.every(one => one.endsWith('--untracked-files=no'))).toBe(true)
 })
 
 test('a long branch name leaves room for "◌ fetching" while a fetch runs', async ($, on) => {
@@ -164,7 +188,7 @@ test('a long branch name leaves room for "◌ fetching" while a fetch runs', asy
   const reached = new Promise<void>(r => (started = r))
   const gate = new Promise<void>(r => (release = r))
   on('process.run', async (_, e) => {
-    if (e.argv[1] === 'fetch') {
+    if (e.argv.at(-1)?.includes('exec git fetch')) {
       started()
       await gate
     }
@@ -277,7 +301,8 @@ test('a tab press closes the modal and does nothing else in the Git tab', async 
   quiet(on)
   const runs: string[] = []
   on('process.run', (_, e) => {
-    runs.push(e.argv.join(' '))
+    // A pressed fetch is the one with the 10-minute timeout.
+    if (e.init?.timeoutMs === 600_000) runs.push('pressed fetch')
     return ran(git(repoOn('b20'))(e.argv) ?? '')
   })
   const ui = await mount($)
@@ -285,7 +310,7 @@ test('a tab press closes the modal and does nothing else in the Git tab', async 
   await ui.press({ key: 'History' })
   await ui.press({ key: 'Git' })
   expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
-  expect(runs).not.toContain('git fetch origin')
+  expect(runs).not.toContain('pressed fetch')
 })
 
 test('rows behind an open modal fade to the one dim colour and lose hover; the row that opened it stays, lit', async ($, on) => {
@@ -978,6 +1003,48 @@ test('behind a modal a pill halves its background and caps; its word takes the d
   const pieces = ((await ui.find({ key: 'row:pr' }))?.props.props as { right: { text: string; color?: string; backgroundColor?: string }[] }).right
   expect(pieces.find(p => p.text === 'open')).toMatchObject({ color: '#3a424a', backgroundColor: '#0f1d15' })
   expect(pieces.find(p => p.text === '\ue0b6')?.color).toBe('#0f1d15')
+})
+
+test('PR card, open: a base not fetched reads unknown, not up to date, and marks nothing', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => {
+    if (e.argv[0] === 'gh' && e.argv[2] === 'list') return ran(JSON.stringify([prJson()]))
+    if (e.argv.some(arg => arg.includes('origin/release/1.7'))) return ran('', 128)
+    return ran(git(repoOn('a'))(e.argv) ?? '')
+  })
+  const ui = await mount($)
+  expect(await piece(ui, 'pr', ' !')).toBeUndefined()
+  await hover(ui, 'pr')
+  expect(await ui.find({ type: 'Text', text: /up to date/ })).toBeUndefined()
+  expect((await ui.findAll({ type: 'Text', text: 'unknown' })).at(-1)?.props.color).toBe('#4f5c68')
+})
+
+test('an open PR past the 50 newest still shows: open PRs come from their own call', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => {
+    if (e.argv[0] === 'gh' && e.argv[2] === 'list') return ran(JSON.stringify(e.argv.includes('open') ? [prJson()] : [prJson({ number: 300, headRefName: 'other' })]))
+    return ran(git(repoOn('a'))(e.argv) ?? '')
+  })
+  const ui = await mount($)
+  expect(await piece(ui, 'pr', '#168')).toBeDefined()
+})
+
+test('a failed open-PR call still writes the newest 50', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => {
+    if (e.argv[0] === 'gh' && e.argv[2] === 'list') return e.argv.includes('open') ? { value: { exitCode: 1, stdout: '', stderr: 'timeout' } } : ran(JSON.stringify([prJson()]))
+    return ran(git(repoOn('a'))(e.argv) ?? '')
+  })
+  const ui = await mount($)
+  expect(await piece(ui, 'pr', '#168')).toBeDefined()
+})
+
+test('a PR in both gh lists counts once', async ($, on) => {
+  quiet(on)
+  withGh(on, repoOn('a'), [prJson()])
+  const ui = await mount($)
+  expect(await piece(ui, 'pr', '#168')).toBeDefined()
+  expect(await ui.find({ key: 'row:prs' })).toBeUndefined()
 })
 
 test('PR card, merged: merged into base with its age, then changes', async ($, on) => {

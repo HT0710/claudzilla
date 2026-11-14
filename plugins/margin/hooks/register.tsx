@@ -770,15 +770,16 @@ const idle = async () => {
 // logged out, no GitHub remote) keeps what was read before.
 const GH_FIELDS = 'number,title,state,isDraft,headRefName,baseRefName,isCrossRepository,author,createdAt,mergedAt,closedAt,additions,deletions,changedFiles,mergeable,statusCheckRollup,url'
 // Kept with the origin it came from: after a shell cd into another repo, the draw shows none of it.
+// Open PRs read on their own: one older than the 50 newest of all states would be lost.
 const readGh = async ($: EngineInterface) => {
-  const [run, origin] = await Promise.all([
-    $.process.run(['gh', 'pr', 'list', '--state', 'all', '--limit', '50', '--json', GH_FIELDS]).catch(() => undefined),
-    $.process.run(['git', 'remote', 'get-url', 'origin']).catch(() => undefined),
-  ])
+  const list = (state: string, limit: string) => $.process.run(['gh', 'pr', 'list', '--state', state, '--limit', limit, '--json', GH_FIELDS]).catch(() => undefined)
+  const [run, open, origin] = await Promise.all([list('all', '50'), list('open', '100'), $.process.run(['git', 'remote', 'get-url', 'origin']).catch(() => undefined)])
   const remote = origin?.exitCode === 0 ? origin.stdout.trim() : ''
   if (run?.exitCode !== 0) return
   // Written only when it changed: each write draws the pane, and a tab press's second draw drops the next click.
-  const prs = parsePrs(run.stdout)
+  const all = parsePrs(run.stdout), seen = new Set(all.map(pr => pr.n))
+  // A failed open-only call still leaves the newest 50.
+  const prs = [...all, ...(open?.exitCode === 0 ? parsePrs(open.stdout) : []).filter(pr => !seen.has(pr.n))]
   const was = await read($, gh)
   if (was.remote === remote && JSON.stringify(prs) === JSON.stringify(was.prs)) return
   const at = await $.clock.now()
