@@ -166,6 +166,9 @@ check "push: compound --force -> ask" asked "$(sh_ 'npm test && git push --force
 check "push: -f -> ask" asked "$(sh_ 'git push -f')"
 check "push: +refspec -> ask" asked "$(sh_ 'git push origin +main')"
 check "push: --force-with-lease allowed" [ -z "$(sh_ 'git push --force-with-lease')" ]
+hook Stop last_assistant_message=done >/dev/null
+hook UserPromptSubmit 'prompt=<task-notification>x</task-notification>' >/dev/null
+check "push: notification after Stop starts a new turn" [ "$(state '.skills.length')" = 0 ]
 # The Bash hook only sees git/gh commands (settings `if`); a check between them is read from the transcript.
 use() { printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"%s","name":"%s","input":%s}]}}\n' "$@"; }
 res() { printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"%s","content":"%s"}]}}\n' "$@"; }

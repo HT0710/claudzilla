@@ -131,7 +131,7 @@ const unquote = (text) => text.replace(/`[^`\n]*`|"[^"\n]*"|“[^”\n]*”/g, "
 // "write the failing tests" is a TDD step, not a bug report.
 const TDD_ASK = /\b(?:write|add|writing|adding)[ \t]+(?:(?:the|a|some|new)[ \t]+)?failing[ \t]+(?:[\w-]+[ \t]+)?tests?\b/gi;
 const triggerText = (text) => unquote(text).replace(TDD_ASK, "");
-const fresh = () => ({ skills: [], checked: false, debug: false, debugNudged: false, edited: false, flags: [], judged: "", panel: false, reportFrom: -1 });
+const fresh = () => ({ skills: [], checked: false, debug: false, debugNudged: false, edited: false, ended: false, flags: [], judged: "", panel: false, reportFrom: -1 });
 // Per user and private, because tmpdir is shared on Linux: another user's planted dir or symlink would get our writes or plant state.
 // md-display.pl, hud-filter.pl and folio use the same dir and check.
 function stateDir() {
@@ -271,8 +271,8 @@ Fill <...> with facts from this session, not guesses. Condition not met → don'
 function onPrompt(d) {
   const prev = load(d.session_id);
   const p = String(d.prompt ?? "").trimStart();
-  // A notification can arrive mid-turn as a prompt: the turn's skills and check still stand.
-  const s = MACHINE_PROMPT.test(p) ? { ...fresh(), skills: prev.skills, checked: prev.checked, edited: prev.edited } : fresh();
+  // A notification can arrive mid-turn as a prompt: the turn's state still stands. After Stop it starts a new turn.
+  const s = MACHINE_PROMPT.test(p) && !prev.ended ? { ...prev, flags: [] } : fresh();
   const { cfg, warnings } = loadConfig(d.cwd ?? process.cwd());
   const lines = warnings.map((w) => `claudzilla config: ${w}`);
   if (prev.flags.length) lines.push(`Previous reply broke: ${prev.flags.join("; ")}. Apply from this reply on.`);
@@ -862,8 +862,8 @@ function onStop(d) {
   if (claim) flags.unshift(FLAG.doneClaim);
   const turn = s.reportFrom >= 0 ? readFrom(d.transcript_path, s.reportFrom) : undefined;
   if (turn !== undefined && !turn.includes(`"name":"${INTENT_TOOL}"`)) flags.push(FLAG.intentReport);
-  if (!flags.length) return;
-  s.flags = [...new Set([...s.flags, ...flags])];
+  s.ended = true;
+  if (flags.length) s.flags = [...new Set([...s.flags, ...flags])];
   save(d.session_id, s);
 }
 
