@@ -2,7 +2,7 @@
 // Enforces claudzilla rules (claude/rules/*.md) at the moment they apply.
 // Fails open: a guardrail, not security.
 import { execFileSync } from "node:child_process";
-import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -119,7 +119,12 @@ const NEGATED = String.raw`(?<!\b(?:without|not|never)[ \t]+(?:(?:a|an|any|the|m
 const keywordRe = (list) =>
   new RegExp(`${NEGATED}(?:${list.map((k) => (/^\w/.test(k) ? "\\b" : "(?<!\\w)") + RegExp.escape(k)).join("|")})(?:s|es|ed|ing|ure)?(?!\\w)`, "i");
 // Records {why, level} for each rule that fires and isn't "off".
-const hitter = (cfg, hits) => (id, why) => { if (why && cfg.rules[id] !== "off") hits.push({ why, level: cfg.rules[id] }); };
+// Gates cleared by skills saved in state: with no usable state dir they could never clear, so they only remind.
+const STATEFUL = ["pushVerify", "prSkill"];
+const stateOk = () => { try { return !!stateDir(); } catch { return false; } };
+const hitter = (cfg, hits) => (id, why) => {
+  if (why && cfg.rules[id] !== "off") hits.push({ why, level: cfg.rules[id] === "deny" && STATEFUL.includes(id) && !stateOk() ? "remind" : cfg.rules[id] });
+};
 
 // Mentions inside `code` or quotes are not claims or triggers.
 const unquote = (text) => text.replace(/`[^`\n]*`|"[^"\n]*"|“[^”\n]*”/g, "");
@@ -127,12 +132,21 @@ const unquote = (text) => text.replace(/`[^`\n]*`|"[^"\n]*"|“[^”\n]*”/g, "
 const TDD_ASK = /\b(?:write|add|writing|adding)[ \t]+(?:(?:the|a|some|new)[ \t]+)?failing[ \t]+(?:[\w-]+[ \t]+)?tests?\b/gi;
 const triggerText = (text) => unquote(text).replace(TDD_ASK, "");
 const fresh = () => ({ skills: [], checked: false, debug: false, debugNudged: false, edited: false, flags: [], judged: "", panel: false, reportFrom: -1 });
-const statePath = (sid) => join(tmpdir(), "claudzilla-rules", `${String(sid).replace(/[^\w-]/g, "")}.json`);
+// Per user and private, because tmpdir is shared on Linux: another user's planted dir or symlink would get our writes or plant state.
+// md-display.pl, hud-filter.pl and folio use the same dir and check.
+function stateDir() {
+  const uid = process.getuid?.();
+  const dir = join(tmpdir(), `claudzilla-rules-${uid ?? "u"}`);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const st = lstatSync(dir);
+  if (!st.isDirectory() || (uid !== undefined && st.uid !== uid) || st.mode & 0o077) throw new Error("state dir not private");
+  return dir;
+}
+const statePath = (sid) => join(stateDir(), `${String(sid).replace(/[^\w-]/g, "")}.json`);
 function load(sid) {
   try { return { ...fresh(), ...JSON.parse(readFileSync(statePath(sid), "utf8")) }; } catch { return fresh(); }
 }
 function save(sid, s) {
-  mkdirSync(dirname(statePath(sid)), { recursive: true });
   writeFileSync(statePath(sid), JSON.stringify(s));
 }
 const hasSkill = (s, name) => s.skills.some((k) => k === name || k.endsWith(`:${name}`));

@@ -308,5 +308,16 @@ rm -rf "$TRC/claudzilla-trace" "$TRT"; a=$(trun); ac=$?; rm -rf "$TRC/claudzilla
 check "trace hud: output unchanged with unwritable trace" [ "$(perl -pe 's/\e\[[0-9;]*m//g' <<<"$a")" = "$(perl -pe 's/\e\[[0-9;]*m//g' <<<"$b")" ]
 check "trace hud: exit code unchanged with unwritable trace" [ "$ac" = "$bc" ]
 
+# --- state dir: private per user, never a planted symlink or a dir others can write ---
+TRD="$TRT/claudzilla-rules-$(id -u)"
+rm -rf "$TRT"; mkdir -p "$TRT"; trun >/dev/null
+check "state hud: state dir is private" [ "$(ls -ld "$TRD" | cut -c1-10)" = drwx------ ]
+hud_guarded() {
+  rm -rf "$TRT"; mkdir -p "$TRT/victim"; ln -s "$TRT/victim" "$TRD"; local out; out=$(trun)
+  rm "$TRD"; mkdir "$TRD"; chmod 777 "$TRD"; trun >/dev/null
+  [ -n "$out" ] && [ -z "$(ls -A "$TRT/victim")" ] && [ -z "$(ls -A "$TRD")" ]
+}
+check "state hud: a planted or open state dir is never used" hud_guarded
+
 echo "hud: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

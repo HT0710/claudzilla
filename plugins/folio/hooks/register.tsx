@@ -1158,7 +1158,9 @@ export const register: Register = on => {
     if (columns && columns !== wroteColumns) {
       wroteColumns = columns
       try {
-        await $.fs.write(`${(await $.env.get('TMPDIR')) || '/tmp'}/claudzilla-rules/cols-${await $.session.id()}`, String(columns))
+        // $.fs can't see owner or mode, so sh makes and checks the private per-user dir that rules-guard.mjs uses; no output, no write.
+        const r = await $.process.run(['sh', '-c', 'd="$1/claudzilla-rules-$(id -u)"; mkdir -m 700 -p "$d" 2>/dev/null; [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ] && [ "$(ls -ld "$d" | cut -c1-10)" = drwx------ ] && printf %s "$d"', 'sh', (await $.env.get('TMPDIR')) || '/tmp'])
+        if (r.exitCode === 0 && r.stdout) await $.fs.write(`${r.stdout}/cols-${await $.session.id()}`, String(columns))
       } catch {}
     }
     return next(e)

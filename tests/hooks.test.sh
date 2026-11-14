@@ -10,7 +10,7 @@ mkdir -p "$CLAUDE_CONFIG_DIR"
 . "$REPO/tests/lib.sh"
 n=0
 RG="$REPO/claude/hooks/rules-guard.mjs"
-STATE="$TMP/claudzilla-rules"
+STATE="$TMP/claudzilla-rules-$(id -u)"
 # hook <event> [key=value ...]: build the event JSON (dotted keys nest) and run rules-guard in $PWD
 hook() {
   node -e '
@@ -110,6 +110,18 @@ check "skill: recorded" [ "$(state '.skills[0]')" = '"superpowers:brainstorming"
 check "bad json: silent" bash -c "[ -z \"\$(echo nope | node '$RG')\" ]"
 SID="../evil" hook UserPromptSubmit prompt=hi >/dev/null
 check "session id cannot escape state dir" bash -c "[ ! -e '$TMP/evil.json' ] && [ -e '$STATE/evil.json' ]"
+# guarded <cmd...>: run cmd twice with TMPDIR at a fresh dir, its state dir first a symlink to a victim dir, then a dir others can write; neither may get a file
+guarded() {
+  local t="$TMP/g$((++n))" d; d="$t/claudzilla-rules-$(id -u)"; mkdir -p "$t/victim" "$t/open"; chmod 777 "$t/open"
+  ln -s "$t/victim" "$d"; TMPDIR="$t" "$@" >/dev/null
+  rm "$d"; mv "$t/open" "$d"; TMPDIR="$t" "$@" >/dev/null
+  [ -z "$(ls -A "$t/victim")" ] && [ -z "$(ls -A "$d")" ]
+}
+private() { new_session; hook UserPromptSubmit prompt=hi >/dev/null; [ -f "$STATE/$SID.json" ] && [ "$(ls -ld "$STATE" | cut -c1-10)" = drwx------ ]; }
+check "state: lives in a private per-user dir" private
+check "state: a planted or open state dir is never used" guarded hook UserPromptSubmit prompt=hi
+open_state() { local d="$TMP/g$((++n))/claudzilla-rules-$(id -u)"; mkdir -p "$d"; chmod 777 "$d"; new_session; TMPDIR="${d%/*}" hook UserPromptSubmit prompt='login is broken'; }
+check "state: reminder still shows with an open state dir" has "$(open_state)" "systematic-debugging"
 
 # --- PreToolUse: git / gh ---
 repo() { local r; r=$(mktemp -d "$TMP/repo.XXXX"); git -C "$r" init -q -b main; git -C "$r" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init; echo "$r"; }
@@ -137,6 +149,12 @@ check "push: re-invoked verify needs a new check" denied "$(sh_ 'git push')"
 sh_ 'npm test' >/dev/null
 out=$(sh_ 'gh pr create --fill')
 check "gh pr create: no pr skill -> deny" denied "$out"
+# A state dir that fails its check can never record the skills, so the gates that need them remind instead of deny forever.
+open_sh() { local d="$TMP/g$((++n))/claudzilla-rules-$(id -u)"; mkdir -p "$d"; chmod 777 "$d"; new_session; TMPDIR="${d%/*}" sh_ "$1"; }
+out=$(open_sh 'git push')
+check "push: open state dir -> reminds, never denies" bash -c '! grep -qF "\"permissionDecision\":\"deny\"" <<<"$1" && grep -qF verification-before-completion <<<"$1"' _ "$out"
+out=$(open_sh 'gh pr create --fill')
+check "gh pr create: open state dir -> reminds, never denies" bash -c '! grep -qF "\"permissionDecision\":\"deny\"" <<<"$1" && grep -qF "pr skill" <<<"$1"' _ "$out"
 check "gh pr create: deny names pr skill" has "$out" "invoke the pr skill"
 hook PostToolUse tool_name=Skill tool_input.skill=pr >/dev/null
 check "gh pr create: pr + verified -> allowed" [ -z "$(sh_ 'gh pr create --fill')" ]
@@ -715,9 +733,11 @@ mdm h 0 $'```\n~~~\n' >/dev/null
 check "frame: tilde line inside backtick fence does not close it" [ -z "$(mdm h 0 $'---\n')" ]
 check "frame: matching fence closes it" sub "$(mdm h 1 $'```\n---\n')" "$G"
 check "frame: no message_id, no frame" [ -z "$(md $'**TL;DR** x\n')" ]
-check "frame: state removed after final" bash -c "! ls '$TMP'/claudzilla-rules/md-* 2>/dev/null"
+check "frame: state removed after final" bash -c "! ls '$STATE'/md-* 2>/dev/null"
+check "frame: a planted or open state dir is never used" guarded mdm gz 0 $'**TL;DR** x\n'
+check "frame: state dir is private" [ "$(ls -ld "$STATE" | cut -c1-10)" = drwx------ ]
 # folio writes the chat's width; a docked panel leaves it narrower than COLUMNS
-printf 34 >"$TMP/claudzilla-rules/cols-mdw"
+printf 34 >"$STATE/cols-mdw"
 out=$(node -e 'console.log(JSON.stringify({ hook_event_name: "MessageDisplay", session_id: "mdw", message_id: "w", final: true, delta: "**TL;DR** x\n" }))' | COLUMNS=24 perl "$MD")
 check "frame: chat width file beats COLUMNS" sub "$out" ":\"$(printf '━%.0s' {1..30})\\n"
 
