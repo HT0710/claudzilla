@@ -282,12 +282,13 @@ test('branch modal columns: each as wide as its widest cell, 2 columns apart', a
   expect(new Set(widths).size).toBe(1)
 })
 
-test('the widened rail does not open while a Git modal is open', async ($, on) => {
+test('the widened rail still opens while a Git modal is open', async ($, on) => {
   quiet(on)
   on('process.run', (_, e) => ran(git(repoOn('b20'))(e.argv) ?? ''))
   const ui = await mount($)
   await tap(ui, 'branch')
-  expect(await ui.find({ key: 'rail-wide' })).toBeUndefined()
+  expect(await ui.find({ key: 'modal' })).toBeDefined()
+  expect(await ui.find({ key: 'rail-wide' })).toBeDefined()
 })
 
 test('pressing the branch opens the branch modal, centred on the current branch; ✕ closes it', async ($, on) => {
@@ -621,7 +622,8 @@ test('worktrees view: sync and changes follow the widest name, not the far right
   const ui = await mount($)
   await worktreeView(ui)
   // The widest: the detached `0123456 /tmp/w`. Every row's name column matches it.
-  expect((await ui.findAll({ type: 'Box' })).filter(box => box.props.width === 14).length).toBe(3)
+  // Keyed: the widened rail and its rows, 14 wide too.
+  expect((await ui.findAll({ type: 'Box' })).filter(box => box.props.width === 14 && !box.key).length).toBe(3)
 })
 
 test('a detached worktree under home, not beside the main one, reads from ~', async ($, on) => {
