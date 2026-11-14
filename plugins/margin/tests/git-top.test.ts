@@ -87,7 +87,7 @@ const tap = async (ui: Ui, row: string) => {
 const hover = (ui: Ui, row: string) => ui.pointer({ type: 'enter', x: 0, y: 0, in: `row:${row}` })
 // A top row's Text as its row Client draws it: the innermost match, not the row's whole line.
 const piece = async (ui: Ui, row: string, text: string | RegExp) => (await ui.findAll({ type: 'Text', text, in: `row:${row}` })).at(-1)
-// The first branch the modal lists: the branch row reads "⎇ b20", so a bare name is the modal's.
+// The first branch the modal lists: the branch row's pieces sit in its Client, so a bare name is the modal's.
 const firstListed = async (ui: Ui) => (await ui.findAll({ type: 'Text', text: /^b\d\d$/ }))[0]?.text
 // Column 33: the pane's middle, inside a centred modal.
 const wheel = ($: Parameters<TestBody>[0], by: number, row: number, column = 33) =>
@@ -98,7 +98,8 @@ test('branch row: name, one mark only when needed, no counts', async ($, on) => 
   const repo = repoOn('a', { status: '## a...origin/a [ahead 1, behind 2]\n' })
   on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
   const ui = await mount($)
-  expect(await piece(ui, 'branch', '⎇ a')).toBeDefined()
+  expect((await piece(ui, 'branch', '⎇  '))?.props.color).toBe('#5d9678')
+  expect((await piece(ui, 'branch', 'a'))?.props.color).toBeUndefined()
   expect((await piece(ui, 'branch', ' ↕'))?.props.color).toBe('#b48ead')
   repo.status = '## a...origin/a [ahead 1]\n'
   await $.tool.call({ tool: 'Bash', command: 'git push' })
@@ -111,8 +112,8 @@ test('branch row holds the width it was given', async ($, on) => {
   on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
   const ui = await mount($)
   const boxes = await ui.findAll({ type: 'Box' })
-  // '⎇ a' is 3 cells.
-  expect(boxes.some(box => box.props.width === 3)).toBe(true)
+  // '⎇  a' is 4 cells: ⎇ draws 2 wide, so a second space keeps a gap.
+  expect(boxes.some(box => box.props.width === 4)).toBe(true)
 })
 
 test('fetch button shows the fetch age, presses git fetch origin', async ($, on) => {
@@ -195,8 +196,8 @@ test('a long branch name leaves room for "◌ fetching" while a fetch runs', asy
   const ui = await mount($)
   const pressed = tap(ui, 'fetch')
   await reached
-  // "⎇ " and the name: the body less its padding (1 + 1), the fetch row's 10 columns and the 5 kept beside them.
-  expect([...((await piece(ui, 'branch', /^⎇/))?.text ?? '')].length).toBeLessThanOrEqual(2 + 67 - 2 - 10 - 5)
+  // "⎇  " and the name: the body less its padding (1 + 1), the fetch row's 10 columns and the 5 kept beside them.
+  expect(3 + 'feat/'.length + [...((await piece(ui, 'branch', /^x+…$/))?.text ?? '')].length).toBeLessThanOrEqual(3 + 67 - 2 - 10 - 5 - 1)
   release()
   await pressed
 })
@@ -298,8 +299,10 @@ test('pressing the branch opens the branch modal, centred on the current branch;
   await tap(ui, 'branch')
   expect(await ui.find({ type: 'Box', key: 'modal' })).toBeDefined()
   expect(await firstListed(ui)).toBe('b14')
-  // The current branch: bold, in the branch green, on the lit row.
-  expect((await ui.find({ type: 'Text', text: /^b20$/ }))?.props).toMatchObject({ bold: true, color: '#5d9678' })
+  // The current branch: bold, ⎇ in the branch green, the name drawn as any other, on the lit row.
+  expect((await ui.find({ type: 'Text', text: /^b20$/ }))?.props).toMatchObject({ bold: true })
+  expect((await ui.find({ type: 'Text', text: /^b20$/ }))?.props.color).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: '⎇  ' }))?.props).toMatchObject({ bold: true, color: '#5d9678' })
   await ui.press({ key: 'm:x' })
   expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
 })
@@ -326,7 +329,8 @@ test('rows behind an open modal fade to the one dim colour and lose hover; the r
   const ui = await mount($)
   await tap(ui, 'branch')
   // The opened row: its colour kept, inverted.
-  expect((await piece(ui, 'branch', '⎇ b20'))?.props).toMatchObject({ color: '#5d9678', backgroundColor: '#0f1c28' })
+  expect((await piece(ui, 'branch', '⎇  '))?.props).toMatchObject({ color: '#5d9678', backgroundColor: '#0f1c28' })
+  expect((await piece(ui, 'branch', 'b20'))?.props).toMatchObject({ backgroundColor: '#0f1c28' })
   // Nothing behind presses or lights under the pointer but the opened row: the other rows faded.
   expect((await ui.find({ key: 'row:fetch' }))?.props.props).toMatchObject({ faded: true })
   expect((await ui.find({ key: 'row:branch' }))?.props.props).toMatchObject({ open: '#0f1c28' })
@@ -376,7 +380,8 @@ test('under a PR modal the branch row fades; the PR row keeps its colours on the
   quiet(on)
   withPr(on, repoOn('a'), [prJson()])
   const ui = await openPr($)
-  expect((await piece(ui, 'branch', '⎇ a'))?.props.color).toBe('#3a424a')
+  expect((await piece(ui, 'branch', '⎇  '))?.props.color).toBe('#3a424a')
+  expect((await piece(ui, 'branch', 'a'))?.props.color).toBe('#3a424a')
   expect((await piece(ui, 'pr', '#168'))?.props).toMatchObject({ color: 'claude', backgroundColor: '#0f1c28' })
 })
 
@@ -470,11 +475,11 @@ test('a new session, as /clear starts, reads git afresh before any prompt or too
   const repo = repoOn('a')
   on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
   const ui = await mount($)
-  expect(await piece(ui, 'branch', '⎇ a')).toBeDefined()
+  expect(await piece(ui, 'branch', 'a')).toBeDefined()
   repo.status = '## b...origin/b\n'
   session = 'chat-2'
   await wheel($, 1, 8)
-  expect(await piece(ui, 'branch', '⎇ b')).toBeDefined()
+  expect(await piece(ui, 'branch', 'b')).toBeDefined()
 })
 
 const treeRepo = (current: string) => repoOn(current, {
@@ -694,7 +699,8 @@ test('worktrees view: linked only, this one lit, a path only when detached, sync
   await worktreeView(ui)
   expect(await ui.find({ type: 'Text', text: /⧉ worktrees/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'feat/a' })).toBeUndefined()
-  expect((await ui.find({ type: 'Text', text: 'fix/b' }))?.props).toMatchObject({ color: '#5d9678', bold: true })
+  expect((await ui.find({ type: 'Text', text: 'fix/' }))?.props).toMatchObject({ color: '#e06c75', bold: true })
+  expect((await ui.find({ type: 'Text', text: 'b' }))?.props).toMatchObject({ bold: true })
   expect(await ui.find({ type: 'Text', text: /\.\.\/repo/ })).toBeUndefined()
   expect((await ui.findAll({ type: 'Text', text: '↑2' })).at(-1)?.props.color).toBe('#d4b860')
   expect(await ui.find({ type: 'Text', text: '3 changed' })).toBeDefined()
@@ -1406,7 +1412,8 @@ test('the branch name comes from head-name during a rebase', async ($, on) => {
   quiet(on, 5 * MIN, false, rebaseDir(2))
   on('process.run', (_, e) => ran(git(conflictRepo())(e.argv) ?? ''))
   const ui = await mount($)
-  expect(await piece(ui, 'branch', '⎇ feat/x')).toBeDefined()
+  expect((await piece(ui, 'branch', 'feat/'))?.props.color).toBe('#98c379')
+  expect(await piece(ui, 'branch', 'x')).toBeDefined()
 })
 
 test('an edit stop reads edit and its commit; resolved reads ✓ ready', async ($, on) => {
@@ -1423,7 +1430,7 @@ test('detached HEAD without a rebase has no rebase row', async ($, on) => {
   on('process.run', (_, e) => ran(git(repoOn('x', { status: '## HEAD (no branch)\n' }))(e.argv) ?? ''))
   const ui = await mount($)
   expect(await ui.find({ key: 'row:rebase' })).toBeUndefined()
-  expect(await piece(ui, 'branch', '⎇ HEAD')).toBeDefined()
+  expect(await piece(ui, 'branch', 'HEAD')).toBeDefined()
 })
 
 test('rebase card: step n of N with sha; conflict files joined; +a −d for one', async ($, on) => {
@@ -1908,14 +1915,14 @@ test('commit card: long refs share the info column, cut with … at its end, so 
   expect(await ui.find({ type: 'Text', text: '+105' })).toBeDefined()
 })
 
-test('commit card: the current branch in refs takes the action colour, bold, as in the branch modal', async ($, on) => {
+test('commit card: the current branch in refs is bold, its name drawn as any other, as in the branch modal', async ($, on) => {
   quiet(on)
   on('process.run', (_, e) => ran(commitsRepo([logLine(A, 'feat: one', 'HEAD -> refs/heads/b')], [A])(e.argv) ?? ''))
   const ui = await mount($)
   await hover(ui, `c:${A}`)
   const { card, find } = await cardTexts(ui, `c:${A}`)
   const current = find(card, n => n.type === 'Text' && [n.children ?? n.props?.children].flat().join('') === 'b')[0]
-  expect(current?.props.color).toBe('#5d9678')
+  expect(current?.props.color).toBeUndefined()
   expect(current?.props.bold).toBe(true)
 })
 

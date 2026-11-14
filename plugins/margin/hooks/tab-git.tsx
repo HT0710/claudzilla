@@ -352,7 +352,9 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   const fetchLabel = `${basic ? '↻' : '\uf46a'} ${fetchedAt === undefined ? 'never' : age(fetchedAt, now)}`
   // The fetch row's width as drawn: while a fetch runs it reads "◌ fetching".
   const fetchWidth = isFetching ? 10 : [...fetchLabel].length
-  const branchLabel = `⎇ ${fit(hd.name, props.bodyColumns - 2 * PAD - fetchWidth - 5 - (linked ? 2 : 0))}`
+  // ⎇ draws 2 cells wide in 1, so a second space keeps the gap before the name.
+  const branchFit = fit(hd.name, props.bodyColumns - 2 * PAD - fetchWidth - 6 - (linked ? 2 : 0))
+  const branchLabel = `⎇  ${branchFit}`
   const fetchedText = fetchedAt === undefined ? 'never' : `${clock(fetchedAt)} ${new Date(fetchedAt).toDateString() === new Date(now).toDateString() ? 'today' : dayName(new Date(fetchedAt))}`
   const fetchNow = async () => {
     await update($, fetching, () => true)
@@ -484,18 +486,18 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   const GLYPHS: Record<CheckState, [string, string]> = { ok: ['✓', HUD.action], bad: ['✗', TYPES.fix!], run: ['◌', 'claude'], skip: ['–', HUD.faint] }
   const glyph = (state: CheckState) => <Text color={GLYPHS[state][1]}>{GLYPHS[state][0]}</Text>
   // A branch prefix in its commit type's colour (feat/ green, fix/ red); any other prefix faint.
-  const prefixColor = (prefix: string) => TYPES[prefix.replace(/\/$/, '')] ?? HUD.faint
-  // A commit's refs as the branch modal draws names: the current branch bold in the action colour; else a remote's
-  // name faint, a type prefix in its colour, the rest plain. Tags in warning. Two spaces apart.
+  const prefixColor = (prefix: string) => (type => (Object.hasOwn(TYPES, type) ? TYPES[type] : HUD.faint))(prefix.replace(/\/$/, ''))
+  // A branch name as every list draws it: its prefix in that colour, the rest plain.
+  const named = (name: string, bold?: boolean) => {
+    const at = name.indexOf('/')
+    return at < 0 ? [<Text bold={bold}>{name}</Text>] : [<Text bold={bold} color={prefixColor(name.slice(0, at + 1))}>{name.slice(0, at + 1)}</Text>, <Text bold={bold}>{name.slice(at + 1)}</Text>]
+  }
+  // A commit's refs as the branch modal draws names: a remote's name faint, a type prefix in its colour, the rest
+  // plain; the current branch bold. Tags in warning. Two spaces apart.
   const refTexts = (refs: LogRow['refs'], tags: string[]) =>
     [
       ...refs.map(({ remote, branch }) => {
-        if (!remote && branch === hd.name) return [<Text bold color={HUD.action}>{branch}</Text>]
-        const at = branch.indexOf('/')
-        return [
-          ...(remote ? [<Text color={HUD.faint}>{`${remote}/`}</Text>] : []),
-          ...(at < 0 ? [<Text>{branch}</Text>] : [<Text color={prefixColor(branch.slice(0, at + 1))}>{branch.slice(0, at + 1)}</Text>, <Text>{branch.slice(at + 1)}</Text>]),
-        ]
+        return [...(remote ? [<Text color={HUD.faint}>{`${remote}/`}</Text>] : []), ...named(branch, !remote && branch === hd.name)]
       }),
       ...tags.map(tag => [<Text color="warning">{tag}</Text>]),
     ].flatMap((pieces, i) => (i ? [<Text>{'  '}</Text>, ...pieces] : pieces))
@@ -784,8 +786,8 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
       Math.max(0, ...shown.map(b => age(b.at, now).length)),
     ]
     const colsWidth = cols.filter(Boolean).reduce((n, w) => n + w + 2, 0)
-    // ⎇ on the current branch and ⧉ on a worktree's, each 2 columns.
-    const marks = (name?: string, worktree?: boolean) => (name === hd.name ? 2 : 0) + (worktree ? 2 : 0)
+    // ⎇ on the current branch, 3 columns as on the branch row; ⧉ on a worktree's, 2.
+    const marks = (name?: string, worktree?: boolean) => (name === hd.name ? 3 : 0) + (worktree ? 2 : 0)
     const widestBranch = Math.max(0, ...tree.map(r => r.guide.length + r.label.length + marks(r.branch?.name, r.branch?.worktree)))
     const synced = new Map(list.map(b => [b.name, b]))
     // The worktrees view's columns: sync, then changed files or gone.
@@ -818,11 +820,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
     const worktreeRow = (t: (typeof trees)[number], i: number) => {
       const name = fit(t.branch ?? t.head.slice(0, 7), left)
       const pathRoom = left - name.length - 1
-      const at = name.indexOf('/')
-      const label = t.path === root ? [<Text bold color={HUD.action}>{name}</Text>]
-        : !t.branch ? [<Text color={HUD.faint}>{name}</Text>]
-        : at < 0 ? [<Text>{name}</Text>]
-        : [<Text color={prefixColor(name.slice(0, at + 1))}>{name.slice(0, at + 1)}</Text>, <Text>{name.slice(at + 1)}</Text>]
+      const label = !t.branch ? [<Text bold={t.path === root} color={HUD.faint}>{name}</Text>] : named(name, t.path === root)
       return (
         <Box gap={2} backgroundColor={t.path === root ? LIT : undefined}>
           <Box width={nameCol} flexShrink={0}>
@@ -839,7 +837,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
       const at = r.label.indexOf('/')
       const rest = room - r.guide.length - marks(b?.name, b?.worktree)
       const label = isCurrent
-        ? [<Text bold color={HUD.action}>⎇ </Text>, <Text bold color={HUD.action}>{fit(r.label, rest)}</Text>]
+        ? [<Text bold color={HUD.action}>⎇  </Text>, ...named(fit(r.label, rest), true)]
         : r.heading || at < 0
           ? [<Text color={r.heading ? prefixColor(r.heading) : undefined}>{fit(r.label, rest)}</Text>]
           : [<Text color={prefixColor(r.label.slice(0, at + 1))}>{r.label.slice(0, at + 1)}</Text>, <Text>{fit(r.label.slice(at + 1), rest - at - 1)}</Text>]
@@ -1264,10 +1262,10 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   ) : (
     <Box flexDirection="column">
       <Box justifyContent="space-between">
-        {/* The HUD statusline's branch glyph and green; one mark after it only when the branch needs you. */}
+        {/* The HUD statusline's branch glyph in its green, the name as the lists draw it; one mark after it only when the branch needs you. */}
         {topRow(
           'branch',
-          [<Text color={HUD.action}>{branchLabel}</Text>, linked && <Text color={HUD.faint}> ⧉</Text>, mark && <Text color={MARKS[mark][1]}>{` ${MARKS[mark][0]}`}</Text>],
+          [<Text color={HUD.action}>⎇  </Text>, ...named(branchFit), linked && <Text color={HUD.faint}> ⧉</Text>, mark && <Text color={MARKS[mark][1]}>{` ${MARKS[mark][0]}`}</Text>],
           [],
           card('card:branch', 0, 'left', upstreamName ? kv('upstream', upstreamName, sync) : kv('upstream', hd.upstream), ...(stashes ? [kv('stash', <Text>{counted(`${stashes} on this branch`)}</Text>)] : [])),
           [...branchLabel].length + (linked ? 2 : 0) + (mark ? 2 : 0),
