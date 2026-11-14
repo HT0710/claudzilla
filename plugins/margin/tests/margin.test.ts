@@ -3666,7 +3666,7 @@ test('TAKE shows a stance mark, the label and the why', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'TAKE' })).toBeDefined()
   expect(await colorOf(ui, /^✗ $/)).toBe('#e06c75')
   expect(await ui.find({ type: 'Text', text: 'data loss' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: ': x' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ', x' })).toBeDefined()
 })
 
 test('TAKE without a why has no colon', async ($, on) => {
