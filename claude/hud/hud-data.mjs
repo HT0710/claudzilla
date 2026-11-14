@@ -134,7 +134,7 @@ try {
 } catch { /* no config: the default layout and colours */ }
 if (cfg.hud?.compact === true) out.compact = 1;
 
-// shared and hud tables of plugins/margin/hooks/palette.ts DEFAULTS, kept equal by tests/hud.test.sh
+// shared, hud and margin.types tables of plugins/margin/hooks/palette.ts DEFAULTS, kept equal by tests/hud.test.sh
 const PALETTE = {
   shared: { label: "#a396d2", faint: "#4f5c68", idle: "#456186", action: "#5d9678", dirty: "#8c7850", churn: "#6e8c6e", muted: "#808286", lit: "#0f1c28" },
   hud: {
@@ -142,9 +142,10 @@ const PALETTE = {
     profile: "#5f9ea8", version: "#9d6554", divider: "#263240", sweep: "#ffecc8", model: "#7fb6d9", skill: "#93b4e0", thinking: "#a98fd9",
     clock: "#8da6c2", session: null,
   },
+  types: { feat: "#98c379", fix: "#e06c75", refactor: "#61afef", perf: "#d19a66", docs: "#e5c07b", test: "#56b6c2" },
 };
 for (const [table, keys] of Object.entries(PALETTE)) for (const [key, v] of Object.entries(keys)) {
-  const set = cfg.palette?.[table]?.[key];
+  const set = (table === "types" ? cfg.palette?.margin?.types : cfg.palette?.[table])?.[key];
   // hud-filter.pl draws a missing or dropped colour grey, so anything but #rrggbb sends the default to keep the colour right
   out[`pal_${table}_${key}`] = typeof set === "string" && /^#[0-9a-f]{6}$/i.test(set) ? set : v;
 }

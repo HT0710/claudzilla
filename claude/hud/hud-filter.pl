@@ -177,7 +177,12 @@ sub cwd_str {
 {   # narrow panes: shed the least important pieces, then trim the path itself
     my $path = $cwd // '~';
     my $p    = $profile // '';
-    my @opt = ( [$branch, sub { $dim->('  ') . fg('shared_action') . "$G_BRANCH $_[0]\e[0m" }],
+    # ⎇ draws 2 cells wide in 1, so a second space keeps the gap; the name as margin's Git tab draws it
+    # (chore in shared.label, as margin's TYPES adds it)
+    my @opt = ( [$branch, sub { my ($t, $type, $rest) = $_[0] =~ m{^(([^/]+)/)?(.*)\z}s;
+                                my $c = !defined $t ? undef : $type eq 'chore' ? 'shared_label' : $PAL{"types_$type"} ? "types_$type" : 'shared_faint';
+                                $dim->('  ') . fg('shared_action') . $G_BRANCH . ($G_BRANCH eq "\x{2387}" ? '  ' : ' ') . "\e[0m"
+                                . (defined $c ? fg($c) . "$t\e[0m" : '') . $rest }],
                 [$dirty,  sub { $dim->(' ')  . fg('shared_dirty') . "$_[0]\e[0m"  }],
                 [$churn,  sub { $dim->('  ') . fg('shared_churn') . "$_[0]\e[0m" }] );
     my $build = sub {
