@@ -221,7 +221,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   )
   const wrapRows = (text: string, w: number) => wrapLines(text, w).length
   const take = shown.take
-  const takeText = take ? `${TAKE_MARK[take.stance][0]} ${fit(take.label, 16)}${take.why ? `: ${take.why}` : ''}` : ''
+  const takeText = take ? `${TAKE_MARK[take.stance][0]} ${take.label}${take.why ? `: ${take.why}` : ''}` : ''
   // ASK and TAKE as wrapped: the divider goes no lower than TAKE's last row over the footer.
   const reportRows = wrapRows(shown.wants, Math.max(1, width - LABEL)) + (take ? 1 + wrapRows(takeText, Math.max(1, width - LABEL)) : 0)
   // TOPIC shows the latest topic; "show all" opens the rest in a modal, newest first.
@@ -560,7 +560,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                     undefined,
                     [
                       <Text color={shade(TAKE_MARK[take.stance][1])}>{`${TAKE_MARK[take.stance][0]} `}</Text>,
-                      <Text bold color={shade(TAKE_MARK[take.stance][1])}>{fit(take.label, 16)}</Text>,
+                      <Text bold color={shade(TAKE_MARK[take.stance][1])}>{take.label}</Text>,
                       take.why && <Text color={shade()}>{count(`: ${take.why}`)}</Text>,
                     ],
                     'wrap',

@@ -3701,11 +3701,11 @@ test('a report without a take on a new prompt does not keep last turn\'s take', 
   expect(await ui.find({ type: 'Text', text: 'needs repro' })).toBeUndefined()
 })
 
-test('a TAKE label past 16 characters is cut', async ($, on) => {
+test('a long TAKE label shows whole', async ($, on) => {
   const ui = await intentPane($, on)
   await $.tool.call({ tool: INTENT, ...REPORT, take: { stance: 'fine', label: 'abcdefghijklmnopqrst' } } as any)
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: 'abcdefghijklmno…' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'abcdefghijklmnopqrst' })).toBeDefined()
 })
 
 test('a now ping with no report this turn is ignored', async ($, on) => {
