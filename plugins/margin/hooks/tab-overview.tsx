@@ -429,7 +429,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     zones: !hasReport && !hasAbout ? 'empty' : zoned ? 'report+topic' : hasReport ? 'report' : 'topic',
     steps: shown.steps.length, topics: about.topics.length, topicRows: latestRows, reading: about.running, failed: about.failed,
   }
-  // The body never scrolls (its bars stay pinned): STEPS gets the rows left under TAKE, its cues included.
+  // The body never scrolls (nothing in it stays pinned): STEPS gets the rows left under TAKE, its cues included.
   // TOPICS' header, zone and divider, ASK, TAKE and their rules, the footer.
   const roomLeft =
     props.scroll.bodyRows - (hasReport ? 2 : 0) - (zoned ? 2 + latestRows : 0) - sessionRows - reportRows - 1
@@ -596,7 +596,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                         },
                       })
                       const stepCues = cues(ctx.el, 'steps', width - LABEL, w, setSteps, true, false)
-                      // Tab-body rows: the zone's start counts the tabs bar too.
+                      // Tab-body rows: the zone's start is the body's first row.
                       const atOf = (k: number) => from + (w.above > 0 ? 1 : 0) + (k - w.top)
                       hv.lines = Object.fromEntries(rows.flatMap((r, k) => (r.key && k >= w.top && k < w.top + w.shown ? [[r.key, atOf(k)]] : [])))
                       const inWindow = (k: number) => k >= w.top && k < w.top + w.shown && !!rows[k]?.key

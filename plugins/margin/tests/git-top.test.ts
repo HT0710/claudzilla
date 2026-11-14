@@ -282,6 +282,14 @@ test('branch modal columns: each as wide as its widest cell, 2 columns apart', a
   expect(new Set(widths).size).toBe(1)
 })
 
+test('the widened rail does not open while a Git modal is open', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(repoOn('b20'))(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, 'branch')
+  expect(await ui.find({ key: 'rail-wide' })).toBeUndefined()
+})
+
 test('pressing the branch opens the branch modal, centred on the current branch; ✕ closes it', async ($, on) => {
   quiet(on)
   on('process.run', (_, e) => ran(git(repoOn('b20'))(e.argv) ?? ''))
