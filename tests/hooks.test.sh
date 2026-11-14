@@ -740,6 +740,22 @@ check "frame: state dir is private" [ "$(ls -ld "$STATE" | cut -c1-10)" = drwx--
 printf 34 >"$STATE/cols-mdw"
 out=$(node -e 'console.log(JSON.stringify({ hook_event_name: "MessageDisplay", session_id: "mdw", message_id: "w", final: true, delta: "**TL;DR** x\n" }))' | COLUMNS=24 perl "$MD")
 check "frame: chat width file beats COLUMNS" sub "$out" ":\"$(printf '━%.0s' {1..30})\\n"
+# folio's state dir check, pulled from plugins/folio/hooks/register.tsx and run for real: same answer as rules-guard's 077 test
+FOLIO_SH=$(perl -ne 'print $1 if /process\.run\(\[\x27sh\x27, \x27-c\x27, \x27([^\x27]+)\x27/' "$REPO/plugins/folio/hooks/register.tsx")
+fcheck() { sh -c "$FOLIO_SH" sh "$1"; }
+folio_dir() {
+  local t="$TMP/f$((++n))" d; d="$t/claudzilla-rules-$(id -u)"; mkdir -p "$t/v"
+  [ -n "$FOLIO_SH" ] && [ "$(fcheck "$t")" = "$d" ] || { echo "  fresh"; return 1; }
+  rmdir "$d"; ln -s "$t/v" "$d"; [ -z "$(fcheck "$t")" ] || { echo "  symlink"; return 1; }
+  rm "$d"; mkdir "$d"; chmod 777 "$d"; [ -z "$(fcheck "$t")" ] || { echo "  open"; return 1; }
+  chmod 710 "$d"; [ -z "$(fcheck "$t")" ] || { echo "  group x"; return 1; }
+  chmod 701 "$d"; [ -z "$(fcheck "$t")" ] || { echo "  other x"; return 1; }
+  rmdir "$d"; touch "$d"; [ -z "$(fcheck "$t")" ] || { echo "  file"; return 1; }
+  rm "$d"; mkdir "$d"; chmod 2700 "$d"
+  # chmod drops setgid silently when the dir's group isn't ours; then this case tests nothing.
+  case "$(ls -ld "$d")" in d???--S*) [ "$(fcheck "$t")" = "$d" ] || { echo "  setgid"; return 1; } ;; *) echo "  (setgid not settable here, skipped)" ;; esac
+}
+check "folio state dir: refuses symlink, open dir and file; takes a fresh or setgid private dir" folio_dir
 
 # display.frame: traced where md-display already writes state
 MTD="$CLAUDE_CONFIG_DIR/claudzilla-trace"
