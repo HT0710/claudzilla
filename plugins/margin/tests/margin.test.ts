@@ -5205,3 +5205,29 @@ test("STEPS' top cue is a blank row; a Git modal keeps its ruled cue", async ($,
   expect(await ui.find({ type: 'Button', key: 'steps:up' })).toBeDefined()
   expect((await textsUnder(ui, 'steps:up-row')).filter(t => /─/.test(t.text))).toEqual([])
 })
+
+// The test's `$` cannot write an atom, so `notices` is answered on read.
+const flag = (on: Parameters<TestBody>[1], value: string[]) =>
+  on('state.get', (_$, e, next) => (e.key === 'notices' ? { value: { value, version: 1 } } : next(e)) as any)
+
+test('a flagged tab icon is warning', async ($, on) => {
+  noHistory(on)
+  flag(on, ['History'])
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  expect((await ui.find({ type: 'Text', text: ICON.History }))?.props.color).toBe('warning')
+})
+
+test('basic glyphs: a flagged key letter is warning', async ($, on) => {
+  noHistory(on)
+  on('fs.exists', (_, e) => ({ value: String((e as any).path ?? '').endsWith('.claudzilla-basic-glyphs') }))
+  flag(on, ['Git'])
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  expect((await textsUnder(ui, 'tab:Git')).find(t => t.text.trim() === 'g')?.color).toBe('warning')
+})
+
+test('a flagged shown tab keeps inverse', async ($, on) => {
+  noHistory(on)
+  flag(on, ['Overview'])
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  expect((await ui.find({ type: 'Text', text: ICON.Overview }))?.props.inverse).toBe(true)
+})
