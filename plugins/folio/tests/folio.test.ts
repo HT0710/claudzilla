@@ -2029,6 +2029,7 @@ test('a Bash write whose record the 500 cap dropped draws a Ran row, not the nat
 
 test('a group whose call ran and was interrupted reads done, not Running', async ($, on) => {
   native(on)
+  bashFs(on, {})
   expect(await groupOf($, [call('b1', 'Bash', { command: 'sleep 9' }, { isRunning: true, isInterrupted: true })])).toBe('● Ran (1 command)')
 })
 
