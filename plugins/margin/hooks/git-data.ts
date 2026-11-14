@@ -52,7 +52,7 @@ const check = (c: any): Check => {
   return { state, name: printable(c.name ?? ''), time, ...(run && { run, job }) }
 }
 
-// `gh pr list --json ...`. A PR from a fork is dropped: `--head` cannot tell owners apart.
+// `gh pr list --json ...`. A PR from a fork is marked: `--head` cannot tell owners apart.
 export const parsePrs = (json: string): Pr[] => {
   let rows: any[]
   try {
@@ -62,14 +62,13 @@ export const parsePrs = (json: string): Pr[] => {
   }
   if (!Array.isArray(rows)) return []
   return rows
-    .filter(r => !r.isCrossRepository)
     .map(r => {
       const state: PrState = r.state === 'MERGED' ? 'merged' : r.state === 'CLOSED' ? 'closed' : r.isDraft ? 'draft' : 'open'
       const when = state === 'merged' ? r.mergedAt : state === 'closed' ? r.closedAt : r.createdAt
       return {
         n: r.number, title: r.title ?? '', state, head: r.headRefName ?? '', base: r.baseRefName ?? '', author: r.author?.login ?? '',
         at: Date.parse(when ?? '') || 0, additions: r.additions ?? 0, deletions: r.deletions ?? 0, files: r.changedFiles ?? 0,
-        conflicting: r.mergeable === 'CONFLICTING', checks: (r.statusCheckRollup ?? []).map(check), url: r.url ?? '',
+        conflicting: r.mergeable === 'CONFLICTING', checks: (r.statusCheckRollup ?? []).map(check), url: r.url ?? '', ...(r.isCrossRepository && { fork: true }),
       }
     })
 }
@@ -83,7 +82,7 @@ const isOpen = (pr: Pr) => pr.state === 'open' || pr.state === 'draft'
 const newest = (a: Pr, b: Pr) => b.at - a.at
 // This branch's open PRs, newest first; with none, the newest that ended, as a sign the branch is finished.
 export const ownPrs = (prs: Pr[], branch: string) => {
-  const mine = prs.filter(pr => pr.head === branch)
+  const mine = prs.filter(pr => pr.head === branch && !pr.fork)
   const open = mine.filter(isOpen).sort(newest)
   return open.length ? open : mine.sort(newest).slice(0, 1)
 }
@@ -200,20 +199,24 @@ export const treeRows = (list: Branch[], by: 'base' | 'prefix', showMerged: bool
   const names = new Set(shown.map(b => b.name))
   const rows: TreeRow[] = []
   if (by === 'base') {
+    const seen = new Set<string>()
     const walk = (parent: string, pre: string) =>
       shown
-        .filter(b => b.base === parent)
+        .filter(b => b.base === parent && !seen.has(b.name))
         .forEach((b, i, all) => {
           const last = i === all.length - 1
+          seen.add(b.name)
           rows.push({ guide: pre + (last ? '└─ ' : '├─ '), label: b.name, branch: b })
           walk(b.name, pre + (last ? '   ' : '│  '))
         })
-    shown
-      .filter(b => !b.base || !names.has(b.base))
-      .forEach(b => {
-        rows.push({ guide: '', label: b.name, branch: b })
-        walk(b.name, '')
-      })
+    const root = (b: Branch) => {
+      seen.add(b.name)
+      rows.push({ guide: '', label: b.name, branch: b })
+      walk(b.name, '')
+    }
+    shown.filter(b => !b.base || !names.has(b.base)).forEach(root)
+    // Branches whose bases form a cycle have no root above them: the first of each starts one.
+    shown.forEach(b => seen.has(b.name) || root(b))
     return rows
   }
   const groups = new Map<string, Branch[]>()
