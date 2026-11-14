@@ -270,11 +270,12 @@ Fill <...> with facts from this session, not guesses. Condition not met → don'
 
 function onPrompt(d) {
   const prev = load(d.session_id);
-  const s = fresh();
+  const p = String(d.prompt ?? "").trimStart();
+  // A notification can arrive mid-turn as a prompt: the turn's skills and check still stand.
+  const s = MACHINE_PROMPT.test(p) ? { ...fresh(), skills: prev.skills, checked: prev.checked, edited: prev.edited } : fresh();
   const { cfg, warnings } = loadConfig(d.cwd ?? process.cwd());
   const lines = warnings.map((w) => `claudzilla config: ${w}`);
   if (prev.flags.length) lines.push(`Previous reply broke: ${prev.flags.join("; ")}. Apply from this reply on.`);
-  const p = String(d.prompt ?? "").trimStart();
   const compact = !MACHINE_PROMPT.test(p) && compactMsg(contextTokens(d.transcript_path), cfg.compactNudge);
   if (compact) lines.push(compact);
   // Every prompt: a one-time line would not survive /compact, and resizes need no tracking.
