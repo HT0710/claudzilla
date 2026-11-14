@@ -76,11 +76,12 @@ export async function draw($: EngineInterface, ctx: HistoryCtx): Promise<TabDraw
     return [line.repeat(Math.floor(fill / 2)), line.repeat(Math.ceil(fill / 2))]
   }
   // A day is a plain line; Rewound a broken one, Compacted a pressed-together one.
-  const divider = (label: string, line: string, word: string, dim: string) => (
-    <Box>
-      <Text color={dim}>{flanks(label, line)[0]} </Text>
+  // `reach`: a day's line runs on over both margins, from the body's first column to the rail.
+  const divider = (label: string, line: string, word: string, dim: string, reach = 0) => (
+    <Box marginX={-reach}>
+      <Text color={dim}>{line.repeat(reach)}{flanks(label, line)[0]} </Text>
       <Text color={word}>{label}</Text>
-      <Text color={dim}> {flanks(label, line)[1]}</Text>
+      <Text color={dim}> {flanks(label, line)[1] + line.repeat(reach)}</Text>
     </Box>
   )
   // One element per row, dividers too, so the list scrolls by rows under the header.
@@ -92,11 +93,13 @@ export async function draw($: EngineInterface, ctx: HistoryCtx): Promise<TabDraw
     if (!text.startsWith('!')) return <Text color={color}>{text}</Text>
     return [<Text color={color === HUD.faint ? color : 'bashBorder'}>!</Text>, <Text color={color}>{text.slice(1)}</Text>]
   }
-  const lines = prompts.flatMap((prompt, i) => [
-    ...(days[i] !== days[i - 1] ? [divider(days[i] ?? '', '─', HUD.label, DIM.label)] : []),
+  // `day`: the line is a `─` rule the rail joins.
+  const entries = prompts.flatMap((prompt, i) => [
+    ...(days[i] !== days[i - 1] ? [{ day: true, node: divider(days[i] ?? '', '─', HUD.label, DIM.label, PAD) }] : []),
     // Rewound shares the rewind button's green.
-    ...(rows[i]?.marker === 'Rewound' ? [divider('Rewound', '~', HUD.action, DIM.action)] : []),
-    ...(rows[i]?.marker === 'Compacted' ? [divider('Compacted', '=', HUD.compacted, DIM.compacted)] : []),
+    ...(rows[i]?.marker === 'Rewound' ? [{ day: false, node: divider('Rewound', '~', HUD.action, DIM.action) }] : []),
+    ...(rows[i]?.marker === 'Compacted' ? [{ day: false, node: divider('Compacted', '=', HUD.compacted, DIM.compacted) }] : []),
+    { day: false, node: (
     <Box>
       <Button key={`reuse:${i}`} plain onPress={() => ctx.reuse(prompt.display)}>
         <Text color={HUD.idle}>↻ </Text>
@@ -105,13 +108,15 @@ export async function draw($: EngineInterface, ctx: HistoryCtx): Promise<TabDraw
         <Text color={HUD.faint}>{clock(prompt.timestamp)}  </Text>
         {row(prompt, !rows[i]?.isLive || !isReachable(prompt) ? HUD.faint : i === lit ? 'claude' : compacted >= 0 && i >= compacted ? HUD.faint : undefined)}
       </Button>
-    </Box>,
+    </Box>
+    ) },
   ])
+  const lines = entries.map(entry => entry.node)
   // The rows under the header, cues included.
   // Clamped: the list shrinks after a rewind.
   const listRows = Math.max(0, props.scroll.bodyRows - 1)
   const w = zoneWindow(lines.length, await read($, historyTop), listRows)
-  const listCues = cues(ctx.el, 'history', props.bodyColumns - 2 * PAD, w, to => update($, historyTop, () => to))
+  const listCues = cues(ctx.el, 'history', props.bodyColumns - 2 * PAD, w, to => update($, historyTop, () => to), true, true, PAD)
   const historyEnd = zoneWindow(lines.length, Infinity, listRows).top
   return {
     zones: [
@@ -123,6 +128,8 @@ export async function draw($: EngineInterface, ctx: HistoryCtx): Promise<TabDraw
     ],
     trace: { zones: prompts.length ? 'list' : 'empty', prompts: prompts.length, rows: lines.length, listRows },
     scroll: { from: w.top, above: w.above, below: w.below },
+    // The ↑ cue under the header, then the day lines under both.
+    rules: [...(w.above > 0 ? [1] : []), ...entries.flatMap((entry, k) => (entry.day && k >= w.top && k < w.top + w.shown ? [1 + (w.above > 0 ? 1 : 0) + k - w.top] : []))],
     body: (
       <Box flexDirection="column">
         {prompts.length > 0 && (

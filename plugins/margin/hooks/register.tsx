@@ -1499,13 +1499,15 @@ export const register: Register = (on, options) => {
         <Box key={`wide-gap:${n}`} width={WIDE - 1} height={1} />,
       ]
     })
+    // A modal hides the rules' rows from the person: nothing joins.
+    const joined = new Set(modalShown ? [] : out.rules)
     const rail = Array.from({ length: inner }, (_, row) => {
       const at = row - top
       const one = at >= 0 && at % 2 === 0 ? RAIL[at / 2] : undefined
       const glyph = one ? ` ${basic ? KEYS[one] : ICON[one]} ` : ''
       return (
         <Box key={`rail:${row}`}>
-          <Text color="promptBorder">│</Text>
+          <Text color="promptBorder">{joined.has(row) ? '┤' : '│'}</Text>
           {!one ? (
             <Box width={RAIL_COLUMNS - 1} />
           ) : (

@@ -56,7 +56,9 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
           <Text color={HUD.action}>{head}</Text>
           <Text color={HUD.faint}>{at}</Text>
         </Box>
-        <Text color="promptBorder">{'─'.repeat(width)}</Text>
+        <Box marginX={-PAD}>
+          <Text color="promptBorder">{'─'.repeat(width + 2 * PAD)}</Text>
+        </Box>
         <Box height={room} flexShrink={0}>
           <Text color="claude">{lines.map((_, i) => (i === mark ? '▶' : ' ')).join('\n')}</Text>
           <Code source={lines.join('\n')} path={view.path} startLine={first} wrap="truncate-end" />
@@ -65,5 +67,6 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     ),
     zones: [],
     trace: {},
+    rules: [1],
   }
 }

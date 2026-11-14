@@ -276,7 +276,8 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   // The body less 3 columns: a path gets room + 1 after its status letter and a space; a commit's
   // subject room + 2 less its hash.
   const room = props.bodyColumns - 2 * PAD - 3
-  const bodyRule = '─'.repeat(room + 3)
+  // Over both margins: a rule spans the body, from its first column to the rail.
+  const bodyRule = '─'.repeat(room + 3 + 2 * PAD)
   // A header's counts, each only where it fits after its 7-letter title and a space: the
   // narrowest pane drops them from the right.
   const fits = (...counts: string[]) => 8 + counts.join('').length <= room + 3
@@ -378,8 +379,8 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   const commitStats = shownCommits.length ? await readStats($, shownCommits.map(c => c.full)) : stats
   // The CHANGES rows drawn: a deleted file has nothing to open, so no act; untracked ones count their lines.
   const shownChanges = changes.slice(changesW.top, changesW.top + changesW.shown)
-  const changesCues = cues(ctx.el, 'changes', room + 3, changesW, to => update($, scrolled, top => ({ ...top, changes: to })))
-  const commitsCues = cues(ctx.el, 'commits', room + 3, commitsW, to => update($, scrolled, top => ({ ...top, commits: to })), false)
+  const changesCues = cues(ctx.el, 'changes', room + 3, changesW, to => update($, scrolled, top => ({ ...top, changes: to })), true, true, PAD)
+  const commitsCues = cues(ctx.el, 'commits', room + 3, commitsW, to => update($, scrolled, top => ({ ...top, commits: to })), false, true, PAD)
   const root = gitDir?.root ?? ''
   const untrackedShown = shownChanges.filter(c => c.xy === '??').map(c => c.path)
   const wcKey = `${key}:${untrackedShown.join('\0')}`
@@ -1290,11 +1291,13 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
       {prRow}
       {summaryRow}
       {/* The primer pane's rule color, as every margin rule but History's day lines. */}
-      <Text>
-        <Text color="promptBorder" hover={dimmed ? undefined : { scope: `line:${topLines.length - 1}`, color: fade('promptBorder') }}>
-          {bodyRule}
+      <Box marginX={-PAD}>
+        <Text>
+          <Text color="promptBorder" hover={dimmed ? undefined : { scope: `line:${topLines.length - 1}`, color: fade('promptBorder') }}>
+            {bodyRule}
+          </Text>
         </Text>
-      </Text>
+      </Box>
       {files.length > 0 && (
         <Box justifyContent="space-between">
           <Text bold color={HUD.label}>CHANGES</Text>
@@ -1342,9 +1345,13 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
       {/* Only the terminal and desktop draw a Client: elsewhere the rule stays put. */}
       {files.length > 0 &&
         (Client ? (
-          <Client key="divider" module="./divider.tsx" props={{ split: changesRows, min: changesMin, max: changesMax, faded: dimmed, hairline: DIMMED, ...(!dimmed && lastChangeLine && { line: lastChangeLine }) }} height={1} />
+          <Box flexDirection="column" marginX={-PAD}>
+            <Client key="divider" module="./divider.tsx" props={{ split: changesRows, min: changesMin, max: changesMax, faded: dimmed, hairline: DIMMED, ...(!dimmed && lastChangeLine && { line: lastChangeLine }) }} height={1} />
+          </Box>
         ) : (
-          <Text color="promptBorder">{bodyRule}</Text>
+          <Box marginX={-PAD}>
+            <Text color="promptBorder">{bodyRule}</Text>
+          </Box>
         ))}
       {commits.length > 0 && (
         <Box justifyContent="space-between">
@@ -1399,5 +1406,14 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
     </Box>
   )
   // Behind an open modal everything fades but the row that opened it; under a stacked modal the modal fades too.
-  return { body, zones: drawn, trace, ...(head && dimmed && { fade: { keep: new Set([layers.s ? 'stack' : 'modal']), open: `${Client ? 'row' : 'hov'}:${openRow}` } }) }
+  // The rule under the top rows, the ⇕ divider under CHANGES, and each list's ↑ cue.
+  const rules = head
+    ? [
+        topRows,
+        ...(files.length ? [2 + topRows + changesRows] : []),
+        ...(files.length && changesRows > 0 && changesW.above ? [topRows + 2] : []),
+        ...(commitsW.above ? [commitsAt0 - 1] : []),
+      ]
+    : []
+  return { body, zones: drawn, trace, rules, ...(head && dimmed && { fade: { keep: new Set([layers.s ? 'stack' : 'modal']), open: `${Client ? 'row' : 'hov'}:${openRow}` } }) }
 }
