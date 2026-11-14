@@ -149,11 +149,12 @@ export function experimentalArgs(args: string): { id?: string; state?: 'on' | 'o
 }
 
 // `cost` is this session, `cost <id>` one session, `cost all ...` the flags for the all-sessions list; the argv after `report`.
-export function costArgs(args: string, sessionId: string): string[] | undefined {
+const COST_USAGE = 'Use: /claudzilla cost [session-id | all [--since d] [--until d] [--project p]]'
+export function costArgs(args: string, sessionId: string): string[] | { error: string } | undefined {
   const [first, ...rest] = args.trim().split(/\s+/)
   if (first?.toLowerCase() !== 'cost') return undefined
   if (!rest.length) return ['--session', sessionId]
-  return rest[0]!.toLowerCase() === 'all' ? ['all', ...rest.slice(1)] : rest.length === 1 ? ['--session', rest[0]!] : undefined
+  return rest[0]!.toLowerCase() === 'all' ? ['all', ...rest.slice(1)] : rest.length === 1 ? ['--session', rest[0]!] : { error: COST_USAGE }
 }
 
 export function featureLines(list: { id: string; description: string; on: boolean }[]): string {
@@ -235,7 +236,7 @@ export function handoffNote(input: HandoffInput): string {
   }
   const out = [`# Handoff from ${input.sessionId}`, '', `Written ${new Date(input.now).toISOString()}. Resume the old session with \`claude --resume ${input.sessionId}\`. Its transcript: ${input.path}`]
   const add = (heading: string, body: string) => out.push('', `## ${heading}`, '', body)
-  if (wants) add('Where we were', [wants.wants, ...wants.steps.map(s => `- ${s.text}`), ...(now !== undefined ? [`Last step started: ${now}`] : [])].join('\n'))
+  if (wants) add('Where we were', [cut(wants.wants, 500), ...wants.steps.map(s => `- ${cut(String(s.text ?? ''), 500)}`), ...(now !== undefined ? [`Last step started: ${now}`] : [])].join('\n'))
   if (input.git?.trim()) add('Git', '```text\n' + input.git.trim() + '\n```')
   if (asks.size) add('Earlier asks', [...asks].slice(-5).map(([w, n]) => `- Line ${n}: ${cut(w, 500)}`).join('\n'))
   if (turns.length) {
@@ -251,10 +252,10 @@ export function handoffNote(input: HandoffInput): string {
     const t = textOf(sum.row)
     add('Last compact summary', `At line ${sum.n}.\n${t.length > 8000 ? `${t.slice(0, 3000)}…${t.slice(-5000)}\nCut; full text at line ${sum.n}.` : t}`)
   }
-  if (away && typeof away.row.content === 'string' && away.n > since) add('Away recap', `At line ${away.n}${away.row.timestamp ? `, ${away.row.timestamp}` : ''}.\n${away.row.content}${promptLine > away.n ? '\nOlder than the last prompt; its Next may be done.' : ''}`)
+  if (away && typeof away.row.content === 'string' && away.n > since) add('Away recap', `At line ${away.n}${away.row.timestamp ? `, ${away.row.timestamp}` : ''}.\n${cut(away.row.content, 2000)}${promptLine > away.n ? '\nOlder than the last prompt; its Next may be done.' : ''}`)
   const d = input.draft && numberedRow(input.draft)
   const call = d && blocks(d.row).find(b => b.type === 'tool_use' && b.name === 'mcp__primer__compact_draft')
-  if (d && call?.input && d.n > since) add('Compact draft', `At line ${d.n}${d.row.timestamp ? `, ${d.row.timestamp}` : ''}.\nKeep: ${call.input.keep ?? ''}\nDrop: ${call.input.drop ?? ''}`)
+  if (d && call?.input && d.n > since) add('Compact draft', `At line ${d.n}${d.row.timestamp ? `, ${d.row.timestamp}` : ''}.\nKeep: ${cut(String(call.input.keep ?? ''), 500)}\nDrop: ${cut(String(call.input.drop ?? ''), 500)}`)
   add('How to dig', [
     'If this note is your whole prompt, say in one line what you loaded, then wait for the user\'s ask.',
     'Check git before saying what is pending. Don\'t restate the last reply.',
@@ -550,7 +551,8 @@ export const register: Register = on => {
     }
     let labNote: string | undefined
     const cost = costArgs(e.args, await $.session.id().catch(() => ''))
-    if (cost) {
+    if (cost && !Array.isArray(cost)) labNote = cost.error
+    else if (cost) {
       const home = await $.env.get('HOME').catch(() => undefined)
       const dir = (await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined)) || `${home}/.claude`
       const cwd = await $.session.cwd().catch(() => '')
