@@ -320,13 +320,15 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     const f = contentFrame(full, widest)
     const rowsOf = (list: Item[], layer: 'm' | 's', inner: number) => {
       let itemAt = 0
+      // Totals right-aligned in one column: every branch name is cut 2 before the widest.
+      const totalW = colWidth(list.map(x => x.total))
       return list.map(({ name, glyph, count, branch, tone, total: own, all }) => {
         if (branch !== undefined)
           return (
             <Box justifyContent="space-between" gap={2}>
               <Text>
                 <Text color="promptBorder">{` ${glyph}`}</Text>
-                <Text color={tone}>{fit(branch, Math.max(1, inner - (glyph.length + 1) - 2 - (own?.length ?? 0)))}</Text>
+                <Text color={tone}>{fit(branch, Math.max(1, inner - (glyph.length + 1) - 2 - totalW))}</Text>
               </Text>
               <Box flexShrink={0}>
                 <Text color={HUD.faint}>{own}</Text>
