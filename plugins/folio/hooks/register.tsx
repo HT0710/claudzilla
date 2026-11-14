@@ -870,7 +870,7 @@ export const register: Register = on => {
     if (!hideEditDiff || e.surface !== 'terminal' || isExpanded || !e.viewport?.isFullscreen || !calls.length) return native
     const elements = $.ui.resolve(e)
     if (!('Client' in elements)) return native
-    const isLive = isActive || calls.some(c => c.isRunning)
+    const isLive = isActive || calls.some(c => c.isRunning && !c.isInterrupted && !c.isErrored)
     if (isLive) {
       blinking.add(e.requestId)
       blink ??= $.clock.every(BLINK_MS, () => toggleBlink(() => $.ui.invalidate('ui.render')))
