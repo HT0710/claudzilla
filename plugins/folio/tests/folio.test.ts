@@ -1987,6 +1987,14 @@ test('an errored Bash edit stays native and its group folds with no counts', asy
   expect(await groupOf($, [call('b1', 'Bash', { command: 'x' }, { isErrored: true })])).toBe('● Ran (1 command)')
 })
 
+test('a Bash write whose record the 500 cap dropped draws a Ran row, not the native one', async ($, on) => {
+  native(on)
+  bashFs(on, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] += 'x\n'))
+  await bash($, 'echo x >> a.txt', 'b0')
+  for (let i = 1; i <= 501; i++) await bash($, 'echo x >> a.txt', `b${i}`)
+  expect(await rowsOf(await useRow($, call('b0', 'Bash', { command: 'echo x >> a.txt' })))).toEqual(['● Ran (echo x >> a.txt)'])
+})
+
 test('a standalone Bash write that changed nothing keeps its native row and engine block', async ($, on) => {
   native(on)
   bashFs(on, { '/p/c.txt': 'c\n' })
