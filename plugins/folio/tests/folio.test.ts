@@ -1995,6 +1995,11 @@ test('a Bash write whose record the 500 cap dropped draws a Ran row, not the nat
   expect(await rowsOf(await useRow($, call('b0', 'Bash', { command: 'echo x >> a.txt' })))).toEqual(['● Ran (echo x >> a.txt)'])
 })
 
+test('a group whose call ran and was interrupted reads done, not Running', async ($, on) => {
+  native(on)
+  expect(await groupOf($, [call('b1', 'Bash', { command: 'sleep 9' }, { isRunning: true, isInterrupted: true })])).toBe('● Ran (1 command)')
+})
+
 test('a standalone Bash write that changed nothing keeps its native row and engine block', async ($, on) => {
   native(on)
   bashFs(on, { '/p/c.txt': 'c\n' })
