@@ -242,6 +242,10 @@ async function coldStatus($: EngineInterface, live: Live, cfg: Promise<Config>) 
   t.event('cold.status', { level })
   $.ui.status(coldText(level, tokens))
   live.pinned = live.coldLine = true
+  // The key that brought the line may have emptied the box before the line was up.
+  const box = await $.prompt.read()
+  // A send during the read has taken the line down.
+  if (live.coldLine && !box.text.trim()) t.event('cold.suggest', { shown: (await $.prompt.suggest({ text: HANDOFF })).isShown })
 }
 
 // A compact takes a while: whoever came back meanwhile keeps what they typed.
