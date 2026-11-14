@@ -57,6 +57,9 @@ jobs:
           node-version: 24
       - name: Shell suites
         run: |
+          # Stock /bin/bash 3.2, as `#!/usr/bin/env bash` finds on a user's Mac; the runner's PATH has Homebrew bash first.
+          mkdir -p "$RUNNER_TEMP/stock" && ln -sf /bin/bash "$RUNNER_TEMP/stock/bash" && export PATH="$RUNNER_TEMP/stock:$PATH"
+          bash --version | head -1
           failed=
           for s in tests/*.test.sh; do
             echo "::group::$s"
