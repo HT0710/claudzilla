@@ -377,6 +377,8 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   // The COMMITS rows drawn, and the tab row the first of them sits on: under CHANGES, its divider and the COMMITS
   // header, past the top cue once scrolled.
   const shownCommits = commits.slice(Math.max(0, commitsW.top - page * PAGE), commitsW.top - page * PAGE + commitsW.shown)
+  // Every loaded commit's age right-aligned in one column, so the cut holds while scrolling: subjects stop 2 before it.
+  const ageW = colWidth(commits.map(c => age(c.at, now)))
   const commitsAt0 = topRows + 2 + (files.length ? changesRows + 2 : 0) + (commitsW.above ? 1 : 0)
   const commitStats = shownCommits.length ? await readStats($, shownCommits.map(c => c.full)) : stats
   // The CHANGES rows drawn: a deleted file has nothing to open, so no act; untracked ones count their lines.
@@ -890,6 +892,11 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   const inner = modalRows(0).width - 4
   const line = (left: JSX.Element | JSX.Element[], right?: JSX.Element) => kitLine(ctx.el, left, right)
   const heading = (label: string, right?: JSX.Element) => kitHeading(ctx.el, label, right)
+  // A modal's commit rows: each age right-aligned in one column, so every subject is cut at the same column.
+  const commitLines = (commits: { subject: string; at: number }[]) => {
+    const w = colWidth(commits.map(c => ago(c.at, now)))
+    return commits.map(c => line([<Text> </Text>, ...subjectTexts(c.subject)], <Text color={HUD.faint}>{ago(c.at, now).padStart(w)}</Text>))
+  }
   const rule = <Text color="promptBorder">{'─'.repeat(inner)}</Text>
   const showAll = (label: string) => (
     <Box>
@@ -993,7 +1000,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
             {
               label: 'COMMITS',
               right: <Text color={HUD.faint}>{`${view.commits.length} total`}</Text>,
-              rows: view.commits.map(c => line([<Text> </Text>, ...subjectTexts(c.subject)], <Text color={HUD.faint}>{ago(c.at, now)}</Text>)),
+              rows: commitLines(view.commits),
             },
             {
               label: 'FILES',
@@ -1148,7 +1155,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
       : {
           label: 'COMMITS',
           right: <Text color={HUD.faint}>{`${op.incoming.length} total`}</Text>,
-          rows: op.incoming.map(c => line([<Text> </Text>, ...subjectTexts(c.subject)], <Text color={HUD.faint}>{ago(c.at, now)}</Text>)),
+          rows: commitLines(op.incoming),
         }
     const files: Section[] = op.conflicts.length
       ? [{
@@ -1366,8 +1373,8 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
       {shownCommits.map(({ full, short, author, at, refs, tags, subject: text }, j) => {
         const isLocal = !!local?.has(full)
         const when = age(at, now)
-        // A control character in any text gets the whole pane refused. Two columns in, the age 2 after.
-        const shown = fit(text.replace(/[\x00-\x1f\x7f]/g, ' '), room - when.length - 1)
+        // A control character in any text gets the whole pane refused. Two columns in, 2 before the widest age.
+        const shown = fit(text.replace(/[\x00-\x1f\x7f]/g, ' '), room - ageW - 1)
         // "type(scope)!: rest"; a subject cut inside the type part shows plain.
         const [, type, scope, tail, rest] = /^(\w+)(?:\(([^)]*)\))?(!?: )(.*)$/.exec(shown) ?? []
         const known = type ? TYPES[type] : undefined

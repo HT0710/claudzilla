@@ -1168,6 +1168,16 @@ test('PR modal: title, meta row with the verb by state, divider', async ($, on) 
   }
 })
 
+test('PR modal commits: ages right-aligned in one column', async ($, on) => {
+  quiet(on)
+  withPr(on, repoOn('a'), [prJson()], viewJson({ commits: [{ messageHeadline: 'feat: one', committedDate: iso(NOW - 2 * HOUR) }, { messageHeadline: 'feat: two', committedDate: iso(NOW - 30 * MIN) }] }))
+  const ui = await openPr($)
+  // COMMITS sits below the window: scroll the modal to its end.
+  await wheel($, 20, 8)
+  expect(await ui.find({ type: 'Text', text: /^ 2h ago$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^30m ago$/ })).toBeDefined()
+})
+
 test('a base conflict adds the conflicts row', async ($, on) => {
   quiet(on)
   withPr(on, repoOn('a', { 'merge-tree': 'abc123\0plugins/margin/hooks/register.tsx\0GUIDE.md\0\0CONFLICT (content)\0' }), [prJson({ mergeable: 'CONFLICTING' })])
@@ -1473,6 +1483,16 @@ test('merge modal: title, incoming count, incoming commits', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: "Merge branch 'release/1.7' into feat/x" })).toBeDefined()
   expect((await ui.find({ type: 'Text', text: /^1 incoming commit$/ }))?.props.color).toBe('#4f5c68')
   expect(await ui.find({ type: 'Button', key: 'm:commit' })).toBeDefined()
+})
+
+test('merge modal incoming commits: ages right-aligned in one column', async ($, on) => {
+  quiet(on, 5 * MIN, false, { MERGE_HEAD: '5e7dbcbb8a85c012da009d6523d686489df6d25f\n', MERGE_MSG: "Merge branch 'release/1.7' into feat/x\n" })
+  const log = `5e7dbcb\tfix: upper b\t${NOW / 1000 - 2 * 3600}\n6e7dbcb\tfix: two\t${NOW / 1000 - 30 * 60}\n`
+  on('process.run', (_, e) => ran(git(conflictRepo({ status: '## feat/x\nUU f.txt\n', log }))(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, 'rebase')
+  expect(await ui.find({ type: 'Text', text: /^ 2h ago$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^30m ago$/ })).toBeDefined()
 })
 
 test("actions take the mockup's button colours: continue success once nothing blocks it, abort error, skip the accent", async ($, on) => {
@@ -1865,6 +1885,20 @@ test('commit row: subject coloured by type, age faint at right, no sha', async (
   expect((await piece(ui, `c:${A}`, 'feat'))?.props.color).toBe('#98c379')
   expect((await piece(ui, `c:${A}`, '2m'))?.props.color).toBe('#4f5c68')
   expect(await piece(ui, `c:${A}`, /aaaaaaa/)).toBeUndefined()
+})
+
+test('commit rows cut their subjects at one column, 2 before the widest age', async ($, on) => {
+  quiet(on)
+  const lines = [logLine(A, `feat: ${'a'.repeat(100)}`), logLine(B, `feat: ${'b'.repeat(100)}`, '', 1800000000 - 15 * 60)]
+  on('process.run', (_, e) => ran(commitsRepo(lines, [A, B])(e.argv) ?? ''))
+  const ui = await mount($)
+  const a = await rowText(ui, /a…$/)
+  const b = await rowText(ui, /b…$/)
+  expect(await rowText(ui, /^2m$/)).toBeDefined()
+  expect(await rowText(ui, /^15m$/)).toBeDefined()
+  // The body less the rail (4) and padding (2): the 2-column indent, the subject, 2 spaces, the 3-column age.
+  expect(a?.length).toBe(props.bodyColumns - 4 - 2 - 2 - 3)
+  expect(b?.length).toBe(a?.length)
 })
 
 test('pushed row faint, unpushed bright', async ($, on) => {

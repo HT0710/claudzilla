@@ -4983,6 +4983,22 @@ test('the FILES modal: Claude first, a file under two readers shows twice, a re-
   expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
 })
 
+test('FILES branch names cut at one column, 2 before the widest total', async ($, on) => {
+  const ui = await usedPane($, on)
+  await spawn($, 'one', { name: `scout-${'a'.repeat(40)}` })
+  await spawn($, 'two', { name: `scout-${'b'.repeat(40)}` })
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts', agentId: 'a1' } as any)
+  for (let i = 0; i < 10; i++) await $.tool.call({ tool: 'Read', file_path: `/proj/b${i}.ts`, agentId: 'a2' } as any)
+  await tapRow(ui, 'o:used:files')
+  const texts = (await modalTexts(ui)).map(t => t.text)
+  expect(texts).toContain('1 total')
+  expect(texts).toContain('10 total')
+  const a = texts.find(t => /^scout-a+…$/.test(t))
+  const b = texts.find(t => /^scout-b+…$/.test(t))
+  expect(a).toBeDefined()
+  expect(b?.length).toBe(a?.length)
+})
+
 test('a USED modal reader shows its 3 newest and its total; show all opens the whole list stacked', async ($, on) => {
   const ui = await usedPane($, on)
   await spawn($, 'one', { name: 'scout' })
