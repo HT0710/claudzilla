@@ -645,7 +645,7 @@ The key names in each table:
 
 - `shared`, colours that two or more parts use: `label`, `faint`, `idle`, `action`, `dirty`, `churn`, `muted`, `lit`. Folio, primer and ballot read only this table.
 - `hud`, the status line: `rampLow`, `rampHigh`, `rampHot`, `track`, `note`, `cwdLow`, `cwdHigh`, `profile`, `version`, `divider`, `sweep`, `model`, `skill`, `thinking`, `clock`, `session`.
-- `margin`: `compacted`, `latest`, `ahead`, `behind`, `card`, `hairline`, `faded`, and three tables: `pill` (`green`, `gray`, `purple`, `red`, `yellow`, `blue`, `cyan`), `types` (`feat`, `fix`, `refactor`, `perf`, `docs`, `test`) and `status` (`M`, `A`, `D`, `U`, `R`, `C`, `?`).
+- `margin`: `compacted`, `latest`, `ahead`, `behind`, `card`, `hairline`, `faded`, and three tables: `pill` (`green`, `gray`, `purple`, `red`, `yellow`, `blue`, `cyan`), `types` (`feat`, `fix`, `refactor`, `perf`, `docs`, `test`; these also colour the branch prefix in the status line) and `status` (`M`, `A`, `D`, `U`, `R`, `C`, `?`).
 
 ### Experimental features
 <!-- topic: labs -->

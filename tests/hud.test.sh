@@ -272,16 +272,16 @@ golden() { for t in 0 40 50; do echo "== $t 120"; frame "$t" 120; done; echo "==
 golden > "$TMP/golden.out"
 [ -n "${HUD_GOLDEN_WRITE:-}" ] && cp "$TMP/golden.out" "$REPO/tests/fixtures/hud-golden.txt"
 check "palette: no palette -> byte-identical to tests/fixtures/hud-golden.txt" cmp -s "$TMP/golden.out" "$REPO/tests/fixtures/hud-golden.txt"
-want=$(node --experimental-strip-types --no-warnings -e "import {DEFAULTS} from '$REPO/plugins/margin/hooks/palette.ts'; for (const t of ['shared','hud']) for (const [k,v] of Object.entries(DEFAULTS[t])) if (v !== null) console.log('pal_'+t+'_'+k+'\t'+v)" | sort)
+want=$(node --experimental-strip-types --no-warnings -e "import {DEFAULTS} from '$REPO/plugins/margin/hooks/palette.ts'; for (const t of ['shared','hud']) for (const [k,v] of Object.entries(DEFAULTS[t])) if (v !== null) console.log('pal_'+t+'_'+k+'\t'+v); for (const [k,v] of Object.entries(DEFAULTS.margin.types)) console.log('pal_types_'+k+'\t'+v)" | sort)
 got=$(CLAUDE_CONFIG_DIR="$GC" node "$HUD/hud-data.mjs" </dev/null | grep '^pal_' | sort)
-check "palette: hud-data shared and hud defaults equal palette.ts" bash -c '[ -n "$1" ] && [ "$1" = "$2" ]' _ "$want" "$got"
+check "palette: hud-data shared, hud and margin.types defaults equal palette.ts" bash -c '[ -n "$1" ] && [ "$1" = "$2" ]' _ "$want" "$got"
 check "palette: no session colour sent by default" bash -c '! grep -q "^pal_hud_session" <<<"$1"' _ "$got"
 for p in folio primer ballot; do
   check "palette.ts copy in $p identical to margin" cmp -s "$REPO/plugins/margin/hooks/palette.ts" "$REPO/plugins/$p/hooks/palette.ts"
 done
 echo '{"palette":{"shared":{"action":"#010203","label":"#A0B0C0"},"hud":{"session":"#0a0b0c"}}}' > "$GC/claudzilla.json"
 out=$(frame 0 120)
-check "palette: shared.action recolours the branch" grep -q $'\e\\[38;2;1;2;3m⎇ main' <<<"$out"
+check "palette: shared.action recolours the branch glyph, 2 spaces after it" grep -q $'\e\\[38;2;1;2;3m⎇  \e\\[0mmain' <<<"$out"
 check "palette: uppercase hex accepted" grep -q $'\e\\[38;2;160;176;192mctx' <<<"$out"
 check "palette: hud.session colours the session name" grep -q $'\e\\[38;2;10;11;12mmaxis-24' <<<"$out"
 printf '{"palette":{"shared":{"label":"#12\\u001b[0m"},"hud":"x","margin":{"ahead":"#010203"}}}' > "$GC/claudzilla.json"
@@ -292,10 +292,21 @@ check "palette: escape never reaches the output" bash -c '! grep -q "#12" <<<"$1
 check "palette: margin table not sent" bash -c '! grep -q "^pal_margin" <<<"$1"' _ "$kv"
 echo '{"palette":{"shared":{"label":"nope"},"hud":{"rampHot":"#12"}}}' > "$GC/claudzilla.json"
 out=$(frame 0 120)
-check "palette: invalid override still renders" bash -c '[ -n "$1" ] && grep -q "⎇ main" <<<"$1"' _ "$out"
+check "palette: invalid override still renders" bash -c '[ -n "$1" ] && grep -q "⎇  .*main" <<<"$1"' _ "$out"
 printf '{bad' > "$GC/claudzilla.json"
-check "palette: broken file -> every default sent" [ "$(CLAUDE_CONFIG_DIR="$GC" node "$HUD/hud-data.mjs" </dev/null | grep -c '^pal_')" -eq 23 ]
+check "palette: broken file -> every default sent" [ "$(CLAUDE_CONFIG_DIR="$GC" node "$HUD/hud-data.mjs" </dev/null | grep -c '^pal_')" -eq 29 ]
 rm "$GC/claudzilla.json"
+gg switch -qc feat/x
+check "palette: a branch type prefix takes its type colour, the rest plain" grep -q $'⎇  \e\\[0m\e\\[38;2;152;195;121mfeat/\e\\[0mx' <<<"$(frame 0 120)"
+echo '{"palette":{"margin":{"types":{"feat":"#010203"}}}}' > "$GC/claudzilla.json"
+check "palette: margin.types recolours the branch prefix" grep -q $'\e\\[38;2;1;2;3mfeat/' <<<"$(frame 0 120)"
+rm "$GC/claudzilla.json"; gg switch -q main; gg branch -qD feat/x
+gg switch -qc release/1.0
+check "palette: an unknown prefix draws faint" grep -q $'\e\\[38;2;79;92;104mrelease/\e\\[0m1.0' <<<"$(frame 0 120)"
+gg switch -q main; gg branch -qD release/1.0
+gg switch -qc chore/y
+check "palette: chore/ takes shared.label, as margin's Git tab draws it" grep -q $'\e\\[38;2;163;150;210mchore/\e\\[0my' <<<"$(frame 0 120)"
+gg switch -q main; gg branch -qD chore/y
 check "palette: no pal_ lines -> frame drawn, exit 0" bash -c 'out=$(printf "" | CLAUDE_CONFIG_DIR="$1" COLUMNS=120 perl "$2/hud-filter.pl") && [ -n "$out" ]' _ "$GC" "$HUD"
 
 # --- trace: hud.change only when the output changes ---
