@@ -5452,8 +5452,8 @@ test('every Overview rule spans the body, and no narrower cut clips it', async (
     walk(kids, n.type === 'Box' && n.props?.overflow === 'hidden' ? [...cuts, n.props] : cuts)
   }
   walk(await ui.drawn(), [])
-  // TAKE's, STEPS' and the footer's, each from the body's first column to the rail.
-  expect(rules.map(r => r.len)).toEqual([props.bodyColumns - 4, props.bodyColumns - 4, props.bodyColumns - 4])
+  // TAKE's and STEPS' from the text column to the body's edge; the footer's from the body's first column to the rail.
+  expect(rules.map(r => r.len)).toEqual([props.bodyColumns - 11, props.bodyColumns - 11, props.bodyColumns - 4])
   // A cut around a rule reaches out over the margins, or it trims the rule's ends.
   expect(rules.flatMap(r => r.cuts).filter(c => c.height === undefined && c.marginX !== -1)).toEqual([])
 })

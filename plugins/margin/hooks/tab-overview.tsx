@@ -213,10 +213,10 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
       {dimText(hover, color, count(text), 'wrap')}
     </Box>
   )
-  // A part after ASK opens under a rule from the text column to the edge.
+  // A part after ASK opens under a rule from one column before the text to the rail.
   const partRule = (label: string, start: number) => (
-    <Box key={`rule:${label}`} marginX={-PAD}>
-      {dimText(dimFor(start), 'promptBorder', '─'.repeat(width + 2 * PAD))}
+    <Box key={`rule:${label}`} paddingLeft={LABEL - 1} marginRight={-PAD}>
+      {dimText(dimFor(start), 'promptBorder', '─'.repeat(Math.max(0, width - LABEL + 1 + PAD)))}
     </Box>
   )
   const wrapRows = (text: string, w: number) => wrapLines(text, w).length
