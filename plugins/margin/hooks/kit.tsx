@@ -49,7 +49,7 @@ export const setZones = (tab: Tab, drawn: Zone[]) => {
 }
 export const modalOpen = () => zones.some(z => z.kind === 'modal')
 
-export const PAD = 2
+export const PAD = 1
 // HUD colors (claudzilla/claude/hud/hud-filter.pl) the theme has no key for; latest, a lighter
 // dirty yellow, is the panel's own.
 export const HUD = {} as Record<'label' | 'faint' | 'idle' | 'action' | 'compacted' | 'dirty' | 'churn' | 'latest', string>
@@ -220,6 +220,8 @@ export type TabDraw = {
   scroll?: Record<string, unknown>
   // Behind an open modal: what keeps its colours, and the row that opened it.
   fade?: { keep: Set<string>; open?: string }
+  // The body rows holding a rule that runs up to the rail, as drawn: the rail joins each with ┤.
+  rules?: number[]
 }
 export type UseKind = 'files' | 'memory' | 'web' | 'skills' | 'other'
 export const USE_KINDS: UseKind[] = ['files', 'memory', 'web', 'skills', 'other']
@@ -248,15 +250,16 @@ export type Win = { top: number; shown: number; above: number; below: number }
 // The Git modal's scroll cues, `inner` columns wide. `up`: ── ↑ N more ──, back to the top; the arrow bold in the
 // border colour, the count faint. `down`: ↓ N more turns the page, the first row not shown becoming the top row;
 // uncounted, as COMMITS' past the pages read. Unshrunk: a zone's last row wrapping past its edge would squeeze them out.
-export const cues = (el: Els, key: string, inner: number, w: Win, setTop: (to: number) => unknown, counted = true, ruled = true): { up: JSX.Element; down: JSX.Element } => {
+// `reach`: a ruled `up` runs on over both margins, as a day rule does.
+export const cues = (el: Els, key: string, inner: number, w: Win, setTop: (to: number) => unknown, counted = true, ruled = true, reach = 0): { up: JSX.Element; down: JSX.Element } => {
   const { Box, Button, Text } = el
   const mid = ` ${w.above} more `
-  const fill = Math.max(0, inner - 2 - mid.length)
+  const fill = Math.max(0, inner + 2 * reach - 2 - mid.length)
   const head = ` ${w.above} more`
   const tail = counted ? ` ${w.below} more` : ' more'
   return {
     up: (
-      <Box key={`${key}:up-row`} flexShrink={0}>
+      <Box key={`${key}:up-row`} flexShrink={0} marginX={-reach}>
         {ruled ? <Text color="promptBorder">{`${'─'.repeat(Math.floor(fill / 2))} `}</Text> : <Text>{' '.repeat(Math.max(0, Math.floor((inner - 1 - head.length) / 2)))}</Text>}
         <Button key={`${key}:up`} plain onPress={() => setTop(0)}>
           <Text bold color="promptBorder">↑</Text>
