@@ -312,23 +312,24 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
       return text
     }
     const total = `${entry.main + entry.agents} total`
+    // Totals and hints share one right-hand column: every name and path stops 2 before it. The header's
+    // total sums every reader's, so none is wider.
+    const rightW = Math.max(hintW, total.length)
     const widthOf = (x: Item) =>
-      x.glyph.length + 1 + (x.branch !== undefined ? x.branch.length + 2 + (x.total?.length ?? 0) : x.all !== undefined ? 'show all'.length : shown(x.name).length + (hintW ? hintW + 2 : 0))
+      x.glyph.length + 1 + (x.branch !== undefined ? x.branch.length + 2 + rightW : x.all !== undefined ? 'show all'.length : shown(x.name).length + rightW + 2)
     // As wide as its rows, not the pane, so a short list keeps each hint beside its name.
     const widest = Math.max(kind.length + total.length + 2, ...items.map(widthOf))
     const full = modalFrame(props.bodyColumns, tabRows, 5 + items.length)
     const f = contentFrame(full, widest)
     const rowsOf = (list: Item[], layer: 'm' | 's', inner: number) => {
       let itemAt = 0
-      // Totals right-aligned in one column: every branch name is cut 2 before the widest.
-      const totalW = colWidth(list.map(x => x.total))
       return list.map(({ name, glyph, count, branch, tone, total: own, all }) => {
         if (branch !== undefined)
           return (
             <Box justifyContent="space-between" gap={2}>
               <Text>
                 <Text color="promptBorder">{` ${glyph}`}</Text>
-                <Text color={tone}>{fit(branch, Math.max(1, inner - (glyph.length + 1) - 2 - totalW))}</Text>
+                <Text color={tone}>{fit(branch, Math.max(1, inner - (glyph.length + 1) - 2 - rightW))}</Text>
               </Text>
               <Box flexShrink={0}>
                 <Text color={HUD.faint}>{own}</Text>
@@ -348,7 +349,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
         // A row with neither count nor source keeps its blank columns out of the draw.
         const padded = hintOf(name, count)
         const hint = padded.trim() ? padded : ''
-        const room = Math.max(1, inner - (glyph.length + 1) - (hintW ? hintW + 2 : 0))
+        const room = Math.max(1, inner - (glyph.length + 1) - rightW - 2)
         const text = printable(name)
         // Path or URL pieces: a folder or path part SCOPE, every slash the border colour.
         const parts = (segs: string[], tone: (i: number) => string | undefined) =>
