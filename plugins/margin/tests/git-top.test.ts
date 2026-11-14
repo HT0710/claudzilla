@@ -38,7 +38,7 @@ const props = {
   isFocused: false,
   bodyColumns: 71,
   placement: 'dock' as const,
-  scroll: { offset: 0, bodyRows: 22 - 2 },
+  scroll: { offset: 0, bodyRows: 22 - 1 },
   view: {},
 }
 const MIN = 60e3
@@ -91,7 +91,7 @@ const piece = async (ui: Ui, row: string, text: string | RegExp) => (await ui.fi
 const firstListed = async (ui: Ui) => (await ui.findAll({ type: 'Text', text: /^b\d\d$/ }))[0]?.text
 // Column 33: the pane's middle, inside a centred modal.
 const wheel = ($: Parameters<TestBody>[0], by: number, row: number, column = 33) =>
-  $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 24, contentRows: 24, origin: { kind: 'person' }, pointer: { column, row } })
+  $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 24, contentRows: 24, origin: { kind: 'person' }, pointer: { column, row: row + 1 } })
 
 test('branch row: name, one mark only when needed, no counts', async ($, on) => {
   quiet(on)

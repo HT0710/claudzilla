@@ -41,6 +41,8 @@ const SPAN = 2 * RAIL.length
 export const railTop = (bodyRows: number) => Math.max(0, Math.floor((bodyRows - SPAN) / 2))
 // The rail widened by hover, names beside the icons.
 export const WIDE = 14
+// The rule on the pane's first row: tabs and the rail get the rows below it.
+const RULE = 1
 const MAX_PROMPTS = 100
 // Built-in tools that never change files: their calls leave the Git tab's reads standing.
 const READ_ONLY = new Set(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'])
@@ -1264,7 +1266,8 @@ export const register: Register = (on, options) => {
   // then the tab's fallback; else next(e).
   on('ui.scroll', { requestId: PANE }, async ($, e, next) => {
     const zones = drawnZones()
-    const rowIn = (z: Zone) => (e.pointer ? e.pointer.row + z.offset : undefined)
+    // The pane's first row is the top rule: a tab's rows start one below.
+    const rowIn = (z: Zone) => (e.pointer ? e.pointer.row - RULE + z.offset : undefined)
     const over = (z: Zone) => {
       const row = rowIn(z)
       return row !== undefined && row >= z.from && row < z.to && (!z.columns || (e.pointer!.column >= z.columns[0] && e.pointer!.column < z.columns[1]))
@@ -1428,7 +1431,8 @@ export const register: Register = (on, options) => {
 
     // Kept while a Git draw reads: a wheel tick meanwhile still scrolls its zone.
     keepZones(current)
-    const ctx: TabCtx = { props: { ...e.props, bodyColumns: e.props.bodyColumns - RAIL_COLUMNS }, signal: next.signal, el: elements, pick: tab => pick($, tab), setModal: change => setModal($, change) }
+    const inner = Math.max(0, e.props.scroll.bodyRows - RULE)
+    const ctx: TabCtx = { props: { ...e.props, bodyColumns: e.props.bodyColumns - RAIL_COLUMNS, scroll: { ...e.props.scroll, bodyRows: inner } }, signal: next.signal, el: elements, pick: tab => pick($, tab), setModal: change => setModal($, change) }
     let out: TabDraw
     if (current === 'File') {
       out = await drawFile($, ctx)
@@ -1474,7 +1478,7 @@ export const register: Register = (on, options) => {
     const basic = await basicGlyphs($)
     const flagged = await read($, notices)
     const modalShown = modalOpen()
-    const top = railTop(e.props.scroll.bodyRows)
+    const top = railTop(inner)
     const wide = RAIL.flatMap((one, n) => {
       const name = one.toLowerCase().indexOf(KEYS[one])
       // The key's letter keeps the name's case.
@@ -1495,7 +1499,7 @@ export const register: Register = (on, options) => {
         <Box key={`wide-gap:${n}`} width={WIDE - 1} height={1} />,
       ]
     })
-    const rail = Array.from({ length: Math.max(0, e.props.scroll.bodyRows) }, (_, row) => {
+    const rail = Array.from({ length: inner }, (_, row) => {
       const at = row - top
       const one = at >= 0 && at % 2 === 0 ? RAIL[at / 2] : undefined
       const glyph = one ? ` ${basic ? KEYS[one] : ICON[one]} ` : ''
@@ -1518,16 +1522,23 @@ export const register: Register = (on, options) => {
         </Box>
       )
     })
+    const rule = (key: string, join: string) => (
+      <Text key={key} color="promptBorder">
+        {'─'.repeat(Math.max(0, e.props.bodyColumns - RAIL_COLUMNS)) + join + '─'.repeat(RAIL_COLUMNS - 1)}
+      </Text>
+    )
     return (
-      <Box flexDirection="row" height={Math.max(0, e.props.scroll.bodyRows)}>
+      <Box flexDirection="column" height={Math.max(0, e.props.scroll.bodyRows)}>
+        {rule('rule-top', '┬')}
+        <Box flexDirection="row" height={inner}>
         {/* Cut at the pane's bottom: the pane never scrolls; Overview's ⇕ shares the room. */}
-        <Box key="body" flexDirection="column" width={e.props.bodyColumns - RAIL_COLUMNS} flexShrink={0} height={Math.max(0, e.props.scroll.bodyRows)} paddingX={PAD} overflow="hidden">
+        <Box key="body" flexDirection="column" width={e.props.bodyColumns - RAIL_COLUMNS} flexShrink={0} height={inner} paddingX={PAD} overflow="hidden">
           {/* Unshrinkable: a tall tab is cut at the bottom, not squeezed row by row. */}
           <Box flexDirection="column" flexShrink={0}>
             {body}
           </Box>
         </Box>
-        <Box key="rail" flexDirection="column" width={RAIL_COLUMNS} flexShrink={0} height={Math.max(0, e.props.scroll.bodyRows)} overflow="hidden" hover={{ scope: 'rail' }}>
+        <Box key="rail" flexDirection="column" width={RAIL_COLUMNS} flexShrink={0} height={inner} overflow="hidden" hover={{ scope: 'rail' }}>
           {rail}
         </Box>
         {modalShown ? null : (
@@ -1535,6 +1546,7 @@ export const register: Register = (on, options) => {
             {wide}
           </Box>
         )}
+        </Box>
       </Box>
     )
   }))
