@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Cost trace: parse and price Claude Code transcripts.
 import { createHash } from "node:crypto";
-import { appendFileSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -236,16 +236,14 @@ export function assembleRun({ run, project, files, agents, owners: all }) {
     const arun = !parent || first === null ? null : starts.length ? runKey(parent, runOf(starts, first)) : "file:" + parent.sessionId;
     if (arun !== run && !(arun === null && (parent ? homeIds.has(parent.sessionId) : homeAll))) continue;
     const t = {};
-    let usd = 0;
+    let priced = 0, miss = 0;
     for (const r of reqs) {
       addTokens(t, tokensOf(r.usage));
       const c = costOf(r.model, r.usage);
-      if (c === undefined) usd = null; else if (usd !== null) usd += c;
+      if (c === undefined) miss++; else priced += c;
     }
-    if (arun === run) {
-      for (const r of reqs) if (costOf(r.model, r.usage) === undefined) unpriced++;
-      if (usd !== null) agentUsd += usd;
-    }
+    const usd = miss ? null : priced;
+    if (arun === run) { unpriced += miss; agentUsd += priced; }
     rows.push({
       kind: "agent", id: a.agentId.replace(/^agent-/, ""), session: a.parentSession, run: arun, project, mtime: a.mtime, start: first,
       activeMs: activeMs(reqs.map((r) => r.ts)),
@@ -299,9 +297,8 @@ export function walk(root) {
 
 const sessionKey = (project, run) => project + "/" + run;
 
-export function readLog(file) {
+export function readLog(file, text = readText(file)) {
   const sessions = new Map(), agents = new Map(), ids = new Map();
-  const text = readText(file);
   if (text === null) return { sessions, agents, ids };
   for (const raw of text.split("\n")) {
     let o;
@@ -411,7 +408,27 @@ export function index({ root, log }) {
       }
     }
   } catch {}
+  compact(log);
   return { changed, rows };
+}
+
+// Superseded rows pile up in the append-only log; rewrite it with only what readLog keeps once it holds more than twice that.
+// shortcut: a run appending meanwhile can lose rows, re-added when their file next changes; lock the log if that shows up.
+function compact(log) {
+  const tmp = log + "." + process.pid + ".tmp";
+  try {
+    const text = readText(log);
+    if (text === null) return;
+    const { sessions, agents, ids } = readLog(log, text);
+    const keys = [...ids.values()], out = [];
+    for (let i = 0; i < keys.length; i += 200) out.push({ kind: "ids", keys: keys.slice(i, i + 200) });
+    out.push(...agents.values(), ...sessions.values());
+    if (text.split("\n").filter(Boolean).length <= 2 * out.length) return;
+    writeFileSync(tmp, out.map((o) => JSON.stringify(o) + "\n").join(""), { mode: 0o600 });
+    renameSync(tmp, log);
+  } catch {
+    try { unlinkSync(tmp); } catch {}
+  }
 }
 
 // Percentile on an ascending sort, same helper as spawn-cost.mjs.

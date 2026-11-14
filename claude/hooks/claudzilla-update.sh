@@ -91,7 +91,11 @@ find "$lock" -maxdepth 0 -mmin +60 -exec rmdir {} \; 2>/dev/null   # left by a k
   trap '' HUP   # Claude exiting mid-install must not leave a half install and a stuck lock
   trap 'rmdir "$lock"' EXIT
   # A curl install is a --depth 1 clone: no tags until its history is fetched.
-  [ -z "$stale" ] || GIT_TERMINAL_PROMPT=0 git -C "$repo" fetch -q $([ -f "$gd/shallow" ] && echo --unshallow --tags)
+  if [ -n "$stale" ]; then
+    # No prompt can hang it. GIT_SSH (plink) beats core.sshCommand in git and takes no ssh options, so it stays as is.
+    [ -n "${GIT_SSH:-}" ] && [ -z "${GIT_SSH_COMMAND:-}" ] || export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-$(git -C "$repo" config core.sshCommand || echo ssh)} -o BatchMode=yes"
+    GIT_TERMINAL_PROMPT=0 GIT_ASKPASS= git -C "$repo" fetch -q $([ -f "$gd/shallow" ] && echo --unshallow --tags)
+  fi
   [ "$(behind)" -gt 0 ] 2>/dev/null || exit 0
   moved=$([ "$(relsha)" = "$(cat "$seen" 2>/dev/null)" ] || echo 1)
   # A release no session was told of: open sessions hear of it now, not only the next session.
