@@ -5,7 +5,7 @@ import type { Spawn, Step } from '../types'
 import { fileKey } from '../hooks/git-data'
 import { DIMMED, hoverOf, readersOf, rowHovers } from '../hooks/kit'
 
-import { EMPTY_USED, ICON, railTop, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, resetUsed, stampPattern, useOf, bashPaths, wrapLines, zoneWindow } from '../hooks/register'
+import { EMPTY_USED, ICON, RAIL_COLUMNS, railTop, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, resetUsed, stampPattern, useOf, bashPaths, wrapLines, zoneWindow } from '../hooks/register'
 import { modelName } from '../hooks/tab-overview'
 
 // A process.run result with `stdout`.
@@ -45,7 +45,7 @@ const props = {
   isFocused: false,
   bodyColumns: 44,
   placement: 'dock' as const,
-  scroll: { offset: 0, bodyRows: 20 - 2 },
+  scroll: { offset: 0, bodyRows: 20 - 1 },
   view: {},
 }
 
@@ -237,11 +237,11 @@ test('a one-row CHANGES zone scrolls with no cues', async ($, on) => {
   noHistory(on)
   const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
   on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
-  const scroll = { offset: 0, bodyRows: 9 - 2 }
+  const scroll = { offset: 0, bodyRows: 9 - 1 }
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll }, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   // 9 body rows less 7 fixed: COMMITS keeps 1, CHANGES the 1 left, on row 5.
-  await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 100, bodyRows: 9 - 2, contentRows: 9 - 2, origin: { kind: 'person' }, pointer: { column: 0, row: 3 } })
+  await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 100, bodyRows: 9, contentRows: 9 - 2, origin: { kind: 'person' }, pointer: { column: 0, row: 4 } })
   await ui.drawn()
   expect(await rowText(ui, /file9\.ts/)).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'changes:up' })).toBeUndefined()
@@ -320,7 +320,7 @@ test('the wheel scrolls CHANGES and COMMITS each on its own, up to their ends; �
   // 7 rows of CHANGES end on row 11, 6 of COMMITS start on row 14; once scrolled, the ↑ cue
   // takes a zone's first row.
   const wheel = (by: number, row: number) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: row + 1 } })
 
   expect(await ui.find({ type: 'Button', key: 'changes:up' })).toBeUndefined()
   await wheel(5, 6)
@@ -353,7 +353,7 @@ const cueText = async (ui: { find: (q: any) => Promise<any> }, zone: string) => 
   down: !!(await ui.find({ type: 'Button', key: `${zone}:down` })),
 })
 const wheelAt = ($: Parameters<TestBody>[0], by: number, row: number) =>
-  $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
+  $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: row + 1 } })
 
 test('CHANGES shows the modal cues: ↑ N more once scrolled, ↓ N more turns the page', async ($, on) => {
   noHistory(on)
@@ -420,7 +420,7 @@ test('the wheel over the divider moves it: up gives CHANGES rows, down takes the
   await ui.press({ key: 'Git' })
   // 7 rows of CHANGES end on row 11: the divider is row 12, then 14 once moved.
   const wheel = (by: number, row: number) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: row + 1 } })
 
   await wheel(-2, 10)
   expect(await rowText(ui, /file7\.ts/)).toBeDefined()
@@ -442,7 +442,7 @@ test('notches close together keep moving the divider once it leaves the pointer;
   await ui.press({ key: 'Git' })
   // The divider starts on row 12; the pointer stays there as it moves down.
   const wheel = (by: number) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 11 } })
 
   await wheel(-1)
   now = 300
@@ -473,7 +473,7 @@ test('COMMITS reads a page at a time as the wheel goes past it, down to the firs
   await ui.press({ key: 'Git' })
   // A clean repo: 15 rows of COMMITS, 13 between the cues once scrolled.
   const wheel = (by: number) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 8 } })
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 9 } })
 
   await wheel(150)
   expect(await rowText(ui, /commit 149$/)).toBeUndefined()
@@ -499,7 +499,7 @@ test('with no commit count, COMMITS still scrolls page by page to the first comm
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   const wheel = (by: number) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 8 } })
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 9 } })
 
   // Each page's draw lands before the next tick: until then the wheel stops at the page drawn.
   for (const by of [150, 1000, 1000]) {
@@ -896,10 +896,23 @@ test('the shown tab is inverse; another tab presses', async ($, on) => {
   expect((await ui.find({ type: 'Text', text: ICON.History }))?.props.inverse).toBe(true)
 })
 
-test('the body is the full pane height', async ($, on) => {
+test('the body is the pane height below the top rule', async ($, on) => {
   noHistory(on)
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
-  expect((await ui.find({ key: 'body' }))?.props.height).toBe(props.scroll.bodyRows)
+  expect((await ui.find({ key: 'body' }))?.props.height).toBe(props.scroll.bodyRows - 1)
+  expect((await ui.find({ key: 'rail' }))?.props.height).toBe(props.scroll.bodyRows - 1)
+})
+
+test('the pane has a rule on its first row, joined to the rail border by ┬', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  const join = props.bodyColumns - RAIL_COLUMNS
+  const rule = await ui.find({ type: 'Text', text: '─'.repeat(join) + '┬' + '─'.repeat(RAIL_COLUMNS - 1) })
+  expect(rule?.props.color).toBe('promptBorder')
+  const root = (await ui.drawn()) as any
+  const rows = [root].flat().flatMap((n: any) => [n.children, n.props?.children].flat())
+  expect(JSON.stringify(rows.at(0))).toContain('┬')
+  expect(JSON.stringify(rows.slice(1))).not.toContain('┬')
 })
 
 test('basic glyphs draw the key letters', async ($, on) => {
@@ -2128,7 +2141,7 @@ test('the wheel scrolls the History list under a fixed header, up to its end; �
   // The day line and 30 prompts in the rows under the header; the cues take
   // one each.
   const wheel = (by: number) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 8 } })
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 9 } })
 
   expect(await ui.find({ type: 'Button', key: 'history:up' })).toBeUndefined()
   await wheel(5)
@@ -2509,7 +2522,7 @@ test("a tab taller than the body is cut at the pane's bottom: the pane does not 
   await $.tool.call({ tool: INTENT, ...REPORT, steps } as any)
   await ui.drawn()
   const body = await ui.find({ key: 'body' })
-  expect(body?.props.height).toBe(props.scroll.bodyRows)
+  expect(body?.props.height).toBe(props.scroll.bodyRows - 1)
   expect(body?.props.overflow).toBe('hidden')
 })
 
@@ -3443,7 +3456,7 @@ test('USED hides when STEPS would keep fewer than 3 rows', async ($, on) => {
   on('tool.call', () => ({ result: {} }) as any)
   noHistory(on)
   on('session.end', (_, e) => ({ sessionId: e.sessionId }) as any)
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll: { offset: 0, bodyRows: 11 - 2 } }, requestId: 'margin' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll: { offset: 0, bodyRows: 11 - 1 } }, requestId: 'margin' })
   const steps = Array.from({ length: 30 }, (_, i) => ({ text: `step ${i + 1}`, status: 'pending' }))
   await $.tool.call({ tool: INTENT, ...REPORT, steps } as any)
   await ui.drawn()
@@ -3462,12 +3475,12 @@ const stepsPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]
   on('session.end', (_, e) => ({ sessionId: e.sessionId }) as any)
   on('prompt.submit', (_, e) => ({ text: e.text }) as any)
   on('ui.scroll', () => ({}) as any)
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll: { offset: 0, bodyRows: 14 - 2 } }, requestId: 'margin' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll: { offset: 0, bodyRows: 14 - 1 } }, requestId: 'margin' })
   const steps = Array.from({ length: 12 }, (_, i) => ({ text: `step ${i + 1}`, status: i < doing - 1 ? 'completed' : i === doing - 1 ? 'in_progress' : 'pending' }))
   await $.tool.call({ tool: INTENT, ...REPORT, steps } as any)
   await ui.drawn()
   const wheel = (by: number, row = 4) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 14 - 2, contentRows: 14 - 2, origin: { kind: 'person' }, pointer: { column: 0, row } })
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 14, contentRows: 14 - 2, origin: { kind: 'person' }, pointer: { column: 0, row: row + 1 } })
   const shown = async (n: number) => (await rowText(ui, new RegExp(` step ${n}$`))) !== undefined
   return { ui, wheel, shown }
 }
@@ -3804,7 +3817,7 @@ test('scrolling the History list alone writes no new pane.draw entry', async ($,
   }
   const before = (await draws()).length
   expect(before).toBeGreaterThan(0)
-  for (const by of [2, 3]) await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 8 } })
+  for (const by of [2, 3]) await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 9 } })
   expect(await ui.find({ type: 'Button', key: 'history:up' })).toBeDefined()
   const after = await draws()
   expect(after.length).toBe(before)
@@ -4035,7 +4048,7 @@ test('only the label word heats its card: every line it dims is a nested Text', 
   await $.tool.call({ tool: INTENT, ...REPORT, wants: 'a third tab '.repeat(4) } as any)
   await $.tool.call({ tool: 'Grep', pattern: 'x' } as any)
   // Tall enough for both USED rows: the second is the line under USED.
-  await ui.redraw({ ...props, scroll: { offset: 0, bodyRows: 40 - 2 } })
+  await ui.redraw({ ...props, scroll: { offset: 0, bodyRows: 40 - 1 } })
   const heats: string[] = []
   const follows = new Set<string>()
   const walk = (n: any, inText: boolean) => {
@@ -4490,7 +4503,7 @@ test('alt+o on a closed pane reads TOPICS once', async ($, on) => {
 })
 
 // The File tab's rows: the body less its header row.
-const windowRows = props.scroll.bodyRows - 2 // header row + its rule
+const windowRows = props.scroll.bodyRows - 3 // header row + its rule
 const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\n')
 // The File tab as `$.margin.show` leaves it: the test's `$` carries no plugin noun, and a hook in a test module that
 // calls one is refused ("its hooks module does not call it (host rule; the scan lists no calls)"), so the two
@@ -4917,7 +4930,7 @@ test('each FILES reader has its colour: Claude the accent, common types their ow
   for (const n of [1, 2, 3, 4, 5, 6]) await $.tool.call({ tool: 'Read', file_path: `/proj/${n}.ts`, agentId: `a${n}` } as any)
   await $.tool.call({ tool: 'Read', file_path: '/proj/z.ts', agentId: 'zz' } as any)
   // Tall enough for all 8 readers and their files, wide enough for each name beside its total.
-  await ui.redraw({ ...props, bodyColumns: 64, scroll: { offset: 0, bodyRows: 40 - 2 } })
+  await ui.redraw({ ...props, bodyColumns: 64, scroll: { offset: 0, bodyRows: 40 - 1 } })
   await tapRow(ui, 'o:used:files')
   const colour = new Map((await modalTexts(ui)).map(t => [t.text, t.color]))
   expect(['Claude', 'general-purpose', 'cavecrew-reviewer', 'cavecrew-investigator', 'cavecrew-builder', 'critic', 'agent'].map(n => colour.get(n))).toEqual(['claude', '#e8927c', '#d17fcf', '#b3c46a', '#c8b08a', '#d17fcf', '#4f5c68'])
