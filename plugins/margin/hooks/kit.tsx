@@ -167,15 +167,15 @@ export const toPieces = (node: unknown, style: Omit<Piece, 'text'> = {}): Piece[
 export const dim = (hex: string) => `#${hex.slice(1).replace(/../g, c => Math.round(parseInt(c, 16) * 0.6).toString(16).padStart(2, '0'))}`
 applyPalette(DEFAULTS)
 // Claude Code's own folder: CLAUDE_CONFIG_DIR moves it.
+export async function configDir($: EngineInterface): Promise<string> {
+  return (await $.env.get('CLAUDE_CONFIG_DIR')) || `${await $.env.get('HOME')}/.claude`
+}
 // Whether install.sh chose basic glyphs: read once a session.
 let basic: Promise<boolean> | undefined
 export function basicGlyphs($: EngineInterface): Promise<boolean> {
   return (basic ??= configDir($)
     .then(dir => $.fs.exists(`${dir}/.claudzilla-basic-glyphs`))
     .catch(() => false))
-}
-export async function configDir($: EngineInterface): Promise<string> {
-  return (await $.env.get('CLAUDE_CONFIG_DIR')) || `${await $.env.get('HOME')}/.claude`
 }
 
 export type Els = Elements[RenderSurface]
