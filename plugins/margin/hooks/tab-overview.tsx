@@ -684,7 +684,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
               ...(usedRows > 0 ? usedKinds : []).map((kind, i) => {
                 const { main, agents, names: recent, fromAgents = [], sourceOf = {} } = usedShown[kind]!
                 // Claude's own names first, agents' after, each newest first.
-                const names = [...recent.filter(n => !fromAgents.includes(n)), ...recent.filter(n => fromAgents.includes(n))]
+                const agentOnly = new Set(fromAgents)
+                const names = [...recent.filter(n => !agentOnly.has(n)), ...recent.filter(n => agentOnly.has(n))]
                 const extra = agents > 0 ? ` +${agents}` : ''
                 // Counts right-aligned, as the Git tab's churn columns; +N in its own column after them.
                 const mainW = Math.max(...usedKinds.map(k => String(usedShown[k]!.main).length))
@@ -693,6 +694,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                 const room = Math.max(1, width - LABEL - kindW - mainW - extraW - 2)
                 const shorts = names.map(n => printable(shortName(kind, n, sourceOf[n])))
                 const line = fit(shorts.join(', '), room)
+                let at = 0
                 const dh = dimFor(labelAt.USED! + i)
                 acts[`o:used:${kind}`] = () => ctx.setModal(() => ({ key: 'used', top: 0, kind }))
                 const left = [
@@ -702,9 +704,9 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                   <Text>{'  '}</Text>,
                   // Cut as one line, then split back per name: an agent's name dims as its +N does.
                   ...names.map((name, n) => {
-                    const at = shorts.slice(0, n).join(', ').length + (n > 0 ? 2 : 0)
                     const piece = line.slice(at - (n > 0 ? 2 : 0), at + shorts[n].length)
-                    return piece ? <Text key={name} color={shown.waiting || fromAgents.includes(name) ? HUD.faint : undefined}>{piece}</Text> : null
+                    at += shorts[n].length + 2
+                    return piece ? <Text key={name} color={shown.waiting || agentOnly.has(name) ? HUD.faint : undefined}>{piece}</Text> : null
                   }),
                 ]
                 return (
