@@ -305,7 +305,7 @@ If you installed the status line (the `hud` part), it fills the bottom of the sc
 
 From top to bottom:
 
-- **Top row:** the folder, the git branch, and uncommitted changes: `!3` files changed, `?2` new files git does not track, and `+40 -12` lines added and removed that are not yet staged. On the right: the email of the account you are logged in with, masked to the first and last letter before `@` (`a…h@gmail.com`), and the claudzilla version.
+- **Top row:** the folder, the git branch, and uncommitted changes: `!3` files changed and `?2` new files git does not track. The Git tab in margin shows the lines added and removed. On the right: the email of the account you are logged in with, masked to the first and last letter before `@` (`a…h@gmail.com`), and the claudzilla version.
 - **Two thin lines** frame the meters: the top one shows the time, the bottom one the date.
 - **`ctx` meter:** how full context is, as a percentage, and the token count, such as `150k`.
 - **`cch` meter:** how long the prompt cache stays warm, as the share of its time used and the minutes left, such as `55m`. The prompt cache holds the conversation so far, so the next message reads it back at a fraction of the full price; it lasts 5 minutes or 1 hour after each request. The meter starts at 0% after each reply. Its bar stays full and changes colour as the cache cools, from blue to orange at 100% and `cold`: the next message then pays again for the whole conversation, so a cold cache is a good moment to `/compact` or `/clear`. Before the first reply it shows 0% and `hot`.
