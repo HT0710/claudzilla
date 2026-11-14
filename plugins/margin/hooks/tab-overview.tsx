@@ -215,8 +215,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   )
   // A part after ASK opens under a rule from the text column to the edge.
   const partRule = (label: string, start: number) => (
-    <Box key={`rule:${label}`} paddingLeft={LABEL}>
-      {dimText(dimFor(start), 'promptBorder', '─'.repeat(Math.max(0, width - LABEL)))}
+    <Box key={`rule:${label}`} marginX={-PAD}>
+      {dimText(dimFor(start), 'promptBorder', '─'.repeat(width + 2 * PAD))}
     </Box>
   )
   const wrapRows = (text: string, w: number) => wrapLines(text, w).length
@@ -486,7 +486,9 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   // The footer, pinned at the pane bottom: one place whether a report, TOPIC or both show.
   const statusRow = (
     <Box key="footer" flexDirection="column" flexShrink={0}>
-      <Text color="promptBorder">{'─'.repeat(width)}</Text>
+      <Box marginX={-PAD}>
+        <Text color="promptBorder">{'─'.repeat(width + 2 * PAD)}</Text>
+      </Box>
       <Box justifyContent="space-between">
         <Text color={stateColor}>{state}</Text>
         {shown.waiting ? (
@@ -514,7 +516,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
       )
     ) : (
       <Box flexDirection="column" height={Math.max(0, props.scroll.bodyRows)}>
-        <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden">
+        {/* Its cut spans the margins too: a rule runs out to the body's edges, and an inner cut would trim it. */}
+        <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden" marginX={-PAD} paddingX={PAD}>
           {/* Unshrinkable: past the footer it is cut at the bottom, not squeezed row by row. */}
           <Box key="report" flexDirection="column" flexShrink={0}>
             {hasAbout && [
@@ -527,7 +530,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                     <Box key="summary" paddingLeft={2} height={summaryRows} overflow="hidden" flexShrink={0}>
                       {dimText(dimFor(1), about.running ? HUD.faint : undefined, about.summary, 'wrap')}
                     </Box>,
-                    <Box key="sessionRule">{dimText(dimFor(1 + summaryRows), 'promptBorder', '─'.repeat(width))}</Box>,
+                    <Box key="sessionRule" marginX={-PAD}>{dimText(dimFor(1 + summaryRows), 'promptBorder', '─'.repeat(width + 2 * PAD))}</Box>,
                   ]
                 : []),
               <Box key="topicHead" justifyContent="space-between">
@@ -542,7 +545,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                 </Box>
               </Box>,
               ...topicRows,
-              ...(shown.wants ? [<Box key="topicRule">{dimText(dimFor(sessionRows + 1 + latestRows), 'promptBorder', '─'.repeat(width))}</Box>] : []),
+              ...(shown.wants ? [<Box key="topicRule" marginX={-PAD}>{dimText(dimFor(sessionRows + 1 + latestRows), 'promptBorder', '─'.repeat(width + 2 * PAD))}</Box>] : []),
             ]}
             {shown.wants && [
               labelled('ASK', shown.wants, shade(), dimFor(askAt, askRows, 'ASK')),
@@ -727,5 +730,14 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
         {modalBox}
       </Box>
     )
-  return { body, zones: drawn, trace, ...(topicsOpen && { fade: { keep: new Set(['modal']), open: 'o:topics:all' } }), ...(modalBox && usedKind && { fade: { keep: new Set([layers.s ? 'stack' : 'modal']), open: `${'Client' in ctx.el ? 'row' : 'hov'}:o:used:${usedKind}` } }) }
+  // The body rows of the rules above, as drawn: the session's, the topic's, under ASK, under TAKE, over USED, over the footer.
+  const rules = !hasReport && !hasAbout ? [] : [
+    ...(hasAbout && summaryRows ? [sessionRows - 1] : []),
+    ...(hasAbout && shown.wants ? [askAt - 1] : []),
+    ...(shown.wants && take ? [askAt + askRows] : []),
+    ...(shown.wants && shown.steps.length ? [ruleAt] : []),
+    ...(shown.wants && usedRows > 0 ? [labelAt.USED! - 1] : []),
+    ...(hasReport ? [props.scroll.bodyRows - 2] : []),
+  ]
+  return { body, zones: drawn, trace, rules, ...(topicsOpen && { fade: { keep: new Set(['modal']), open: 'o:topics:all' } }), ...(modalBox && usedKind && { fade: { keep: new Set([layers.s ? 'stack' : 'modal']), open: `${'Client' in ctx.el ? 'row' : 'hov'}:o:used:${usedKind}` } }) }
 }

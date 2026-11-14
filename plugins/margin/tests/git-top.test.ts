@@ -195,8 +195,8 @@ test('a long branch name leaves room for "◌ fetching" while a fetch runs', asy
   const ui = await mount($)
   const pressed = tap(ui, 'fetch')
   await reached
-  // "⎇ " and the name: the body less its padding (2 + 2), the fetch row's 10 columns and the 5 kept beside them.
-  expect([...((await piece(ui, 'branch', /^⎇/))?.text ?? '')].length).toBeLessThanOrEqual(2 + 67 - 4 - 10 - 5)
+  // "⎇ " and the name: the body less its padding (1 + 1), the fetch row's 10 columns and the 5 kept beside them.
+  expect([...((await piece(ui, 'branch', /^⎇/))?.text ?? '')].length).toBeLessThanOrEqual(2 + 67 - 2 - 10 - 5)
   release()
   await pressed
 })
@@ -353,8 +353,8 @@ test('the rules behind an open modal fade too, the ⇕ divider included', async 
   on('process.run', (_, e) => ran(git(repoOn('b20', { status: '## b20...origin/b20\n M a.ts\n' }))(e.argv) ?? ''))
   const ui = await mount($)
   await tap(ui, 'branch')
-  // The rule under the top rows spans the body, 67 less its 2-column margins.
-  expect((await ui.find({ type: 'Text', text: /^─{63}$/ }))?.props.color).toBe('#3a424a')
+  // The rule under the top rows spans the body, the whole 67: it runs on under both margins.
+  expect((await ui.find({ type: 'Text', text: /^─{67}$/ }))?.props.color).toBe('#3a424a')
   expect(JSON.stringify((await ui.find({ key: 'divider' }))?.props)).toContain('"faded":true')
 })
 
@@ -433,8 +433,8 @@ test('a narrow body still gives the modal 1-column insets', async ($, on) => {
   await ui.press({ key: 'Git' })
   await tap(ui, 'branch')
   const box = await ui.find({ type: 'Box', key: 'modal' })
-  // Placed in the body, inside its 2-column margin.
-  expect(Number(box?.props.left) + 2).toBe(1)
+  // Placed in the body, inside its 1-column margin.
+  expect(Number(box?.props.left) + 1).toBe(1)
   expect(box?.props.width).toBe(18)
 })
 
@@ -2773,4 +2773,49 @@ test('a jump to File closes an open Git modal, so Escape and the Git tab find no
   expect(opens.at(-1)).toBeUndefined()
   await ui.press({ key: 'Git' })
   expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
+})
+
+// The rail rows (0-based, under its top rule) drawing ┤.
+const joined = async (ui: { drawn: () => Promise<unknown> }) => {
+  const out: number[] = []
+  const walk = (n: any) => {
+    if (!n || typeof n !== 'object') return
+    if (Array.isArray(n)) return n.forEach(walk)
+    const row = /^rail:(\d+)$/.exec(n.props?.key ?? '')?.[1]
+    const kids = [n.children, n.props?.children].flat().filter(x => x !== undefined && x !== null)
+    if (row !== undefined && JSON.stringify(kids).includes('┤')) out.push(Number(row))
+    walk(kids)
+  }
+  walk(await ui.drawn())
+  return out.sort((a, b) => a - b)
+}
+
+test('the rail joins the Git branch rule and the ⇕ divider with ┤, and the rule reaches it', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(repoOn('b20', { status: '## b20...origin/b20\n M a.ts\n' }))(e.argv) ?? ''))
+  const ui = await mount($)
+  // The branch row, the rule, the CHANGES header, one file, the divider.
+  expect(await joined(ui)).toEqual([1, 4])
+  // The whole body: from its first column to the rail, under both margins.
+  expect((await ui.find({ type: 'Text', text: /^─+$/ }))?.text).toBe('─'.repeat(props.bodyColumns - 4))
+})
+
+test('the rail joins a scrolled list ↑ cue with ┤', async ($, on) => {
+  quiet(on)
+  const files = Array.from({ length: 30 }, (_, i) => ` M f${i}.ts\n`).join('')
+  on('process.run', (_, e) => ran(git(repoOn('b20', { status: `## b20...origin/b20\n${files}` }))(e.argv) ?? ''))
+  const ui = await mount($)
+  expect(await joined(ui)).not.toContain(3)
+  await wheel($, 5, 4)
+  // The branch row, the rule, the CHANGES header, the ↑ cue.
+  expect(await joined(ui)).toContain(3)
+})
+
+test('no ┤ with a margin modal open', async ($, on) => {
+  quiet(on)
+  on('process.run', (_, e) => ran(git(repoOn('b20', { status: '## b20...origin/b20\n M a.ts\n' }))(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, 'branch')
+  expect(await ui.find({ key: 'modal' })).toBeDefined()
+  expect(await joined(ui)).toEqual([])
 })

@@ -103,8 +103,8 @@ test('Git tab shows the branch, changed files and last commits', async ($, on) =
   // The name alone; diverged from its upstream, one mark: the counts are in the branch card.
   expect(await ui.find({ type: 'Text', text: '⎇ main', in: 'row:branch' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: ' ↕', in: 'row:branch' })).toBeDefined()
-  // A rule under the branch, as wide as the body.
-  expect(await ui.find({ type: 'Text', text: new RegExp(`^─{${props.bodyColumns - 8}}$`) })).toBeDefined()
+  // A rule under the branch, as wide as the body: margins and all, to the rail.
+  expect(await ui.find({ type: 'Text', text: new RegExp(`^─{${props.bodyColumns - 4}}$`) })).toBeDefined()
   // The file count faint, then the lines added and removed, summed.
   expect((await ui.find({ type: 'Text', text: '3 files' }))?.props.color).toBe('#4f5c68')
   expect(await ui.find({ type: 'Text', text: '+86' })).toBeDefined()
@@ -203,7 +203,7 @@ test('the narrowest pane keeps the Git headers on one row, dropping their counts
     '--count': '142\n',
   }
   on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 27 }, requestId: 'margin' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 25 }, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
   // 19 columns: "CHANGES 3 files" fits, the line counts after it do not; "COMMITS ↑3" fits, the total does not.
@@ -1028,7 +1028,7 @@ test('a long branch row is cut to fit beside the fetch button, not wrapped', asy
   expect(branch.endsWith('…')).toBe(true)
   // The body less its margins: the branch, its mark, a space at least, the fetch button.
   const fetch = (await ui.findAll({ type: 'Text', text: /^\uf46a /, in: 'row:fetch' })).at(-1)?.text ?? ''
-  expect(branch.length + 2 + 1 + fetch.length).toBeLessThanOrEqual(props.bodyColumns - 8)
+  expect(branch.length + 2 + 1 + fetch.length).toBeLessThanOrEqual(props.bodyColumns - 6)
 })
 
 test("a conflict shows git's two letters, both red, whatever git pairs", async ($, on) => {
@@ -1078,7 +1078,7 @@ test("History tab lists this chat's prompts, newest first, wherever the shell cd
 
   expect((await ui.find({ key: 'jump:0' }))?.text).toContain('newest prompt')
   // "↻ " takes 2 columns; the jump button fills the rest of the row.
-  expect((await ui.find({ key: 'jump:0' }))?.text.length).toBe(props.bodyColumns - 8 - 2)
+  expect((await ui.find({ key: 'jump:0' }))?.text.length).toBe(props.bodyColumns - 6 - 2)
   expect((await ui.find({ key: 'jump:1' }))?.text).toContain('older prompt')
   expect(await ui.find({ key: 'jump:2' })).toBeUndefined()
 })
@@ -1296,10 +1296,10 @@ test('a day divider opens each day, once', async ($, on) => {
   await ui.redraw()
 
   expect((await ui.findAll({ type: 'Text', text: 'Today' })).length).toBe(1)
-  // "──── Today ────" spans the row exactly (side margins take 4 columns), label centered.
+  // "──── Today ────" spans the row exactly (the whole body), label centered.
   const [left] = await ui.findAll({ type: 'Text', text: /^─+ $/ })
   const [right] = await ui.findAll({ type: 'Text', text: /^ ─+$/ })
-  expect((left?.text.length ?? 0) + 'Today'.length + (right?.text.length ?? 0)).toBe(props.bodyColumns - 8)
+  expect((left?.text.length ?? 0) + 'Today'.length + (right?.text.length ?? 0)).toBe(props.bodyColumns - 4)
   expect(Math.abs((left?.text.length ?? 0) - (right?.text.length ?? 0))).toBeLessThanOrEqual(1)
   expect(left?.props.color).toBe('#625a7e')
   expect((await ui.findAll({ type: 'Text', text: dayLabel(Date.now() - 3 * day, new Date()) })).length).toBe(1)
@@ -4190,7 +4190,7 @@ test('a long agent description is fitted to the pane', async ($, on) => {
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await spawn($, 'x'.repeat(80))
   await ui.drawn()
-  expect((await agentRow(ui, 0, 0))?.text).toBe(`└ ◌ ${'x'.repeat(24)}…`)
+  expect((await agentRow(ui, 0, 0))?.text).toBe(`└ ◌ ${'x'.repeat(26)}…`)
 })
 
 test("a dimmed report dims its agent rows", async ($, on) => {
@@ -4276,14 +4276,14 @@ test("clicking a live agent row opens its transcript, its whole row lit while in
   // A Button: $.ui.view runs only from the person's own press, and a row Client's post is code.
   expect(await ui.find({ key: 'git:o:agent:0:0' })).toBeDefined()
   // Padded to the row's end, so the pointer's invert covers the whole row as the lit one does.
-  expect(flat(await ui.find({ key: 'git:o:agent:0:0' }))).toHaveLength(40 - 4 - 7)
+  expect(flat(await ui.find({ key: 'git:o:agent:0:0' }))).toHaveLength(40 - 2 - 7)
   // The planned 'Check API' has no agent to open.
   await tapRow(ui, 'o:agent:1:0')
   expect(views).toEqual([])
   await tapRow(ui, 'o:agent:0:0')
   await ui.redraw({ ...props, view: { agentId: 'a1' } })
   // Lit as the shown tab is: the whole row, padded to the pane's edge.
-  expect((await pieces(ui, 'o:agent:0:0'))?.[0]).toMatchObject({ text: `└ ◌ Read code${' '.repeat(40 - 4 - 7 - 13)}`, bold: true, inverse: true, color: 'claude' })
+  expect((await pieces(ui, 'o:agent:0:0'))?.[0]).toMatchObject({ text: `└ ◌ Read code${' '.repeat(40 - 2 - 7 - 13)}`, bold: true, inverse: true, color: 'claude' })
   await tapRow(ui, 'o:agent:0:0')
   expect(views).toEqual(['a1', undefined])
 })
@@ -4523,14 +4523,14 @@ test('the File header is the path from the working directory, or from ~, with a 
   // As Git's branch row: the path in the action color, the line faint on the right.
   expect(await colorOf(ui, 'src/a.ts')).toBe('#5d9678')
   expect(await colorOf(ui, 'line 65')).toBe('#4f5c68')
-  expect(await ui.find({ type: 'Text', text: new RegExp(`^─{${props.bodyColumns - 8}}$`) })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: new RegExp(`^─{${props.bodyColumns - 4}}$`) })).toBeDefined()
 })
 
 test('a long File header keeps its line and cuts the path from the left', async ($, on) => {
   on('session.cwd', () => ({ value: '/repo' }))
   const ui = await fileTab($, on, fileView(`/repo/${'deep/'.repeat(20)}a.ts`, 65, lines(200)))
   const head = await ui.find({ type: 'Text', text: /^….*\/a\.ts$/ })
-  expect(String(head?.text)).toHaveLength(props.bodyColumns - 8 - 'line 65'.length - 1)
+  expect(String(head?.text)).toHaveLength(props.bodyColumns - 6 - 'line 65'.length - 1)
   expect(await ui.find({ type: 'Text', text: 'line 65' })).toBeDefined()
 })
 
@@ -5307,4 +5307,82 @@ test('the widened rail follows a resize', async ($, on) => {
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.redraw({ ...props, bodyColumns: 67 })
   expect((await ui.find({ key: 'rail-wide' }))?.props.left).toBe(Math.max(0, 67 - 14))
+})
+
+// The rail rows (0-based, under its top rule) drawing ┤.
+const joinedRows = async (ui: { drawn: () => Promise<unknown> }) => {
+  const out: number[] = []
+  const walk = (n: any) => {
+    if (!n || typeof n !== 'object') return
+    if (Array.isArray(n)) return n.forEach(walk)
+    const row = /^rail:(\d+)$/.exec(n.props?.key ?? '')?.[1]
+    const kids = [n.children, n.props?.children].flat().filter(x => x !== undefined && x !== null)
+    if (row !== undefined && JSON.stringify(kids).includes('┤')) out.push(Number(row))
+    walk(kids)
+  }
+  walk(await ui.drawn())
+  return out.sort((a, b) => a - b)
+}
+
+test('the rail follows the Git divider: more CHANGES rows move its ┤ down', async ($, on) => {
+  noHistory(on)
+  const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
+  on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'Git' })
+  // The branch row, its rule, the header, 7 CHANGES rows: the divider on row 10.
+  expect(await joinedRows(ui)).toEqual([1, 10])
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'divider' })
+  await ui.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'divider' })
+  await ui.pointer({ type: 'up', x: 0, y: 2, button: 'left', in: 'divider' })
+  expect(await joinedRows(ui)).toEqual([1, 12])
+})
+
+test('the rail follows a History day line as the list scrolls', async ($, on) => {
+  const day = 24 * 60 * 60 * 1000
+  const start = Date.now() - 120_000
+  const history = [...Array.from({ length: 30 }, (_, i) => start - 3 * day + i * 1000), ...Array.from({ length: 30 }, (_, i) => start + i * 1000)]
+    .map((timestamp, i) => JSON.stringify({ display: `p${i}`, timestamp, sessionId: 'chat-1' }))
+    .join('\n')
+  on('clock.now', () => ({ value: 0 }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('process.run', (_, e) => ran(isHistoryGrep(e.argv) ? history : ''))
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await ui.redraw()
+  // Under the header, the first day line.
+  expect(await joinedRows(ui)).toEqual([1])
+  await ui.press({ key: 'history:down' })
+  // The ↑ cue under the header.
+  expect(await joinedRows(ui)).toEqual([1])
+  await ui.press({ key: 'history:down' })
+  // Past the ↑ cue: the second day line.
+  expect(await joinedRows(ui)).toEqual([1, 2])
+})
+
+test('the rail joins the Overview rules: under ASK, under TAKE, over the status row', async ($, on) => {
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await ui.drawn()
+  expect(await joinedRows(ui)).toEqual([1, 3, 16])
+})
+
+test('every Overview rule spans the body, and no narrower cut clips it', async ($, on) => {
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await ui.drawn()
+  const rules: { len: number; cuts: any[] }[] = []
+  const walk = (n: any, cuts: any[]) => {
+    if (!n || typeof n !== 'object') return
+    if (Array.isArray(n)) return n.forEach(x => walk(x, cuts))
+    const kids = [n.children, n.props?.children].flat().filter(x => x !== undefined && x !== null)
+    if (n.type === 'Text' && kids.length && kids.every(x => typeof x === 'string') && /^─+$/.test(kids.join(''))) rules.push({ len: kids.join('').length, cuts })
+    walk(kids, n.type === 'Box' && n.props?.overflow === 'hidden' ? [...cuts, n.props] : cuts)
+  }
+  walk(await ui.drawn(), [])
+  // TAKE's, STEPS' and the footer's, each from the body's first column to the rail.
+  expect(rules.map(r => r.len)).toEqual([props.bodyColumns - 4, props.bodyColumns - 4, props.bodyColumns - 4])
+  // A cut around a rule reaches out over the margins, or it trims the rule's ends.
+  expect(rules.flatMap(r => r.cuts).filter(c => c.height === undefined && c.marginX !== -1)).toEqual([])
 })
