@@ -111,4 +111,28 @@ nosid() {
 }
 check "no session id: never counts" nosid
 
+# settings commands: node only starts when the feature key is in claudzilla.json
+mkdir -p "$TMP/bin"; printf '#!/bin/sh\ncat > "%s/node.in"\necho called >> "%s/node.rec"\n' "$TMP" "$TMP" >"$TMP/bin/node"; chmod +x "$TMP/bin/node"
+gate_cmd() { REPO="$REPO" node -p 'const h=require(process.env.REPO+"/settings.base.json").hooks; [h.UserPromptSubmit, h.PreToolUse].flat().flatMap(e=>e.hooks).map(x=>x.command).filter(c=>c.includes("delegate-nudge")).join("\n")' ; }
+gated() {
+  local c rc=0; rm -f "$TMP/node.rec" "$TMP/node.in"
+  while IFS= read -r c; do
+    rm -f "$TMP/node.rec" "$TMP/node.in"; : >"$CLAUDE_CONFIG_DIR/claudzilla.json"
+    [ "$(echo '{"x":1}' | PATH="$TMP/bin:$PATH" sh -c "$c"; echo "rc$?")" = rc0 ] && [ ! -e "$TMP/node.rec" ] || rc=1
+    on; echo '{"x":1}' | PATH="$TMP/bin:$PATH" sh -c "$c"
+    [ -e "$TMP/node.rec" ] && [ "$(cat "$TMP/node.in")" = '{"x":1}' ] || rc=1
+  done <<<"$(gate_cmd)"
+  [ "$(gate_cmd | wc -l)" = 2 ] && return $rc
+}
+check "settings: both nudge commands skip node when off, pass stdin when on" gated
+# Off, the shell gate exits before node, so it must drain the event itself: a big one must never meet a closed pipe.
+gated_drain() {
+  local c o; : >"$CLAUDE_CONFIG_DIR/claudzilla.json"
+  while IFS= read -r c; do
+    o=$(node -e 'process.stdout.write("x".repeat(200000))' | sh -c "$c"; echo "rc=${PIPESTATUS[*]}")
+    [ "$o" = "rc=0 0" ] || return 1
+  done <<<"$(gate_cmd)"
+}
+check "settings: off gate drains large input" gated_drain
+
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

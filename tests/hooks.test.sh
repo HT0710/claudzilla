@@ -794,6 +794,22 @@ uout=$(CLAUDE_CONFIG_DIR="$UC" sh "$TMP/uclone/claude/hooks/claudzilla-update.sh
 UT="$UC/claudzilla-trace/nosession.update.jsonl"
 check "trace: updater logs update.check and update.start" bash -c "grep -q '\"event\":\"update.check\"' '$UT' && grep -q '\"event\":\"update.start\"' '$UT'"
 check "updater stdout still the notice" has "$uout" "update v1.0.0 available"
+# updater fetch: an ssh remote must never prompt, so ssh gets BatchMode and GIT_ASKPASS is empty
+git clone -q "$TMP/uorigin" "$TMP/uclone2"; mkdir -p "$TMP/uclone2/claude/hooks"
+cp "$REPO"/claude/hooks/{claudzilla-update.sh,rules-guard.mjs,trace.mjs,trace.pl} "$TMP/uclone2/claude/hooks/"
+printf '#!/bin/sh\nprintf "%%s askpass=[%%s]\\n" "$*" "${GIT_ASKPASS-unset}" >> "%s/ssh.rec"\nexit 1\n' "$TMP" > "$TMP/fakessh"; chmod +x "$TMP/fakessh"
+git -C "$TMP/uclone2" remote set-url origin ssh://git@example.invalid/x/y.git; git -C "$TMP/uclone2" config core.sshCommand "$TMP/fakessh"
+CLAUDE_CONFIG_DIR="$UC" sh "$TMP/uclone2/claude/hooks/claudzilla-update.sh" >/dev/null
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ -s "$TMP/ssh.rec" ] && break; sleep 0.25; done
+check "updater fetch: ssh gets BatchMode, GIT_ASKPASS empty" bash -c "grep -q -- '-o BatchMode=yes' '$TMP/ssh.rec' && grep -q 'askpass=\[\]' '$TMP/ssh.rec'"
+# GIT_SSH (plink) wins over core.sshCommand in git and takes no ssh options, so the updater leaves it alone
+git clone -q "$TMP/uorigin" "$TMP/uclone3"; mkdir -p "$TMP/uclone3/claude/hooks"
+cp "$REPO"/claude/hooks/{claudzilla-update.sh,rules-guard.mjs,trace.mjs,trace.pl} "$TMP/uclone3/claude/hooks/"
+sed 's/ssh.rec/plink.rec/' "$TMP/fakessh" > "$TMP/fakeplink"; chmod +x "$TMP/fakeplink"
+git -C "$TMP/uclone3" remote set-url origin ssh://git@example.invalid/x/y.git
+GIT_SSH="$TMP/fakeplink" CLAUDE_CONFIG_DIR="$UC" sh "$TMP/uclone3/claude/hooks/claudzilla-update.sh" >/dev/null
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ -s "$TMP/plink.rec" ] && break; sleep 0.25; done
+check "updater fetch: GIT_SSH used as is, no BatchMode" bash -c "[ -s '$TMP/plink.rec' ] && ! grep -q BatchMode '$TMP/plink.rec'"
 
 # --- release sync: opt-in; a PR merge reminds to rebase the open release branch onto main ---
 W=$(repo); cd "$W"; new_session; hook UserPromptSubmit prompt=merge >/dev/null
