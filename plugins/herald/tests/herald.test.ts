@@ -675,18 +675,33 @@ const suggested = (on: On) => {
 }
 
 test('emptying the box after the cold status suggests /claudzilla handoff', async ($, on) => {
-  const { clock, status } = idle(on)
+  const { clock, status, box } = idle(on)
   keyed(on)
   const s = suggested(on)
   await $.session.start(start)
   await ctxMeasure($, L1)
   await clock.advance(HOUR)
+  box.text = 'x'
   await key($, 'x')
   await until(() => cs(status).length > 0)
   await tick()
   expect(s).toEqual([])
   await key($, '')
   await until(() => s.length > 0)
+  expect(s).toEqual(['/claudzilla handoff'])
+})
+
+test('a first key that empties the filled box suggests /claudzilla handoff', async ($, on) => {
+  const { clock, status, box } = idle(on, { box: '/claudzilla compact' })
+  keyed(on)
+  const s = suggested(on)
+  await $.session.start(start)
+  await ctxMeasure($, L1)
+  await clock.advance(HOUR)
+  box.text = ''
+  await key($, '')
+  await until(() => cs(status).length > 0)
+  await tick()
   expect(s).toEqual(['/claudzilla handoff'])
 })
 
