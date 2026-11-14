@@ -2413,6 +2413,17 @@ test('a Bash write to a shell variable folds from the engine diff', async ($, on
   expect(await textOf(await useRow($, reloaded(command, [HUNK])), 'b1')).toBe('● Updated (f.txt)  +1 −1')
 })
 
+test('a Bash write the parse saw unchanged still folds the files the engine diff names, as a script', async ($, on) => {
+  native(on)
+  bashFs(on, { '/p/out.txt': 'same\n' })
+  const command = 'bash run.sh > out.txt'
+  await bash($, command)
+  const ui = await useRow($, reloaded(command, [HUNK]))
+  expect(await textOf(ui, 'b1')).toMatch(/^● Ran \(.*\)  \+1 −1$/)
+  await click(ui, 'fold:b1')
+  expect(await treeOf(ui)).toEqual(['  ├ Updated (f.txt)  +1 −1', '  └ created'])
+})
+
 test('a reloaded Bash edit opens its diff on a press of the file row', async ($, on) => {
   native(on)
   const ui = await useRow($, reloaded('python fix.py', [HUNK]))
