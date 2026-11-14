@@ -850,7 +850,7 @@ const pick = async ($: EngineInterface, next: Tab) => {
   if (next === 'Git') {
     // Not awaited: a fetch can take a minute.
     void autoFetch($)
-    await readGh($)
+    void readGh($)
   }
 }
 const tabCommand = (name: string) => `margin-${name.toLowerCase()}`
