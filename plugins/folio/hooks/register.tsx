@@ -657,7 +657,7 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     // A /clear or resume goes on under a new session id, which needs its own cols file.
     wroteColumns = 0
-    for (const rows of [runs, done, placed, shownDiffs, agents, spawned, bashEdits, lostWrites, openGroups]) rows.clear()
+    for (const rows of [runs, done, placed, shownDiffs, agents, spawned, bashEdits, scripts, lostWrites, openGroups]) rows.clear()
     current = undefined
     await t.flush(traceIo($))
     return next(e)
@@ -823,10 +823,10 @@ export const register: Register = on => {
     if (was && !found.length) return ran
     // No parsed target exists, as with `sed -i ... $f`: the parse misread it, so the engine's bashEditDiff stays adoptable.
     if (!was && files.every((_, i) => before[i] === undefined && after[i] === undefined)) return ran
-    if (scripts.size > 500) scripts.clear()
+    // Cleared together: a script row without its edit record would draw nothing.
+    if (bashEdits.size > 500) for (const s of [bashEdits, scripts]) s.clear()
     if (was) scripts.add(e.tool_use_id)
     // A write that changed nothing still unfolds its group, so a rerun looks like the first run.
-    if (bashEdits.size > 500) bashEdits.clear()
     bashEdits.set(e.tool_use_id, found)
     $.ui.invalidate('ui.render')
     return ran
@@ -838,8 +838,7 @@ export const register: Register = on => {
     const files = (output as { bashEditDiff?: { files?: { filePath: string; hunks: Hunk[] }[] } } | undefined)?.bashEditDiff?.files
     if (bashEdits.has(id) || !files?.length) return false
     const count = (hunks: Hunk[], sign: string) => hunks.flatMap(h => h.lines).filter(line => line[0] === sign).length
-    if (scripts.size > 500) scripts.clear()
-    if (bashEdits.size > 500) bashEdits.clear()
+    if (bashEdits.size > 500) for (const s of [bashEdits, scripts]) s.clear()
     if (!writeTargets(command).length) scripts.add(id)
     // The engine writes a new file as one hunk with no old lines (@@ -1,0 +1,N @@); an existing file's hunk has context.
     bashEdits.set(id, files.map(({ filePath, hunks }) => ({ file: filePath, add: count(hunks, '+'), del: count(hunks, '-'),
@@ -898,8 +897,18 @@ export const register: Register = on => {
     type Row = { pieces: Piece[]; key?: string; edit?: { file: string; diff?: string }; out?: 'first' | 'more' }
     const rows = isOpen && !lone ? calls.flatMap((c): Row[] => {
       const edits = (c.tool_use_id && !c.isErrored && bashEdits.get(c.tool_use_id)) || []
-      if (edits.length) return edits.map((f, i) => ({ key: f.diff && `file:${c.tool_use_id}:${i}`, edit: f, pieces: [{ text: f.isNew ? 'Created' : EDIT.Edit!, bold: true },
-        { text: ' (', color: 'promptBorder' }, ...namePieces(name(f.file)), { text: ')', color: 'promptBorder' }, ...countPieces(f.add, f.del, f.isNew)] }))
+      if (edits.length) {
+        const files = edits.map((f, i): Row => ({ key: f.diff && `file:${c.tool_use_id}:${i}`, edit: f, pieces: [{ text: f.isNew ? 'Created' : EDIT.Edit!, bold: true },
+          { text: ' (', color: 'promptBorder' }, ...namePieces(name(f.file)), { text: ')', color: 'promptBorder' }, ...countPieces(f.add, f.del, f.isNew)] }))
+        // A script's output follows its file rows: three lines, then a count of the rest.
+        if (!scripts.has(c.tool_use_id!)) return files
+        const { stdout, stderr } = (c.output ?? {}) as { stdout?: unknown; stderr?: unknown }
+        const lines = ([[stdout, undefined], [stderr, 'error']] as const).flatMap(([s, color]) => typeof s === 'string' ? plain(s).split('\n').map(l => ({ text: l, color })) : [])
+        while (lines.length && !lines.at(-1)!.text) lines.pop()
+        const shown: Piece[][] = lines.slice(0, 3).map(l => [l])
+        if (lines.length > 3) shown.push([{ text: `… +${lines.length - 3} lines` }])
+        return [...files, ...shown.map((pieces, i): Row => ({ pieces, out: i ? 'more' : 'first' }))]
+      }
       const tail: Piece[] = c.isErrored ? [{ text: '  ' }, { text: 'failed', color: 'error' }] : c.isInterrupted ? [{ text: '  ' }, { text: 'interrupted', color: 'inactive' }] : []
       const room = columns - TREE_INDENT - tail.reduce((sum, p) => sum + p.text.length, 0)
       // The call's main argument: its path, pattern, command or address.
@@ -909,15 +918,6 @@ export const register: Register = on => {
       const arg = !key ? '' : key === 'file_path' || key === 'path' ? name(String(args[key])) : String(args[key]).split('\n')[0]!
       return [{ pieces: [{ text: c.tool, bold: true }, ...(arg ? [{ text: ' (', color: 'promptBorder' }, { text: clip(arg, room - c.tool.length - 3) }, { text: ')', color: 'promptBorder' }] : []), ...tail] }]
     }) : []
-    // A script's output ends its tree: three lines, then a count of the rest.
-    if (isOpen && scripts.has(requestId)) {
-      const { stdout, stderr } = (calls[0]?.output ?? {}) as { stdout?: unknown; stderr?: unknown }
-      const lines = ([[stdout, undefined], [stderr, 'error']] as const).flatMap(([s, color]) => typeof s === 'string' ? plain(s).split('\n').map(l => ({ text: l, color })) : [])
-      while (lines.length && !lines.at(-1)!.text) lines.pop()
-      const shown: Piece[][] = lines.slice(0, 3).map(l => [l])
-      if (lines.length > 3) shown.push([{ text: `… +${lines.length - 3} lines` }])
-      rows.push(...shown.map((pieces, i): Row => ({ pieces, out: i ? 'more' : 'first' })))
-    }
     const last = rows.findLastIndex(r => r.out !== 'more')
 
     return (

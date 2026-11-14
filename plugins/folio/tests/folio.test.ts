@@ -2134,12 +2134,43 @@ test('a script with no output ends its tree on the file row', async ($, on) => {
   expect(await treeOf(ui)).toEqual(['  └ Updated (a.txt)  +1 −1'])
 })
 
+test("a group's script calls each draw their output under their own row", async ($, on) => {
+  native(on)
+  let n = 0
+  gitFs(on, { '/p/a.txt': 'a\n', '/p/c.txt': 'c\n' }, { '/p/a.txt': 'a\n', '/p/c.txt': 'c\n' }, files => (files[n++ ? '/p/c.txt' : '/p/a.txt'] = 'b\n'))
+  await bash($, 'python fix.py', 'b1')
+  await bash($, 'python gen.py', 'b2')
+  const ui = await group($, [call('r1', 'Read', { file_path: '/p/a.txt' }), call('b1', 'Bash', { command: 'python fix.py' }, { output: { stdout: 'one\n' } }),
+    call('b2', 'Bash', { command: 'python gen.py' }, { output: { stdout: 'two\n' } })])
+  await click(ui, `fold:g${groups}`)
+  expect(await treeOf(ui)).toEqual(['  ├ Read (a.txt)', '  ├ Updated (a.txt)  +1 −1', '  ├ one', '  ├ Updated (c.txt)  +1 −1', '  └ two'])
+})
+
 test('an errored script call shows its output while closed', async ($, on) => {
   native(on)
   gitFs(on, { '/p/a.txt': 'a\n' }, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))
   await bash($, 'python fix.py')
   await useRow($, call('b1', 'Bash', { command: 'python fix.py' }))
   expect(await scriptResult($, true)).toBe('native block')
+})
+
+test('an old script row draws native once its edit record is dropped', async ($, on) => {
+  native(on)
+  let n = 0
+  gitFs(on, { '/p/a.txt': 'a\n' }, { '/p/a.txt': 'a\n' }, files => (files[n++ ? `/p/f${n}.txt` : '/p/a.txt'] = 'b\n'))
+  await bash($, 'python fix.py')
+  for (let i = 0; i < 510; i++) await bash($, `echo x > f${i + 2}.txt`, `e${i}`)
+  await useRow($, call('b1', 'Bash', { command: 'python fix.py' }))
+  expect(await scriptResult($)).toBe('native block')
+})
+
+test('a session end forgets scripts', async ($, on) => {
+  native(on)
+  on('session.end', () => ({ sessionId: 's1' }))
+  gitFs(on, { '/p/a.txt': 'a\n' }, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))
+  await bash($, 'python fix.py')
+  await $.session.end({ reason: 'clear' } as any)
+  expect(await scriptResult($)).toBe('native block')
 })
 
 test('off the fullscreen layout a script write keeps the engine row', async ($, on) => {
