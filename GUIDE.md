@@ -408,7 +408,7 @@ The ballot card appears after a reply with one `Decision` table of two or more o
 - Press **alt+k** to move into the ballot card, on the recommended row. **Arrow keys** move between rows, **Enter** puts the answer in the prompt box, and **Esc** goes back without one. Without the claudzilla key, `ctrl+x tab` does the same. On macOS, alt is the Option key, and your terminal must send it as Meta; see [Option key shortcuts on macOS](https://code.claude.com/docs/en/terminal-config#enable-option-key-shortcuts-on-macos).
 - Or ignore the ballot card and type your own answer.
 
-The ballot card hides while Claude works and goes once you send any prompt. When a reply has nothing to choose, such as a `**Picks:**` line, a Next line that says `say go`, or a **Compact** line with no Next, no ballot card appears: only the dim answer, such as `1B, 2A` or `go`, waits in the prompt box.
+The ballot card hides while Claude works and goes once you send any prompt. When a reply has nothing to choose, such as a `**Picks:**` line, a Next line that says `say go`, or a **Compact** line with no Next, no ballot card appears. The same goes for a reply whose Picks or `say B and I'll X` names a different option than its Decision recommends: only the dim answer, such as `1B, 2A` or `go`, waits in the prompt box.
 
 An answer you send speaks in your voice, so the history reads as you wrote it: Claude's `show you the diff` comes back as `show me the diff`, and `your branch` as `my branch`. The ballot card's rows read the same way. Code and double-quoted text stay as written.
 
