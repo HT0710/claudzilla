@@ -807,7 +807,8 @@ export const register: Register = on => {
     if (was) files = [...was.keys()]
     const before = await Promise.all(files.map(read))
     const ran = await next(e)
-    if (ran.deny || ran.isError) return ran
+    // A failed command's writes still count: its row folds and draws `failed`.
+    if (ran.deny) return ran
     if (was) {
       // shortcut: another session or a parallel Bash call writing at the same time counts as this call's write.
       const fresh = [...((await dirty(top)) ?? new Map<string, string>())].filter(([f]) => !was.has(f))
@@ -999,24 +1000,26 @@ export const register: Register = on => {
     // A Client draws nothing on mobile.
     if (!hideEditDiff || e.surface !== 'terminal' || isExpanded) return native
     // A result drawn first shows the engine diff until this row records the edit.
-    if (!isRunning && !isErrored && !isInterrupted && adopt(e.requestId, output, String((input as { command?: unknown } | undefined)?.command ?? ''))) $.ui.invalidate('ui.render')
+    if (!isRunning && !isInterrupted && adopt(e.requestId, output, String((input as { command?: unknown } | undefined)?.command ?? ''))) $.ui.invalidate('ui.render')
     const bashEdit = bashEdits.get(e.requestId)?.length ? bashEdits.get(e.requestId) : undefined
     // The root, not cwd(): a shell `cd` moves cwd(), and every row would shift with it.
     const name = namer(tool in EDIT || bashEdit ? await $.session.root().catch(() => '') : '', e.viewport?.columns)
     if (bashEdit) {
-      if (isRunning || isErrored || isInterrupted) return native
+      if (isRunning || isInterrupted) return native
       // A script's title names its command even for one file; off the fullscreen layout it keeps the engine row.
       const isScript = scripts.has(e.requestId)
       if (isScript && !e.viewport?.isFullscreen) return native
       // Off the fullscreen layout a printed row cannot open, so each file keeps a plain row; so does a lone file with no diff to open.
-      if (e.viewport?.isFullscreen && (isScript || bashEdit.length > 1 || bashEdit[0]!.diff)) {
+      if (e.viewport?.isFullscreen && (isScript || isErrored || bashEdit.length > 1 || bashEdit[0]!.diff)) {
         const command = String((input as { command?: unknown } | undefined)?.command ?? '').split('\n')[0]!
         const add = bashEdit.reduce((sum, c) => sum + c.add, 0)
         const del = bashEdit.reduce((sum, c) => sum + c.del, 0)
-        const room = (e.viewport.columns ?? 80) - 8 - countPieces(add, del).reduce((sum, p) => sum + p.text.length, 0)
-        const title: Piece[] = [{ text: 'Ran', bold: true }, { text: ' (', color: 'promptBorder' }, { text: clip(command, room) }, { text: ')', color: 'promptBorder' }]
-        const call = { tool_use_id: e.requestId, tool, input, isRunning, isErrored, isInterrupted, output }
-        const folded = foldCalls($.ui.resolve(e), e.requestId, e.viewport.columns ?? 80, await $.session.root().catch(() => ''), [call], false, title, !isScript && bashEdit.length === 1 ? bashEdit[0] : undefined)
+        const failed: Piece[] = isErrored ? [{ text: '  ' }, { text: 'failed', color: 'error' }] : []
+        const room = (e.viewport.columns ?? 80) - 8 - failed.reduce((sum, p) => sum + p.text.length, 0) - countPieces(add, del).reduce((sum, p) => sum + p.text.length, 0)
+        const title: Piece[] = [{ text: 'Ran', bold: true }, { text: ' (', color: 'promptBorder' }, { text: clip(command, room) }, { text: ')', color: 'promptBorder' }, ...failed]
+        // Not errored to foldCalls, which leaves a failed group call's writes out; the title says `failed`.
+        const call = { tool_use_id: e.requestId, tool, input, isRunning, isErrored: false, isInterrupted, output }
+        const folded = foldCalls($.ui.resolve(e), e.requestId, e.viewport.columns ?? 80, await $.session.root().catch(() => ''), [call], false, title, !isScript && !isErrored && bashEdit.length === 1 ? bashEdit[0] : undefined)
         if (folded) return folded
       }
       if (isScript) return native

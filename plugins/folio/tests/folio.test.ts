@@ -1979,12 +1979,25 @@ test('a running Bash call drawn as its own row keeps its native row', async ($, 
   expect(await drawn($, 'Bash', undefined, { isRunning: true, input: { command: 'sleep 9' } })).toBe('native')
 })
 
-test('an errored Bash edit stays native and its group folds with no counts', async ($, on) => {
-  native(on)
+test('an errored Bash edit folds as a failed Ran row, keeps its error under it, and its group folds with no counts', async ($, on) => {
+  const seen = seenResult(on)
   bashFs(on, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'), true)
-  await bash($, 'echo b > a.txt; false')
-  expect(await rowsOf(await useRow($, call('b1', 'Bash', { command: 'x' }, { isErrored: true })))).toEqual([])
-  expect(await groupOf($, [call('b1', 'Bash', { command: 'x' }, { isErrored: true })])).toBe('● Ran (1 command)')
+  const command = 'echo b > a.txt; false'
+  await bash($, command)
+  const ui = await useRow($, call('b1', 'Bash', { command }, { isErrored: true }))
+  expect(await textOf(ui, 'fold:b1')).toBe('● Ran (echo b > a.txt; false)  failed  +1 −1')
+  await click(ui, 'fold:b1')
+  expect(await treeOf(ui)).toEqual(['  └ Updated (a.txt)  +1 −1'])
+  const result = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolResult', requestId: 'b1',
+    props: { tool_use_id: 'b1', tool: 'Bash', output: { stderr: 'boom', bashEditDiff: { files: [] } }, isErrored: true }, viewport: VIEW })
+  expect((await result.find({ type: 'Text' }))?.text).toBe('native block')
+  expect(seen.at(-1)).toEqual({ stderr: 'boom' })
+  expect(await groupOf($, [call('b1', 'Bash', { command }, { isErrored: true })])).toBe('● Ran (1 command)')
+})
+
+test('a reloaded errored Bash edit folds from the engine diff as a failed Ran row', async ($, on) => {
+  native(on)
+  expect(await textOf(await useRow($, reloaded('python fix.py', [HUNK], {}), { isErrored: true }), 'fold:b1')).toBe('● Ran (python fix.py)  failed  +1 −1')
 })
 
 test('a Bash write whose record the 500 cap dropped draws a Ran row, not the native one', async ($, on) => {
