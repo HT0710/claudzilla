@@ -417,6 +417,8 @@ export const kv = (rc: RowCtx, label: string, info: JSX.Element | string, right?
 const kvArgs = new WeakMap<object, [string, JSX.Element | string, JSX.Element | undefined]>()
 const infoLength = (info: JSX.Element | string) => (typeof info === 'string' ? info : toPieces(info).map(x => x.text).join('')).length
 export const textLength = (node: unknown) => toPieces(node).map(x => x.text).join('').length
+// A column's width: its widest cell, text or Texts; 0 for none.
+export const colWidth = (cells: unknown[]) => Math.max(0, ...cells.map(textLength))
 const insetOf = (rows: JSX.Element[]) => (rows.some(r => !kvArgs.get(r)) ? 1 : 0)
 const labelOf = (rows: JSX.Element[]) => 2 + Math.max(0, ...rows.map(r => kvArgs.get(r)?.[0].length ?? 0))
 const sharedInfo = (rc: RowCtx, rows: JSX.Element[]) => {

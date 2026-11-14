@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Check, CheckState, CommitView, Counts, FileView, Gh, LogRow, Modal, ModalKey, Op, Pr, PrState, PrView, Stage, Word } from '../types'
 import { LOG_FORMAT, age, ago, branches, cutMiddle, fetchDue, fileKey, incomingPrs, ownPrs, parseHead, parseLog, parseMerge, parseNumstat, parseRebase, parseShortstat, parseStatusZ, printable, sortChecks, stashCount, syncMark, treeRows, worktrees, worst } from './git-data'
-import { AHEAD, BEHIND, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, basicGlyphs, capped, card as kitCard, clock, configDir, contentFrame, counted as kitCounted, cues, dayName, dim, drawLayer as kitDrawLayer, emptyNote, fade, fadeBg, fileView, fit, heading as kitHeading, kv as kitKv, line as kitLine, modalFrame, modalZone, nudge, readTheme, row as kitRow, rowHovers, stackFrame, textLength, toPieces, zoneWindow } from './kit'
+import { AHEAD, BEHIND, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, basicGlyphs, capped, card as kitCard, clock, configDir, contentFrame, counted as kitCounted, cues, dayName, dim, drawLayer as kitDrawLayer, emptyNote, fade, fadeBg, fileView, fit, heading as kitHeading, kv as kitKv, line as kitLine, modalFrame, modalZone, nudge, readTheme, row as kitRow, rowHovers, stackFrame, toPieces, colWidth, zoneWindow } from './kit'
 import type { Frame, Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, Zone } from './kit'
 import { mdRows } from './markdown'
 
@@ -779,9 +779,9 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
     // widest name, so they read with it; a column no row fills is dropped.
     const shown = tree.flatMap(r => (r.branch ? [r.branch] : []))
     const cols = [
-      Math.max(0, ...shown.map(b => toPieces(syncOf(b)).map(x => x.text).join('').length)),
+      colWidth(shown.map(syncOf)),
       Math.max(0, ...shown.map(b => (b.pr ? `#${b.pr.n}`.length + 2 : 0))),
-      Math.max(0, ...shown.map(b => age(b.at, now).length)),
+      colWidth(shown.map(b => age(b.at, now))),
     ]
     const colsWidth = cols.filter(Boolean).reduce((n, w) => n + w + 2, 0)
     // ⎇ on the current branch and ⧉ on a worktree's, each 2 columns.
@@ -797,7 +797,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
         t.gone ? <Text color={HUD.faint}>gone</Text> : changed === null ? <Text color="warning">? changed</Text> : changed ? <Text color={HUD.faint}>{`${changed} changed`}</Text> : null,
       ]
     })
-    const treeCols = [0, 1].map(i => Math.max(0, ...treeCells.map(cells => textLength(cells[i]))))
+    const treeCols = [0, 1].map(i => colWidth(treeCells.map(cells => cells[i])))
     const treeColsWidth = treeCols.filter(Boolean).reduce((n, w) => n + w + 2, 0)
     const widestTree = Math.max(0, ...linkedTrees.map(t => t.branch?.length ?? 8 + where(t.path).length))
     const viewNames = ['base', 'prefix', ...(trees.length > 1 ? (['worktrees'] as const) : [])] as const

@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { AgentRow, Modal, Spawn, Step, Take } from '../types'
 import { printable } from './git-data'
-import { DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, LIT, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, contentFrame, capped, counted, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, readersOf, stackFrame, row as kitRow, rowHovers, toPieces, zoneWindow } from './kit'
+import { DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, LIT, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, contentFrame, capped, counted, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, readersOf, stackFrame, row as kitRow, rowHovers, toPieces, colWidth, zoneWindow } from './kit'
 import type { Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, UseKind, Zone } from './kit'
 
 const intent = atom({ plugin: 'margin', key: 'intent' } as const, EMPTY_INTENT)
@@ -298,8 +298,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     const countOf = (count?: number) => (count && count > 1 ? `×${count}` : '')
     // Columns from every name, shown or behind "show all", so both layers line up the same.
     const named = readers.flatMap(([r, m]) => treeOf(r, m, '', false))
-    const cw = Math.max(0, ...named.map(x => countOf(x.count).length))
-    const sw = Math.max(0, ...named.map(x => sourceFor(x.name)?.length ?? 0))
+    const cw = colWidth(named.map(x => countOf(x.count)))
+    const sw = colWidth(named.map(x => sourceFor(x.name)))
     // Each column padded to its widest, so counts end in one column and sources start in one.
     const hintOf = (name: string, count?: number) =>
       [...(cw ? [countOf(count).padStart(cw)] : []), ...(sw ? [(sourceFor(name) ?? '').padEnd(sw)] : [])].join('  ')
@@ -691,9 +691,9 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                 const names = [...recent.filter(n => !agentOnly.has(n)), ...recent.filter(n => agentOnly.has(n))]
                 const extra = agents > 0 ? ` +${agents}` : ''
                 // Counts right-aligned, as the Git tab's churn columns; +N in its own column after them.
-                const mainW = Math.max(...usedKinds.map(k => String(usedShown[k]!.main).length))
-                const extraW = Math.max(...usedKinds.map(k => (usedShown[k]!.agents > 0 ? ` +${usedShown[k]!.agents}`.length : 0)))
-                const kindW = Math.max(...usedKinds.map(k => k.length)) + 2
+                const mainW = colWidth(usedKinds.map(k => usedShown[k]!.main))
+                const extraW = colWidth(usedKinds.map(k => (usedShown[k]!.agents > 0 ? ` +${usedShown[k]!.agents}` : '')))
+                const kindW = colWidth(usedKinds) + 2
                 const room = Math.max(1, width - LABEL - kindW - mainW - extraW - 2)
                 const shorts = names.map(n => printable(shortName(kind, n, sourceOf[n])))
                 const line = fit(shorts.join(', '), room)
