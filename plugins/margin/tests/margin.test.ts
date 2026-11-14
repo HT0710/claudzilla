@@ -101,7 +101,7 @@ test('Git tab shows the branch, changed files and last commits', async ($, on) =
   await ui.press({ key: 'Git' })
 
   // The name alone; diverged from its upstream, one mark: the counts are in the branch card.
-  expect(await ui.find({ type: 'Text', text: '⎇ main', in: 'row:branch' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'main', in: 'row:branch' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: ' ↕', in: 'row:branch' })).toBeDefined()
   // A rule under the branch, as wide as the body: margins and all, to the rail.
   expect(await ui.find({ type: 'Text', text: new RegExp(`^─{${props.bodyColumns - 4}}$`) })).toBeDefined()
@@ -189,7 +189,7 @@ test('Git tab redraws after a tool call changes the repo', async ($, on) => {
   Object.assign(repo, { status: '## main...origin/main [ahead 1]\n', log: 'fed4321ffff fed4321 second\nabc1234ffff abc1234 first\n' })
   await $.tool.call({ tool: 'Bash', command: 'git commit -am second' })
 
-  expect(await ui.find({ type: 'Text', text: '⎇ main', in: 'row:branch' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'main', in: 'row:branch' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'fed4321' })).toBeDefined()
 })
 
@@ -962,7 +962,7 @@ test("a tab press switches even when the button's onPress is lost", async ($, on
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
-  expect(await ui.find({ type: 'Text', text: '⎇ main', in: 'row:branch' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'main', in: 'row:branch' })).toBeDefined()
 })
 
 test('a slow pane draw finishes before a newer fast one', async () => {
@@ -1025,7 +1025,8 @@ test('a long branch row is cut to fit beside the fetch button, not wrapped', asy
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
-  const branch = (await ui.findAll({ type: 'Text', text: /^⎇ /, in: 'row:branch' })).at(-1)?.text ?? ''
+  const name = (await ui.findAll({ type: 'Text', text: /^a-really/, in: 'row:branch' })).at(-1)?.text ?? ''
+  const branch = `⎇  feature/${name}`
   expect(branch.endsWith('…')).toBe(true)
   // The body less its margins: the branch, its mark, a space at least, the fetch button.
   const fetch = (await ui.findAll({ type: 'Text', text: /^\uf46a /, in: 'row:fetch' })).at(-1)?.text ?? ''
