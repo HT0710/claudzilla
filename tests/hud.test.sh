@@ -122,7 +122,7 @@ check "data: cache seconds left not shown as 100%" [ "$(cache "$(reply 3595 0 50
 check "data: cache reply but no write -> cold" [ "$(cache "$(reply 600 0 0)")" = "100 cold" ]
 check "data: cache no reply -> hot" [ "$(key cch "$(data <<<"$full")") $(key cch_note "$(data <<<"$full")")" = "0 hot" ]
 printf '%s\n' "$(reply 60 0 500)" > "$TMP/r.jsonl"
-check "data: reply but no limits -> no lim_wait" [ -z "$(key lim_wait "$(data <<<"{\"transcript_path\":\"$TMP/r.jsonl\"}")")" ]
+check "data: reply but no limits -> lim_wait" [ "$(key lim_wait "$(data <<<"{\"transcript_path\":\"$TMP/r.jsonl\"}")")" = 1 ]
 
 kv=$(data <<<'{"model":{"display_name":"a\u001b]52;c;aGk=\u0007b"}}')
 check "data: control chars dropped" [ "$(key model "$kv")" = "a ]52;c;aGk= b" ]
@@ -152,9 +152,9 @@ cache "$(reply 1800 0 500)" >/dev/null
 check "render: half cache one light blue bar" grep -q $'cch \e\\[38;2;146;188;228m▬[^\e ]*  50%' <<<"$(raw)"
 cache "$(reply 3660 0 500)" >/dev/null
 check "render: cold cache one orange bar" grep -q $'cch \e\\[38;2;255;170;90m▬[^\e ]* 100%  \e\\[38;2;64;71;80mcold' <<<"$(raw)"
-out=$(render "$nolim")
-check "render: no limits -> ctx only" [ "$(grep -cE '^(ctx|5h|wk) ' <<<"$out")" -eq 1 ]
-check "render: no limits -> cache below ctx, no divider" bash -c "grep -q '^cch .* 33%  *40m$' <<<'$out' && ! grep -q '┃' <<<'$out'"
+out=$(C="$TMP/none" render "$nolim")
+check "render: no login, no limits -> ctx only" [ "$(grep -cE '^(ctx|5h|wk) ' <<<"$out")" -eq 1 ]
+check "render: no login, no limits -> cache below ctx, no divider" bash -c "grep -q '^cch .* 33%  *40m$' <<<'$out' && ! grep -q '┃' <<<'$out'"
 # first launch, logged in: limits not in yet, so 5h | wk hold their slots
 out=$(render '{"session_id":"w1"}')
 check "render: limits pending -> 5h placeholder" grep -qE '^ctx .*┃ 5h  (▱)+  --%     --$' <<<"$out"
@@ -192,7 +192,9 @@ check "compact: clock never outlives the skill" [ "$clock_alone" = 0 ]
 check "compact: 109 cols -> one meter row" [ "$(strip 109 '{"session_id":"w1"}' | wc -l)" -eq 3 ]
 check "compact: 108 cols -> two columns, 4 rows" [ "$(strip 108 '{"session_id":"w1"}' | wc -l)" -eq 4 ]
 check "compact: 108 cols, short notes -> height holds" [ "$(strip 108 "$full" | wc -l)" -eq 4 ]
-check "compact: no limits -> cache beside ctx" grep -q '^cch .* 33%  40m ┃ ctx ' <<<"$(strip 120 "$nolim")"
+mkdir -p "$TMP/nologin" && cp "$C/claudzilla.json" "$TMP/nologin/"
+out=$(C="$TMP/nologin" strip 120 "$nolim")
+check "compact: no login, no limits -> cache beside ctx, no 5h" bash -c "grep -q '^cch .* 33%  40m ┃ ctx ' <<<'$out' && ! grep -q ' 5h ' <<<'$out'"
 check "compact: limits waiting -> note beside percent" grep -q '┃ 5h  [^ ].*[^ ]  --%  -- ┃ wk  [^ ].*[^ ]  --%  --$' <<<"$(strip 120 '{"session_id":"w1"}')"
 # divider columns, whatever the note and percent lengths
 dividers() { sed -n 2p | perl -Mutf8 -CS -ne 'while (/\x{2503}/g) { print pos(), " " }'; }
