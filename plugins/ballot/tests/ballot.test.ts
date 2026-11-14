@@ -58,7 +58,6 @@ test('parse: two Decisions, only one with a table, give no rows', () => {
 
 test('parse: the bold-label Recommend form picks too, and only one row is ever picked', () => {
   expect(parse(LETTERS.replace('**Recommend: A**', '**Recommend:** B'))?.rows.filter(r => r.picked).map(r => r.id)).toEqual(['B'])
-  expect(parse(LONE.replace('**Picks:** 2', '**Picks:** 3'))?.rows.filter(r => r.picked).map(r => r.id)).toEqual(['2'])
 })
 
 test('parse: no lone decision → title from "say go → I run X", else Picks, else Next', () => {
@@ -241,6 +240,21 @@ test('parse: one Decision table gives its rows, the recommended one picked', () 
     { id: '2', text: 'push + PR', picked: true },
     { id: '3', text: 'keep the branch as-is', picked: false },
   ])
+})
+
+test('parse: a Next or Picks naming the Recommend option keeps the card; naming another hides it', () => {
+  const b = LETTERS.replace('**Recommend: A**', '**Recommend: B**').replace('\n\n**Next:** say go.', '')
+  const card = (tail: string) => {
+    const o = parse(`${b}\n\n${tail}`)
+    return [o?.rows.find(r => r.picked)?.id ?? (o?.rows.length ? 'none' : 'hidden'), o?.go]
+  }
+  expect(card('**Next:** say go.')).toEqual(['B', 'go'])
+  expect(card("**Next:** say go and I'll run brainstorming.")).toEqual(['B', 'run brainstorming'])
+  expect(card("**Next:** say B and I'll brainstorm it.")).toEqual(['B', 'B: brainstorm it'])
+  expect(card('**Picks:** B, fixes 1–3')).toEqual(['B', 'B, fixes 1–3'])
+  expect(card('**Picks:** A')).toEqual(['hidden', 'A: no retry'])
+  expect(card("**Next:** say A and I'll skip it.")).toEqual(['hidden', 'A: skip it'])
+  expect(card('**Next:** want me to run the tests?')).toEqual(['B', 'run the tests'])
 })
 
 test('parse: bold header and option cells read like plain ones', () => {
