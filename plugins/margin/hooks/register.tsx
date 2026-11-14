@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { CommitView, LogRow, Gh, Intent, Modal, PrView, Spawn, Step, Tab, Take } from '../types'
 import { parseCommitView, parsePrView, parsePrs, printable } from './git-data'
-import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, WHEEL_HOLD, CARD, applyPalette, basicGlyphs, configDir, clock, dim, drawnZones, fadeTree, fileView, fit, hoverOf, keepZones, modalOpen, readersOf, setZones } from './kit'
+import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, WHEEL_HOLD, applyPalette, basicGlyphs, configDir, clock, dim, drawnZones, fadeTree, fileView, fit, hoverOf, keepZones, modalOpen, readersOf, setZones } from './kit'
 import type { Prompt, Readers, TabCtx, TabDraw, UseEntry, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
@@ -1479,26 +1479,6 @@ export const register: Register = (on, options) => {
     const flagged = await read($, notices)
     const modalShown = modalOpen()
     const top = railTop(inner)
-    const wide = RAIL.flatMap((one, n) => {
-      const name = one.toLowerCase().indexOf(KEYS[one])
-      // The key's letter keeps the name's case.
-      const title = name < 0 ? [one] : [one.slice(0, name), <Text underline>{one[name]}</Text>, one.slice(name + 1)]
-      const flag = flagged.includes(one)
-      const used = 3 + one.length + (flag ? 2 : 0)
-      const label = [` ${basic ? KEYS[one] : ICON[one]} `, ...title, flag ? <Text color="warning"> !</Text> : '', ' '.repeat(Math.max(0, WIDE - 1 - used))]
-      return [
-        <Box key={`wide-row:${n}`} width={WIDE - 1}>
-          {one === current ? (
-            <Text key={`wide:${one}`} bold inverse color="claude">{label}</Text>
-          ) : (
-            <Button key={`wide:${one}`} plain onPress={() => pick($, one)}>
-              <Text color={HUD.idle}>{label}</Text>
-            </Button>
-          )}
-        </Box>,
-        <Box key={`wide-gap:${n}`} width={WIDE - 1} height={1} />,
-      ]
-    })
     // A modal hides the rules' rows from the person: nothing joins.
     const joined = new Set(modalShown ? [] : out.rules)
     const rail = Array.from({ length: inner }, (_, row) => {
@@ -1524,6 +1504,36 @@ export const register: Register = (on, options) => {
         </Box>
       )
     })
+    // Every row paints all WIDE cells, so the body under it stays hidden. Row 0 is the pane's top rule (┬ joins it);
+    // the box is open below and at the right (the pane edge).
+    const wide = [
+      <Text key="wide-top" color="promptBorder">{'┬' + '─'.repeat(WIDE - 1)}</Text>,
+      ...Array.from({ length: inner }, (_, row) => {
+        const at = row - top
+        const n = at >= 0 && at % 2 === 0 ? at / 2 : -1
+        const one = RAIL[n]
+        const border = <Text color="promptBorder">{joined.has(row) ? '┤' : '│'}</Text>
+        if (!one) return <Box key={`wide-fill:${row}`}>{border}<Text>{' '.repeat(WIDE - 1)}</Text></Box>
+        const name = one.toLowerCase().indexOf(KEYS[one])
+        // The key's letter keeps the name's case.
+        const title = name < 0 ? [one] : [one.slice(0, name), <Text underline>{one[name]}</Text>, one.slice(name + 1)]
+        const flag = flagged.includes(one)
+        const used = 3 + one.length + (flag ? 2 : 0)
+        const label = [` ${basic ? KEYS[one] : ICON[one]} `, ...title, flag ? <Text color="warning"> !</Text> : '', ' '.repeat(Math.max(0, WIDE - 1 - used))]
+        return (
+          <Box key={`wide-row:${n}`} width={WIDE}>
+            {border}
+            {one === current ? (
+              <Text key={`wide:${one}`} bold inverse color="claude">{label}</Text>
+            ) : (
+              <Button key={`wide:${one}`} plain onPress={() => pick($, one)}>
+                <Text color={HUD.idle}>{label}</Text>
+              </Button>
+            )}
+          </Box>
+        )
+      }),
+    ]
     const rule = (key: string, join: string) => (
       <Text key={key} color="promptBorder">
         {'─'.repeat(Math.max(0, e.props.bodyColumns - RAIL_COLUMNS)) + join + '─'.repeat(RAIL_COLUMNS - 1)}
@@ -1543,12 +1553,12 @@ export const register: Register = (on, options) => {
         <Box key="rail" flexDirection="column" width={RAIL_COLUMNS} flexShrink={0} height={inner} overflow="hidden" hover={{ scope: 'rail' }}>
           {rail}
         </Box>
+        </Box>
         {modalShown ? null : (
-          <Box key="rail-wide" position="absolute" top={top} left={Math.max(0, e.props.bodyColumns - WIDE)} width={WIDE} display="none" hover={{ scope: 'rail', display: 'flex' }} flexDirection="column" backgroundColor={CARD}>
+          <Box key="rail-wide" position="absolute" top={0} left={Math.max(0, e.props.bodyColumns - WIDE)} width={WIDE} height={Math.max(0, e.props.scroll.bodyRows)} display="none" hover={{ scope: 'rail', display: 'flex' }} flexDirection="column">
             {wide}
           </Box>
         )}
-        </Box>
       </Box>
     )
   }))
