@@ -176,6 +176,10 @@ export function parse(answer: string): Offer | null {
   const todo = raw && cut(voice(raw)).replace(/[.:]$/, '')
   // The Picks line also holds fixes the lone option would drop; go's act follows it, but "say so and I'll X" is a fallback.
   const go = picks !== null ? (todo && /^say\s+[`"]?go\b/i.test(said ?? '') ?`${picks}, then ${todo}` : picks) : rows.length === 1 ? `${rows[0]!.id}: ${voice(rows[0]!.text)}` : todo ? `${letter ? `${letter}: ` : ''}${todo}` : 'go'
+  // A Picks or "say B and I'll X" naming another option than the Recommend: the card would point the other way, so the suggestion alone answers.
+  const named = [pick, letter].find(id => id && ids.includes(id))
+  const differs = named && ids.includes(lone?.recommend ?? '') && named !== lone!.recommend ? rows.find(row => row.id === named) : undefined
+  if (differs) return { title, rows: [], why, go: go === differs.id ? `${differs.id}: ${voice(differs.text)}` : go }
   return { title, rows, why, go }
 }
 
