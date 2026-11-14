@@ -1554,11 +1554,9 @@ export const register: Register = (on, options) => {
           {rail}
         </Box>
         </Box>
-        {modalShown ? null : (
-          <Box key="rail-wide" position="absolute" top={0} left={Math.max(0, e.props.bodyColumns - WIDE)} width={WIDE} height={Math.max(0, e.props.scroll.bodyRows)} display="none" hover={{ scope: 'rail', display: 'flex' }} flexDirection="column">
-            {wide}
-          </Box>
-        )}
+        <Box key="rail-wide" position="absolute" top={0} left={Math.max(0, e.props.bodyColumns - WIDE)} width={WIDE} height={Math.max(0, e.props.scroll.bodyRows)} display="none" hover={{ scope: 'rail', display: 'flex' }} flexDirection="column">
+          {wide}
+        </Box>
       </Box>
     )
   }))

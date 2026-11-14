@@ -4771,13 +4771,13 @@ test('a USED row is a row Client; a tap opens its modal', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'FILES' })).toBeDefined()
 })
 
-test('the widened rail does not open while an Overview modal is open', async ($, on) => {
+test('the widened rail still opens while an Overview modal is open', async ($, on) => {
   const ui = await usedPane($, on)
   await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts' } as any)
   expect(await ui.find({ key: 'rail-wide' })).toBeDefined()
   await tapRow(ui, 'o:used:files')
   expect(await ui.find({ type: 'Text', text: 'FILES' })).toBeDefined()
-  expect(await ui.find({ key: 'rail-wide' })).toBeUndefined()
+  expect(await ui.find({ key: 'rail-wide' })).toBeDefined()
 })
 
 test('a USED row taps without steps drawn', async ($, on) => {
