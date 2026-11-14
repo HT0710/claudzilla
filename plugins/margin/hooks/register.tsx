@@ -28,12 +28,12 @@ const t = tracer('margin')
 let lastPane = ''
 
 const PANE = 'margin'
-export type RailTab = 'Overview' | 'History' | 'File' | 'Git'
-export const RAIL: RailTab[] = ['Overview', 'History', 'File', 'Git']
+export type RailTab = 'Overview' | 'History' | 'Explorer' | 'Git'
+export const RAIL: RailTab[] = ['Overview', 'History', 'Explorer', 'Git']
 const TABS = RAIL
 // The tabs with an alt key: each runs /margin-<tab>.
-const KEYS: Record<RailTab, string> = { Overview: 'o', History: 'h', File: 'l', Git: 'g' }
-export const ICON: Record<RailTab, string> = { Overview: '\uEA70', History: '\uEA82', File: '\uEAF0', Git: '\uE702' }
+const KEYS: Record<RailTab, string> = { Overview: 'o', History: 'h', Explorer: 'e', Git: 'g' }
+export const ICON: Record<RailTab, string> = { Overview: '\uEA70', History: '\uEA82', Explorer: '\uEAF0', Git: '\uE702' }
 // The border column and the 3 columns of a tab's cell.
 export const RAIL_COLUMNS = 4
 // A tab takes 1 row and 1 blank row follows each: the 4 tabs sit in the rail's middle.
@@ -981,7 +981,7 @@ export const register: Register = (on, options) => {
         await built.state.set({ plugin: 'margin', key: 'modal' } as const, null)
         if (placed) await built.ui.open({ id: PANE, title: 'Margin', columns: 40 }).catch(() => undefined)
       }
-      await built.state.set({ plugin: 'margin', key: 'tab' } as const, 'File')
+      await built.state.set({ plugin: 'margin', key: 'tab' } as const, 'Explorer')
       if (!placed) {
         await built.store.set('open', true).catch(() => undefined)
         const opened = await built.ui.open({ id: PANE, title: 'Margin', columns: 40 })
@@ -1434,7 +1434,7 @@ export const register: Register = (on, options) => {
     const inner = Math.max(0, e.props.scroll.bodyRows - RULE)
     const ctx: TabCtx = { props: { ...e.props, bodyColumns: e.props.bodyColumns - RAIL_COLUMNS, scroll: { ...e.props.scroll, bodyRows: inner } }, signal: next.signal, el: elements, pick: tab => pick($, tab), setModal: change => setModal($, change) }
     let out: TabDraw
-    if (current === 'File') {
+    if (current === 'Explorer') {
       out = await drawFile($, ctx)
     } else if (current === 'History') {
       out = await drawHistory($, {

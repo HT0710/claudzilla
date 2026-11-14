@@ -14,7 +14,7 @@ const rowPointer = atom({ plugin: 'margin', key: 'rowPointer' } as const, { left
 const split = atom({ plugin: 'margin', key: 'split' } as const, -1)
 // The first row each Git zone shows, as the wheel moved it.
 const scrolled = atom({ plugin: 'margin', key: 'scrolled' } as const, { changes: 0, commits: 0 })
-// What the File tab shows: the last one, the whole text.
+// What the Explorer tab shows: the last one, the whole text.
 const file = atom({ plugin: 'margin', key: 'file' } as const, undefined as FileView)
 const modal = atom({ plugin: 'margin', key: 'modal' } as const, null as Modal | null)
 // While `git fetch origin` runs from the branch row.
@@ -386,13 +386,13 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   const wcKey = `${key}:${untrackedShown.join('\0')}`
   if (untrackedShown.length && wcRead?.key !== wcKey) wcRead = { key: wcKey, run: readWc($, root, untrackedShown) }
   const lineCounts = untrackedShown.length ? await wcRead!.run : new Map<string, Counts>()
-  // As the File tab's show: the file read whole, the tab switched. `path`: from the repo's top. A file no longer
+  // As the Explorer tab's show: the file read whole, the tab switched. `path`: from the repo's top. A file no longer
   // in the working tree, as a commit's may be, says so instead of opening empty.
   const openFile = async (path: string) => {
     const text = await $.fs.read(`${root}/${path}`).then(String, () => undefined)
     if (text === undefined) return void $.ui.toast(`Not in the working tree: ${printable(path)}`)
     await update($, file, () => fileView(`${root}/${path}`, 1, text))
-    await ctx.pick('File')
+    await ctx.pick('Explorer')
   }
   rowHover.acts = dimmed
     ? { [openRow!]: () => ctx.setModal(() => null) }
@@ -584,7 +584,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   // shortcut: untracked counts are read only for drawn rows, so a wide one shifts the columns once drawn; read all
   // untracked counts if users report the jitter.
   const changeCols = churnCols(changes.map(c => counts.get(c.path) ?? lineCounts.get(c.path)))
-  // A modal's file row: lit under the pointer, a press opens the file in the File tab. `layer`: the modal's key
+  // A modal's file row: lit under the pointer, a press opens the file in the Explorer tab. `layer`: the modal's key
   // prefix, m or s for the stacked one. A deleted file neither lights nor opens.
   // A row Client, as a CHANGES row, so it lights where a Button would invert; a surface with no Client gets the
   // Button.
