@@ -146,7 +146,11 @@ check "push: check before push in same command -> allowed" [ -z "$(sh_ 'npm test
 check "push: verified -> allowed" [ -z "$(sh_ 'git push -u origin feat/x')" ]
 hook PostToolUse tool_name=Skill tool_input.skill=superpowers:verification-before-completion >/dev/null
 check "push: re-invoked verify needs a new check" denied "$(sh_ 'git push')"
+hook UserPromptSubmit 'prompt=<task-notification>x</task-notification>' >/dev/null
+check "push: mid-turn notification keeps the verify skill" [ "$(state '.skills[0]')" = '"superpowers:verification-before-completion"' ]
 sh_ 'npm test' >/dev/null
+hook UserPromptSubmit 'prompt=<task-notification>x</task-notification>' >/dev/null
+check "push: mid-turn notification keeps the check" [ -z "$(sh_ 'git push')" ]
 out=$(sh_ 'gh pr create --fill')
 check "gh pr create: no pr skill -> deny" denied "$out"
 # A state dir that fails its check can never record the skills, so the gates that need them remind instead of deny forever.
