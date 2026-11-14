@@ -50,8 +50,6 @@ export const setZones = (tab: Tab, drawn: Zone[]) => {
 export const modalOpen = () => zones.some(z => z.kind === 'modal')
 
 export const PAD = 2
-// The bottom bar's rows: its rule and its labels.
-export const BAR_ROWS = 2
 // HUD colors (claudzilla/claude/hud/hud-filter.pl) the theme has no key for; latest, a lighter
 // dirty yellow, is the panel's own.
 export const HUD = {} as Record<'label' | 'faint' | 'idle' | 'action' | 'compacted' | 'dirty' | 'churn' | 'latest', string>
@@ -169,6 +167,13 @@ export const toPieces = (node: unknown, style: Omit<Piece, 'text'> = {}): Piece[
 export const dim = (hex: string) => `#${hex.slice(1).replace(/../g, c => Math.round(parseInt(c, 16) * 0.6).toString(16).padStart(2, '0'))}`
 applyPalette(DEFAULTS)
 // Claude Code's own folder: CLAUDE_CONFIG_DIR moves it.
+// Whether install.sh chose basic glyphs: read once a session.
+let basic: Promise<boolean> | undefined
+export function basicGlyphs($: EngineInterface): Promise<boolean> {
+  return (basic ??= configDir($)
+    .then(dir => $.fs.exists(`${dir}/.claudzilla-basic-glyphs`))
+    .catch(() => false))
+}
 export async function configDir($: EngineInterface): Promise<string> {
   return (await $.env.get('CLAUDE_CONFIG_DIR')) || `${await $.env.get('HOME')}/.claude`
 }
@@ -498,9 +503,8 @@ export function modalZone($: EngineInterface, tab: Tab, layers: { m?: Layer; s?:
   if (!topLayer) return
   const sub = !!layers.s
   const { frame } = topLayer
-  // Rows count under the tabs and their rule.
   return {
-    tab, kind: 'modal', from: frame.top + 2, to: frame.top + 2 + frame.height, offset: 0, columns: [frame.left, frame.left + frame.width],
+    tab, kind: 'modal', from: frame.top, to: frame.top + frame.height, offset: 0, columns: [frame.left, frame.left + frame.width],
     wheel: by => {
       const top = Math.max(0, Math.min(topLayer.top + by, topLayer.end))
       return update($, modal, m => (!m ? m : sub ? (m.sub ? { ...m, sub: { ...m.sub, top } } : m) : { ...m, top }))

@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import { BAR_ROWS, DIM, HUD, PAD, clock, cues, dayName, emptyNote, fit, zoneWindow } from './kit'
+import { DIM, HUD, PAD, clock, cues, dayName, emptyNote, fit, zoneWindow } from './kit'
 import type { Prompt, TabCtx, TabDraw } from './kit'
 
 const historyTop = atom({ plugin: 'margin', key: 'historyTop' } as const, 0)
@@ -107,9 +107,9 @@ export async function draw($: EngineInterface, ctx: HistoryCtx): Promise<TabDraw
       </Button>
     </Box>,
   ])
-  // The rows under the tabs, their rule and the header, cues included.
+  // The rows under the header, cues included.
   // Clamped: the list shrinks after a rewind.
-  const listRows = Math.max(0, props.scroll.bodyRows - BAR_ROWS - 3)
+  const listRows = Math.max(0, props.scroll.bodyRows - 1)
   const w = zoneWindow(lines.length, await read($, historyTop), listRows)
   const listCues = cues(ctx.el, 'history', props.bodyColumns - 2 * PAD, w, to => update($, historyTop, () => to))
   const historyEnd = zoneWindow(lines.length, Infinity, listRows).top
@@ -139,11 +139,11 @@ export async function draw($: EngineInterface, ctx: HistoryCtx): Promise<TabDraw
             {counted && <Text color={HUD.faint}>{counted}</Text>}
           </Box>
         )}
-        {/* The rows under the tabs and their rule. */}
+        {/* The pane rows. */}
         {prompts.length === 0 &&
           emptyNote(
             ctx.el,
-            props.scroll.bodyRows - BAR_ROWS - 2,
+            props.scroll.bodyRows,
             'No prompts yet',
             <Text color={HUD.faint}>What you've asked Claude.</Text>,
             <Box>

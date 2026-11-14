@@ -33,14 +33,12 @@ const git = (repo: Record<string, string>) => (argv: readonly string[]) => {
   if (command === 'status' && argv.includes('-z')) return asStatusZ(answer)
   return command === 'log' && argv.some(arg => arg.includes('%x1f')) ? asLog(answer) : answer
 }
-const BAR_ROWS = 2
-// 20 tab rows under the top bar and its rule, as margin.test.ts sizes the bodies.
 const props = {
   title: 'Panel',
   isFocused: false,
-  bodyColumns: 67,
+  bodyColumns: 71,
   placement: 'dock' as const,
-  scroll: { offset: 0, bodyRows: 22 + BAR_ROWS },
+  scroll: { offset: 0, bodyRows: 22 - 2 },
   view: {},
 }
 const MIN = 60e3
@@ -323,8 +321,8 @@ test('rows behind an open modal fade to the one dim colour and lose hover; the r
   // Nothing behind presses or lights under the pointer but the opened row: the other rows faded.
   expect((await ui.find({ key: 'row:fetch' }))?.props.props).toMatchObject({ faded: true })
   expect((await ui.find({ key: 'row:branch' }))?.props.props).toMatchObject({ open: '#0f1c28' })
-  // The pane's own rules, the body less one margin, stay as drawn: they frame the pane, not the tab.
-  expect((await ui.find({ type: 'Text', text: /^─{65}$/ }))?.props.color).toBe('promptBorder')
+  // The rail's border stays as drawn: it frames the pane, not the tab.
+  expect((await ui.find({ type: 'Text', text: '│' }))?.props.color).toBe('promptBorder')
   // Behind: faint and plain text alike in the one dim colour, so a faint row never goes darker than a plain one.
   const left = ((await ui.find({ key: 'row:c:def5678ffff' }))?.props.props as { left: { text: string; color?: string }[] }).left
   expect(left.find(p => p.text === 'fix')?.color).toBe('#3a424a')
@@ -357,7 +355,7 @@ test('a list cue behind an open modal fades and takes no press', async ($, on) =
   const files = Array.from({ length: 30 }, (_, i) => ` M f${i}.ts\n`).join('')
   on('process.run', (_, e) => ran(git(repoOn('b20', { status: `## b20...origin/b20\n${files}` }))(e.argv) ?? ''))
   const ui = await mount($)
-  await wheel($, 5, 6)
+  await wheel($, 5, 4)
   expect(await ui.find({ type: 'Text', text: /f0\.ts/ })).toBeUndefined()
   await tap(ui, 'branch')
   expect(await ui.find({ type: 'Button', key: 'changes:up' })).toBeUndefined()
@@ -389,11 +387,11 @@ test('the wheel inside the modal scrolls its list one row a tick; outside it doe
   on('process.run', (_, e) => ran(git(repoOn('b20'))(e.argv) ?? ''))
   const ui = await mount($)
   await tap(ui, 'branch')
-  await wheel($, 1, 10)
+  await wheel($, 1, 8)
   expect(await firstListed(ui)).toBe('b15')
   await wheel($, 1, 0)
   expect(await firstListed(ui)).toBe('b15')
-  await wheel($, 1, 10, 1)
+  await wheel($, 1, 8, 1)
   expect(await firstListed(ui)).toBe('b15')
 })
 
@@ -404,7 +402,7 @@ test('cues: ↓ N more at the bottom; once scrolled the divider reads ↑ N more
   await tap(ui, 'branch')
   expect(await ui.find({ type: 'Button', key: 'm:up' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: ' 27 more' })).toBeDefined()
-  await wheel($, 1, 10)
+  await wheel($, 1, 8)
   expect(await ui.find({ type: 'Button', key: 'm:up' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: ' 1 more ' })).toBeDefined()
 })
@@ -423,7 +421,7 @@ test('↓ turns the page; ↑ goes back to the top', async ($, on) => {
 test('a narrow body still gives the modal 1-column insets', async ($, on) => {
   quiet(on)
   on('process.run', (_, e) => ran(git(repoOn('b01'))(e.argv) ?? ''))
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 20 }, requestId: 'margin' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 24 }, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   await tap(ui, 'branch')
   const box = await ui.find({ type: 'Box', key: 'modal' })
@@ -452,7 +450,7 @@ test('a tool call keeps the open modal and its offset', async ($, on) => {
   on('process.run', (_, e) => ran(git(repoOn('b20'))(e.argv) ?? ''))
   const ui = await mount($)
   await tap(ui, 'branch')
-  await wheel($, 1, 10)
+  await wheel($, 1, 8)
   await $.tool.call({ tool: 'Bash', command: 'true' })
   expect(await firstListed(ui)).toBe('b15')
 })
@@ -466,7 +464,7 @@ test('a new session, as /clear starts, reads git afresh before any prompt or too
   expect(await piece(ui, 'branch', '⎇ a')).toBeDefined()
   repo.status = '## b...origin/b\n'
   session = 'chat-2'
-  await wheel($, 1, 10)
+  await wheel($, 1, 8)
   expect(await piece(ui, 'branch', '⎇ b')).toBeDefined()
 })
 
@@ -570,8 +568,8 @@ test('the branch modal narrows to its content, far from the pane edges', async (
   const ui = await mount($)
   await tap(ui, 'branch')
   const modal = await ui.find({ type: 'Box', key: 'modal' })
-  expect(modal?.props.width).toBeLessThan(props.bodyColumns * 0.7)
-  expect(Math.abs(modal!.props.left + 1 + modal!.props.width / 2 - props.bodyColumns / 2)).toBeLessThanOrEqual(2)
+  expect(modal?.props.width).toBeLessThan((props.bodyColumns - 4) * 0.7)
+  expect(Math.abs(modal!.props.left + 1 + modal!.props.width / 2 - (props.bodyColumns - 4) / 2)).toBeLessThanOrEqual(2)
 })
 
 test('prefix view: a long heading stays whole, the modal widening to it', async ($, on) => {
@@ -706,7 +704,7 @@ test('a detached path too long for the modal loses its start, keeping its last f
 test('in a narrow pane a long branch name is cut and a detached path dropped, the far right kept', async ($, on) => {
   quiet(on, 5 * MIN, false, {}, true)
   withTrees(on, TREES.replace('fix/b', 'fix/a-branch-name-much-too-long-for-a-narrow-modal'), { '/home/me/repo-b': ' M x\n' })
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 30 }, requestId: 'margin' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 34 }, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   await worktreeView(ui)
   expect(await ui.find({ type: 'Text', text: /^a-.*…$/ })).toBeDefined()
@@ -1070,9 +1068,21 @@ test('COMMITS still scrolls under a taller top section', async ($, on) => {
   const files = Array.from({ length: 3 }, (_, i) => ` M f${i}.ts`).join('\n')
   withGh(on, repoOn('a', { status: `## a...origin/a\n${files}\n`, log: `${log}\n`, '--count': '30\n' }), [prJson()])
   const ui = await mount($)
-  // Tabs, rule, branch, PR, rule, CHANGES header, 3 files, divider, COMMITS header: the first commit is pane row 11.
-  await wheel($, 1, 11)
+  // Branch, PR, rule, CHANGES header, 3 files, divider, COMMITS header: the first commit is pane row 9.
+  await wheel($, 1, 9)
   expect(await rowText(ui, /commit 0$/)).toBeUndefined()
+  expect(await rowText(ui, /f0\.ts/)).toBeDefined()
+})
+
+test('a wheel on the first COMMITS row scrolls COMMITS, not CHANGES', async ($, on) => {
+  quiet(on)
+  const log = Array.from({ length: 30 }, (_, i) => `c${i}ffff c${i} commit ${i}`).join('\n')
+  const files = Array.from({ length: 3 }, (_, i) => ` M f${i}.ts`).join('\n')
+  withGh(on, repoOn('a', { status: `## a...origin/a\n${files}\n`, log: `${log}\n`, '--count': '30\n' }), [])
+  const ui = await mount($)
+  await wheel($, 1, 8)
+  expect(await rowText(ui, /commit 0$/)).toBeUndefined()
+  expect(await rowText(ui, /commit 1$/)).toBeDefined()
   expect(await rowText(ui, /f0\.ts/)).toBeDefined()
 })
 
@@ -1175,7 +1185,7 @@ test('commits heading N total; files heading N total +a −d; paths cut in the m
   withPr(on, repoOn('a'), [prJson()], viewJson({ files: [{ path: 'plugins/margin/hooks/a-really-long-folder-name/register.tsx', additions: 1, deletions: 0, changeType: 'MODIFIED' }] }))
   const ui = await openPr($)
   // FILES sits below the window: scroll the modal to its end.
-  await wheel($, 20, 10)
+  await wheel($, 20, 8)
   expect(await ui.find({ type: 'Text', text: 'COMMITS' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '2 total' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '1 total  ' })).toBeDefined()
@@ -1187,7 +1197,7 @@ test('PR modal: a FILES row opens the file in the File tab', async ($, on) => {
   withPr(on, repoOn('a'), [prJson()], viewJson({ files: [{ path: 'b.ts', additions: 1, deletions: 0, changeType: 'MODIFIED' }] }))
   const ui = await openPr($)
   // FILES sits below the window: scroll the modal to its end.
-  await wheel($, 20, 10)
+  await wheel($, 20, 8)
   await tap(ui, `mf:${fileKey('b.ts')}`)
   expect(await ui.find({ type: 'Text', text: '/repo/b.ts' })).toBeDefined()
 })
@@ -1244,7 +1254,7 @@ test('the wheel scrolls the stacked modal when over it', async ($, on) => {
   // A row's wrapping Text matches too: count the k00 Texts themselves.
   const k00 = async () => (await ui.findAll({ type: 'Text', text: ' k00' })).filter(t => !t.props.wrap).length
   expect(await k00()).toBe(2)
-  await wheel($, 1, 12)
+  await wheel($, 1, 10)
   expect(await k00()).toBe(1)
 })
 
@@ -1566,7 +1576,7 @@ test('in a linked worktree the fetch age is the newer FETCH_HEAD of its own and 
 test('in the pane default 40 columns each top row holds one row, its right side kept', async ($, on) => {
   quiet(on)
   withPr(on, repoOn('a', { 'HEAD..origin/release/1.7': '3\n' }), [prJson()])
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 40 }, requestId: 'margin' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 44 }, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   for (const key of ['row:branch', 'row:pr']) expect((await ui.find({ key }))?.props).toMatchObject({ height: 1 })
 })
@@ -1575,7 +1585,7 @@ test("a hover card row holds one row: its info kept, the far-right text cut", as
   quiet(on)
   const failing = 'build (ubuntu-latest, node 22) with a long job name'
   withPr(on, repoOn('a'), [prJson({ statusCheckRollup: [checkRun(failing, 'FAILURE'), checkRun('ok', 'SUCCESS')] })])
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 40 }, requestId: 'margin' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 44 }, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   await hover(ui, 'pr')
   // The kv row holding the failed check's name, found in the drawn tree.
@@ -1687,7 +1697,7 @@ test('PR modal: FILES counts line up in columns', async ($, on) => {
   const f = (path: string, additions: number, deletions: number) => ({ path, additions, deletions, changeType: 'MODIFIED' })
   withPr(on, repoOn('a'), [prJson()], viewJson({ files: [f('a.ts', 5, 0), f('b.ts', 120, 3)] }))
   const ui = await openPr($)
-  await wheel($, 20, 10)
+  await wheel($, 20, 8)
   expect([await rowText(ui, /^ *\+5/), await rowText(ui, /^\+120/)]).toEqual(['  +5   ', '+120 −3'])
 })
 
@@ -1809,7 +1819,7 @@ test('card follows the row after a scroll', async ($, on) => {
   const files = Array.from({ length: 30 }, (_, i) => ` M f${String(i).padStart(2, '0')}.ts`).join('\n')
   on('process.run', (_, e) => ran(git(changesRepo(`${files}\n`))(e.argv) ?? ''))
   const ui = await mount($)
-  await wheel($, 5, 5)
+  await wheel($, 5, 3)
   await hover(ui, fileKey('f05.ts'))
   expect(await ui.find({ type: 'Text', text: 'not staged' })).toBeDefined()
   expect(await rowText(ui, /f05\.ts$/)).toBeDefined()
@@ -2024,7 +2034,7 @@ test('show all FILES: the stacked rows light and open; the modal under them stay
   const ui = await mount($)
   await tap(ui, `c:${A}`)
   // show all sits below the window: scroll the modal to its end.
-  await wheel($, 20, 10)
+  await wheel($, 20, 8)
   await ui.press({ key: 'm:all:FILES' })
   expect(await ui.find({ key: `row:sf:${fileKey('f4.ts')}` })).toBeDefined()
   expect(JSON.stringify(await ui.drawn()).split('"hover":{"backgroundColor":"#0f1c28"}').length - 1).toBe(5)
@@ -2342,7 +2352,7 @@ test('opening a file from a modal closes the modal', async ($, on) => {
   quiet(on, 5 * MIN, false, { '/repo/b.ts': 'pr file text' })
   withPr(on, repoOn('a'), [prJson()], viewJson({ files: [{ path: 'b.ts', additions: 1, deletions: 0, changeType: 'MODIFIED' }] }))
   const ui = await openPr($)
-  await wheel($, 20, 10)
+  await wheel($, 20, 8)
   await tap(ui, `mf:${fileKey('b.ts')}`)
   await ui.press({ key: 'Git' })
   expect(await ui.find({ key: 'm:copy' })).toBeUndefined()
@@ -2385,7 +2395,7 @@ test('a stacked section that goes closes with it, so the next one opens nothing'
   on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
   const ui = await mount($)
   await tap(ui, 'rebase')
-  await wheel($, 20, 10)
+  await wheel($, 20, 8)
   await ui.press({ key: 'm:all:CONFLICTS' })
   expect(await ui.find({ key: 's:x' })).toBeDefined()
   Object.assign(repo, { '--diff-filter=U': '', '--cached': numstat })
@@ -2510,7 +2520,7 @@ test('a jump from a COMMITS row onto its card keeps the card closed under the po
 })
 
 const narrow = async ($: Parameters<TestBody>[0]) => {
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 40 }, requestId: 'margin' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 44 }, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   return ui
 }
@@ -2554,7 +2564,7 @@ test('at 40 columns a staged-then-edited new file packs its four pills into rows
 test('at 44 columns the stage pills keep a row of their own when the four do not fit on one', async ($, on) => {
   quiet(on)
   on('process.run', (_, e) => ran(git(changesRepo('AM new.ts\n', '2\t0\tnew.ts\0'))(e.argv) ?? ''))
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 44 }, requestId: 'margin' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 48 }, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   await hover(ui, fileKey('new.ts'))
   const { card, find } = await cardTexts(ui, fileKey('new.ts'))

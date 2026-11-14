@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { CommitView, LogRow, Gh, Intent, Modal, PrView, Spawn, Step, Tab, Take } from '../types'
 import { parseCommitView, parsePrView, parsePrs, printable } from './git-data'
-import { BAR_ROWS, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, WHEEL_HOLD, applyPalette, configDir, clock, dim, drawnZones, emptyNote as kitEmptyNote, fadeTree, fileView, fit, hoverOf, keepZones, modalOpen, readersOf, setZones } from './kit'
+import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, WHEEL_HOLD, applyPalette, basicGlyphs, configDir, clock, dim, drawnZones, emptyNote as kitEmptyNote, fadeTree, fileView, fit, hoverOf, keepZones, modalOpen, readersOf, setZones } from './kit'
 import type { Prompt, Readers, TabCtx, TabDraw, UseEntry, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
@@ -28,14 +28,17 @@ const t = tracer('margin')
 let lastPane = ''
 
 const PANE = 'margin'
-// Top bar: the chat's own state; bottom bar: the files it touches.
-const TOP: Tab[] = ['Overview', 'Decisions', 'History']
-const BOTTOM: Tab[] = ['File', 'Tree', 'Git']
-const TABS = [...TOP, ...BOTTOM]
+export type RailTab = 'Overview' | 'History' | 'File' | 'Git'
+export const RAIL: RailTab[] = ['Overview', 'History', 'File', 'Git']
+const TABS = RAIL
 // The tabs with an alt key: each runs /margin-<tab>.
-const KEYS: Partial<Record<Tab, string>> = { Overview: 'o', History: 'h', File: 'l', Git: 'g' }
-// Tabs not built yet: drawn dim, their body says when.
-const SOON: Tab[] = ['Decisions', 'Tree']
+const KEYS: Record<RailTab, string> = { Overview: 'o', History: 'h', File: 'l', Git: 'g' }
+export const ICON: Record<RailTab, string> = { Overview: '\uEA70', History: '\uEA82', File: '\uEAF0', Git: '\uE702' }
+// The border column and the 3 columns of a tab's cell.
+export const RAIL_COLUMNS = 4
+// A tab takes 1 row and 1 blank row follows each: the 4 tabs sit in the rail's middle.
+const SPAN = 2 * RAIL.length
+export const railTop = (bodyRows: number) => Math.max(0, Math.floor((bodyRows - SPAN) / 2))
 const MAX_PROMPTS = 100
 // Built-in tools that never change files: their calls leave the Git tab's reads standing.
 const READ_ONLY = new Set(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'])
@@ -1384,10 +1387,7 @@ export const register: Register = (on, options) => {
     const { Box, Button, Text } = elements
     // A tab saved before it was hidden falls back to the first shown.
     const saved = await read($, tab)
-    const current = TABS.includes(saved) ? saved : TABS[0]!
-    const flagged = await read($, notices)
-    // Divider gets half the side margin on each side.
-    const rule = '─'.repeat(e.props.bodyColumns - PAD)
+    const current = TABS.find(one => one === saved) ?? TABS[0]!
     const emptyNote = (rows: number, title: string, ...lines: JSX.Element[]) => kitEmptyNote(elements, rows, title, ...lines)
 
     // Tries the transcript's id first, then the drawn row's, until one scrolls. The pin's settle
@@ -1427,7 +1427,7 @@ export const register: Register = (on, options) => {
 
     // Kept while a Git draw reads: a wheel tick meanwhile still scrolls its zone.
     keepZones(current)
-    const ctx: TabCtx = { props: e.props, signal: next.signal, el: elements, pick: tab => pick($, tab), setModal: change => setModal($, change) }
+    const ctx: TabCtx = { props: { ...e.props, bodyColumns: e.props.bodyColumns - RAIL_COLUMNS }, signal: next.signal, el: elements, pick: tab => pick($, tab), setModal: change => setModal($, change) }
     let out: TabDraw
     if (current === 'File') {
       out = await drawFile($, ctx)
@@ -1452,28 +1452,6 @@ export const register: Register = (on, options) => {
         rewind,
         latest,
       })
-    } else if (current === 'Decisions') {
-      out = {
-        body: emptyNote(
-          e.props.scroll.bodyRows - BAR_ROWS - 2,
-          'Coming soon',
-          <Text color={HUD.faint}>Choices made in this chat</Text>,
-          <Text color={HUD.faint}>and why they were made.</Text>,
-        ),
-        zones: [],
-        trace: {},
-      }
-    } else if (current === 'Tree') {
-      out = {
-        body: emptyNote(
-          e.props.scroll.bodyRows - BAR_ROWS - 2,
-          'Coming soon',
-          <Text color={HUD.faint}>The repo's files as a tree,</Text>,
-          <Text color={HUD.faint}>each one opens in File.</Text>,
-        ),
-        zones: [],
-        trace: {},
-      }
     } else if (current === 'Git') {
       out = await drawGit($, { ...ctx, readGh: () => readGh($), readCommitView: sha => readCommitView($, sha), readPrView: (n, failed) => readPrView($, n, failed), rerunFailed: runs => rerunFailed($, runs) })
     } else {
@@ -1487,62 +1465,48 @@ export const register: Register = (on, options) => {
     // Kept in the entry but out of the change key: a wheel tick moves these alone.
     const scroll = out.scroll ?? {}
 
-    // Equal slots, the last taking the odd column.
-    const bar = (tabs: Tab[]) => (
-      <Box paddingX={PAD}>
-        {tabs.flatMap((one, i) => {
-          const slots = e.props.bodyColumns - 2 * PAD - 3 * (tabs.length - 1)
-          const width = i < tabs.length - 1 ? Math.floor(slots / tabs.length) : slots - Math.floor(slots / tabs.length) * (tabs.length - 1)
-          // The name centered in spaces across the slot: a Button presses and lights as wide as it draws.
-          // The tab shown is no Button, lit across its slot as a focused one is.
-          const notice = flagged.includes(one) ? ' !' : ''
-          // Cut, not wrapped: a wrapped bar grows and pushes the bottom bar out of the pane.
-          const name = one.slice(0, Math.max(0, width - notice.length))
-          const left = Math.max(0, Math.floor((width - name.length - notice.length) / 2))
-          const right = Math.max(0, width - left - name.length - notice.length)
-          // The key's letter keeps the title's case; cut off with the name, it draws no underline.
-          const at = KEYS[one] ? name.toLowerCase().indexOf(KEYS[one]!) : -1
-          const title = at < 0 ? [name] : [name.slice(0, at), <Text underline>{name[at]}</Text>, name.slice(at + 1)]
-          return [
-            ...(i > 0 ? [<Text color="promptBorder"> │ </Text>] : []),
-            <Box key={`tab:${one}`} width={width}>
-              {one === current ? (
-                <Text bold inverse color="claude">{' '.repeat(left)}{title}{`${notice}${' '.repeat(right)}`}</Text>
-              ) : (
-                <Button key={one} plain onPress={() => pick($, one)}>
-                  <Text color={SOON.includes(one) ? HUD.faint : HUD.idle}>{' '.repeat(left)}{title}</Text>
-                  {notice ? <Text color="warning">{notice}</Text> : ''}
-                  <Text color={SOON.includes(one) ? HUD.faint : HUD.idle}>{' '.repeat(right)}</Text>
-                </Button>
-              )}
-            </Box>,
-          ]
-        })}
-      </Box>
-    )
-
     const key = `${current}|${e.props.bodyColumns}|${e.props.scroll.bodyRows}|${JSON.stringify(zones)}`
     if (key !== lastPane) {
       lastPane = key
       draw.end({ tab: current, columns: e.props.bodyColumns, bodyRows: e.props.scroll.bodyRows, ...zones, ...scroll })
     }
-    return (
-      <Box flexDirection="column">
-        {bar(TOP)}
-        <Box paddingX={PAD / 2}>
-          <Text color="promptBorder">{rule}</Text>
+    const basic = await basicGlyphs($)
+    const top = railTop(e.props.scroll.bodyRows)
+    const rail = Array.from({ length: Math.max(0, e.props.scroll.bodyRows) }, (_, row) => {
+      const at = row - top
+      const one = at >= 0 && at % 2 === 0 ? RAIL[at / 2] : undefined
+      const glyph = one ? ` ${basic ? KEYS[one] : ICON[one]} ` : ''
+      return (
+        <Box key={`rail:${row}`}>
+          <Text color="promptBorder">│</Text>
+          {!one ? (
+            <Box width={RAIL_COLUMNS - 1} />
+          ) : (
+            <Box key={`tab:${one}`} width={RAIL_COLUMNS - 1}>
+              {one === current ? (
+                <Text bold inverse color="claude">{glyph}</Text>
+              ) : (
+                <Button key={one} plain onPress={() => pick($, one)}>
+                  <Text color={HUD.idle}>{glyph}</Text>
+                </Button>
+              )}
+            </Box>
+          )}
         </Box>
-        {/* Cut at the bar, never past it: the pane never scrolls, so the bottom bar stays put; Overview's ⇕ shares the room. */}
-        <Box key="body" flexDirection="column" paddingX={PAD} height={Math.max(0, e.props.scroll.bodyRows - 2 - BAR_ROWS)} flexShrink={0} overflow="hidden">
+      )
+    })
+    return (
+      <Box flexDirection="row" height={Math.max(0, e.props.scroll.bodyRows)}>
+        {/* Cut at the pane's bottom: the pane never scrolls; Overview's ⇕ shares the room. */}
+        <Box key="body" flexDirection="column" width={e.props.bodyColumns - RAIL_COLUMNS} flexShrink={0} height={Math.max(0, e.props.scroll.bodyRows)} paddingX={PAD} overflow="hidden">
           {/* Unshrinkable: a tall tab is cut at the bottom, not squeezed row by row. */}
           <Box flexDirection="column" flexShrink={0}>
             {body}
           </Box>
         </Box>
-        <Box paddingX={PAD / 2}>
-          <Text color="promptBorder">{rule}</Text>
+        <Box key="rail" flexDirection="column" width={RAIL_COLUMNS} flexShrink={0} height={Math.max(0, e.props.scroll.bodyRows)} overflow="hidden" hover={{ scope: 'rail' }}>
+          {rail}
         </Box>
-        {bar(BOTTOM)}
       </Box>
     )
   }))

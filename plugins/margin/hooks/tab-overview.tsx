@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { AgentRow, Modal, Spawn, Step, Take } from '../types'
 import { printable } from './git-data'
-import { BAR_ROWS, DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, LIT, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, contentFrame, capped, counted, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, readersOf, stackFrame, row as kitRow, rowHovers, toPieces, zoneWindow } from './kit'
+import { DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, LIT, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, contentFrame, capped, counted, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, readersOf, stackFrame, row as kitRow, rowHovers, toPieces, zoneWindow } from './kit'
 import type { Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, UseKind, Zone } from './kit'
 
 const intent = atom({ plugin: 'margin', key: 'intent' } as const, EMPTY_INTENT)
@@ -164,8 +164,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   // No topics yet, reading or failed: a lone TOPIC heading over no list reads as empty.
   const hasAbout = about.topics.length > 0
   const hasReport = !!(shown.wants || shown.waiting || shown.ended)
-  // The tab body the modal sits in, under the tabs and their rule.
-  const tabRows = props.scroll.bodyRows - 2 - BAR_ROWS
+  // The tab body the modal sits in.
+  const tabRows = props.scroll.bodyRows
   const LABEL = 7
   const USED_LINE = 100000
   // A step or agent row is a row Client; its card shows on hover, as the Git tab's rows do.
@@ -432,13 +432,13 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   // The body never scrolls (its bars stay pinned): STEPS gets the rows left under TAKE, its cues included.
   // TOPICS' header, zone and divider, ASK, TAKE and their rules, the footer.
   const roomLeft =
-    props.scroll.bodyRows - 2 - BAR_ROWS - (hasReport ? 2 : 0) - (zoned ? 2 + latestRows : 0) - sessionRows - reportRows - 1
+    props.scroll.bodyRows - (hasReport ? 2 : 0) - (zoned ? 2 + latestRows : 0) - sessionRows - reportRows - 1
   // USED under STEPS: its rule and a row per kind, only while STEPS keep 3 rows.
   const usedKinds = USE_KINDS.filter(kind => usedShown[kind])
   const usedRows = shown.wants && usedKinds.length && roomLeft - (1 + usedKinds.length) >= 3 ? 1 + usedKinds.length : 0
   const stepRoom = roomLeft - usedRows
   // Over USED and the footer's 2 rows.
-  const from = props.scroll.bodyRows - BAR_ROWS - 2 - usedRows - stepRoom
+  const from = props.scroll.bodyRows - 2 - usedRows - stepRoom
   // The tab-body row each drawn label sits on, counted down the column; PLAN's and USED's come from STEPS.
   const askAt = sessionRows + (hasAbout ? 2 + latestRows : 0)
   const askRows = wrapRows(shown.wants, Math.max(1, width - LABEL))
@@ -451,7 +451,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     ...(hasAbout && { TOPIC: sessionRows }),
     ...(shown.wants && { ASK: askAt }),
     ...(shown.wants && take && { TAKE: takeAt }),
-    ...(shown.wants && shown.steps.length > 0 && { PLAN: from - 2 }),
+    ...(shown.wants && shown.steps.length > 0 && { PLAN: from }),
     ...(usedRows > 0 && { USED: ruleAt + 1 }),
   }
   const cardOf = (label: Label) => wrapLines(LABEL_CARD[label], rc.cardWidth - 4)
@@ -483,7 +483,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
         </Box>,
       ]
     : []
-  // The footer, pinned over the bottom bar: one place whether a report, TOPIC or both show.
+  // The footer, pinned at the pane bottom: one place whether a report, TOPIC or both show.
   const statusRow = (
     <Box key="footer" flexDirection="column" flexShrink={0}>
       <Text color="promptBorder">{'─'.repeat(width)}</Text>
@@ -504,16 +504,16 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   )
   const body =
     !hasReport && !hasAbout ? (
-      // The rows under the tabs and their rule.
+      // The pane rows.
       emptyNote(
         ctx.el,
-        props.scroll.bodyRows - BAR_ROWS - 2,
+        props.scroll.bodyRows,
         'Nothing here yet',
         <Text color={HUD.faint}>What Claude is doing and</Text>,
         <Text color={HUD.faint}>what this chat is about.</Text>,
       )
     ) : (
-      <Box flexDirection="column" height={Math.max(0, props.scroll.bodyRows - 2 - BAR_ROWS)}>
+      <Box flexDirection="column" height={Math.max(0, props.scroll.bodyRows)}>
         <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden">
           {/* Unshrinkable: past the footer it is cut at the bottom, not squeezed row by row. */}
           <Box key="report" flexDirection="column" flexShrink={0}>
@@ -585,7 +585,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                         w = down
                       }
                       if (!ctx.signal.aborted) stepsHeld = w.top
-                      if (usedRows > 0) labelAt.USED = from - 2 + (w.above > 0 ? 1 : 0) + w.shown + (w.below > 0 ? 1 : 0) + 1
+                      if (usedRows > 0) labelAt.USED = from + (w.above > 0 ? 1 : 0) + w.shown + (w.below > 0 ? 1 : 0) + 1
                       const stepsEnd = zoneWindow(rows.length, Infinity, stepRoom).top
                       drawn.push({
                         tab: 'Overview', kind: 'list', from, to: from + Math.min(rows.length, stepRoom), offset: props.scroll.offset,
@@ -597,7 +597,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                       })
                       const stepCues = cues(ctx.el, 'steps', width - LABEL, w, setSteps, true, false)
                       // Tab-body rows: the zone's start counts the tabs bar too.
-                      const atOf = (k: number) => from - 2 + (w.above > 0 ? 1 : 0) + (k - w.top)
+                      const atOf = (k: number) => from + (w.above > 0 ? 1 : 0) + (k - w.top)
                       hv.lines = Object.fromEntries(rows.flatMap((r, k) => (r.key && k >= w.top && k < w.top + w.shown ? [[r.key, atOf(k)]] : [])))
                       const inWindow = (k: number) => k >= w.top && k < w.top + w.shown && !!rows[k]?.key
                       // The line between a row and its card dims, as the Git tab's: the next row when the card opens down, the one above when up.
