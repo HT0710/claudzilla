@@ -832,17 +832,20 @@ export const register: Register = on => {
     return ran
   })
 
-  // With no record of a Bash call's writes, as after a reload, takes them from the engine's bashEditDiff; a command the parse sees no write in is a script.
+  // Takes the files of the engine's bashEditDiff that folio holds no record of, as after a reload or a script's write
+  // beside a parsed one. A command the parse sees no write in, or whose record missed a file, is a script.
   const adopt = (id: string, output: unknown, command: string) => {
     type Hunk = { oldStart: number; oldLines: number; newStart: number; newLines: number; lines: string[] }
     const files = (output as { bashEditDiff?: { files?: { filePath: string; hunks: Hunk[] }[] } } | undefined)?.bashEditDiff?.files
-    if (bashEdits.has(id) || !files?.length) return false
+    const known = bashEdits.get(id)
+    const extra = files?.filter(f => !known?.some(k => k.file === f.filePath)) ?? []
+    if (!extra.length) return false
     const count = (hunks: Hunk[], sign: string) => hunks.flatMap(h => h.lines).filter(line => line[0] === sign).length
     if (bashEdits.size > 500) for (const s of [bashEdits, scripts]) s.clear()
-    if (!writeTargets(command).length) scripts.add(id)
+    if (known || !writeTargets(command).length) scripts.add(id)
     // The engine writes a new file as one hunk with no old lines (@@ -1,0 +1,N @@); an existing file's hunk has context.
-    bashEdits.set(id, files.map(({ filePath, hunks }) => ({ file: filePath, add: count(hunks, '+'), del: count(hunks, '-'),
-      isNew: hunks.length === 1 && !hunks[0]!.oldLines, diff: diffText({ structuredPatch: hunks }) })))
+    bashEdits.set(id, [...(known ?? []), ...extra.map(({ filePath, hunks }) => ({ file: filePath, add: count(hunks, '+'), del: count(hunks, '-'),
+      isNew: hunks.length === 1 && !hunks[0]!.oldLines, diff: diffText({ structuredPatch: hunks }) }))])
     return true
   }
 
