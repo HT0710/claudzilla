@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { CommitView, LogRow, Gh, Intent, Modal, PrView, Spawn, Step, Tab, Take } from '../types'
 import { parseCommitView, parsePrView, parsePrs, printable } from './git-data'
-import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, WHEEL_HOLD, applyPalette, basicGlyphs, configDir, clock, dim, drawnZones, emptyNote as kitEmptyNote, fadeTree, fileView, fit, hoverOf, keepZones, modalOpen, readersOf, setZones } from './kit'
+import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, WHEEL_HOLD, CARD, applyPalette, basicGlyphs, configDir, clock, dim, drawnZones, fadeTree, fileView, fit, hoverOf, keepZones, modalOpen, readersOf, setZones } from './kit'
 import type { Prompt, Readers, TabCtx, TabDraw, UseEntry, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
@@ -39,6 +39,8 @@ export const RAIL_COLUMNS = 4
 // A tab takes 1 row and 1 blank row follows each: the 4 tabs sit in the rail's middle.
 const SPAN = 2 * RAIL.length
 export const railTop = (bodyRows: number) => Math.max(0, Math.floor((bodyRows - SPAN) / 2))
+// The rail widened by hover, names beside the icons.
+export const WIDE = 14
 const MAX_PROMPTS = 100
 // Built-in tools that never change files: their calls leave the Git tab's reads standing.
 const READ_ONLY = new Set(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'])
@@ -1197,7 +1199,7 @@ export const register: Register = (on, options) => {
     // A tab press closes it whole and switches.
     // The open row's own Button (`open:`) closes the whole modal through its onPress.
     if (modalOpen() && !/^([ms]|open):/.test(e.element ?? '')) {
-      const isTab = TABS.some(one => one === e.element)
+      const isTab = TABS.some(one => e.element === one || e.element === `wide:${one}`)
       await setModal($, m => (m?.sub && !isTab ? { ...m, sub: undefined } : null))
       if (!isTab) return { element: e.element }
     }
@@ -1212,7 +1214,7 @@ export const register: Register = (on, options) => {
 
       return { element: e.element }
     }
-    const picked = TABS.find(one => one === e.element)
+    const picked = TABS.find(one => e.element === one || e.element === `wide:${one}`)
     if (!picked) return next(e)
     await pick($, picked)
 
@@ -1388,7 +1390,6 @@ export const register: Register = (on, options) => {
     // A tab saved before it was hidden falls back to the first shown.
     const saved = await read($, tab)
     const current = TABS.find(one => one === saved) ?? TABS[0]!
-    const emptyNote = (rows: number, title: string, ...lines: JSX.Element[]) => kitEmptyNote(elements, rows, title, ...lines)
 
     // Tries the transcript's id first, then the drawn row's, until one scrolls. The pin's settle
     // starts again once the scroll lands, as the search before it can be slow.
@@ -1472,7 +1473,28 @@ export const register: Register = (on, options) => {
     }
     const basic = await basicGlyphs($)
     const flagged = await read($, notices)
+    const modalShown = modalOpen()
     const top = railTop(e.props.scroll.bodyRows)
+    const wide = RAIL.flatMap((one, n) => {
+      const name = one.toLowerCase().indexOf(KEYS[one])
+      // The key's letter keeps the name's case.
+      const title = name < 0 ? [one] : [one.slice(0, name), <Text underline>{one[name]}</Text>, one.slice(name + 1)]
+      const flag = flagged.includes(one)
+      const used = 3 + one.length + (flag ? 2 : 0)
+      const label = [` ${basic ? KEYS[one] : ICON[one]} `, ...title, flag ? <Text color="warning"> !</Text> : '', ' '.repeat(Math.max(0, WIDE - 1 - used))]
+      return [
+        <Box key={`wide-row:${n}`} width={WIDE - 1}>
+          {one === current ? (
+            <Text key={`wide:${one}`} bold inverse color="claude">{label}</Text>
+          ) : (
+            <Button key={`wide:${one}`} plain onPress={() => pick($, one)}>
+              <Text color={HUD.idle}>{label}</Text>
+            </Button>
+          )}
+        </Box>,
+        <Box key={`wide-gap:${n}`} width={WIDE - 1} height={1} />,
+      ]
+    })
     const rail = Array.from({ length: Math.max(0, e.props.scroll.bodyRows) }, (_, row) => {
       const at = row - top
       const one = at >= 0 && at % 2 === 0 ? RAIL[at / 2] : undefined
@@ -1508,6 +1530,11 @@ export const register: Register = (on, options) => {
         <Box key="rail" flexDirection="column" width={RAIL_COLUMNS} flexShrink={0} height={Math.max(0, e.props.scroll.bodyRows)} overflow="hidden" hover={{ scope: 'rail' }}>
           {rail}
         </Box>
+        {modalShown ? null : (
+          <Box key="rail-wide" position="absolute" top={top} left={Math.max(0, e.props.bodyColumns - WIDE)} width={WIDE} display="none" hover={{ scope: 'rail', display: 'flex' }} flexDirection="column" backgroundColor={CARD}>
+            {wide}
+          </Box>
+        )}
       </Box>
     )
   }))

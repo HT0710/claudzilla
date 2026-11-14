@@ -519,7 +519,7 @@ test('a clean repo drops CHANGES and its divider: COMMITS takes their rows', asy
 
   expect(await ui.find({ type: 'Text', text: 'CHANGES' })).toBeUndefined()
   expect(await ui.find({ key: 'divider' })).toBeUndefined()
-  // 20 body rows less the tabs, their rule, the branch, its rule and the COMMITS header: 15.
+  // 20 body rows less the branch, its rule and the COMMITS header: COMMITS fills the rest.
   expect(await rowText(ui, /commit 14$/)).toBeDefined()
 })
 
@@ -1908,7 +1908,7 @@ test('the narrowest pane keeps both buttons and drops the count', async ($, on) 
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('fs.read', () => ({ value: JSON.stringify({ display: 'only', timestamp: 1, sessionId: 'chat-1' }) }))
-  // The narrowest the terminal lets the pane be dragged.
+  // A narrow pane, the width the terminal lets it be dragged to.
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 27 }, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
@@ -2125,7 +2125,7 @@ test('the wheel scrolls the History list under a fixed header, up to its end; â†
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
-  // The day line and 30 prompts in 17 rows under the tabs, their rule and the header; the cues take
+  // The day line and 30 prompts in the rows under the header; the cues take
   // one each.
   const wheel = (by: number) =>
     $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 8 } })
@@ -3455,7 +3455,7 @@ test('USED hides when STEPS would keep fewer than 3 rows', async ($, on) => {
   expect(await rows()).toEqual(before)
 })
 
-// 14 body rows: STEPS gets 6, from row 6, under the tabs, their rule, ASK, TAKE's rule, TAKE and STEPS' rule,
+// 14 body rows: STEPS gets 6, from row 6, under ASK, TAKE's rule, TAKE and STEPS' rule,
 // over the footer's rule and status row.
 const stepsPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], doing: number) => {
   noHistory(on)
@@ -4757,6 +4757,15 @@ test('a USED row is a row Client; a tap opens its modal', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'FILES' })).toBeDefined()
 })
 
+test('the widened rail does not open while an Overview modal is open', async ($, on) => {
+  const ui = await usedPane($, on)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/a.ts' } as any)
+  expect(await ui.find({ key: 'rail-wide' })).toBeDefined()
+  await tapRow(ui, 'o:used:files')
+  expect(await ui.find({ type: 'Text', text: 'FILES' })).toBeDefined()
+  expect(await ui.find({ key: 'rail-wide' })).toBeUndefined()
+})
+
 test('a USED row taps without steps drawn', async ($, on) => {
   const ui = await usedPane($, on)
   await $.tool.call({ tool: INTENT, ...REPORT, steps: [] } as any)
@@ -5230,4 +5239,59 @@ test('a flagged shown tab keeps inverse', async ($, on) => {
   flag(on, ['Overview'])
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   expect((await ui.find({ type: 'Text', text: ICON.Overview }))?.props.inverse).toBe(true)
+})
+
+type TabNode = { type?: string; props?: { underline?: boolean }; text?: string; children?: TabNode[] }
+const underlined = (node: unknown): TabNode[] => {
+  const el = node as TabNode
+  if (typeof node !== 'object' || !el) return []
+  return [...(el.type === 'Text' && el.props?.underline ? [el] : []), ...(el.children ?? []).flatMap(underlined)]
+}
+
+test('the widened rail is hidden until hover, at the right edge', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  const wide = await ui.find({ key: 'rail-wide' })
+  expect(wide?.props).toMatchObject({ display: 'none', position: 'absolute', left: Math.max(0, props.bodyColumns - 14) })
+  expect(findIn(await ui.drawn(), n => n.props?.key === 'rail-wide')[0]?.hover).toMatchObject({ scope: 'rail', display: 'flex' })
+})
+
+test('a press on a widened row switches; the shown row draws inverse', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'wide:History' })
+  // The engine keeps no key on a Text: its row Box (History is the second) holds it.
+  expect((await ui.find({ key: 'wide-row:1' }))?.children?.[0]).toMatchObject({ props: { inverse: true } })
+})
+
+test('widened gaps are one row, so each name sits on its narrow icon row', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  for (const n of [0, 1, 2, 3]) expect((await ui.find({ key: `wide-gap:${n}` }))?.props.height).toBe(1)
+})
+
+test('a widened row is padded to the rail width, so it presses and lights across', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  for (const key of ['wide:History', 'wide:Git']) expect((await ui.find({ key }))?.text.length).toBe(13)
+})
+
+test('widened names underline the key letter', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  expect(underlined(await ui.find({ key: 'wide:File' })).map(t => t.children?.[0])).toEqual(['l'])
+})
+
+test('a flagged widened row shows its name then " !"', async ($, on) => {
+  noHistory(on)
+  flag(on, ['Git'])
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  expect((await ui.find({ key: 'wide:Git' }))?.text).toContain('Git !')
+})
+
+test('the widened rail follows a resize', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.redraw({ ...props, bodyColumns: 67 })
+  expect((await ui.find({ key: 'rail-wide' }))?.props.left).toBe(Math.max(0, 67 - 14))
 })
