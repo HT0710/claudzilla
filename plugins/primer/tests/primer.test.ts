@@ -486,6 +486,7 @@ test('costArgs: bare, id, all with flags', () => {
   expect(costArgs('cost abc', 's1')).toEqual(['--session', 'abc'])
   expect(costArgs('cost all --since 2026-11-01', 's1')).toEqual(['all', '--since', '2026-11-01'])
   expect(costArgs('report x', 's1')).toBeUndefined()
+  expect(costArgs('cost a b', 's1')).toEqual({ error: 'Use: /claudzilla cost [session-id | all [--since d] [--until d] [--project p]]' })
 })
 test('featureLines: one line per feature', () => {
   expect(featureLines([{ id: 'a', description: 'First.', on: true }, { id: 'b', description: '', on: false }])).toBe('a: on — First.\nb: off — ')
@@ -738,6 +739,19 @@ test('handoffNote: compact draft inline with its line', () => {
   expect(n).toContain('Keep: K')
   expect(n).toContain('Drop: D')
   expect(n).toContain('line 42')
+})
+
+test('handoffNote: model-written sections are capped', () => {
+  const big = (c: string) => c.repeat(5000)
+  const n = handoffNote({
+    sessionId: 's1', path: 'p', now: 0,
+    numbered: tail(tool('mcp__margin__intent', { wants: big('W'), steps: [{ text: big('S') }] }), J({ type: 'system', subtype: 'away_summary', content: big('R') })),
+    draft: '42:' + tool('mcp__primer__compact_draft', { keep: big('K'), drop: big('D') }),
+  })
+  for (const c of 'WSKD') expect(n).toContain(c.repeat(500) + '…')
+  for (const c of 'WSKD') expect(n).not.toContain(c.repeat(501))
+  expect(n).toContain('R'.repeat(2000) + '…')
+  expect(n).not.toContain('R'.repeat(2001))
 })
 
 test('handoffNote: compact draft only when after the last compact summary', () => {
