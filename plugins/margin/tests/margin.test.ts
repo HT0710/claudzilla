@@ -2897,6 +2897,25 @@ test('intent off: a prompt shows no planning…, and its end no done', { options
   expect(await ui.find({ type: 'Text', text: /^✓ done/ })).toBeUndefined()
 })
 
+const usedWrites = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]) => {
+  let writes = 0
+  on('state.set', (_, e, next) => {
+    if (e.key === 'used') writes++
+    return next(e)
+  })
+  on('tool.call', () => ({ result: {} }) as any)
+  await $.tool.call({ tool: 'Read', file_path: '/r/a.ts' } as any)
+  return writes
+}
+
+test('a Read call is recorded in USED', async ($, on) => {
+  expect(await usedWrites($, on)).toBeGreaterThan(0)
+})
+
+test('intent off: USED records nothing, since it never draws', { options: { intent: false } }, async ($, on) => {
+  expect(await usedWrites($, on)).toBe(0)
+})
+
 test("the intent tool's chat rows draw nothing", async ($, on) => {
   for (const component of ['ToolUse', 'ToolResult'] as const) {
     const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component, props: { tool_use_id: 'u1', tool: INTENT, input: REPORT, isRunning: false, isErrored: false, isInterrupted: false, output: 'ok' }, requestId: 'u1' } as any)

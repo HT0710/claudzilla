@@ -1319,8 +1319,8 @@ export const register: Register = (on, options) => {
     return result
   })
 
-  // Recorded after the call runs: a call that fails or is refused used nothing.
-  on('tool.call', { tool: /^(Read|Grep|Glob|WebSearch|WebFetch|Skill|Bash|mcp__.+)$/ }, async ($, e, next) => {
+  // Recorded after the call runs: a call that fails or is refused used nothing. Intent off: USED never draws, so nothing is recorded.
+  if (isIntentOn) on('tool.call', { tool: /^(Read|Grep|Glob|WebSearch|WebFetch|Skill|Bash|mcp__.+)$/ }, async ($, e, next) => {
     const command = e.tool === 'Bash' ? String((e as { command?: unknown }).command ?? '') : ''
     // Before the call: a `cd` in it moves the session's cwd. A command naming no search word skips both reads.
     const bash = /\b(grep|rg|find|fd|ag|ack|cat|ls)\b/.test(command)
