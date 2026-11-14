@@ -802,7 +802,7 @@ git -C "$TMP/uclone2" remote set-url origin ssh://git@example.invalid/x/y.git; g
 CLAUDE_CONFIG_DIR="$UC" sh "$TMP/uclone2/claude/hooks/claudzilla-update.sh" >/dev/null
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ -s "$TMP/ssh.rec" ] && break; sleep 0.25; done
 check "updater fetch: ssh gets BatchMode, GIT_ASKPASS empty" bash -c "grep -q -- '-o BatchMode=yes' '$TMP/ssh.rec' && grep -q 'askpass=\[\]' '$TMP/ssh.rec'"
-# GIT_SSH (plink) wins over core.sshCommand in git and takes no ssh options, so the updater leaves it alone
+# GIT_SSH (plink) alone takes no ssh options, so the updater leaves it alone
 git clone -q "$TMP/uorigin" "$TMP/uclone3"; mkdir -p "$TMP/uclone3/claude/hooks"
 cp "$REPO"/claude/hooks/{claudzilla-update.sh,rules-guard.mjs,trace.mjs,trace.pl} "$TMP/uclone3/claude/hooks/"
 sed 's/ssh.rec/plink.rec/' "$TMP/fakessh" > "$TMP/fakeplink"; chmod +x "$TMP/fakeplink"
@@ -810,6 +810,32 @@ git -C "$TMP/uclone3" remote set-url origin ssh://git@example.invalid/x/y.git
 GIT_SSH="$TMP/fakeplink" CLAUDE_CONFIG_DIR="$UC" sh "$TMP/uclone3/claude/hooks/claudzilla-update.sh" >/dev/null
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ -s "$TMP/plink.rec" ] && break; sleep 0.25; done
 check "updater fetch: GIT_SSH used as is, no BatchMode" bash -c "[ -s '$TMP/plink.rec' ] && ! grep -q BatchMode '$TMP/plink.rec'"
+# core.sshCommand beats GIT_SSH in git, so it still gets BatchMode; a plink one gets none
+git clone -q "$TMP/uorigin" "$TMP/uclone4"; mkdir -p "$TMP/uclone4/claude/hooks"
+cp "$REPO"/claude/hooks/{claudzilla-update.sh,rules-guard.mjs,trace.mjs,trace.pl} "$TMP/uclone4/claude/hooks/"
+sed 's/ssh.rec/ssh4.rec/' "$TMP/fakessh" > "$TMP/fakessh4"; chmod +x "$TMP/fakessh4"
+git -C "$TMP/uclone4" remote set-url origin ssh://git@example.invalid/x/y.git; git -C "$TMP/uclone4" config core.sshCommand "$TMP/fakessh4"
+GIT_SSH="$TMP/fakeplink" CLAUDE_CONFIG_DIR="$UC" sh "$TMP/uclone4/claude/hooks/claudzilla-update.sh" >/dev/null
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ -s "$TMP/ssh4.rec" ] && break; sleep 0.25; done
+check "updater fetch: core.sshCommand beats GIT_SSH, gets BatchMode" bash -c "grep -q -- '-o BatchMode=yes' '$TMP/ssh4.rec'"
+git clone -q "$TMP/uorigin" "$TMP/uclone5"; mkdir -p "$TMP/uclone5/claude/hooks"
+cp "$REPO"/claude/hooks/{claudzilla-update.sh,rules-guard.mjs,trace.mjs,trace.pl} "$TMP/uclone5/claude/hooks/"
+sed 's/ssh.rec/plink5.rec/' "$TMP/fakessh" > "$TMP/fakeplink5"; chmod +x "$TMP/fakeplink5"
+git -C "$TMP/uclone5" remote set-url origin ssh://git@example.invalid/x/y.git; git -C "$TMP/uclone5" config core.sshCommand "$TMP/fakeplink5"
+CLAUDE_CONFIG_DIR="$UC" sh "$TMP/uclone5/claude/hooks/claudzilla-update.sh" >/dev/null
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ -s "$TMP/plink5.rec" ] && break; sleep 0.25; done
+check "updater fetch: plink core.sshCommand, no BatchMode" bash -c "[ -s '$TMP/plink5.rec' ] && ! grep -q BatchMode '$TMP/plink5.rec'"
+# margin's Git tab auto-fetch follows the same ssh order, run as the plugin runs it
+qf=$(sed -n "s/^const QUIET_FETCH = '\(.*\)'$/\1/p" "$REPO/plugins/margin/hooks/tab-git.tsx")
+git clone -q "$TMP/uorigin" "$TMP/mclone"; git -C "$TMP/mclone" remote set-url origin ssh://git@example.invalid/x/y.git
+sed 's/ssh.rec/m.rec/' "$TMP/fakessh" > "$TMP/mssh"; sed 's/ssh.rec/m.rec/' "$TMP/fakessh" > "$TMP/mplink"; chmod +x "$TMP/mssh" "$TMP/mplink"
+mfetch() { : > "$TMP/m.rec"; (cd "$TMP/mclone" && env "$@" sh -c "$qf" >/dev/null 2>&1); }
+git -C "$TMP/mclone" config core.sshCommand "$TMP/mssh"; mfetch GIT_SSH="$TMP/mplink"
+check "margin fetch: core.sshCommand beats GIT_SSH, gets BatchMode" grep -q -- '-o BatchMode=yes' "$TMP/m.rec"
+git -C "$TMP/mclone" config core.sshCommand "$TMP/mplink"; mfetch
+check "margin fetch: plink core.sshCommand, no BatchMode" bash -c "[ -s '$TMP/m.rec' ] && ! grep -q BatchMode '$TMP/m.rec'"
+git -C "$TMP/mclone" config --unset core.sshCommand; mfetch GIT_SSH="$TMP/mplink"
+check "margin fetch: GIT_SSH used as is, no BatchMode" bash -c "[ -s '$TMP/m.rec' ] && ! grep -q BatchMode '$TMP/m.rec'"
 
 # --- release sync: opt-in; a PR merge reminds to rebase the open release branch onto main ---
 W=$(repo); cd "$W"; new_session; hook UserPromptSubmit prompt=merge >/dev/null

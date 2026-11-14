@@ -92,8 +92,9 @@ find "$lock" -maxdepth 0 -mmin +60 -exec rmdir {} \; 2>/dev/null   # left by a k
   trap 'rmdir "$lock"' EXIT
   # A curl install is a --depth 1 clone: no tags until its history is fetched.
   if [ -n "$stale" ]; then
-    # No prompt can hang it. GIT_SSH (plink) beats core.sshCommand in git and takes no ssh options, so it stays as is.
-    [ -n "${GIT_SSH:-}" ] && [ -z "${GIT_SSH_COMMAND:-}" ] || export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-$(git -C "$repo" config core.sshCommand || echo ssh)} -o BatchMode=yes"
+    # No prompt can hang it. Git picks GIT_SSH_COMMAND, then core.sshCommand, then GIT_SSH; plink takes no ssh options.
+    sshc=${GIT_SSH_COMMAND:-$(git -C "$repo" config core.sshCommand)}
+    [ -z "$sshc" ] && [ -n "${GIT_SSH:-}" ] || case ${sshc:-ssh} in *plink*) ;; *) export GIT_SSH_COMMAND="${sshc:-ssh} -o BatchMode=yes" ;; esac
     GIT_TERMINAL_PROMPT=0 GIT_ASKPASS= git -C "$repo" fetch -q $([ -f "$gd/shallow" ] && echo --unshallow --tags)
   fi
   [ "$(behind)" -gt 0 ] 2>/dev/null || exit 0

@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Check, CheckState, Pr, PrState } from '../types'
 
-import { age, ago, branches, changeOf, cutMiddle, fetchDue, parseStatusZ, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows, worktrees } from '../hooks/git-data'
+import { age, ago, branches, changeOf, cutMiddle, fetchDue, incomingPrs, parseStatusZ, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows, worktrees } from '../hooks/git-data'
 
 // A gh pr list row with every field the parser reads.
 const fixture = (over: Record<string, unknown> = {}) => ({
@@ -54,9 +54,15 @@ test('PR state, time and conflicts', () => {
   expect(prs[0]).toMatchObject({ head: 'feat/x', base: 'main', author: 'HT0710', additions: 1, files: 1, url: 'https://github.com/o/r/pull/1' })
 })
 
-test('cross-repository PRs are dropped; bad JSON gives none', () => {
-  expect(parsePrs(JSON.stringify([fixture({ isCrossRepository: true })]))).toEqual([])
+test("a fork's PR is kept, marked fork, and never a branch's own; bad JSON gives none", () => {
+  const prs = parsePrs(JSON.stringify([fixture({ isCrossRepository: true })]))
+  expect(prs.map(p => p.fork)).toEqual([true])
+  expect(ownPrs(prs, 'feat/x')).toEqual([])
   expect(parsePrs('not json')).toEqual([])
+})
+
+test("a fork's open PR counts as incoming", () => {
+  expect(incomingPrs(parsePrs(JSON.stringify([fixture({ isCrossRepository: true })])), 'main').map(p => p.n)).toEqual([1])
 })
 
 test('checks sort failed, running, passed, skipped', () => {
@@ -153,6 +159,11 @@ test('base view nests with ├─ └─ │ guides; merged hidden until shown',
   const rows = (showMerged: boolean) => treeRows(branches(REFS, PRS, WORKTREES, 'main'), 'base', showMerged).map(r => r.guide + r.label)
   expect(rows(false)).toEqual(['main', '├─ release/1.7', '│  └─ feat/a', '├─ fix/b', '└─ wip'])
   expect(rows(true)).toEqual(['main', '├─ release/1.7', '│  ├─ feat/a', '│  └─ feat/old', '├─ fix/b', '└─ wip'])
+})
+
+test('a base cycle hides no branch and ends', () => {
+  const list = [{ name: 'main' }, { name: 'a', base: 'b' }, { name: 'b', base: 'a' }, { name: 'c', base: 'a' }].map(b => ({ ahead: 0, behind: 0, upstream: 'ok' as const, worktree: false, at: 0, ...b }))
+  expect(treeRows(list, 'base', true).map(r => r.guide + r.label)).toEqual(['main', 'a', '├─ b', '└─ c'])
 })
 
 test('prefix view groups by the part before /, unprefixed branches last', () => {
