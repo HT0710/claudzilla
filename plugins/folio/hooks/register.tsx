@@ -1158,8 +1158,9 @@ export const register: Register = on => {
     if (columns && columns !== wroteColumns) {
       wroteColumns = columns
       try {
-        // $.fs can't see owner or mode, so sh makes and checks the private per-user dir that rules-guard.mjs uses; no output, no write.
-        const r = await $.process.run(['sh', '-c', 'd="$1/claudzilla-rules-$(id -u)"; mkdir -m 700 -p "$d" 2>/dev/null; [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ] && [ "$(ls -ld "$d" | cut -c1-10)" = drwx------ ] && printf %s "$d"', 'sh', (await $.env.get('TMPDIR')) || '/tmp'])
+        // $.fs can't see owner or mode, so sh makes and checks the private per-user dir that rules-guard.mjs uses (no group or other bits; setgid ok); no output, no write.
+        // Checked on every write, never cached: a tmp cleaner could delete the dir and another user re-make it.
+        const r = await $.process.run(['sh', '-c', 'd="$1/claudzilla-rules-$(id -u)"; mkdir -m 700 -p "$d" 2>/dev/null; [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ] && case "$(ls -ld "$d")" in d???--[-S]--[-T]*) printf %s "$d" ;; *) exit 1 ;; esac', 'sh', (await $.env.get('TMPDIR')) || '/tmp'])
         if (r.exitCode === 0 && r.stdout) await $.fs.write(`${r.stdout}/cols-${await $.session.id()}`, String(columns))
       } catch {}
     }
