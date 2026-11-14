@@ -1005,7 +1005,8 @@ export const register: Register = on => {
     // The root, not cwd(): a shell `cd` moves cwd(), and every row would shift with it.
     const name = namer(tool in EDIT || bashEdit ? await $.session.root().catch(() => '') : '', e.viewport?.columns)
     if (bashEdit) {
-      if (isRunning || isInterrupted) return native
+      // Off the fullscreen layout a failed write keeps the native row, as a plain file row would read as a success.
+      if (isRunning || isInterrupted || (isErrored && !e.viewport?.isFullscreen)) return native
       // A script's title names its command even for one file; off the fullscreen layout it keeps the engine row.
       const isScript = scripts.has(e.requestId)
       if (isScript && !e.viewport?.isFullscreen) return native
