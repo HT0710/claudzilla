@@ -237,10 +237,23 @@ test("records the chat's width for md-display.pl once per change", async ($, on)
   on('env.get', (_: any, e: any) => ({ value: e.name === 'TMPDIR' ? '/t' : undefined }))
   on('session.id', () => ({ value: 's1' }))
   on('fs.write', (_: any, e: any) => { writes.push([e.path, e.text]); return { value: undefined } })
+  on('process.run', (_: any, e: any) => ({ value: { exitCode: 0, stdout: e.argv.at(-1) === '/t' ? '/t/claudzilla-rules-7' : '', stderr: '' } }))
   const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'u1',
-    props: { text: 'hi' }, viewport: { columns: 103, rows: 20 } })
+    props: { text: 'hi', origin: { kind: 'composer' } }, viewport: { columns: 103, rows: 20 } })
   await ui.redraw()
-  expect(writes).toEqual([['/t/claudzilla-rules/cols-s1', '103']])
+  expect(writes).toEqual([['/t/claudzilla-rules-7/cols-s1', '103']])
+})
+
+test('the width is not written when the state dir fails its owner and mode check', async ($, on) => {
+  const writes: string[] = []
+  on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['you'] }))
+  on('env.get', (_: any, e: any) => ({ value: e.name === 'TMPDIR' ? '/t' : undefined }))
+  on('session.id', () => ({ value: 's1' }))
+  on('fs.write', (_: any, e: any) => { writes.push(e.path); return { value: undefined } })
+  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '' } }))
+  await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'u3',
+    props: { text: 'hi', origin: { kind: 'composer' } }, viewport: { columns: 103, rows: 20 } })
+  expect(writes).toEqual([])
 })
 
 test('a /clear writes the width again for the new session id', async ($, on) => {
@@ -251,12 +264,13 @@ test('a /clear writes the width again for the new session id', async ($, on) => 
   on('session.id', () => ({ value: id }))
   on('fs.write', (_: any, e: any) => { writes.push(e.path); return { value: undefined } })
   on('session.end', () => ({ sessionId: id }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '/t/claudzilla-rules-7', stderr: '' } }))
   const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'u2',
-    props: { text: 'hi' }, viewport: { columns: 103, rows: 20 } })
+    props: { text: 'hi', origin: { kind: 'composer' } }, viewport: { columns: 103, rows: 20 } })
   await $.session.end({ reason: 'clear' })
   id = 's2'
   await ui.redraw()
-  expect(writes.filter(p => p.includes('/cols-'))).toEqual(['/t/claudzilla-rules/cols-s1', '/t/claudzilla-rules/cols-s2'])
+  expect(writes.filter(p => p.includes('/cols-'))).toEqual(['/t/claudzilla-rules-7/cols-s1', '/t/claudzilla-rules-7/cols-s2'])
 })
 
 test('run text keeps the block as a script, so pipes, ifs, heredocs and comments run as written', () => {

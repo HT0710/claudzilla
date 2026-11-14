@@ -8,9 +8,12 @@ use JSON::PP;
 local $/;
 my $in = <STDIN> // '';
 my ($mid) = $in =~ /"message_id"\s*:\s*"([\w-]+)"/;
-my $dir = ($ENV{TMPDIR} || '/tmp') . '/claudzilla-rules';
+my $dir = ($ENV{TMPDIR} || '/tmp') . "/claudzilla-rules-$<";
 my $sf = $mid && "$dir/md-$mid";
 exit 0 unless $in =~ /<br|TL;DR|---|```|~~~/i || ($sf && -e $sf);
+# Private per-user dir, as in rules-guard.mjs: tmp is shared, so a planted symlink or open dir would get our writes.
+mkdir $dir, 0700; my @st = lstat $dir;
+($dir, $sf) = ('', '') unless @st && -d _ && $st[4] == $< && !($st[2] & 077);
 my $d = eval { decode_json($in) } or exit 0;
 my $t = $d->{delta} // '';
 
@@ -21,7 +24,7 @@ if ($sf && open my $fh, '<', $sf) { %s = map { $_ => 1 } split //, <$fh> // ''; 
 # COLUMNS is the whole terminal; folio writes the chat's width, narrower while the margin docks.
 my $cols = $ENV{COLUMNS} // 0;
 my ($sid) = ($d->{session_id} // '') =~ /^([\w-]+)$/;
-if ($sid && open my $ch, '<', "$dir/cols-$sid") { my ($c) = (<$ch> // '') =~ /^(\d+)/; $cols = $c if $c; }
+if ($sid && $dir && open my $ch, '<', "$dir/cols-$sid") { my ($c) = (<$ch> // '') =~ /^(\d+)/; $cols = $c if $c; }
 my $w = $cols > 20 ? $cols - 4 : 76;
 my ($heavy, $sep, $group) = ('━' x $w, '─' x int($w / 2), '┈' x int($w / 4));
 
@@ -45,7 +48,7 @@ $o .= ($o =~ /\n\z/ ? "\n" : "\n\n") . "$heavy\n" if $d->{final} && $s{o};
 if ($sf) {
   my $keep = join '', grep { $s{$_} } qw(o c f t p e);
   if ($d->{final} || !$keep) { unlink $sf; }
-  else { mkdir $dir; if (open my $fh, '>', $sf) { print $fh $keep; } }
+  elsif (open my $fh, '>', $sf) { print $fh $keep; }
 }
 my $ended = $d->{final} && $s{o};
 if ($opened || $closed || $ended) {

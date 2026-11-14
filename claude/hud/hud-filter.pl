@@ -367,14 +367,16 @@ eval {
     my %now = (branch => $branch, dirty => $dirty, churn => $churn, ver => $ver, cwd => $cwd, name => $sname, skill => $skill,
                model => $model, effort => $EFFORT, ctx => $f{ctx}, '5h' => $f{'5h'}, wk => $f{wk});
     delete @now{grep { !defined $now{$_} || $now{$_} eq '' } keys %now};
-    my $dir = ($ENV{TMPDIR} || '/tmp') . '/claudzilla-rules';
+    my $dir = ($ENV{TMPDIR} || '/tmp') . "/claudzilla-rules-$<";
+    # Private per-user dir, as in rules-guard.mjs: no state and no trace when it isn't ours alone.
+    mkdir $dir, 0700; my @st = lstat $dir;
+    die unless @st && -d _ && $st[4] == $< && !($st[2] & 077);
     (my $sid = $SID // '') =~ s/[^\w-]//g;
     my $sf = "$dir/hud-" . (length $sid ? $sid : 'nosession');
     my %was;
     if (open my $fh, '<:utf8', $sf) { %was = map { /^([^\t]+)\t(.*)$/ ? ($1, $2) : () } split /\n/, do { local $/; <$fh> // '' }; close $fh; }
     my @chg = grep { ($now{$_} // '') ne ($was{$_} // '') } keys %{{ %now, %was }};
     if (@chg) {
-        mkdir $dir;
         if (open my $fh, '>:utf8', $sf) { print $fh map { "$_\t$now{$_}\n" } sort keys %now; close $fh; }
         require(($0 =~ m{^(.*)/} ? $1 : '.') . '/../hooks/trace.pl');
         trace_write({ session => $sid, part => 'hud', event => 'hud.change',
