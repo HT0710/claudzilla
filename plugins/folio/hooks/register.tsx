@@ -837,14 +837,14 @@ export const register: Register = on => {
     return ran
   })
 
-  // Takes the files of the engine's bashEditDiff that folio holds no record of, as after a reload or a script's write
-  // beside a parsed one. A command the parse sees no write in, or whose record missed a file, is a script.
+  // Takes the engine's bashEditDiff when folio recorded no file, as after a reload or a script's write beside a parsed
+  // target that did not change. A record with files wins: the engine may name a file by another path, as through a
+  // symlink. A command the parse sees no write in, or whose record missed its writes, is a script.
   const adopt = (id: string, output: unknown, command: string) => {
     type Hunk = { oldStart: number; oldLines: number; newStart: number; newLines: number; lines: string[] }
     const files = (output as { bashEditDiff?: { files?: { filePath: string; hunks: Hunk[] }[] } } | undefined)?.bashEditDiff?.files
     const known = bashEdits.get(id)
-    const extra = files?.filter(f => !known?.some(k => k.file === f.filePath)) ?? []
-    if (!extra.length) return false
+    if (!files?.length || known?.length) return false
     const count = (hunks: Hunk[], sign: string) => hunks.flatMap(h => h.lines).filter(line => line[0] === sign).length
     // Their shell lines go too, so a dropped write draws as a lost one, not as a plain command.
     if (bashEdits.size > 500) {
@@ -853,8 +853,8 @@ export const register: Register = on => {
     }
     if (known || !writeTargets(command).length) scripts.add(id)
     // The engine writes a new file as one hunk with no old lines (@@ -1,0 +1,N @@); an existing file's hunk has context.
-    bashEdits.set(id, [...(known ?? []), ...extra.map(({ filePath, hunks }) => ({ file: filePath, add: count(hunks, '+'), del: count(hunks, '-'),
-      isNew: hunks.length === 1 && !hunks[0]!.oldLines, diff: diffText({ structuredPatch: hunks }) }))])
+    bashEdits.set(id, files.map(({ filePath, hunks }) => ({ file: filePath, add: count(hunks, '+'), del: count(hunks, '-'),
+      isNew: hunks.length === 1 && !hunks[0]!.oldLines, diff: diffText({ structuredPatch: hunks }) })))
     return true
   }
 

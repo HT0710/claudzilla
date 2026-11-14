@@ -1995,6 +1995,15 @@ test('an errored Bash edit folds as a failed Ran row, keeps its error under it, 
   expect(await groupOf($, [call('b1', 'Bash', { command }, { isErrored: true })])).toBe('● Ran (1 command)')
 })
 
+test('a parsed Bash write whose engine diff names its file by another path stays one row, not a script', async ($, on) => {
+  native(on)
+  bashFs(on, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))
+  const command = 'echo b > a.txt'
+  await bash($, command)
+  const ui = await useRow($, call('b1', 'Bash', { command }, { output: { stdout: '', bashEditDiff: { files: [{ filePath: '/real/p/a.txt', hunks: [HUNK] }] } } }))
+  expect(await textOf(ui, 'b1')).toBe('● Updated (a.txt)  +1 −1')
+})
+
 test('a reloaded errored Bash edit folds from the engine diff as a failed Ran row', async ($, on) => {
   native(on)
   expect(await textOf(await useRow($, reloaded('python fix.py', [HUNK], {}), { isErrored: true }), 'fold:b1')).toBe('● Ran (python fix.py)  failed  +1 −1')
