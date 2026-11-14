@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Check, CheckState, CommitView, Counts, FileView, Gh, LogRow, Modal, ModalKey, Op, Pr, PrState, PrView, Stage, Word } from '../types'
 import { LOG_FORMAT, age, ago, branches, cutMiddle, fetchDue, fileKey, incomingPrs, ownPrs, parseHead, parseLog, parseMerge, parseNumstat, parseRebase, parseShortstat, parseStatusZ, printable, sortChecks, stashCount, syncMark, treeRows, worktrees, worst } from './git-data'
-import { AHEAD, BAR_ROWS, BEHIND, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, capped, card as kitCard, clock, configDir, contentFrame, counted as kitCounted, cues, dayName, dim, drawLayer as kitDrawLayer, emptyNote, fade, fadeBg, fileView, fit, heading as kitHeading, kv as kitKv, line as kitLine, modalFrame, modalZone, nudge, readTheme, row as kitRow, rowHovers, stackFrame, textLength, toPieces, zoneWindow } from './kit'
+import { AHEAD, BEHIND, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, basicGlyphs, capped, card as kitCard, clock, configDir, contentFrame, counted as kitCounted, cues, dayName, dim, drawLayer as kitDrawLayer, emptyNote, fade, fadeBg, fileView, fit, heading as kitHeading, kv as kitKv, line as kitLine, modalFrame, modalZone, nudge, readTheme, row as kitRow, rowHovers, stackFrame, textLength, toPieces, zoneWindow } from './kit'
 import type { Frame, Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, Zone } from './kit'
 import { mdRows } from './markdown'
 
@@ -162,8 +162,6 @@ const treeStatus = new Map<string, number | null>()
 let prRead: { key: string; signal: AbortSignal; run: Promise<({ exitCode: number; stdout: string } | undefined)[]> } | undefined
 // The rebase or merge in progress, kept as gitRead is.
 let opRead: { key: string; signal: AbortSignal; run: Promise<Op | undefined> } | undefined
-// Whether install.sh chose basic glyphs: read once a session.
-let basicGlyphs: Promise<boolean> | undefined
 // A commit row's key: hover scopes take at most 64 characters, so a SHA-256 id goes by its first 40.
 const commitKey = (sha: string) => `c:${sha.slice(0, 40)}`
 // A rebase or merge in progress, from the git dir's files; none otherwise.
@@ -216,9 +214,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   const [status, diff, unpushed, count, remote, gitDir, stash, refs, worktreeRun] = runs
   const now = await $.clock.now()
   await readTheme($)
-  const basic = await (basicGlyphs ??= configDir($)
-    .then(dir => $.fs.exists(`${dir}/.claudzilla-basic-glyphs`))
-    .catch(() => false))
+  const basic = await basicGlyphs($)
   const open = await read($, modal)
   const isFetching = await read($, fetching)
   const web = remote?.exitCode === 0 ? gitWeb(remote.stdout) : undefined
@@ -288,10 +284,10 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   const totalCount = total ? `${aheadCount ? '  ' : ''}${total} total` : ''
   // The branch row, the rebase row and the PR row; the rows above CHANGES grow with them.
   const topRows = 1 + (op ? 1 : 0) + (pr || summary ? 1 : 0)
-  // Rows left once the tabs, their rule, the branch, the rule under it, both headers and the
+  // Rows left once the branch, the rule under it, both headers and the
   // divider are drawn. CHANGES takes what it needs up to half, or what the divider was dragged
   // to; COMMITS the rest. Dragged, each side keeps 1 row, COMMITS first in a short pane.
-  const free = props.scroll.bodyRows - BAR_ROWS - 6 - topRows
+  const free = props.scroll.bodyRows - 4 - topRows
   const dragged = await read($, split)
   const changesMax = Math.max(0, free - 1)
   const changesMin = Math.min(1, changesMax)
@@ -316,9 +312,9 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   const commits = log?.exitCode === 0 ? parseLog(log.stdout) : []
   const commitsN = Number(total) || page * PAGE + commits.length
   const commitsW = zoneWindow(commitsN, commitsFrom, commitsRows)
-  // CHANGES' rows end under its last file: the tabs, their rule, the branch, its rule and the header.
+  // CHANGES' rows end under its last file: the branch, its rule and the header.
   if (head) {
-    const commitsAt = files.length && changesRows ? 4 + topRows + changesRows : 0
+    const commitsAt = files.length && changesRows ? 2 + topRows + changesRows : 0
     const changesEnd = zoneWindow(files.length, Infinity, changesRows).top
     const commitsEnd = zoneWindow(commitsN, Infinity, commitsRows).top
     const divider = { rows: changesRows, min: changesMin, max: changesMax }
@@ -502,8 +498,8 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
       }),
       ...tags.map(tag => [<Text color="warning">{tag}</Text>]),
     ].flatMap((pieces, i) => (i ? [<Text>{'  '}</Text>, ...pieces] : pieces))
-  // The tab body the modals sit in, under the tabs and their rule.
-  const tabRows = props.scroll.bodyRows - 2 - BAR_ROWS
+  // The tab body the modals sit in.
+  const tabRows = props.scroll.bodyRows
   // The divider fades in the last CHANGES row's group while its card hangs down, only when it is the line right
   // under that row: past empty zone rows the card never reaches it.
   const lastChange = lower.filter(l => l.zone === 'changes').at(-1)
@@ -1245,12 +1241,12 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   const layerZone = modalZone($, 'Git', layers)
   if (layerZone) drawn.push(layerZone)
   const body = !head ? (
-    // The rows under the tabs and their rule. No answer at all: git is not on PATH, or the surface
+    // The pane rows. No answer at all: git is not on PATH, or the surface
     // runs no command.
     status ? (
       emptyNote(
         ctx.el,
-        props.scroll.bodyRows - BAR_ROWS - 2,
+        props.scroll.bodyRows,
         'Not a git repository',
         <Text color={HUD.faint}>Branch, changes and commits</Text>,
         <Text color={HUD.faint}>show here inside a repo.</Text>,
@@ -1258,7 +1254,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
     ) : (
       emptyNote(
         ctx.el,
-        props.scroll.bodyRows - BAR_ROWS - 2,
+        props.scroll.bodyRows,
         "Git can't run here",
         <Text color={HUD.faint}>It needs git on PATH,</Text>,
         <Text color={HUD.faint}>in a terminal session.</Text>,

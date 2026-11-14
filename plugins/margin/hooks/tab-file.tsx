@@ -2,7 +2,7 @@ import { atom, read } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { FileView } from '../types'
-import { BAR_ROWS, HUD, PAD, emptyNote, fit } from './kit'
+import { HUD, PAD, emptyNote, fit } from './kit'
 import type { TabCtx, TabDraw } from './kit'
 
 const file = atom({ plugin: 'margin', key: 'file' } as const, undefined as FileView)
@@ -18,7 +18,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const { Box, Code, Text } = ctx.el
   const { props } = ctx
   const view = await read($, file)
-  const rows = Math.max(0, props.scroll.bodyRows - BAR_ROWS - 2)
+  const rows = Math.max(0, props.scroll.bodyRows)
   if (!view) {
     return { body: emptyNote(ctx.el, rows, 'No file open', <Text color={HUD.faint}>Click a file path in</Text>, <Text color={HUD.faint}>a reply to show it here.</Text>), zones: [], trace: {} }
   }

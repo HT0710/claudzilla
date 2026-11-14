@@ -5,7 +5,7 @@ import type { Spawn, Step } from '../types'
 import { fileKey } from '../hooks/git-data'
 import { DIMMED, hoverOf, readersOf, rowHovers } from '../hooks/kit'
 
-import { EMPTY_USED, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, resetUsed, stampPattern, useOf, bashPaths, wrapLines, zoneWindow } from '../hooks/register'
+import { EMPTY_USED, ICON, railTop, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, resetUsed, stampPattern, useOf, bashPaths, wrapLines, zoneWindow } from '../hooks/register'
 import { modelName } from '../hooks/tab-overview'
 
 // A process.run result with `stdout`.
@@ -40,14 +40,12 @@ const textsUnder = async (ui: { drawn: () => Promise<unknown> }, key: string) =>
 // Stands for grep pulling this chat's lines from the prompt history.
 const isHistoryGrep = (argv: readonly string[]) => argv.at(-1)?.endsWith('history.jsonl') ?? false
 
-// The bottom bar's rule and labels, on top of the 20 rows the bodies were sized to.
-const BAR_ROWS = 2
 const props = {
   title: 'Panel',
   isFocused: false,
-  bodyColumns: 40,
+  bodyColumns: 44,
   placement: 'dock' as const,
-  scroll: { offset: 0, bodyRows: 20 + BAR_ROWS },
+  scroll: { offset: 0, bodyRows: 20 - 2 },
   view: {},
 }
 
@@ -106,7 +104,7 @@ test('Git tab shows the branch, changed files and last commits', async ($, on) =
   expect(await ui.find({ type: 'Text', text: '⎇ main', in: 'row:branch' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: ' ↕', in: 'row:branch' })).toBeDefined()
   // A rule under the branch, as wide as the body.
-  expect(await ui.find({ type: 'Text', text: new RegExp(`^─{${props.bodyColumns - 4}}$`) })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: new RegExp(`^─{${props.bodyColumns - 8}}$`) })).toBeDefined()
   // The file count faint, then the lines added and removed, summed.
   expect((await ui.find({ type: 'Text', text: '3 files' }))?.props.color).toBe('#4f5c68')
   expect(await ui.find({ type: 'Text', text: '+86' })).toBeDefined()
@@ -205,7 +203,7 @@ test('the narrowest pane keeps the Git headers on one row, dropping their counts
     '--count': '142\n',
   }
   on('process.run', (_, e) => ran(git(repo)(e.argv) ?? ''))
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 23 }, requestId: 'margin' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 27 }, requestId: 'margin' })
   await ui.press({ key: 'Git' })
 
   // 19 columns: "CHANGES 3 files" fits, the line counts after it do not; "COMMITS ↑3" fits, the total does not.
@@ -239,11 +237,11 @@ test('a one-row CHANGES zone scrolls with no cues', async ($, on) => {
   noHistory(on)
   const files = Array.from({ length: 10 }, (_, i) => ` M file${i}.ts`).join('\n')
   on('process.run', (_, e) => ran(git({ status: `## main\n${files}\n`, log: 'abc1234ffff abc1234 first\n' })(e.argv) ?? ''))
-  const scroll = { offset: 0, bodyRows: 9 + BAR_ROWS }
+  const scroll = { offset: 0, bodyRows: 9 - 2 }
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll }, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   // 9 body rows less 7 fixed: COMMITS keeps 1, CHANGES the 1 left, on row 5.
-  await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 100, bodyRows: 9 + BAR_ROWS, contentRows: 9 + BAR_ROWS, origin: { kind: 'person' }, pointer: { column: 0, row: 5 } })
+  await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 100, bodyRows: 9 - 2, contentRows: 9 - 2, origin: { kind: 'person' }, pointer: { column: 0, row: 3 } })
   await ui.drawn()
   expect(await rowText(ui, /file9\.ts/)).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'changes:up' })).toBeUndefined()
@@ -325,7 +323,7 @@ test('the wheel scrolls CHANGES and COMMITS each on its own, up to their ends; �
     $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
 
   expect(await ui.find({ type: 'Button', key: 'changes:up' })).toBeUndefined()
-  await wheel(5, 8)
+  await wheel(5, 6)
   expect(await rowText(ui, /file3\.ts/)).toBeUndefined()
   expect(await rowText(ui, /file4\.ts/)).toBeDefined()
   expect(await rowText(ui, /file9\.ts/)).toBeDefined()
@@ -333,7 +331,7 @@ test('the wheel scrolls CHANGES and COMMITS each on its own, up to their ends; �
   expect(await ui.find({ type: 'Button', key: 'changes:up' })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'commits:up' })).toBeUndefined()
 
-  await wheel(100, 16)
+  await wheel(100, 14)
   expect(await rowText(ui, /commit 24$/)).toBeUndefined()
   expect(await rowText(ui, /commit 25$/)).toBeDefined()
   expect(await rowText(ui, /commit 29$/)).toBeDefined()
@@ -366,7 +364,7 @@ test('CHANGES shows the modal cues: ↑ N more once scrolled, ↓ N more turns t
   // 7 rows of CHANGES from row 4: 6 files and ↓ at the top.
   expect(await cueText(ui, 'changes')).toEqual({ up: false, down: true })
   expect(await ui.find({ type: 'Text', text: ' 24 more' })).toBeDefined()
-  await wheelAt($, 5, 6)
+  await wheelAt($, 5, 4)
   // ↑, 5 files, ↓.
   expect(await cueText(ui, 'changes')).toEqual({ up: true, down: true })
   expect(await ui.find({ type: 'Text', text: ' 5 more ' })).toBeDefined()
@@ -378,7 +376,7 @@ test('CHANGES shows the modal cues: ↑ N more once scrolled, ↓ N more turns t
   expect(await rowText(ui, /file9\.ts/)).toBeUndefined()
   expect(await rowText(ui, /file10\.ts/)).toBeDefined()
   expect(await ui.find({ type: 'Text', text: ' 10 more ' })).toBeDefined()
-  await wheelAt($, 100, 6)
+  await wheelAt($, 100, 4)
   expect(await cueText(ui, 'changes')).toEqual({ up: true, down: false })
   expect(await rowText(ui, /file29\.ts/)).toBeDefined()
   await ui.press({ key: 'changes:up' })
@@ -397,7 +395,7 @@ test('COMMITS shows the modal cues; ↓ more counts nothing, as COMMITS reads in
   expect(await ui.find({ type: 'Text', text: ' more' })).toBeDefined()
   expect(await rowText(ui, /commit 13$/)).toBeDefined()
   expect(await rowText(ui, /commit 14$/)).toBeUndefined()
-  await wheelAt($, 5, 10)
+  await wheelAt($, 5, 8)
   expect(await cueText(ui, 'commits')).toEqual({ up: true, down: true })
   expect(await ui.find({ type: 'Text', text: ' 5 more ' })).toBeDefined()
   expect(await rowText(ui, /commit 17$/)).toBeDefined()
@@ -405,7 +403,7 @@ test('COMMITS shows the modal cues; ↓ more counts nothing, as COMMITS reads in
   await ui.press({ key: 'commits:down' })
   expect(await rowText(ui, /commit 17$/)).toBeUndefined()
   expect(await rowText(ui, /commit 18$/)).toBeDefined()
-  await wheelAt($, 1000, 10)
+  await wheelAt($, 1000, 8)
   expect(await cueText(ui, 'commits')).toEqual({ up: true, down: false })
   expect(await rowText(ui, /commit 59$/)).toBeDefined()
   await ui.press({ key: 'commits:up' })
@@ -424,13 +422,13 @@ test('the wheel over the divider moves it: up gives CHANGES rows, down takes the
   const wheel = (by: number, row: number) =>
     $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row } })
 
-  await wheel(-2, 12)
+  await wheel(-2, 10)
   expect(await rowText(ui, /file7\.ts/)).toBeDefined()
   expect(await rowText(ui, /file8\.ts/)).toBeUndefined()
   expect(await ui.find({ type: 'Button', key: 'changes:up' })).toBeUndefined()
   expect(await ui.find({ type: 'Button', key: 'commits:up' })).toBeUndefined()
 
-  await wheel(100, 14)
+  await wheel(100, 12)
   expect(await rowText(ui, /file0\.ts/)).toBeDefined()
   expect(await rowText(ui, /file1\.ts/)).toBeUndefined()
 })
@@ -444,7 +442,7 @@ test('notches close together keep moving the divider once it leaves the pointer;
   await ui.press({ key: 'Git' })
   // The divider starts on row 12; the pointer stays there as it moves down.
   const wheel = (by: number) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 12 } })
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
 
   await wheel(-1)
   now = 300
@@ -475,7 +473,7 @@ test('COMMITS reads a page at a time as the wheel goes past it, down to the firs
   await ui.press({ key: 'Git' })
   // A clean repo: 15 rows of COMMITS, 13 between the cues once scrolled.
   const wheel = (by: number) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 8 } })
 
   await wheel(150)
   expect(await rowText(ui, /commit 149$/)).toBeUndefined()
@@ -501,7 +499,7 @@ test('with no commit count, COMMITS still scrolls page by page to the first comm
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   const wheel = (by: number) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 8 } })
 
   // Each page's draw lands before the next tick: until then the wheel stops at the page drawn.
   for (const by of [150, 1000, 1000]) {
@@ -883,89 +881,45 @@ test('Overview tab with nothing read yet shows a note', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'Nothing here yet' })).toBeDefined()
 })
 
-test('top bar holds Overview, Decisions, History; bottom bar File, Tree, Git', async ($, on) => {
+test('built tabs only: Overview, History, File, Git', async ($, on) => {
   noHistory(on)
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   const cells = (await ui.findAll({ type: 'Box' })).map(b => b.key).filter(key => key?.startsWith('tab:'))
-  expect(cells).toEqual(['tab:Overview', 'tab:Decisions', 'tab:History', 'tab:File', 'tab:Tree', 'tab:Git'])
-  // Each bar: body less margins and two separators, split three ways.
-  expect((await ui.find({ key: 'tab:Git' }))?.props.width).toBe(Math.floor((props.bodyColumns - 4 - 6) / 3))
+  expect(cells).toEqual(['tab:Overview', 'tab:History', 'tab:File', 'tab:Git'])
 })
 
-type TabNode = { type?: string; props?: { underline?: boolean; bold?: boolean; inverse?: boolean }; text?: string; children?: unknown[] }
-const underlined = (node: unknown): TabNode[] => {
-  const el = node as TabNode
-  if (typeof node !== 'object' || !el) return []
-  return [...(el.type === 'Text' && el.props?.underline ? [el] : []), ...(el.children ?? []).flatMap(underlined)]
-}
-
-test('tab titles underline their key letter', async ($, on) => {
+test('the shown tab is inverse; another tab presses', async ($, on) => {
   noHistory(on)
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
-  const letters = async (tab: string) => underlined(await ui.find({ key: `tab:${tab}` })).map(t => t.children?.[0])
-  expect(await letters('Overview')).toEqual(['O'])
-  expect(await letters('History')).toEqual(['H'])
-  expect(await letters('File')).toEqual(['l'])
-  expect(await letters('Git')).toEqual(['G'])
-  expect(await letters('Decisions')).toEqual([])
-  expect(await letters('Tree')).toEqual([])
-})
-
-test('the shown tab keeps its underline', async ($, on) => {
-  noHistory(on)
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
-  const shown = await ui.find({ type: 'Text', text: /^\s*Overview\s*$/ })
-  expect(shown?.props.bold && shown?.props.inverse).toBe(true)
-  expect(underlined(shown).map(t => t.children?.[0])).toEqual(['O'])
-})
-
-test('a cut name shows no underline', async ($, on) => {
-  noHistory(on)
-  // 16 body columns: 6 for three slots, 2 each, so File is cut to Fi.
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 16 }, requestId: 'margin' })
-  expect(underlined(await ui.find({ key: 'tab:File' }))).toEqual([])
-})
-
-test('in the narrowest dock a tab name is cut to its slot, never wrapped', async ($, on) => {
-  noHistory(on)
-  // 23 body columns: 13 for three slots, 4 + 4 + 5.
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 23 }, requestId: 'margin' })
-  expect(await ui.find({ type: 'Text', text: /^Over$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^Deci$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^Histo$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /Overview|Decisions|History/ })).toBeUndefined()
-})
-
-test('a tab not built yet is dim and says when it comes', async ($, on) => {
-  noHistory(on)
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
-  await ui.press({ key: 'Tree' })
-  // The same boxed note as an empty Overview, History or Git.
-  expect(await ui.find({ type: 'Text', text: 'Coming soon' })).toBeDefined()
-  expect(await ui.find({ type: 'Box', borderStyle: 'round' } as any)).toBeDefined()
-})
-
-test("the bottom bar sits on the pane's last rows, whatever the tab holds", async ($, on) => {
-  noHistory(on)
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
-  // Overview with nothing read is short; the body Box still fills to the bar.
-  expect((await ui.find({ key: 'body' }))?.props.height).toBe(props.scroll.bodyRows - 4) // top bar + rule, bottom rule + bar
-})
-
-test('the shown tab is lit across its cell and no button; another tab presses across its cell', async ($, on) => {
-  noHistory(on)
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  expect((await ui.find({ type: 'Text', text: ICON.Overview }))?.props.inverse).toBe(true)
   await ui.press({ key: 'History' })
-  // The body less its margins and the separators, split: 10 columns each.
-  expect(await ui.find({ type: 'Button', key: 'History' })).toBeUndefined()
-  const shown = await ui.find({ type: 'Text', text: /^\s*History\s*$/ })
-  expect(shown?.text.length).toBe(10)
-  expect(shown?.props.inverse).toBe(true)
-  const other = await ui.find({ type: 'Button', key: 'Git' })
-  expect(other?.text.length).toBe(10)
-  // One color across it, so the focus inverts it as one block.
-  const parts = (other?.children ?? []) as { type?: string; props?: { color?: string } }[]
-  expect(new Set(parts.filter(part => part.type === 'Text').map(part => part.props?.color))).toEqual(new Set(['#456186']))
+  expect((await ui.find({ type: 'Text', text: ICON.History }))?.props.inverse).toBe(true)
+})
+
+test('the body is the full pane height', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  expect((await ui.find({ key: 'body' }))?.props.height).toBe(props.scroll.bodyRows)
+})
+
+test('basic glyphs draw the key letters', async ($, on) => {
+  noHistory(on)
+  on('fs.exists', (_, e) => ({ value: String((e as any).path ?? '').endsWith('.claudzilla-basic-glyphs') }))
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  for (const [tab, letter] of [['Overview', 'o'], ['History', 'h'], ['File', 'l'], ['Git', 'g']])
+    expect((await textsUnder(ui, `tab:${tab}`)).map(t => t.text).join('').trim()).toBe(letter)
+})
+
+test('the rail group sits in the middle, 8 rows with the blank after each tab', () => {
+  expect(railTop(19)).toBe(5)
+  expect(railTop(20)).toBe(6)
+  expect(railTop(3)).toBe(0)
+})
+
+test('a narrow pane still draws the rail', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 8 }, requestId: 'margin' })
+  expect((await ui.findAll({ type: 'Box' })).map(b => b.key)).toContain('tab:Git')
 })
 
 // Each write draws the pane: two per press could land out of order, and the terminal then
@@ -1061,7 +1015,7 @@ test('a long branch row is cut to fit beside the fetch button, not wrapped', asy
   expect(branch.endsWith('…')).toBe(true)
   // The body less its margins: the branch, its mark, a space at least, the fetch button.
   const fetch = (await ui.findAll({ type: 'Text', text: /^\uf46a /, in: 'row:fetch' })).at(-1)?.text ?? ''
-  expect(branch.length + 2 + 1 + fetch.length).toBeLessThanOrEqual(props.bodyColumns - 4)
+  expect(branch.length + 2 + 1 + fetch.length).toBeLessThanOrEqual(props.bodyColumns - 8)
 })
 
 test("a conflict shows git's two letters, both red, whatever git pairs", async ($, on) => {
@@ -1092,16 +1046,6 @@ test('a renamed file shows its new name; paths come unescaped', async ($, on) =>
   expect(runs.find(argv => argv.includes('status'))).toContain('core.quotePath=false')
 })
 
-test('divider keeps half the side margin', async ($, on) => {
-  on('clock.now', () => ({ value: 0 }))
-  on('env.get', () => ({ value: '/home/me' }))
-  on('session.id', () => ({ value: 'chat-1' }))
-  on('fs.read', () => ({ value: '' }))
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
-  await ui.press({ key: 'History' })
-  expect((await ui.find({ type: 'Text', text: /^─+$/ }))?.text.length).toBe(props.bodyColumns - 2)
-})
-
 test("History tab lists this chat's prompts, newest first, wherever the shell cd'd", async ($, on) => {
   on('clock.now', () => ({ value: 0 }))
   const history = [
@@ -1121,7 +1065,7 @@ test("History tab lists this chat's prompts, newest first, wherever the shell cd
 
   expect((await ui.find({ key: 'jump:0' }))?.text).toContain('newest prompt')
   // "↻ " takes 2 columns; the jump button fills the rest of the row.
-  expect((await ui.find({ key: 'jump:0' }))?.text.length).toBe(props.bodyColumns - 4 - 2)
+  expect((await ui.find({ key: 'jump:0' }))?.text.length).toBe(props.bodyColumns - 8 - 2)
   expect((await ui.find({ key: 'jump:1' }))?.text).toContain('older prompt')
   expect(await ui.find({ key: 'jump:2' })).toBeUndefined()
 })
@@ -1342,7 +1286,7 @@ test('a day divider opens each day, once', async ($, on) => {
   // "──── Today ────" spans the row exactly (side margins take 4 columns), label centered.
   const [left] = await ui.findAll({ type: 'Text', text: /^─+ $/ })
   const [right] = await ui.findAll({ type: 'Text', text: /^ ─+$/ })
-  expect((left?.text.length ?? 0) + 'Today'.length + (right?.text.length ?? 0)).toBe(props.bodyColumns - 4)
+  expect((left?.text.length ?? 0) + 'Today'.length + (right?.text.length ?? 0)).toBe(props.bodyColumns - 8)
   expect(Math.abs((left?.text.length ?? 0) - (right?.text.length ?? 0))).toBeLessThanOrEqual(1)
   expect(left?.props.color).toBe('#625a7e')
   expect((await ui.findAll({ type: 'Text', text: dayLabel(Date.now() - 3 * day, new Date()) })).length).toBe(1)
@@ -1965,7 +1909,7 @@ test('the narrowest pane keeps both buttons and drops the count', async ($, on) 
   on('session.id', () => ({ value: 'chat-1' }))
   on('fs.read', () => ({ value: JSON.stringify({ display: 'only', timestamp: 1, sessionId: 'chat-1' }) }))
   // The narrowest the terminal lets the pane be dragged.
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 23 }, requestId: 'margin' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 27 }, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
 
@@ -1981,7 +1925,7 @@ test('one prompt is counted without the plural s; " this session" only where it 
   on('fs.read', () => ({ value: JSON.stringify({ display: 'only', timestamp: 1, sessionId: 'chat-1' }) }))
 
   // 40 columns hold only "1 prompt" (the 100+ test's); 60 hold " this session" too.
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 60 }, requestId: 'margin' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 64 }, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await ui.redraw()
 
@@ -2184,7 +2128,7 @@ test('the wheel scrolls the History list under a fixed header, up to its end; �
   // The day line and 30 prompts in 17 rows under the tabs, their rule and the header; the cues take
   // one each.
   const wheel = (by: number) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 8 } })
 
   expect(await ui.find({ type: 'Button', key: 'history:up' })).toBeUndefined()
   await wheel(5)
@@ -2559,13 +2503,13 @@ const intentPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1
 const turnEnd = ($: Parameters<TestBody>[0], agentId?: string, reason = 'answer') =>
   $.turn.complete({ answer: '', durationMs: 1, isAborted: reason === 'aborted', turnId: 't1', reason, category: null, explanation: null, agentId } as any)
 
-test('a tab taller than the body is cut at the bottom bar: the pane does not scroll', async ($, on) => {
+test("a tab taller than the body is cut at the pane's bottom: the pane does not scroll", async ($, on) => {
   const ui = await intentPane($, on)
   const steps = Array.from({ length: 30 }, (_, i) => ({ text: `step ${i}`, status: 'pending' }))
   await $.tool.call({ tool: INTENT, ...REPORT, steps } as any)
   await ui.drawn()
   const body = await ui.find({ key: 'body' })
-  expect(body?.props.height).toBe(props.scroll.bodyRows - 4)
+  expect(body?.props.height).toBe(props.scroll.bodyRows)
   expect(body?.props.overflow).toBe('hidden')
 })
 
@@ -3499,7 +3443,7 @@ test('USED hides when STEPS would keep fewer than 3 rows', async ($, on) => {
   on('tool.call', () => ({ result: {} }) as any)
   noHistory(on)
   on('session.end', (_, e) => ({ sessionId: e.sessionId }) as any)
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll: { offset: 0, bodyRows: 11 + BAR_ROWS } }, requestId: 'margin' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll: { offset: 0, bodyRows: 11 - 2 } }, requestId: 'margin' })
   const steps = Array.from({ length: 30 }, (_, i) => ({ text: `step ${i + 1}`, status: 'pending' }))
   await $.tool.call({ tool: INTENT, ...REPORT, steps } as any)
   await ui.drawn()
@@ -3518,12 +3462,12 @@ const stepsPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]
   on('session.end', (_, e) => ({ sessionId: e.sessionId }) as any)
   on('prompt.submit', (_, e) => ({ text: e.text }) as any)
   on('ui.scroll', () => ({}) as any)
-  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll: { offset: 0, bodyRows: 14 + BAR_ROWS } }, requestId: 'margin' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll: { offset: 0, bodyRows: 14 - 2 } }, requestId: 'margin' })
   const steps = Array.from({ length: 12 }, (_, i) => ({ text: `step ${i + 1}`, status: i < doing - 1 ? 'completed' : i === doing - 1 ? 'in_progress' : 'pending' }))
   await $.tool.call({ tool: INTENT, ...REPORT, steps } as any)
   await ui.drawn()
-  const wheel = (by: number, row = 6) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 14 + BAR_ROWS, contentRows: 14 + BAR_ROWS, origin: { kind: 'person' }, pointer: { column: 0, row } })
+  const wheel = (by: number, row = 4) =>
+    $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 14 - 2, contentRows: 14 - 2, origin: { kind: 'person' }, pointer: { column: 0, row } })
   const shown = async (n: number) => (await rowText(ui, new RegExp(` step ${n}$`))) !== undefined
   return { ui, wheel, shown }
 }
@@ -3536,9 +3480,9 @@ test('USED takes rows from STEPS: the wheel hits the shorter zone, not the USED 
   // 6 rows less USED's 2: ↑, steps 7 to 9, ↓.
   expect(await shown(9)).toBe(true)
   expect(await shown(6)).toBe(false)
-  await wheel(-2, 10)
+  await wheel(-2, 8)
   expect(await shown(9)).toBe(true)
-  await wheel(-2, 6)
+  await wheel(-2, 4)
   expect(await shown(9)).toBe(false)
 })
 
@@ -3623,7 +3567,7 @@ test('a press on a STEPS cue stops following; the wheel keeps within the steps',
   expect(await shown(1)).toBe(true)
   expect(await ui.find({ type: 'Button', key: 'steps:up' })).toBeUndefined()
   // Over ASK, not STEPS: the engine's own scroll, the steps stay.
-  await wheel(3, 4)
+  await wheel(3, 2)
   expect(await shown(1)).toBe(true)
 })
 
@@ -3860,7 +3804,7 @@ test('scrolling the History list alone writes no new pane.draw entry', async ($,
   }
   const before = (await draws()).length
   expect(before).toBeGreaterThan(0)
-  for (const by of [2, 3]) await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 10 } })
+  for (const by of [2, 3]) await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by, bodyRows: 20, contentRows: 20, origin: { kind: 'person' }, pointer: { column: 0, row: 8 } })
   expect(await ui.find({ type: 'Button', key: 'history:up' })).toBeDefined()
   const after = await draws()
   expect(after.length).toBe(before)
@@ -4091,7 +4035,7 @@ test('only the label word heats its card: every line it dims is a nested Text', 
   await $.tool.call({ tool: INTENT, ...REPORT, wants: 'a third tab '.repeat(4) } as any)
   await $.tool.call({ tool: 'Grep', pattern: 'x' } as any)
   // Tall enough for both USED rows: the second is the line under USED.
-  await ui.redraw({ ...props, scroll: { offset: 0, bodyRows: 40 + BAR_ROWS } })
+  await ui.redraw({ ...props, scroll: { offset: 0, bodyRows: 40 - 2 } })
   const heats: string[] = []
   const follows = new Set<string>()
   const walk = (n: any, inText: boolean) => {
@@ -4546,7 +4490,7 @@ test('alt+o on a closed pane reads TOPICS once', async ($, on) => {
 })
 
 // The File tab's rows: the body less its header row.
-const windowRows = props.scroll.bodyRows - 2 - BAR_ROWS - 2 // header row + its rule
+const windowRows = props.scroll.bodyRows - 2 // header row + its rule
 const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\n')
 // The File tab as `$.margin.show` leaves it: the test's `$` carries no plugin noun, and a hook in a test module that
 // calls one is refused ("its hooks module does not call it (host rule; the scan lists no calls)"), so the two
@@ -4566,14 +4510,14 @@ test('the File header is the path from the working directory, or from ~, with a 
   // As Git's branch row: the path in the action color, the line faint on the right.
   expect(await colorOf(ui, 'src/a.ts')).toBe('#5d9678')
   expect(await colorOf(ui, 'line 65')).toBe('#4f5c68')
-  expect(await ui.find({ type: 'Text', text: new RegExp(`^─{${props.bodyColumns - 4}}$`) })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: new RegExp(`^─{${props.bodyColumns - 8}}$`) })).toBeDefined()
 })
 
 test('a long File header keeps its line and cuts the path from the left', async ($, on) => {
   on('session.cwd', () => ({ value: '/repo' }))
   const ui = await fileTab($, on, fileView(`/repo/${'deep/'.repeat(20)}a.ts`, 65, lines(200)))
   const head = await ui.find({ type: 'Text', text: /^….*\/a\.ts$/ })
-  expect(String(head?.text)).toHaveLength(props.bodyColumns - 4 - 'line 65'.length - 1)
+  expect(String(head?.text)).toHaveLength(props.bodyColumns - 8 - 'line 65'.length - 1)
   expect(await ui.find({ type: 'Text', text: 'line 65' })).toBeDefined()
 })
 
@@ -4929,7 +4873,7 @@ test('web rows: a page links in parts, a search says search; other rows name the
   await $.tool.call({ tool: 'WebFetch', url: 'https://github.com/vadimdemedes/ink?tab=api#position' } as any)
   await $.tool.call({ tool: 'mcp__claude_ai_slack__slack_send_message' } as any)
   // Wide enough that the page is not cut.
-  await ui.redraw({ ...props, bodyColumns: 80 })
+  await ui.redraw({ ...props, bodyColumns: 84 })
   await tapRow(ui, 'o:used:web')
   expect((await ui.find({ type: 'Link' }))?.props.href).toBe('https://github.com/vadimdemedes/ink?tab=api#position')
   expect(await hasInModal(ui, 'github.com')).toBe(true)
@@ -4964,7 +4908,7 @@ test('each FILES reader has its colour: Claude the accent, common types their ow
   for (const n of [1, 2, 3, 4, 5, 6]) await $.tool.call({ tool: 'Read', file_path: `/proj/${n}.ts`, agentId: `a${n}` } as any)
   await $.tool.call({ tool: 'Read', file_path: '/proj/z.ts', agentId: 'zz' } as any)
   // Tall enough for all 8 readers and their files, wide enough for each name beside its total.
-  await ui.redraw({ ...props, bodyColumns: 60, scroll: { offset: 0, bodyRows: 40 + BAR_ROWS } })
+  await ui.redraw({ ...props, bodyColumns: 64, scroll: { offset: 0, bodyRows: 40 - 2 } })
   await tapRow(ui, 'o:used:files')
   const colour = new Map((await modalTexts(ui)).map(t => [t.text, t.color]))
   expect(['Claude', 'general-purpose', 'cavecrew-reviewer', 'cavecrew-investigator', 'cavecrew-builder', 'critic', 'agent'].map(n => colour.get(n))).toEqual(['claude', '#e8927c', '#d17fcf', '#b3c46a', '#c8b08a', '#d17fcf', '#4f5c68'])
@@ -4980,7 +4924,7 @@ test('the FILES branch name: launch name, else type without the plugin, else age
   await $.tool.call({ tool: 'Read', file_path: '/proj/b.ts', agentId: 'a2' } as any)
   await $.tool.call({ tool: 'Read', file_path: '/proj/c.ts', agentId: 'zz' } as any)
   // Wide enough for each name beside its total.
-  await ui.redraw({ ...props, bodyColumns: 60 })
+  await ui.redraw({ ...props, bodyColumns: 64 })
   await tapRow(ui, 'o:used:files')
   const texts = (await modalTexts(ui)).map(t => t.text)
   // Latest reader first.
@@ -5057,7 +5001,7 @@ test('a web reader caps its pages too: a search with many pages shows 3 rows, th
 test('under a show all stack the USED modal fades, and each layer is as wide as its own rows', async ($, on) => {
   const ui = await usedPane($, on)
   await spawn($, 'one', { name: 'scout' })
-  await ui.redraw({ ...props, bodyColumns: 80 })
+  await ui.redraw({ ...props, bodyColumns: 84 })
   // Long paths first, so they sit behind "show all"; the 3 newest are short.
   for (const n of ['a', 'b', 'c']) await $.tool.call({ tool: 'Read', file_path: `/proj/${'deep/'.repeat(6)}${n}.ts`, agentId: 'a1' } as any)
   for (const n of ['x', 'y', 'z']) await $.tool.call({ tool: 'Read', file_path: `/proj/${n}.ts`, agentId: 'a1' } as any)
@@ -5139,7 +5083,7 @@ test('a USED modal pads the count to the widest and the source after it, and nar
   expect(await hasInModal(ui, ' ×2  grep    ')).toBe(true)
   expect(await hasInModal(ui, '     context7')).toBe(true)
   const modal = await ui.find({ type: 'Box', key: 'modal' })
-  expect(modal?.props.width).toBeLessThan(props.bodyColumns - 4)
+  expect(modal?.props.width).toBeLessThan(props.bodyColumns - 8)
 })
 
 test('the memory and skills modals count calls and show the reader tree', async ($, on) => {
