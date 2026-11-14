@@ -124,8 +124,8 @@ if (d.transcript_path) {
   }
 }
 
-// logged in, no reply yet: limits arrive with the first one, so hold their slots
-if (out.profile && last === undefined && out["5h"] === undefined && out.wk === undefined) out.lim_wait = 1;
+// logged in, no limits yet: they arrive with the next reply (also after /login mid-session), so hold their slots
+if (out.profile && out["5h"] === undefined && out.wk === undefined) out.lim_wait = 1;
 
 let cfg = {};
 try {
