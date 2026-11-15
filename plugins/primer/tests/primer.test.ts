@@ -807,7 +807,7 @@ test('handoffNote: how to dig says only the Git block was checked', () => {
 
 test('handoffNote: how to dig names grep, haiku and compact summaries', () => {
   const n = note(typed('hi'))
-  for (const s of ['If this note is your whole prompt, say in one line what you loaded, then wait for the user\'s ask.', 'Check git before saying what is pending. Don\'t restate the last reply.', 'grep -n', 'isCompactSummary', 'Never Read it whole', 'Read with `offset` and `limit`', 'the old transcript yourself, by line number']) expect(n).toContain(s)
+  for (const s of ['If this note is your whole prompt: when the old session stopped mid-step, continue that step. When its last reply ended on an offer, end yours with that offer as your `Next:` line, unchanged, and wait. Otherwise say in one line what you loaded, then wait for the user\'s ask.', 'Check git before saying what is pending. Don\'t restate the last reply.', 'grep -n', 'isCompactSummary', 'Never Read it whole', 'Read with `offset` and `limit`', 'the old transcript yourself, by line number']) expect(n).toContain(s)
 })
 
 const CFG = '/cfg'
