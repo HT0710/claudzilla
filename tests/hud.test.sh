@@ -246,7 +246,7 @@ g tag backup
 check "render: non-release tag ignored" grep -q 'a…h@example.test  v9.10.0$' <<<"$(ver)"
 
 # --- palette: today's look, byte for byte ---
-# time and localtime frozen, so the sweep, the path drift and the clock repeat run to run
+# time and localtime frozen, so the sweep, the path pulse and the clock repeat run to run
 PL="$TMP/perl"; mkdir -p "$PL"
 cat > "$PL/Frozen.pm" <<'EOF'
 package Frozen;
@@ -263,7 +263,7 @@ KV=$(printf 'id\tabcdef12\nsid\tabcdef1234567890\ncwd\t%s\nmodel\tOpus\neffort\t
 # frame <offset s> <cols> [extra kv line]: the payload plus hud-data's pal_ lines, as the pipe sends them
 frame() { { printf '%s\n' "$KV" ${3:+"$3"}; CLAUDE_CONFIG_DIR="$GC" node "$HUD/hud-data.mjs" </dev/null | grep '^pal_'; } |
   FROZEN_TIME=$((1790000000 + $1)) TZ=UTC HOME="$GH" CLAUDE_CONFIG_DIR="$GC" COLUMNS=$2 PERL5LIB="$PL" perl -MFrozen "$G/claude/hud/hud-filter.pl"; }
-golden() { for t in 0 40 50; do echo "== $t 120"; frame "$t" 120; done; echo "== 45 170 compact"; frame 45 170 $'compact\t1'; echo "== 0 60"; frame 0 60; }
+golden() { for t in 0 40 50 72; do echo "== $t 120"; frame "$t" 120; done; echo "== 45 170 compact"; frame 45 170 $'compact\t1'; echo "== 0 60"; frame 0 60; }
 golden > "$TMP/golden.out"
 [ -n "${HUD_GOLDEN_WRITE:-}" ] && cp "$TMP/golden.out" "$REPO/tests/fixtures/hud-golden.txt"
 check "palette: no palette -> byte-identical to tests/fixtures/hud-golden.txt" cmp -s "$TMP/golden.out" "$REPO/tests/fixtures/hud-golden.txt"
@@ -317,7 +317,7 @@ check "trace hud: branch change -> second entry" [ "$(grep -c '"event":"hud.chan
 check "trace hud: entry names the new branch" bash -c "tail -1 '$TRF' | grep -q 'feat/x'"
 check "trace hud: part is hud" grep -q '"part":"hud"' "$TRF"
 rm -rf "$TRC/claudzilla-trace" "$TRT"; a=$(trun); ac=$?; rm -rf "$TRC/claudzilla-trace" "$TRT"; : > "$TRC/claudzilla-trace"; b=$(trun); bc=$?
-# cwd colours drift with the clock (hud-filter.pl $DRIFT): compare text only
+# cwd colours pulse with the clock (hud-filter.pl cwd_str): compare text only
 check "trace hud: output unchanged with unwritable trace" [ "$(perl -pe 's/\e\[[0-9;]*m//g' <<<"$a")" = "$(perl -pe 's/\e\[[0-9;]*m//g' <<<"$b")" ]
 check "trace hud: exit code unchanged with unwritable trace" [ "$ac" = "$bc" ]
 
