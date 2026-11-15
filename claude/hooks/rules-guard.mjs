@@ -70,7 +70,7 @@ const PARAMS = {
   tldrMinLines: [posInt, "expected integer >= 1"],
   allowMain: [(v) => typeof v === "boolean", "expected true or false"],
   reviewNudge: [(v) => typeof v === "boolean", "expected true or false"],
-  autoUpdate: [(v) => typeof v === "boolean", "expected true or false"],
+  autoUpdate: [(v) => typeof v === "boolean" || v === "preview", 'expected true, false or "preview"'],
   compactNudge: [(v) => Number.isInteger(v) && v >= 0, "expected integer >= 0 (0 = off)"],
   coldCompact: [(v) => typeof v === "number" && v >= 0, "expected number >= 0 (0 = never auto compact)"],
   trace: [(v) => typeof v === "boolean", "expected true or false"],
