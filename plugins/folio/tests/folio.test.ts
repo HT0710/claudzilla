@@ -932,6 +932,7 @@ function native(on: any, cwd: object = { value: '/p' }, root: object = cwd) {
   on('session.root', () => root)
   on('ui.render', { component: 'ToolUse' }, () => { seen.calls++; return { type: 'Text' as const, children: ['native'] } })
   on('ui.render', { component: 'ToolResult' }, () => ({ type: 'Text' as const, children: ['native block'] }))
+  on('ui.render', { component: 'ToolGroup' }, (_$: any, e: any) => ({ type: 'Text' as const, children: [`expanded:${e.props.isExpanded}`] }))
   return seen
 }
 const VIEW = { columns: 80, rows: 20, isFullscreen: true }
