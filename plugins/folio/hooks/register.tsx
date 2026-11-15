@@ -6,6 +6,12 @@ import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
 let LIT = DEFAULTS.shared.lit
+let ACTION = DEFAULTS.shared.action
+let DIRTY = DEFAULTS.shared.dirty
+
+type State = 'running' | 'working' | 'remote' | 'done' | 'failed' | 'stopped' | 'interrupted'
+// Read at render, so a palette change at session start applies.
+const stateColour = (state: State) => ({ running: 'claude', working: 'claude', remote: 'claude', done: ACTION, failed: 'error', stopped: DIRTY, interrupted: 'inactive' })[state]
 
 // margin's noun, mirrored: listing margin as a dependency would stop this plugin loading without it.
 declare module 'claude-code' {
@@ -68,7 +74,7 @@ const agentTone = ({ name, type }: { name?: string; type?: string }) => {
   const shown = (name ?? (type ?? '').replace(/^[^:]+:/, '')) || 'agent'
   return AGENT_HASHED[[...shown].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 0) % AGENT_HASHED.length]
 }
-const AGENT_TAIL: Record<string, string> = { completed: 'done', async_launched: 'backgrounded', remote_launched: 'remote' }
+const AGENT_TAIL: Record<string, string> = { completed: 'done', async_launched: 'working', remote_launched: 'remote' }
 
 // Other tools' one-line rows as label, argument and tail; undefined where the engine's own rows should draw.
 const ROWS: Record<string, (input: any, output: any) => [string, string, string] | undefined> = {
@@ -86,12 +92,23 @@ const RUNNING: Record<string, (input: any, name: (file: string) => string) => [s
   Edit: (input, name) => ['Updating', name(String(input.file_path)), ''],
   Write: (input, name) => ['Writing', name(String(input.file_path)), ''],
 }
-// A background agent's finish row: its tail and dot colour, by the task's status.
-const ENDED: Record<string, [string, string]> = { completed: ['done', 'success'], failed: ['failed', 'error'], killed: ['stopped', 'inactive'] }
-// As the engine writes a task's duration: 12s, 2m 2s, 1h 2m.
-const took = (ms: number) => {
+// A finish row's state, by the task's status.
+const ENDED: Record<string, State> = { completed: 'done', failed: 'failed', killed: 'stopped' }
+// Milliseconds as 1h 2m 5s, zero units dropped.
+export function durationText(ms: number): string {
   const s = Math.round(ms / 1000)
-  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor(s / 60) % 60}m`
+  return (
+    [[Math.floor(s / 3600), 'h'], [Math.floor(s / 60) % 60, 'm'], [s % 60, 's']]
+      .filter(([n]) => n)
+      .map(([n, u]) => `${n}${u}`)
+      .join(' ') || '0s'
+  )
+}
+// A subagent type as a short name: no plugin namespace, no cavecrew- prefix.
+export function agentLabel(type?: string): string {
+  if (!type) return 'agent'
+  const name = type.replace(/^[^:]+:/, '').replace(/^cavecrew-/, '')
+  return name === 'general-purpose' ? 'general' : name || 'agent'
 }
 // The engine's own blink rate is not documented.
 const BLINK_MS = 500
@@ -604,6 +621,9 @@ let wroteColumns = 0
 let hideEditDiff = true
 // Margin's intent report: its row draws nothing, so it must not break a run of edits.
 const INTENT_TOOL = 'mcp__margin__intent'
+// Tools whose rows fold into a run; any mcp__ tool too.
+const FOLDED = new Set(['Read', 'Grep', 'Glob', 'Bash', 'Edit', 'Write', 'WebFetch', 'WebSearch'])
+const isFolded = (tool: string) => FOLDED.has(tool) || tool.startsWith('mcp__')
 
 // The chunk's spans that name an existing file, by span; none when the engine cannot say.
 async function links($: EngineInterface, text: string): Promise<Map<string, Link>> {
@@ -643,7 +663,10 @@ async function links($: EngineInterface, text: string): Promise<Map<string, Link
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await t.start(traceIo($))
-    LIT = (await readPalette($)).palette.shared.lit
+    const { shared } = (await readPalette($)).palette
+    LIT = shared.lit
+    ACTION = shared.action
+    DIRTY = shared.dirty
     hideEditDiff = await readHideEditDiff($, e.cwd)
     return next(e)
   })
@@ -657,7 +680,10 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     // A /clear or resume goes on under a new session id, which needs its own cols file.
     wroteColumns = 0
-    for (const rows of [runs, done, placed, shownDiffs, agents, spawned, bashEdits, scripts, lostWrites, openGroups]) rows.clear()
+    for (const rows of [runs, done, placed, shownDiffs, agents, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, editOpen, frames, tails]) rows.clear()
+    corners.clear()
+    section = { open: false, gap: false, n: 0 }
+    lastRow = undefined
     current = undefined
     await t.flush(traceIo($))
     return next(e)
@@ -665,8 +691,22 @@ export const register: Register = on => {
 
   // A run of edits folds into its first row, as a big diff fills the chat. Off the fullscreen layout a printed row
   // cannot change, so each edit keeps its own.
-  type Run = { ids: string[]; isOpen: boolean; isLive: boolean }
+  type Run = { order: string[]; isLive: boolean; frame?: Frame }
+  // Every folded row's run, by tool_use_id.
   const runs = new Map<string, Run>()
+  // A row's place in its section, taken when it is first placed: whether a section is open, and whether a rail runs
+  // through the gap above it. Kept for fullscreen rows only; the normal view keeps its rows where they are.
+  type Frame = { open: boolean; gap: boolean; n: number }
+  const frames = new Map<string, Frame>()
+  let section: Frame = { open: false, gap: false, n: 0 }
+  let lastRow: string | undefined
+  const frameOf = (id: string) => frames.get(id) ?? runs.get(id)?.frame
+  // Each member's latest props, by tool_use_id, and the row that draws it: the fold's calls come from here.
+  const members = new Map<string, { requestId: string; call: ToolGroupCall }>()
+  // Edit and Write records, apart from bashEdits so the Bash-write branch never sees them.
+  const editOf = new Map<string, BashEdit[]>()
+  // Edit-only runs a click opened, by owner.
+  const editOpen = new Set<string>()
   const done = new Map<string, { file: string; diff?: string; summary: NonNullable<ReturnType<typeof editSummary>> }>()
   const placed = new Set<string>()
   // Edits whose diff a click on their tree row opened.
@@ -696,7 +736,6 @@ export const register: Register = on => {
   const spawned = new Map<string, string>()
   // Bash commands' first line by tool_use_id, for a background command's finish notification.
   const shells = new Map<string, string>()
-  const agentTag = ({ model, effort }: AgentRow) => [/opus|sonnet|haiku|fable/.exec(model ?? '')?.[0], effort].filter(Boolean).join(' · ')
   // Files each Bash call changed, by tool_use_id; and the Bash groups a click opened, by requestId, to the file rows
   // whose diff a click opened.
   type BashEdit = { file: string; add: number; del: number; isNew: boolean; diff?: string }
@@ -736,9 +775,48 @@ export const register: Register = on => {
       {tail && '  '}{tail}
     </Text>
   )
-  const textRow = (elements: Elements['terminal'], dot: RenderNode, row: [string, string, RenderNode], tag?: string, tone?: string) => (
-    <elements.Box marginTop={1}>{textLine(elements, dot, row, tag, tone)}</elements.Box>
-  )
+  // A folio tool row sits 2 columns in: blank with no section open, else a rail of `lines` lines beside it, and a rail
+  // on the gap line above unless the row before breaks it. `margin` 0 joins the row to the one above.
+  const framed = ({ Box, Text }: Elements['terminal'], frame: Frame | undefined, content: RenderNode, lines = 1, margin = 1, prefix = '│ ') => {
+    if (!frame) return <Box flexDirection="column" marginTop={margin}>{content}</Box>
+    if (!frame.open) return <Box flexDirection="column" marginTop={margin} paddingLeft={2}>{content}</Box>
+    return (
+      <Box flexDirection="column" marginTop={frame.gap ? 0 : margin}>
+        {frame.gap && !!margin && <Text color="promptBorder">│</Text>}
+        <Box>
+          <Box width={2}><Text color="promptBorder">{[prefix, ...Array(lines - 1).fill('│ ')].join('\n')}</Text></Box>
+          <Box flexDirection="column" flexGrow={1}>{content}</Box>
+        </Box>
+      </Box>
+    )
+  }
+  // Agent rows drawn as their section's last row, which turns into a fork once another folio row joins it.
+  const corners = new Set<string>()
+  // The last folio row each section drew: a row is the section's corner while it holds this.
+  const tails = new Map<number, string>()
+  const agentRow = (elements: Elements['terminal'], id: string, state: State, agent: AgentRow | undefined, desc: string, isBackground: boolean, ms?: number) => {
+    const { Text } = elements
+    const color = stateColour(state)
+    const isLive = state === 'running' || state === 'working' || state === 'remote'
+    const frame = frameOf(id)
+    const isLast = !!frame && tails.get(frame.n) === id
+    if (isLast && frame?.open) corners.add(id)
+    else corners.delete(id)
+    const model = /opus|sonnet|haiku|fable/.exec(agent?.model ?? '')?.[0]
+    const effort = agent?.effort
+    const row = (
+      <Text wrap="truncate-end">
+        <Text color={color}>{state === 'running' && !isLit ? ' ' : state === 'working' || state === 'remote' ? '◇' : '◆'}</Text> <Text color={color}>{state.padEnd(7)}</Text>{'  '}
+        <Text bold color={agentTone(agent ?? {})}>{agentLabel(agent?.type)}</Text>
+        <Text color="promptBorder"> (</Text>{desc}<Text color="promptBorder">)</Text>
+        {isLive && (model || effort) && <Text>{'  '}<Text color="inactive">as</Text>{model && ' '}{model && <Text>{model}</Text>}{effort && ' '}{effort && <Text color="inactive">{effort}</Text>}</Text>}
+        {ms !== undefined && <Text>{'  '}<Text color="inactive">in</Text> {durationText(ms)}</Text>}
+      </Text>
+    )
+    return framed(elements, frame, row, 1, 1, `${isLast ? '╰' : '├'}${isBackground ? '┄' : '─'}`)
+  }
+  const textRow = (elements: Elements['terminal'], id: string, dot: RenderNode, row: [string, string, RenderNode], tag?: string, tone?: string) =>
+    framed(elements, frameOf(id), textLine(elements, dot, row, tag, tone))
   // An opened file's diff under its tree row, the tree line beside it; `hasNext` runs the line on to the next row.
   const diffBox = ({ Box, Code, Text }: Elements['terminal'], columns: number, entry: { file: string; diff?: string }, hasNext = false) => entry.diff && (
     <Box paddingLeft={2}>
@@ -860,53 +938,132 @@ export const register: Register = on => {
   const GROUP_KINDS: Record<string, [string, string, string]> = {
     Read: ['Read', 'Reading', 'file'], Grep: ['Searched', 'Searching', 'pattern'], Glob: ['Searched', 'Searching', 'pattern'], Bash: ['Ran', 'Running', 'command'],
     Edit: ['Edited', 'Editing', 'file'], Write: ['Wrote', 'Writing', 'file'],
+    WebFetch: ['Fetched', 'Fetching', 'page'], WebSearch: ['Searched', 'Searching', 'query'],
+  }
+  const kindOf = (tool: string) => GROUP_KINDS[tool] ?? (tool.startsWith('mcp__') ? ['Called', 'Calling', 'tool'] as const : [tool, tool, ''] as const)
+  const isGoing = (c: ToolGroupCall) => c.isRunning && !c.isInterrupted && !c.isErrored
+  const isEditCall = (c: ToolGroupCall) => c.tool in EDIT
+  // Edit-only segments keep the edit-run drawing, unless a ToolGroup holds a member: its calls draw through foldCalls.
+  const isEditRun = (seg: { ids: string[]; calls: ToolGroupCall[] }) => seg.calls.every(isEditCall) && seg.ids.every(id => members.get(id)?.requestId === id)
+  // The run a row sits in, cut at each errored Edit or Write; undefined for a cut row. Its owner draws the fold.
+  const segmentOf = (id: string) => {
+    const order = runs.get(id)?.order
+    if (!order) return undefined
+    let ids: string[] = []
+    for (const x of order) {
+      const call = members.get(x)?.call
+      if (!call) continue
+      if (call.isErrored && isEditCall(call)) {
+        if (ids.includes(id)) break
+        ids = []
+      } else ids.push(x)
+    }
+    return ids.includes(id) ? { ids, owner: ids[0]!, calls: ids.map(x => members.get(x)!.call) } : undefined
+  }
+  // Stores a member's latest props; true for a new member or one whose state moved, which redraws the run's owner.
+  const remember = (requestId: string, call: ToolGroupCall) => {
+    const id = call.tool_use_id!
+    const prev = members.get(id)?.call
+    if (members.size > 500) members.clear()
+    members.set(id, { requestId, call })
+    const moved = prev ? !!prev.isRunning !== !!call.isRunning || !!prev.isErrored !== !!call.isErrored || !!prev.isInterrupted !== !!call.isInterrupted || (prev.output === undefined) !== (call.output === undefined)
+      : (runs.get(id)?.order.length ?? 0) > 1
+    return moved
+  }
+  // A group joins the run of its first call; a call the group gained since lands after the one before it.
+  const growGroup = (calls: readonly ToolGroupCall[]) => {
+    const run = runs.get(calls[0]!.tool_use_id!)
+    if (!run) return
+    calls.forEach((c, i) => {
+      if (runs.has(c.tool_use_id!)) return
+      const at = run.order.indexOf(calls[i - 1]!.tool_use_id!)
+      if (at < 0) return
+      run.order.splice(at + 1, 0, c.tool_use_id!)
+      runs.set(c.tool_use_id!, run)
+    })
+  }
+  // A row that comes back as the engine's own drawing breaks the rail at the gap of the row after it.
+  const engineRow = (id: string, drawn: any) => {
+    if (lastRow === id) section.gap = false
+    return drawn
   }
   // A group folds into a row of its own, like a run of edits; a click opens a tree of its calls.
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
+    place(() => $.ui.invalidate('ui.render'), e)
     const native = await next(e)
     const { calls, isActive, isExpanded } = e.props
     // Off the fullscreen layout a printed row cannot change: a live header would stay Running.
-    if (!hideEditDiff || e.surface !== 'terminal' || isExpanded || !e.viewport?.isFullscreen || !calls.length) return native
+    if (!hideEditDiff || e.surface !== 'terminal' || isExpanded || !e.viewport?.isFullscreen || !calls.length) return engineRow(e.requestId, native)
     const elements = $.ui.resolve(e)
-    if (!('Client' in elements)) return native
-    const isLive = isActive || calls.some(c => c.isRunning && !c.isInterrupted && !c.isErrored)
+    if (!('Client' in elements)) return engineRow(e.requestId, native)
+    const root = await $.session.root().catch(() => '')
+    const columns = e.viewport.columns ?? 80
+    const known = calls.filter(c => c.tool_use_id)
+    if (known.length && runs.has(known[0]!.tool_use_id!)) {
+      growGroup(known)
+      if (known.map(c => remember(e.requestId, c)).some(Boolean)) $.ui.invalidate('ui.render')
+      for (const c of known) {
+        const summary = c.tool in EDIT && !c.isRunning && !c.isInterrupted ? editSummary(c.tool, c.output, c.isErrored) : undefined
+        if (!summary || editOf.has(c.tool_use_id!)) continue
+        if (editOf.size > 500) editOf.clear()
+        editOf.set(c.tool_use_id!, [{ file: String((c.input as { file_path?: string }).file_path), ...summary, diff: diffText(c.output) }])
+      }
+      const seg = segmentOf(known[0]!.tool_use_id!)
+      if (seg) {
+        if (seg.owner !== known[0]!.tool_use_id) return <elements.Box />
+        const isLive = isActive || seg.calls.some(isGoing)
+        if (isLive) {
+          blinking.add(e.requestId)
+          blink ??= $.clock.every(BLINK_MS, () => toggleBlink(() => $.ui.invalidate('ui.render')))
+        }
+        return foldCalls(elements, e.requestId, columns, root, seg.calls, isLive, undefined, undefined, seg.calls.length === 1 || seg.calls.every(isEditCall)) ?? engineRow(e.requestId, native)
+      }
+    }
+    const isLive = isActive || calls.some(isGoing)
     if (isLive) {
       blinking.add(e.requestId)
       blink ??= $.clock.every(BLINK_MS, () => toggleBlink(() => $.ui.invalidate('ui.render')))
     }
-    return foldCalls(elements, e.requestId, e.viewport.columns ?? 80, await $.session.root().catch(() => ''), calls, isLive) ?? native
+    return foldCalls(elements, e.requestId, columns, root, calls, isLive, undefined, undefined, calls.length === 1 || calls.every(isEditCall)) ?? engineRow(e.requestId, native)
   })
 
   // Calls as one row whose press opens a tree of them. `title` stands in for the per-kind counts; `lone`, a call's
   // only written file, draws as that file's row and a press opens its diff with no tree.
   const foldCalls = (elements: Elements['terminal'], requestId: string, columns: number, root: string,
-    calls: readonly ToolGroupCall[], isLive: boolean, title?: Piece[], lone?: BashEdit) => {
+    calls: readonly ToolGroupCall[], isLive: boolean, title?: Piece[], lone?: BashEdit, legacy = false) => {
     const { Box, Text } = elements
     const Client = 'Client' in elements ? elements.Client : undefined
     if (!Client) return undefined
     const name = namer(root, columns)
-    const changed = calls.flatMap(c => (c.tool_use_id && !c.isErrored && bashEdits.get(c.tool_use_id)) || [])
+    const changed = calls.flatMap(c => (c.tool_use_id && !c.isErrored && (bashEdits.get(c.tool_use_id) ?? editOf.get(c.tool_use_id) ?? [])) || [])
     const add = changed.reduce((sum, c) => sum + c.add, 0)
     const del = changed.reduce((sum, c) => sum + c.del, 0)
     const isOpen = openGroups.has(requestId)
-    const kinds = new Map<string, { live: string; noun: string; n: number }>()
+    const kinds = new Map<string, { live: string; noun: string; n: number; going: boolean }>()
+    const going = (c: ToolGroupCall) => c.isRunning && !c.isInterrupted && !c.isErrored
     for (const c of calls) {
-      const [done, live, noun] = GROUP_KINDS[c.tool] ?? [c.tool, c.tool, '']
-      const kind = kinds.get(done) ?? kinds.set(done, { live, noun, n: 0 }).get(done)!
+      const [done, live, noun] = kindOf(c.tool)
+      const kind = kinds.get(`${done}/${noun}`) ?? kinds.set(`${done}/${noun}`, { live, noun, n: 0, going: false }).get(`${done}/${noun}`)!
       kind.n++
+      kind.going ||= going(c)
     }
-    const parts = [...kinds].flatMap(([done, { live, noun, n }], i): Piece[] => [...(i ? [{ text: ' · ' }] : []),
-      { text: isLive ? live : done, bold: true }, { text: ' (', color: 'promptBorder' }, { text: String(n), color: 'claude' },
+    const failed = calls.filter(c => c.isErrored).length
+    const interrupted = calls.some(c => c.isInterrupted)
+    const parts = [...kinds].flatMap(([key, { live, noun, n, going }], i): Piece[] => [...(i ? [{ text: ' · ' }] : []),
+      { text: legacy ? (isLive ? live : key.split('/')[0]!) : going ? live : key.split('/')[0]!, bold: true }, { text: ' (', color: 'promptBorder' }, { text: String(n), color: 'claude' },
       ...(noun ? [{ text: ` ${noun}${n === 1 ? '' : 's'}` }] : []), { text: ')', color: 'promptBorder' }])
-    const [mark, color] = isLive ? [isLit ? '●' : ' ', 'inactive'] : [isOpen ? '○' : '●', 'success']
+    const worst = calls.some(going) ? 'running' : failed ? 'failed' : interrupted ? 'interrupted' : 'done'
+    const tail: Piece[] = legacy ? [] : failed ? [{ text: ' · ' }, { text: `${failed} failed`, color: 'error' }] : interrupted ? [{ text: ' · ' }, { text: 'interrupted', color: 'inactive' }] : []
+    const [mark, color] = legacy ? isLive ? [isLit ? '●' : ' ', 'inactive'] : [isOpen ? '○' : '●', 'success']
+      : [isLive && !isLit ? ' ' : isOpen ? '▼' : '▶︎', stateColour(worst)]
     const header: Piece[] = [{ text: mark, color }, { text: ' ' }, ...(lone ? [{ text: lone.isNew ? 'Created' : EDIT.Edit!, bold: true },
       { text: ' (', color: 'promptBorder' }, ...namePieces(name(lone.file)), { text: ')', color: 'promptBorder' }, ...countPieces(lone.add, lone.del, lone.isNew)]
-      : [...(title ?? parts), ...(add + del ? countPieces(add, del) : [])])]
+      : [...(title ?? [...parts, ...tail]), ...(add + del ? countPieces(add, del) : [])])]
     const TREE_INDENT = 4
     // A file row with a diff is the fold's Client, keyed by call and file, so a press opens the diff under it.
     type Row = { pieces: Piece[]; key?: string; edit?: { file: string; diff?: string }; out?: 'first' | 'more' }
     const rows = isOpen && !lone ? calls.flatMap((c): Row[] => {
-      const edits = (c.tool_use_id && !c.isErrored && bashEdits.get(c.tool_use_id)) || []
+      const edits = (c.tool_use_id && !c.isErrored && (bashEdits.get(c.tool_use_id) ?? editOf.get(c.tool_use_id))) || []
       if (edits.length) {
         const files = edits.map((f, i): Row => ({ key: f.diff && `file:${c.tool_use_id}:${i}`, edit: f, pieces: [{ text: f.isNew ? 'Created' : EDIT.Edit!, bold: true },
           { text: ' (', color: 'promptBorder' }, ...namePieces(name(f.file)), { text: ')', color: 'promptBorder' }, ...countPieces(f.add, f.del, f.isNew)] }))
@@ -920,28 +1077,43 @@ export const register: Register = on => {
         return [...files, ...shown.map((pieces, i): Row => ({ pieces, out: i ? 'more' : 'first' }))]
       }
       const tail: Piece[] = c.isErrored ? [{ text: '  ' }, { text: 'failed', color: 'error' }] : c.isInterrupted ? [{ text: '  ' }, { text: 'interrupted', color: 'inactive' }] : []
-      const room = columns - TREE_INDENT - tail.reduce((sum, p) => sum + p.text.length, 0)
+      const room = (frameOf(requestId) ? columns - 2 : columns) - TREE_INDENT - tail.reduce((sum, p) => sum + p.text.length, 0)
+      // A failed call's stderr follows its row: three lines, then a count of the rest.
+      const err = (): Row[] => {
+        const { stderr } = (c.output ?? {}) as { stderr?: unknown }
+        const text = typeof stderr === 'string' ? stderr : typeof c.output === 'string' ? c.output : undefined
+        if (!c.isErrored || text === undefined) return []
+        const lines = plain(text).split('\n')
+        while (lines.length && !lines.at(-1)) lines.pop()
+        const shown: Piece[][] = lines.slice(0, 3).map(l => [{ text: l, color: 'error' }])
+        if (lines.length > 3) shown.push([{ text: `… +${lines.length - 3} lines`, color: 'error' }])
+        return shown.map((pieces): Row => ({ pieces, out: 'more' }))
+      }
       // The call's main argument: its path, pattern, command or address.
       const args = (c.input ?? {}) as Record<string, unknown>
-      if (c.tool === 'Bash') return [{ pieces: [{ text: clip(String(args.command ?? '').split('\n')[0]!, room) }, ...tail] }]
+      if (c.tool === 'Bash') return [{ pieces: [{ text: clip(String(args.command ?? '').split('\n')[0]!, room) }, ...tail] }, ...err()]
       const key = ['file_path', 'pattern', 'path', 'command', 'url', 'query'].find(k => typeof args[k] === 'string')
       const arg = !key ? '' : key === 'file_path' || key === 'path' ? name(String(args[key])) : String(args[key]).split('\n')[0]!
-      return [{ pieces: [{ text: c.tool, bold: true }, ...(arg ? [{ text: ' (', color: 'promptBorder' }, { text: clip(arg, room - c.tool.length - 3) }, { text: ')', color: 'promptBorder' }] : []), ...tail] }]
+      return [{ pieces: [{ text: c.tool, bold: true }, ...(arg ? [{ text: ' (', color: 'promptBorder' }, { text: clip(arg, room - c.tool.length - 3) }, { text: ')', color: 'promptBorder' }] : []), ...tail] }, ...err()]
     }) : []
     const last = rows.findLastIndex(r => r.out !== 'more')
+    const frame = frameOf(requestId)
+    // The frame takes 2 columns from the diff beside it.
+    const inner = frame ? columns - 2 : columns
+    const diffLines = (entry: { diff?: string }, hasNext = false) => (entry.diff ? diffRows(entry.diff, inner - 4) + (hasNext ? 1 : 0) : 0)
 
-    return (
-      <Box flexDirection="column" marginTop={1}>
+    return framed(elements, frame, (
+      <Box flexDirection="column">
         <Client key={`fold:${requestId}`} module="./fold.tsx" width="100%" height={1} props={{ pieces: header, lit: LIT }} />
-        {lone && isOpen && diffBox(elements, columns, lone, false)}
+        {lone && isOpen && diffBox(elements, inner, lone, false)}
         {rows.flatMap(({ pieces, key, edit, out }, i) => {
           const isShown = !!key && !!openGroups.get(requestId)?.has(key)
           const line = [{ text: out === 'more' ? '    ' : i === last && !isShown ? '  └ ' : '  ├ ', color: 'promptBorder' }, ...pieces]
-          return key ? [<Client key={key} module="./fold.tsx" width="100%" height={1} props={{ pieces: line, lit: LIT }} />, isShown && diffBox(elements, columns, edit!, i < rows.length - 1)]
+          return key ? [<Client key={key} module="./fold.tsx" width="100%" height={1} props={{ pieces: line, lit: LIT }} />, isShown && diffBox(elements, inner, edit!, i < rows.length - 1)]
             : [<Text wrap="truncate-end">{line.map(({ text, color, bold }) => <Text color={color} bold={bold}>{text}</Text>)}</Text>]
         })}
       </Box>
-    )
+    ), 1 + (lone && isOpen ? diffLines(lone) : 0) + rows.length + rows.reduce((sum, r, i) => sum + (r.key && openGroups.get(requestId)?.has(r.key) ? diffLines(r.edit!, i < rows.length - 1) : 0), 0))
   }
 
   // A run lies in one transcript: an agent's rows must not take in the main chat's.
@@ -953,18 +1125,82 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('ui.render', { component: ['UserMessage', 'AssistantMessage', 'ToolGroup', 'ToolUse'] }, async (_$, e, next) => {
+  // The row's folded calls, as tool_use_ids; undefined for a row that is no member.
+  const memberIds = (e: any): string[] | undefined => {
+    if (e.component === 'ToolUse') return isFolded(e.props.tool) ? [e.requestId] : undefined
+    if (e.component !== 'ToolGroup') return undefined
+    const calls: ToolGroupCall[] = e.props.calls
+    return calls.length && calls.every(c => c.tool_use_id && isFolded(c.tool)) ? calls.map(c => c.tool_use_id!) : undefined
+  }
+  // The agent or Bash finish row folio draws for a task notification; undefined for any other message.
+  const finishOf = (e: any) => {
+    if (e.component !== 'UserMessage' || !hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || e.props.origin?.kind !== 'task-notification') return undefined
+    const { task } = e.props
+    const agent = task?.toolUseId ? agents.get(task.toolUseId) : undefined
+    const arg = agent?.description ?? (task?.toolUseId ? shells.get(task.toolUseId) : undefined)
+    const ended = task?.status && ENDED[task.status]
+    return arg && ended ? { agent, arg, ended } : undefined
+  }
+  // Rows join a run in draw order; any other row ends it. A group may be placed by its own hook first.
+  // A row joining the section turns the last row's corner into a fork, which redraws it.
+  const forkLast = (redraw: () => void) => {
+    if (lastRow && corners.has(lastRow) && frameOf(lastRow)?.n === section.n) redraw()
+  }
+  const place = (redraw: () => void, e: any) => {
     const isHidden = e.component === 'ToolUse' && e.props.tool === INTENT_TOOL
-    if (isHidden || e.surface !== 'terminal' || placed.has(e.requestId)) return next(e)
+    if (isHidden || e.surface !== 'terminal' || placed.has(e.requestId)) return
     placed.add(e.requestId)
-    if (e.component === 'ToolUse' && e.props.tool in EDIT) {
-      // A row first drawn with its output is an old one, scrolled to: a live edit must not land in its run, off screen.
-      const isLive = e.props.output === undefined
-      const run: Run = (e.viewport?.isFullscreen && current?.isLive === isLive && current) || { ids: [], isOpen: false, isLive }
-      run.ids.push(e.requestId)
-      runs.set(e.requestId, run)
-      current = run
-    } else current = undefined
+    const ids = memberIds(e)
+    // The engine re-keys a group once it ends: the new row takes the old one's place in its section.
+    const old = e.component === 'ToolGroup' && ids?.every(id => runs.has(id)) ? frameOf(ids[0]!) : undefined
+    if (old) {
+      if (e.viewport?.isFullscreen) frames.set(e.requestId, old)
+      for (const [n, id] of tails) if (frameOf(id) === old) tails.set(n, e.requestId)
+      if (lastRow && frameOf(lastRow) === old) lastRow = e.requestId
+      return
+    }
+    if (e.component === 'AssistantMessage') section = { open: true, gap: true, n: section.n + 1 }
+    else if (e.component === 'UserMessage' && e.props.origin?.kind === 'composer') section = { open: true, gap: false, n: section.n + 1 }
+    const frame = e.viewport?.isFullscreen ? { ...section } : undefined
+    // A tool row, or a finish row folio draws, takes its frame here; the rail runs through the gap after it.
+    const take = () => {
+      forkLast(redraw)
+      if (frames.size > 500) frames.clear()
+      if (frame) frames.set(e.requestId, frame)
+      section.gap = true
+      lastRow = e.requestId
+      tails.set(section.n, e.requestId)
+    }
+    if (!ids) {
+      current = undefined
+      if (e.component === 'ToolUse' || e.component === 'ToolGroup' || finishOf(e)) take()
+      // A notification the engine draws breaks the rail, but heads and ends no section.
+      else if (e.component === 'UserMessage' && e.props.origin?.kind === 'task-notification') section.gap = false
+      return
+    }
+    // A row first drawn with its output is an old one, scrolled to: a live row must not land in its run, off screen.
+    const isLive = e.component === 'ToolUse' ? e.props.output === undefined : !!e.props.isActive || e.props.calls.some(isGoing)
+    const joined = e.viewport?.isFullscreen && current?.isLive === isLive && current
+    const run: Run = joined || { order: [], isLive, frame }
+    // A row joining a run is the run's owner's to draw: it takes no frame of its own.
+    if (!joined) take()
+    else {
+      // A row after a break starts its own segment: its owner reads this frame, not the run's.
+      if (frame && !frame.gap && run.frame?.gap) frames.set(e.requestId, frame)
+      forkLast(redraw)
+      section.gap = true
+      lastRow = e.requestId
+      tails.set(section.n, e.requestId)
+    }
+    // An id a ToolUse row already placed stays in its first run.
+    for (const id of ids.filter(id => !runs.has(id))) {
+      run.order.push(id)
+      runs.set(id, run)
+    }
+    current = run
+  }
+  on('ui.render', { component: ['UserMessage', 'AssistantMessage', 'ToolGroup', 'ToolUse'] }, async ($, e, next) => {
+    place(() => $.ui.invalidate('ui.render'), e)
     return next(e)
   })
 
@@ -976,7 +1212,9 @@ export const register: Register = on => {
     const { bashEditDiff, ...rest } = (e.props.output ?? {}) as { bashEditDiff?: unknown }
     const isStripped = isFolded && (scripts.has(e.requestId) ? !!e.viewport?.isFullscreen : true)
     const native = await next(isStripped && edits?.length && bashEditDiff && typeof e.props.output === 'object' ? { ...e, props: { ...e.props, output: rest } } : e)
-    const isEdit = (runs.has(e.requestId) && editSummary(e.props.tool, e.props.output, e.props.isErrored)) || (!!bashEdits.get(e.requestId)?.length && !e.props.isErrored && !scripts.has(e.requestId)) || lostWrites.has(e.requestId)
+    const seg = runs.has(e.requestId) ? segmentOf(e.requestId) : undefined
+    const isFoldRow = !!seg && seg.ids.length > 1 && !isEditRun(seg)
+    const isEdit = isFoldRow || (runs.has(e.requestId) && editSummary(e.props.tool, e.props.output, e.props.isErrored)) || (!!bashEdits.get(e.requestId)?.length && !e.props.isErrored && !scripts.has(e.requestId)) || lostWrites.has(e.requestId)
     const isScriptRow = scripts.has(e.requestId) && !e.props.isErrored && !!e.viewport?.isFullscreen
     if (!hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || !(isEdit || isScriptRow || toolRow(e.props.tool, {}, e.props.output, e.props.isErrored))) return native
     const { Box } = $.ui.resolve(e)
@@ -987,7 +1225,6 @@ export const register: Register = on => {
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
     const native = await next(e)
     const { tool, input, output, isRunning, isErrored, isInterrupted, isExpanded } = e.props
-    const run = runs.get(e.requestId)
     if (tool === 'Agent') {
       if (agents.size > 500) agents.clear()
       const args = (input ?? {}) as AgentRow & { subagent_type?: string }
@@ -996,18 +1233,45 @@ export const register: Register = on => {
       agents.set(e.requestId, { description: args.description ?? known?.description, model: resolved ?? known?.model ?? args.model, effort: known?.effort ?? args.effort, name: known?.name ?? args.name, type: known?.type ?? args.subagent_type })
     }
     // A Client draws nothing on mobile.
-    if (!hideEditDiff || e.surface !== 'terminal' || isExpanded) return native
+    if (!hideEditDiff || e.surface !== 'terminal' || isExpanded) return engineRow(e.requestId, native)
     // A result drawn first shows the engine diff until this row records the edit.
     if (!isRunning && !isInterrupted && adopt(e.requestId, output, String((input as { command?: unknown } | undefined)?.command ?? ''))) $.ui.invalidate('ui.render')
+    const call: ToolGroupCall = { tool_use_id: e.requestId, tool, input, isRunning, isErrored, isInterrupted, output }
+    if (runs.has(e.requestId) && remember(e.requestId, call)) $.ui.invalidate('ui.render')
+    const seg = runs.has(e.requestId) ? segmentOf(e.requestId) : undefined
+    // A cut row keeps its native row.
+    if (runs.has(e.requestId) && !seg) return engineRow(e.requestId, native)
+    // A result drawn first has no record yet; a run's owner draws every member's count.
+    const summary = seg && tool in EDIT && !isRunning && !isInterrupted ? editSummary(tool, output, isErrored) : undefined
+    if (seg && summary && !done.has(e.requestId)) {
+      if (editOf.size > 500) editOf.clear()
+      const file = String((input as { file_path?: string }).file_path)
+      const diff = diffText(output)
+      done.set(e.requestId, { file, summary, diff })
+      editOf.set(e.requestId, [{ file, ...summary, diff }])
+      if (seg.ids.length > 1) $.ui.invalidate('ui.render')
+    }
+    // Before the Bash, lost-write and running branches: a live Edit in a mixed run draws inside the fold.
+    if (seg && seg.ids.length > 1 && !isEditRun(seg)) {
+      const elements = $.ui.resolve(e)
+      if (!('Client' in elements)) return engineRow(e.requestId, native)
+      if (seg.owner !== e.requestId) return <elements.Box />
+      const isLive = seg.calls.some(isGoing)
+      if (isLive) {
+        blinking.add(e.requestId)
+        blink ??= $.clock.every(BLINK_MS, () => toggleBlink(() => $.ui.invalidate('ui.render')))
+      }
+      return foldCalls(elements, e.requestId, e.viewport?.columns ?? 80, await $.session.root().catch(() => ''), seg.calls, isLive, undefined, undefined, seg.calls.every(isEditCall)) ?? engineRow(e.requestId, native)
+    }
     const bashEdit = bashEdits.get(e.requestId)?.length ? bashEdits.get(e.requestId) : undefined
     // The root, not cwd(): a shell `cd` moves cwd(), and every row would shift with it.
     const name = namer(tool in EDIT || bashEdit ? await $.session.root().catch(() => '') : '', e.viewport?.columns)
     if (bashEdit) {
       // Off the fullscreen layout a failed write keeps the native row, as a plain file row would read as a success.
-      if (isRunning || isInterrupted || (isErrored && !e.viewport?.isFullscreen)) return native
+      if (isRunning || isInterrupted || (isErrored && !e.viewport?.isFullscreen)) return engineRow(e.requestId, native)
       // A script's title names its command even for one file; off the fullscreen layout it keeps the engine row.
       const isScript = scripts.has(e.requestId)
-      if (isScript && !e.viewport?.isFullscreen) return native
+      if (isScript && !e.viewport?.isFullscreen) return engineRow(e.requestId, native)
       // Off the fullscreen layout a printed row cannot open, so each file keeps a plain row; so does a lone file with no diff to open.
       if (e.viewport?.isFullscreen && (isScript || isErrored || bashEdit.length > 1 || bashEdit[0]!.diff)) {
         const command = String((input as { command?: unknown } | undefined)?.command ?? '').split('\n')[0]!
@@ -1018,22 +1282,22 @@ export const register: Register = on => {
         const title: Piece[] = [{ text: 'Ran', bold: true }, { text: ' (', color: 'promptBorder' }, { text: clip(command, room) }, { text: ')', color: 'promptBorder' }, ...failed]
         // Not errored to foldCalls, which leaves a failed group call's writes out; the title says `failed`.
         const call = { tool_use_id: e.requestId, tool, input, isRunning, isErrored: false, isInterrupted, output }
-        const folded = foldCalls($.ui.resolve(e), e.requestId, e.viewport.columns ?? 80, await $.session.root().catch(() => ''), [call], false, title, !isScript && !isErrored && bashEdit.length === 1 ? bashEdit[0] : undefined)
+        const folded = foldCalls($.ui.resolve(e), e.requestId, e.viewport.columns ?? 80, await $.session.root().catch(() => ''), [call], false, title, !isScript && !isErrored && bashEdit.length === 1 ? bashEdit[0] : undefined, true)
         if (folded) return folded
       }
-      if (isScript) return native
+      if (isScript) return engineRow(e.requestId, native)
       const elements = $.ui.resolve(e)
       const { Box, Text } = elements
       const dot = <Text color="success">●</Text>
-      return (
-        <Box flexDirection="column" marginTop={1}>
+      return framed(elements, frameOf(e.requestId), (
+        <Box flexDirection="column">
           {bashEdit.map(c => textLine(elements, dot, [c.isNew ? 'Created' : EDIT.Edit!, name(c.file), <Text>
             {(c.add > 0 || c.isNew) && <Text color="success">+{c.add}</Text>}
             {(c.add > 0 || c.isNew) && c.del > 0 && ' '}
             {c.del > 0 && <Text color="error">−{c.del}</Text>}
           </Text>]))}
         </Box>
-      )
+      ), bashEdit.length)
     }
     // Without a record, as after a reload, a write keeps one row and not the engine's block.
     const command = tool === 'Bash' && !bashEdits.has(e.requestId) && !shells.has(e.requestId) ? String((input as { command?: unknown } | undefined)?.command ?? '') : ''
@@ -1045,7 +1309,7 @@ export const register: Register = on => {
         $.ui.invalidate('ui.render')
       }
       const elements = $.ui.resolve(e)
-      return textRow(elements, <elements.Text color="success">●</elements.Text>, ['Ran', command.split('\n')[0]!, ''])
+      return textRow(elements, e.requestId, <elements.Text color="success">●</elements.Text>, ['Ran', command.split('\n')[0]!, ''])
     }
     const isLive = isRunning && !isInterrupted && !isErrored && tool in RUNNING
     const other = isLive ? RUNNING[tool]!(input ?? {}, name) : !isRunning && !isInterrupted ? toolRow(tool, input, output, isErrored) : undefined
@@ -1056,42 +1320,57 @@ export const register: Register = on => {
     if (other) {
       const elements = $.ui.resolve(e)
       const { Text } = elements
-      return textRow(elements, isLive ? <Text color="inactive">{isLit ? '●' : ' '}</Text> : <Text color="success">●</Text>, other, ...(tool === 'Agent' ? [agentTag(agents.get(e.requestId)!), agentTone(agents.get(e.requestId)!)] : []))
+      if (tool === 'Agent') return agentRow(elements, e.requestId, other[2] as State, agents.get(e.requestId), other[1], other[2] === 'working' || other[2] === 'remote')
+      return textRow(elements, e.requestId, isLive ? <Text color="inactive">{isLit ? '●' : ' '}</Text> : <Text color="success">●</Text>, other)
     }
-    if (!run) return native
-    const summary = !isRunning && !isInterrupted ? editSummary(tool, output, isErrored) : undefined
-    if (summary && !done.has(e.requestId)) {
-      done.set(e.requestId, { file: String((input as { file_path?: string }).file_path), summary, diff: diffText(output) })
-      // The run's first row draws this one's counts; a lone edit has none to update.
-      if (run.ids.length > 1) $.ui.invalidate('ui.render')
+    if (!seg) return engineRow(e.requestId, native)
+    // A lone Read, Grep or Glob call: one plain row, as a lone fetch draws. An MCP call keeps its native row for its name.
+    if (e.viewport?.isFullscreen && !summary && !isErrored && !isInterrupted && tool !== 'Bash' && !tool.startsWith('mcp__') && !(tool in EDIT) && !(tool in RUNNING)) {
+      const [doneLabel, liveLabel] = kindOf(tool)
+      const args = (input ?? {}) as Record<string, unknown>
+      const key = ['file_path', 'pattern', 'path', 'url', 'query'].find(k => typeof args[k] === 'string')
+      const arg = !key ? '' : key === 'file_path' || key === 'path' ? namer(await $.session.root().catch(() => ''), e.viewport?.columns)(String(args[key])) : String(args[key]).split('\n')[0]!
+      if (isRunning) {
+        blinking.add(e.requestId)
+        blink ??= $.clock.every(BLINK_MS, () => toggleBlink(() => $.ui.invalidate('ui.render')))
+      }
+      const elements = $.ui.resolve(e)
+      const { Text } = elements
+      return textRow(elements, e.requestId, isRunning ? <Text color="inactive">{isLit ? '●' : ' '}</Text> : <Text color="success">●</Text>, [isRunning ? liveLabel : doneLabel, arg, ''])
     }
-    if (!summary) return native
+    // A lone call's native row still sits on the rail, 2 columns in.
+    if (!summary && e.viewport?.isFullscreen && seg.ids.length === 1) return framed($.ui.resolve(e), frameOf(e.requestId), native)
+    if (!summary) return engineRow(e.requestId, native)
+    const isOpen = editOpen.has(seg.owner)
     const elements = $.ui.resolve(e)
     const { Box, Text } = elements
     const Client = 'Client' in elements ? elements.Client : undefined
-    if (!Client) return native
+    if (!Client) return engineRow(e.requestId, native)
     const row = (key: string, pieces: Piece[]) => <Client key={key} module="./fold.tsx" width="100%" height={1} props={{ pieces, lit: LIT }} />
     const result = (entry: NonNullable<ReturnType<typeof done.get>>, gap = '  ', addWidth = 0) =>
       countPieces(entry.summary.add, entry.summary.del, entry.summary.isNew, gap, addWidth)
     const self = done.get(e.requestId)!
-    const diff = (entry: typeof self, hasNext = false) => diffBox(elements, e.viewport?.columns ?? 80, entry, hasNext)
-    const entries = run.ids.flatMap(id => done.get(id) ?? [])
+    const frame = frameOf(e.requestId)
+    const inner = (e.viewport?.columns ?? 80) - (frame ? 2 : 0)
+    const diff = (entry: typeof self, hasNext = false) => diffBox(elements, inner, entry, hasNext)
+    const diffLines = (entry: typeof self, hasNext = false) => (entry.diff ? diffRows(entry.diff, inner - 4) + (hasNext ? 1 : 0) : 0)
+    const entries = seg.ids.flatMap(id => done.get(id) ?? [])
     if (entries.length < 2) {
-      return (
-        <Box flexDirection="column" marginTop={1}>
+      return framed(elements, frame, (
+        <Box flexDirection="column">
           {row(`fold:${e.requestId}`, [...head('●', 'success', self.summary.isNew ? 'Created' : EDIT[tool]!), { text: ' (', color: 'promptBorder' }, ...namePieces(name(self.file)), { text: ')', color: 'promptBorder' }, ...result(self)])}
-          {run.isOpen && diff(self)}
+          {isOpen && diff(self)}
         </Box>
-      )
+      ), 1 + (isOpen ? diffLines(self) : 0))
     }
     const add = entries.reduce((sum, entry) => sum + entry.summary.add, 0)
     const del = entries.reduce((sum, entry) => sum + entry.summary.del, 0)
     const files = new Set(entries.map(entry => entry.file)).size
-    const listed = run.isOpen ? entries : []
+    const listed = isOpen ? entries : []
     const at = listed.indexOf(self)
     const isFirst = entries[0] === self
     if (!isFirst && at < 0) return <Box />
-    const mark = run.isOpen ? '○' : '●'
+    const mark = isOpen ? '○' : '●'
     // Every row's counts start in one column: past the header or the widest listed name, whichever ends later.
     const TREE_INDENT = 4
     const noun = files === 1 ? 'file' : 'files'
@@ -1107,8 +1386,8 @@ export const register: Register = on => {
     const newPieces: Piece[] = at >= 0 && self.summary.isNew ? [{ text: ' '.repeat(nameEnd - TREE_INDENT - selfName.length + 2) }, { text: NEW }] : []
     const nameWidth = self.summary.isNew ? nameEnd + 2 + NEW.length : TREE_INDENT + selfName.length
 
-    return (
-      <Box flexDirection="column" marginTop={isFirst ? 1 : 0}>
+    return framed(elements, frame, (
+      <Box flexDirection="column">
         {isFirst && row(`fold:${e.requestId}`, [
           ...head(mark, 'success', 'Edited'),
           { text: ' (', color: 'promptBorder' },
@@ -1125,25 +1404,27 @@ export const register: Register = on => {
         ])}
         {shownDiffs.has(e.requestId) && diff(self, at < listed.length - 1)}
       </Box>
-    )
+    ), (isFirst ? 1 : 0) + (at >= 0 ? 1 : 0) + (shownDiffs.has(e.requestId) ? diffLines(self, at < listed.length - 1) : 0), isFirst ? 1 : 0)
   })
 
   on('ui.message', async ($, e, next) => {
-    const run = runs.get(e.requestId)
+    // An edit row of an edit-only run keeps its own open state; any other fold opens through openGroups.
+    const seg = runs.has(e.requestId) ? segmentOf(e.requestId) : undefined
+    const edits = seg && (members.get(e.requestId)?.call ? isEditCall(members.get(e.requestId)!.call) : false) && isEditRun(seg) ? seg : undefined
     const element = typeof e.element === 'string' ? e.element : ''
     const isPress = !!(e.data as { press?: boolean } | undefined)?.press
     const shown = openGroups.get(e.requestId)
-    if (!run && isPress && element === `fold:${e.requestId}`) {
+    if (!edits && isPress && element === `fold:${e.requestId}`) {
       if (!openGroups.delete(e.requestId)) openGroups.set(e.requestId, new Set())
       $.ui.invalidate('ui.render')
-    } else if (!run && isPress && shown && element.startsWith('file:')) {
+    } else if (!edits && isPress && shown && element.startsWith('file:')) {
       if (!shown.delete(element)) shown.add(element)
       $.ui.invalidate('ui.render')
     }
-    if (run && isPress) {
+    if (edits && isPress) {
       if (element.startsWith('fold:')) {
-        run.isOpen = !run.isOpen
-        for (const id of run.ids) shownDiffs.delete(id)
+        if (!editOpen.delete(edits.owner)) editOpen.add(edits.owner)
+        for (const id of edits.ids) shownDiffs.delete(id)
       } else if (element.startsWith('file:') && done.get(e.requestId)?.diff && !shownDiffs.delete(e.requestId)) shownDiffs.add(e.requestId)
       $.ui.invalidate('ui.render')
     }
@@ -1153,16 +1434,15 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     const native = await next(e)
-    const { origin, isExpanded, task } = e.props
-    const agent = task?.toolUseId ? agents.get(task.toolUseId) : undefined
-    const shell = task?.toolUseId ? shells.get(task.toolUseId) : undefined
-    const arg = agent?.description ?? shell
-    const ended = task?.status && ENDED[task.status]
-    if (!hideEditDiff || e.surface !== 'terminal' || isExpanded || origin.kind !== 'task-notification' || !arg || !ended) return native
+    const { task } = e.props
+    const fin = finishOf(e)
+    if (!fin) return engineRow(e.requestId, native)
+    const { agent, arg, ended } = fin
     const elements = $.ui.resolve(e)
     const { Text } = elements
-    const [tail, color] = ended
-    return textRow(elements, <Text color={color}>●</Text>, [agent ? 'Agent' : 'Bash', arg, task.durationMs === undefined ? tail : `${tail} · ${took(task.durationMs)}`], ...(agent ? [agentTag(agent), agentTone(agent)] : []))
+    if (agent) return agentRow(elements, e.requestId, ended, agent, arg, true, task.durationMs)
+    const color = stateColour(ended)
+    return textRow(elements, e.requestId, <Text color={color}>▶︎</Text>, ['Bash', arg, <Text color={color}>{task.durationMs === undefined ? ended : `${ended} · ${durationText(task.durationMs)}`}</Text>])
   })
 
   // A reply still streaming skips the hook below, so md-display.pl draws its lines from this width.
