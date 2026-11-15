@@ -121,11 +121,11 @@ export function parse(answer: string): Offer | null {
     // The table rule bolds the `#` column (`| **A** |`); the id is the bare letter.
     const cells = line.match(/^\|(.*)\|\s*$/)?.[1]?.split('|').map((c, i) => (i ? c.trim() : c.trim().replace(/^\*\*(.*)\*\*$/, '$1')))
     if (current && cells) {
-      // Only the decision's first table; its first line is the header; a short first cell marks an option row.
+      // Only the decision's first table; its first line is the header; an option row's first cell is a capital letter or a number.
       if (!current.rows) {
         current.rows = []
         inTable = true
-      } else if (inTable && /^[\w.]{1,3}$/.test(cells[0]!) && cells[1]) {
+      } else if (inTable && /^(?:[A-Z]|\d{1,3})$/.test(cells[0]!) && cells[1]) {
         current.rows.push({ id: cells[0]!, text: cells[1], picked: false })
       }
       continue
