@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { cutPath, diffRows, runText, split, writeTargets } from '../hooks/register'
+import { agentLabel, cutPath, diffRows, durationText, runText, split, writeTargets } from '../hooks/register'
 
 const text = '━━━━\n\n**TL;DR** x\n\n──\n\n## H\n\n┈┈\n\nmore\n\n```text\n━━━━\n```\n\n━━━━'
 const props = { text, isFirstOfReply: true }
@@ -1011,14 +1011,202 @@ test('one file edited twice reads as one file', async ($, on) => {
   expect(await textOf(first, 'e1')).toBe('● Edited (1 file)  +2')
 })
 
-test('a row between edits starts a new run', async ($, on) => {
+const mountGroup = ($: any, id: string, calls: object[], extra: object = {}) =>
+  $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolGroup', requestId: id, props: { calls, isActive: false, isExpanded: false, ...extra }, viewport: VIEW })
+const reads = (a: string, b: string) => [call(a, 'Read', { file_path: '/p/a.txt' }), call(b, 'Read', { file_path: '/p/b.txt' })]
+
+test('a tool group between two edits joins their run', async ($, on) => {
   native(on)
-  on('ui.render', { component: 'ToolGroup' }, () => ({ type: 'Text' as const, children: ['group'] }))
   const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
-  await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolGroup', requestId: 'c1', props: { calls: [], isActive: false, isExpanded: false }, viewport: VIEW })
+  const grp = await mountGroup($, 'c1', reads('c2', 'c3'))
   const second = await mountRow($, 'Edit', patch('+c'), {}, '/p/b.txt', 'e2')
-  expect(await textOf(first, 'e1')).toBe('● Updated (a.txt)  +1')
-  expect(await textOf(second, 'e2')).toBe('● Updated (b.txt)  +1')
+  expect(await textOf(first, 'e1')).toBe('▶︎ Edited (2 files) · Read (2 files)  +2')
+  expect(await textOf(grp, 'c1')).toBeUndefined()
+  expect(await grp.find({ type: 'Box' })).toBeDefined()
+  expect(await textOf(second, 'e2')).toBeUndefined()
+})
+
+test('a group that comes first owns the fold', async ($, on) => {
+  native(on)
+  const grp = await mountGroup($, 'c1', reads('c2', 'c3'))
+  const edit = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
+  expect(await textOf(grp, 'c1')).toBe('▶︎ Read (2 files) · Edited (1 file)  +1')
+  expect(await textOf(edit, 'e1')).toBeUndefined()
+})
+
+test('a live Edit in a mixed run draws inside the fold', async ($, on) => {
+  native(on)
+  const edit = await mountRow($, 'Edit', undefined, { isRunning: true }, '/p/a.txt', 'e1')
+  await mountRow($, 'Read', undefined, { isRunning: true }, '/p/b.txt', 'r1')
+  expect(await textOf(edit, 'e1')).toBe('▶︎ Editing (1 file) · Reading (1 file)')
+})
+
+test('an errored Edit cuts the run', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
+  await mountRow($, 'Read', 'x', {}, '/p/b.txt', 'r1')
+  const cut = await mountRow($, 'Edit', 'Error: no.', { isErrored: true }, '/p/c.txt', 'e3')
+  const after = await mountRow($, 'Read', 'x', {}, '/p/d.txt', 'r2')
+  expect(await textOf(cut, 'e3')).toBe('native')
+  expect(await textOf(first, 'e1')).toBe('▶︎ Edited (1 file) · Read (1 file)  +1')
+  expect(await textOf(after, 'r2')).toBe('● Read (d.txt)')
+})
+
+test('two old Reads fold', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  const second = await mountRow($, 'Read', 'x', {}, '/p/b.txt', 'r2')
+  expect(await textOf(first, 'r1')).toBe('▶︎ Read (2 files)')
+  expect(await textOf(second, 'r2')).toBeUndefined()
+})
+
+test('a single row becomes a fold when a second member mounts', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  expect(await textOf(first, 'r1')).toBe('● Read (a.txt)')
+  await mountRow($, 'Grep', 'x', {}, '/p/a.txt', 'r2')
+  expect(await textOf(first, 'r1')).toBe('▶︎ Read (1 file) · Searched (1 pattern)')
+})
+
+test('a finished member redraws the fold it sits in', async ($, on) => {
+  native(on)
+  blinks(on)
+  const first = await mountRow($, 'Read', undefined, { isRunning: true }, '/p/a.txt', 'r1')
+  const second = await mountRow($, 'Grep', undefined, { isRunning: true }, '/p/b.txt', 'r2')
+  expect(await textOf(first, 'r1')).toBe('▶︎ Reading (1 file) · Searching (1 pattern)')
+  await second.redraw({ tool_use_id: 'r2', tool: 'Grep', input: { file_path: '/p/b.txt' }, output: 'x', isRunning: false, isErrored: false, isInterrupted: false })
+  expect(await textOf(first, 'r1')).toBe('▶︎ Reading (1 file) · Searched (1 pattern)')
+})
+
+test('a click on a mixed fold opens a tree that draws an Edit as its file row', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
+  await mountRow($, 'Read', 'x', {}, '/p/b.txt', 'r1')
+  await click(first, 'fold:e1')
+  expect(await textOf(first, 'e1')).toBe('▼ Edited (1 file) · Read (1 file)  +1')
+  expect(await treeOf(first)).toEqual(['  ├ Updated (a.txt)  +1', '  └ Read (b.txt)'])
+})
+
+test('hideEditDiff false keeps mixed Reads native', async ($, on) => {
+  native(on)
+  configured(on, { '/cfg/claudzilla.json': off })
+  await $.session.start(start)
+  const first = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  const second = await mountRow($, 'Read', 'x', {}, '/p/b.txt', 'r2')
+  expect(await textOf(first, 'r1')).toBe('native')
+  expect(await textOf(second, 'r2')).toBe('native')
+})
+
+const head = ($: any, id: string) =>
+  $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: id, props: { text: 'hi', origin: { kind: 'composer' } }, viewport: VIEW })
+const said = ($: any, id: string, text = 'ok') =>
+  $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'AssistantMessage', requestId: id, props: { text, isFirstOfReply: true }, viewport: VIEW })
+const GAP = /^│$/
+const OWN = /^│ $/
+const rail = async (ui: any, text: RegExp) => (await ui.findAll({ type: 'Text', text })).length
+const twoReads = async ($: any, a = 'r1', b = 'r2') => {
+  const first = await mountRow($, 'Read', 'x', {}, '/p/a.txt', a)
+  await mountRow($, 'Read', 'x', {}, '/p/b.txt', b)
+  await textOf(first, a)
+  return first
+}
+
+test('a prompt heads a section: the rail starts on the first row, under a blank gap', async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['you'] }))
+  await head($, 'h1')
+  const fold = await twoReads($)
+  expect(await rail(fold, OWN)).toBe(1)
+  expect(await rail(fold, GAP)).toBe(0)
+})
+
+test("Claude's text opens a section: the rail runs through the gap above the row", async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  await said($, 'a1')
+  const fold = await twoReads($)
+  expect(await rail(fold, GAP)).toBe(1)
+  expect(await rail(fold, OWN)).toBe(1)
+})
+
+test('a text row draws no rail on any line', async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  const ui = await said($, 'a1', 'one\n\ntwo')
+  expect(await rail(ui, GAP)).toBe(0)
+  expect(await rail(ui, OWN)).toBe(0)
+})
+
+test('a second prompt starts a new section with a blank gap', async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['you'] }))
+  await head($, 'h1')
+  await twoReads($)
+  await head($, 'h2')
+  const fold = await twoReads($, 'r3', 'r4')
+  expect(await rail(fold, GAP)).toBe(0)
+  expect(await rail(fold, OWN)).toBe(1)
+})
+
+test('a row with no section open sits 2 columns in with no Text beside it', async ($, on) => {
+  native(on)
+  const fold = await twoReads($)
+  expect(await rail(fold, /│/)).toBe(0)
+  expect((await fold.find({ type: 'Box' }))?.props.paddingLeft).toBe(2)
+})
+
+test('a lone Read row sits inside the rail', async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  await said($, 'a1')
+  const ui = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  expect(await rail(ui, OWN)).toBe(1)
+  expect(await ui.find({ type: 'Text', text: '● Read (a.txt)' })).toBeDefined()
+})
+
+test('a row the engine draws breaks the rail at its gap', async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  await said($, 'a1')
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  await mountRow($, 'Skill', 'x', { isInterrupted: true }, '/p/c.txt', 's1')
+  const fold = await twoReads($, 'r5', 'r6')
+  expect(await rail(fold, GAP)).toBe(0)
+  expect(await rail(fold, OWN)).toBe(1)
+})
+
+test('a notification the engine draws breaks the rail at the next gap', async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['note'] }))
+  await said($, 'a1')
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1', viewport: VIEW,
+    props: { text: 'done', origin: { kind: 'task-notification' }, task: { toolUseId: 'none', status: 'completed' } } })
+  const fold = await twoReads($, 'r5', 'r6')
+  expect(await rail(fold, GAP)).toBe(0)
+  expect(await rail(fold, OWN)).toBe(1)
+})
+
+test('an errored Edit that cuts a run breaks the rail at the next gap', async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  await said($, 'a1')
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  await mountRow($, 'Edit', 'Error: no.', { isErrored: true }, '/p/c.txt', 'e3')
+  const fold = await twoReads($, 'r5', 'r6')
+  expect(await rail(fold, GAP)).toBe(0)
+  expect(await rail(fold, OWN)).toBe(1)
+})
+
+test('hideEditDiff false draws no rail', async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  configured(on, { '/cfg/claudzilla.json': off })
+  await $.session.start(start)
+  await said($, 'a1')
+  const fold = await twoReads($)
+  expect(await rail(fold, /│/)).toBe(0)
 })
 
 test("margin's hidden intent row does not break a run", async ($, on) => {
@@ -1211,6 +1399,22 @@ test('the tree line runs beside every open diff', async ($, on) => {
   expect(await rows(second)).toBe(2)
 })
 
+test('durationText takes milliseconds and keeps the units that are not zero', () => {
+  expect(durationText(4000)).toBe('4s')
+  expect(durationText(64000)).toBe('1m 4s')
+  expect(durationText(3725000)).toBe('1h 2m 5s')
+  expect(durationText(3605000)).toBe('1h 5s')
+  expect(durationText(0)).toBe('0s')
+})
+test('agentLabel drops the namespace and cavecrew-, and names a missing type agent', () => {
+  expect(agentLabel('caveman:cavecrew-builder')).toBe('builder')
+  expect(agentLabel('cavecrew-investigator')).toBe('investigator')
+  expect(agentLabel('general-purpose')).toBe('general')
+  expect(agentLabel('Explore')).toBe('Explore')
+  expect(agentLabel(undefined)).toBe('agent')
+  expect(agentLabel('caveman:')).toBe('agent')
+})
+
 test('diffRows counts what the Code element draws', () => {
   const head = '@@ -3,1 +3,2 @@'
   expect(diffRows(`${head}\n a\n+b`, 40)).toBe(2)
@@ -1364,7 +1568,7 @@ for (const [name, tool, output, extra] of [
   ['a held new file', 'Write', { ...created('a\n'), staged: true }, {}],
   ['a write that changed nothing', 'Write', { type: 'update', structuredPatch: [], originalFile: 'a' }, {}],
   ['a write too large to diff', 'Write', { type: 'update', structuredPatch: [], originalFile: null }, {}],
-  ['another tool', 'Read', patch('-a', '+b'), {}],
+  ['another tool', 'TodoWrite', patch('-a', '+b'), {}],
 ] as const) {
   test(`${name} stays native`, async ($, on) => {
     native(on)
@@ -1382,9 +1586,9 @@ for (const [name, tool, input, output, want] of [
   ['a search', 'WebSearch', { query: 'example domain' }, searched, '● Searched ("example domain")  1 search'],
   ['searches', 'WebSearch', { query: 'q' }, { ...searched, searchCount: 2 }, '● Searched ("q")  2 searches'],
   ['a search with no count', 'WebSearch', { query: 'q' }, { ...searched, searchCount: undefined }, '● Searched ("q")'],
-  ['a background agent', 'Agent', { description: 'Say hi', prompt: 'p' }, { status: 'async_launched', agentId: 'a1', description: 'Say hi', prompt: 'p', outputFile: '/o' }, '● Agent (Say hi)  backgrounded'],
-  ['a finished agent', 'Agent', { description: 'Say hi', prompt: 'p' }, agentDone, '● Agent (Say hi)  done'],
-  ['a remote agent', 'Agent', { description: 'Say hi', prompt: 'p' }, { status: 'remote_launched', taskId: 't', sessionUrl: 'u', description: 'Say hi', prompt: 'p', outputFile: '/o' }, '● Agent (Say hi)  remote'],
+  ['a background agent', 'Agent', { description: 'Say hi', prompt: 'p' }, { status: 'async_launched', agentId: 'a1', description: 'Say hi', prompt: 'p', outputFile: '/o' }, '◇ working  agent (Say hi)'],
+  ['a finished agent', 'Agent', { description: 'Say hi', prompt: 'p' }, agentDone, '◆ done     agent (Say hi)'],
+  ['a remote agent', 'Agent', { description: 'Say hi', prompt: 'p' }, { status: 'remote_launched', taskId: 't', sessionUrl: 'u', description: 'Say hi', prompt: 'p', outputFile: '/o' }, '◇ remote   agent (Say hi)'],
   ['a skill', 'Skill', { skill: 'caveman:caveman-help' }, { success: true, commandName: 'caveman:caveman-help' }, '● Skill (caveman:caveman-help)  loaded'],
   ['a forked skill', 'Skill', { skill: 's' }, { success: true, commandName: 's', status: 'forked', agentId: 'a', result: 'r' }, '● Skill (s)  done'],
   ['a background skill', 'Skill', { skill: 's' }, { success: true, commandName: 's', status: 'forked', agentId: 'a', result: 'r', background: true }, '● Skill (s)  backgrounded'],
@@ -1407,22 +1611,26 @@ for (const [name, tool, input, output, extra] of [
 ] as const) {
   test(`${name} stays native, engine block too`, async ($, on) => {
     native(on)
-    expect(await drawn($, tool, output, { input, ...extra })).toBe('native')
-    expect(await block($, tool, output, { input, ...extra }, 'b1')).toBe('native block')
+    const row = await mountRow($, tool, output, { input, ...extra })
+    expect(await textOf(row)).toBe('native')
+    await row.unmount()
+    expect(await block($, tool, output, { input, ...extra })).toBe('native block')
   })
 }
 
 for (const [name, tool, input, want] of [
   ['a running fetch', 'WebFetch', { url: 'https://example.com/a' }, '● Fetching (example.com)'],
   ['a running search', 'WebSearch', { query: 'example domain' }, '● Searching ("example domain")'],
-  ['a running agent', 'Agent', { description: 'Say hi' }, '● Agent (Say hi)  running'],
+  ['a running agent', 'Agent', { description: 'Say hi' }, '◆ running  agent (Say hi)'],
   ['a running skill', 'Skill', { skill: 'caveman:caveman-help' }, '● Loading (caveman:caveman-help)'],
   ['a running write', 'Write', { file_path: '/p/a.txt' }, '● Writing (a.txt)'],
 ] as const) {
   test(`${name} draws its running row, and its engine block stays`, async ($, on) => {
     native(on)
-    expect(await drawn($, tool, undefined, { input, isRunning: true })).toBe(want)
-    expect(await block($, tool, undefined, { input, isRunning: true }, 'b1')).toBe('native block')
+    const row = await mountRow($, tool, undefined, { input, isRunning: true })
+    expect(await textOf(row)).toBe(want)
+    await row.unmount()
+    expect(await block($, tool, undefined, { input, isRunning: true })).toBe('native block')
   })
 }
 
@@ -1449,17 +1657,18 @@ const notice = async ($: any, task: object, extra: object = {}) => {
 }
 
 for (const [status, durationMs, want, dot] of [
-  ['completed', 12_000, '● Agent (Slow task)  done · 12s', 'success'],
-  ['failed', 122_000, '● Agent (Slow task)  failed · 2m 2s', 'error'],
-  ['killed', 12_000, '● Agent (Slow task)  stopped · 12s', 'inactive'],
-  ['completed', 3_723_000, '● Agent (Slow task)  done · 1h 2m', 'success'],
-  ['completed', undefined, '● Agent (Slow task)  done', 'success'],
+  ['completed', 12_000, '◆ done     agent (Slow task)  in 12s', '#5d9678'],
+  ['failed', 122_000, '◆ failed   agent (Slow task)  in 2m 2s', 'error'],
+  ['killed', 12_000, '◆ stopped  agent (Slow task)  in 12s', '#8c7850'],
+  ['completed', 3_723_000, '◆ done     agent (Slow task)  in 1h 2m 3s', '#5d9678'],
+  ['completed', undefined, '◆ done     agent (Slow task)', '#5d9678'],
+  ['completed', 0, '◆ done     agent (Slow task)  in 0s', '#5d9678'],
 ] as const) {
   test(`a ${status} background agent's notification reads ${want}`, async ($, on) => {
     const seen = finished(on)
     const ui = await notice($, { status, durationMs })
     expect(await textOf(ui)).toBe(want)
-    expect((await ui.find({ type: 'Text', text: /^●$/ }))?.props.color).toBe(dot)
+    expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe(dot)
     expect(seen.calls).toBeGreaterThan(0)
   })
 }
@@ -1489,12 +1698,12 @@ const shellNotice = async ($: any, on: any, input: object, task: object) => {
 test("a background shell's notification reads its command's first line", async ($, on) => {
   finished(on)
   const ui = await shellNotice($, on, { command: "cd /p; python3 - <<'EOF'\nprint(1)\nEOF", run_in_background: true }, { status: 'completed', durationMs: 12_000 })
-  expect(await textOf(ui)).toBe("● Bash (cd /p; python3 - <<'EOF')  done · 12s")
+  expect(await textOf(ui)).toBe("▶︎ Bash (cd /p; python3 - <<'EOF')  done · 12s")
 })
 
 test("a shell moved to the background after its timeout reads its command's first line", async ($, on) => {
   finished(on)
-  expect(await textOf(await shellNotice($, on, { command: 'sleep 200\necho hi' }, { status: 'completed' }))).toBe('● Bash (sleep 200)  done')
+  expect(await textOf(await shellNotice($, on, { command: 'sleep 200\necho hi' }, { status: 'completed' }))).toBe('▶︎ Bash (sleep 200)  done')
 })
 
 test('a background shell keeps its line through many later calls', async ($, on) => {
@@ -1504,7 +1713,34 @@ test('a background shell keeps its line through many later calls', async ($, on)
   for (let i = 0; i < 600; i++) await $.tool.call({ tool: 'Bash', tool_use_id: `c${i}`, command: 'ls' } as any)
   const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
     props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 'old', status: 'completed' } }, viewport: VIEW })
-  expect(await textOf(ui)).toBe('● Bash (npm run dev)  done')
+  expect(await textOf(ui)).toBe('▶︎ Bash (npm run dev)  done')
+})
+
+for (const [word, status, command, ms, time, colour] of [['done', 'completed', 'npm test', 12_000, '12s', '#5d9678'], ['failed', 'failed', 'bun run lint', 6000, '6s', 'error'], ['stopped', 'killed', 'tail -f trace.log', 182_000, '3m 2s', '#8c7850']] as const) {
+  test(`a ${word} shell finish row sits on the rail with its state and time in the state colour`, async ($, on) => {
+    finished(on)
+    on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+    on('tool.call', () => ({ result: { stdout: '', stderr: '' } }) as any)
+    await said($, 'm1')
+    await $.tool.call({ tool: 'Bash', tool_use_id: 's1', command, run_in_background: true } as any)
+    const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
+      props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 's1', status, durationMs: ms } }, viewport: VIEW })
+    expect((await ui.find({ type: 'Text', text: /▶︎ Bash/ })).text).toBe(`▶︎ Bash (${command})  ${word} · ${time}`)
+    expect(await rail(ui, /^│ $/)).toBe(1)
+    const colours = (await ui.findAll({ type: 'Text' })).map((x: any) => x.props.color)
+    expect(colours.filter((c: string) => c === colour).length).toBe(2)
+  })
+}
+
+test('hideEditDiff false keeps the native shell finish row', async ($, on) => {
+  finished(on)
+  configured(on, { '/cfg/claudzilla.json': off })
+  on('tool.call', () => ({ result: { stdout: '', stderr: '' } }) as any)
+  await $.session.start(start)
+  await $.tool.call({ tool: 'Bash', tool_use_id: 's1', command: 'npm test', run_in_background: true } as any)
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
+    props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 's1', status: 'completed', durationMs: 12_000 } }, viewport: VIEW })
+  expect(await textOf(ui)).toBe('native')
 })
 
 test('hideEditDiff false keeps the native notification row', async ($, on) => {
@@ -1564,14 +1800,14 @@ for (const [tool, output, input] of [
   })
 }
 
-test('a fetch between edits starts a new run, and takes no part in it', async ($, on) => {
+test('a fetch between edits joins their run', async ($, on) => {
   native(on)
   const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
   const web = await mountRow($, 'WebFetch', fetched, { input: { url: 'https://example.com' } }, '/p/a.txt', 'w1')
   const second = await mountRow($, 'Edit', patch('+c'), {}, '/p/b.txt', 'e2')
-  expect(await textOf(first, 'e1')).toBe('● Updated (a.txt)  +1')
-  expect(await textOf(web, 'w1')).toBe('● Fetched (example.com)  200 · 577 B')
-  expect(await textOf(second, 'e2')).toBe('● Updated (b.txt)  +1')
+  expect(await textOf(first, 'e1')).toBe('▶︎ Edited (2 files) · Fetched (1 page)  +2')
+  expect(await textOf(web, 'w1')).toBeUndefined()
+  expect(await textOf(second, 'e2')).toBeUndefined()
 })
 
 test('hideEditDiff false keeps the native fetch row', async ($, on) => {
@@ -1787,7 +2023,7 @@ test('a group holding a Bash edit folds into one row with its counts', async ($,
   await bash($, "sed -i 's/a/b/' a.txt", 'b1')
   const calls = [call('r1', 'Read', { file_path: '/p/a.txt' }), call('b1', 'Bash', { command: "sed -i 's/a/b/' a.txt" }), call('b2', 'Bash', { command: 'ls' })]
   const ui = await group($, calls)
-  expect(await textOf(ui, `fold:g${groups}`)).toBe('● Read (1 file) · Ran (2 commands)  +1 −1')
+  expect(await textOf(ui, `fold:g${groups}`)).toBe('▶︎ Read (1 file) · Ran (2 commands)  +1 −1')
   expect((await ui.find({ type: 'Box' }))?.props.marginTop).toBe(1)
   expect(await treeOf(ui)).toEqual([])
 })
@@ -1803,7 +2039,7 @@ test('a group whose Bash write changed nothing still folds, with no counts', asy
   native(on)
   bashFs(on, { '/p/c.txt': 'c\n' })
   await bash($, "sed -i 's/x/y/' c.txt", 'b2')
-  expect(await groupOf($, [call('r1', 'Read', { file_path: '/p/a.txt' }), call('b2', 'Bash', { command: "sed -i 's/x/y/' c.txt" })])).toBe('● Read (1 file) · Ran (1 command)')
+  expect(await groupOf($, [call('r1', 'Read', { file_path: '/p/a.txt' }), call('b2', 'Bash', { command: "sed -i 's/x/y/' c.txt" })])).toBe('▶︎ Read (1 file) · Ran (1 command)')
 })
 
 test('a click on the group opens a tree of its calls, and another closes it', async ($, on) => {
@@ -1821,7 +2057,7 @@ test('a click on the group opens a tree of its calls, and another closes it', as
   const ui = await group($, calls)
   const at = `fold:g${groups}`
   await click(ui, at)
-  expect(await textOf(ui, at)).toBe('○ Ran (6 commands) · Read (1 file) · Searched (1 pattern)  +2 −1')
+  expect(await textOf(ui, at)).toBe('▼ Ran (6 commands) · Read (1 file) · Searched (1 pattern) · 1 failed  +2 −1')
   const rows = await treeOf(ui)
   expect(rows.slice(0, 6)).toEqual(['  ├ Updated (a.txt)  +1 −1', '  ├ Created (sub/b.txt)  +1', "  ├ sed -i 's/x/y/' c.txt", '  ├ ls -la', '  ├ Read (sub/a.txt)', '  ├ Grep (foo)'])
   expect(rows[6]).toMatch(/^  ├ echo x+…$/)
@@ -1829,7 +2065,7 @@ test('a click on the group opens a tree of its calls, and another closes it', as
   expect(rows.slice(7)).toEqual(['  ├ false  failed', '  └ sleep 9  interrupted'])
   expect((await ui.find({ type: 'Text', text: /^failed$/ }))?.props.color).toBe('error')
   await click(ui, at)
-  expect(await textOf(ui, at)).toBe('● Ran (6 commands) · Read (1 file) · Searched (1 pattern)  +2 −1')
+  expect(await textOf(ui, at)).toBe('▶︎ Ran (6 commands) · Read (1 file) · Searched (1 pattern) · 1 failed  +2 −1')
   expect(await treeOf(ui)).toEqual([])
 })
 
@@ -1907,16 +2143,16 @@ test('a live group reads Running with a blinking dot, then Ran once done', async
   const sleep = call('b2', 'Bash', { command: 'sleep 9' }, { isRunning: true, output: undefined })
   const ui = await group($, [edit, sleep], { isActive: true })
   const at = `fold:g${groups}`
-  expect(await textOf(ui, at)).toBe('● Running (2 commands)  +1 −1')
-  expect((await ui.find({ type: 'Text', text: /^●$/, in: at }))?.props.color).toBe('inactive')
+  expect(await textOf(ui, at)).toBe('▶︎ Running (2 commands)  +1 −1')
+  expect((await ui.find({ type: 'Text', text: /^▶︎$/, in: at }))?.props.color).toBe('claude')
   await clock.advance(500)
   await ui.redraw()
   expect(await textOf(ui, at)).toBe('  Running (2 commands)  +1 −1')
   await click(ui, at)
   expect(await treeOf(ui)).toEqual(['  ├ Updated (a.txt)  +1 −1', '  └ sleep 9'])
   await ui.redraw({ calls: [edit, { ...sleep, isRunning: false, output: { stdout: '' } }], isActive: false, isExpanded: false })
-  expect(await textOf(ui, at)).toBe('○ Ran (2 commands)  +1 −1')
-  expect((await ui.find({ type: 'Text', text: /^○$/, in: at }))?.props.color).toBe('success')
+  expect(await textOf(ui, at)).toBe('▼ Ran (2 commands)  +1 −1')
+  expect((await ui.find({ type: 'Text', text: /^▼$/, in: at }))?.props.color).toBe('#5d9678')
 })
 
 test('a group with no Bash write folds too, one part per tool kind in first-call order', async ($, on) => {
@@ -1925,7 +2161,47 @@ test('a group with no Bash write folds too, one part per tool kind in first-call
   await bash($, 'ls', 'b3')
   const calls = [call('r1', 'Read', { file_path: '/p/a.txt' }), call('g1', 'Grep', { pattern: 'foo' }), call('b3', 'Bash', { command: 'ls' }),
     call('g2', 'Glob', { pattern: '*.ts' }), call('r2', 'Read', { file_path: '/p/b.txt' }), call('w1', 'WebFetch', { url: 'https://x.dev' })]
-  expect(await groupOf($, calls)).toBe('● Read (2 files) · Searched (2 patterns) · Ran (1 command) · WebFetch (1)')
+  expect(await groupOf($, calls)).toBe('▶︎ Read (2 files) · Searched (2 patterns) · Ran (1 command) · Fetched (1 page)')
+})
+
+test('a mixed group header says Running for the kind still going and the done label for the rest', async ($, on) => {
+  native(on)
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolGroup', requestId: 'c1',
+    props: { calls: [call('c2', 'Bash', { command: 'a' }, { isRunning: true }), call('c3', 'Read', { file_path: '/p/a.txt' })], isActive: false, isExpanded: false }, viewport: VIEW })
+  expect(await textOf(ui, 'c1')).toBe('▶︎ Running (1 command) · Read (1 file)')
+})
+
+test('a group with a failed call counts it after the kinds and colours the mark error', async ($, on) => {
+  native(on)
+  const ui = await group($, [call('c2', 'Bash', { command: 'a' }, { isErrored: true }), call('c3', 'Read', { file_path: '/p/a.txt' })])
+  const at = `fold:g${groups}`
+  expect(await textOf(ui, at)).toBe('▶︎ Ran (1 command) · Read (1 file) · 1 failed')
+  expect((await ui.find({ type: 'Text', text: /^▶︎$/, in: at }))?.props.color).toBe('error')
+})
+
+test('a done group mark is the action colour', async ($, on) => {
+  native(on)
+  const ui = await group($, [call('c2', 'Read', { file_path: '/p/a.txt' }), call('c3', 'Read', { file_path: '/p/b.txt' })])
+  expect((await ui.find({ type: 'Text', text: /^▶︎$/, in: `fold:g${groups}` }))?.props.color).toBe('#5d9678')
+})
+
+test('two web fetches read Fetched (2 pages)', async ($, on) => {
+  native(on)
+  expect(await groupOf($, [call('c2', 'WebFetch', { url: 'https://a.dev' }), call('c3', 'WebFetch', { url: 'https://b.dev' })])).toBe('▶︎ Fetched (2 pages)')
+})
+
+test('a group of searches and mcp calls keeps the kinds apart', async ($, on) => {
+  native(on)
+  const calls = [call('c1', 'Grep', { pattern: 'x' }), call('c2', 'WebSearch', { query: 'y' }), call('c3', 'mcp__a__b', {})]
+  expect(await groupOf($, calls)).toBe('▶︎ Searched (1 pattern) · Searched (1 query) · Called (1 tool)')
+})
+
+test('hideEditDiff false keeps the native group', async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'ToolGroup' }, (_$: any, e: any) => ({ type: 'Text' as const, children: [`expanded:${e.props.isExpanded}`] }))
+  configured(on, { '/cfg/claudzilla.json': off })
+  await $.session.start(start)
+  expect(await groupOf($, [call('c2', 'Read', { file_path: '/p/a.txt' }), call('c3', 'Bash', { command: 'a' })])).toBe('expanded:false')
 })
 
 test('a group names its edits and writes in the past tense', async ($, on) => {
@@ -1939,8 +2215,8 @@ test('a live read-only group reads each kind in its running form', async ($, on)
   native(on)
   blinks(on)
   bashFs(on, {})
-  const calls = [call('r1', 'Read', { file_path: '/p/a.txt' }), call('g1', 'Grep', { pattern: 'foo' }, { isRunning: true, output: undefined })]
-  expect(await groupOf($, calls, { isActive: true })).toBe('● Reading (1 file) · Searching (1 pattern)')
+  const calls = [call('r1', 'Read', { file_path: '/p/a.txt' }, { isRunning: true, output: undefined }), call('g1', 'Grep', { pattern: 'foo' }, { isRunning: true, output: undefined })]
+  expect(await groupOf($, calls, { isActive: true })).toBe('▶︎ Reading (1 file) · Searching (1 pattern)')
 })
 
 test('a group with no calls stays the engine line', async ($, on) => {
@@ -1992,7 +2268,30 @@ test('an errored Bash edit folds as a failed Ran row, keeps its error under it, 
     props: { tool_use_id: 'b1', tool: 'Bash', output: { stderr: 'boom', bashEditDiff: { files: [] } }, isErrored: true }, viewport: VIEW })
   expect((await result.find({ type: 'Text' }))?.text).toBe('native block')
   expect(seen.at(-1)).toEqual({ stderr: 'boom' })
+})
+
+test('a group of one errored Bash call folds with no counts', async ($, on) => {
+  native(on)
+  bashFs(on, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'), true)
+  const command = 'echo b > a.txt; false'
+  await bash($, command)
   expect(await groupOf($, [call('b1', 'Bash', { command }, { isErrored: true })])).toBe('● Ran (1 command)')
+})
+
+test('the same errored Bash call as a row, then in a group, joins one run once', async ($, on) => {
+  native(on)
+  bashFs(on, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'), true)
+  const command = 'echo b > a.txt; false'
+  await bash($, command)
+  await useRow($, call('b1', 'Bash', { command }, { isErrored: true }))
+  expect(await groupOf($, [call('b1', 'Bash', { command }, { isErrored: true })])).toBe('● Ran (1 command)')
+})
+
+test('a group of Edit calls in a run draws its calls through the fold', async ($, on) => {
+  native(on)
+  const grp = await mountGroup($, 'c1', [call('c2', 'Edit', { file_path: '/p/a.txt' }, { output: patch('+b') }), call('c3', 'Edit', { file_path: '/p/b.txt' }, { output: patch('+c') })])
+  await mountRow($, 'Edit', patch('+d'), {}, '/p/c.txt', 'e1')
+  expect(await textOf(grp, 'c1')).toBe('● Edited (3 files)  +3')
 })
 
 test('an errored Bash edit off the fullscreen layout keeps its native row, not a success row', async ($, on) => {
@@ -2052,6 +2351,12 @@ test('a Bash write folio holds no record of, as after a reload, draws one Ran ro
     props: { tool_use_id: 'b1', tool: 'Bash', output: { stdout: '' }, isErrored: false }, viewport: VIEW })
   expect((await ui.find({ type: 'Text' }))?.text).toBeUndefined()
   expect(await rowsOf(await useRow($, call('b2', 'Bash', { command: 'ls' })))).toEqual([])
+})
+
+test('an errored Bash write folio holds no record of keeps its native row', async ($, on) => {
+  native(on)
+  bashFs(on, {})
+  const command = "sed -i 's/a/b/' a.txt\nmore"
   expect(await textOf(await useRow($, call('b3', 'Bash', { command }, { isErrored: true })), 'b3')).toBe('native')
 })
 
@@ -2344,10 +2649,11 @@ test('rows name files from the session root, not the folder a shell cd left', as
   const commands = ["sed -i 's/a/x/' a.txt", 'printf "n\\nm\\n" > new.txt', 'cd sub && echo c >> b.txt']
   for (const [i, command] of commands.entries()) await bash($, command, `b${i}`)
   live.value = '/p/sub'
-  const rows = []
-  for (const [i, command] of commands.entries()) rows.push(await textOf(await useRow($, call(`b${i}`, 'Bash', { command })), `fold:b${i}`))
-  expect(rows).toEqual(['● Updated (a.txt)  +1 −1', '● Created (new.txt)  +2', '● Updated (sub/b.txt)  +1'])
-  expect(await textOf(await mountRow($, 'Edit', patch('-a', '+b'), {}, '/p/a.txt', 'e1'), 'e1')).toBe('● Updated (a.txt)  +1 −1')
+  let ui: any
+  for (const [i, command] of commands.entries()) ui ??= await useRow($, call(`b${i}`, 'Bash', { command })), i && await useRow($, call(`b${i}`, 'Bash', { command }))
+  await mountRow($, 'Edit', patch('-a', '+b'), {}, '/p/a.txt', 'e1')
+  await click(ui, 'fold:b0')
+  expect(await treeOf(ui)).toEqual(['  ├ Updated (a.txt)  +1 −1', '  ├ Created (new.txt)  +2', '  ├ Updated (sub/b.txt)  +1', '  └ Updated (a.txt)  +1 −1'])
 })
 
 // Core's spawn of Agent call a1 as agent g1 on `model`; then g1's first request, at `effort`.
@@ -2362,18 +2668,22 @@ test('a running agent row tags the model it spawned on and the effort its reques
   native(on)
   await spawnAgent($, on, 'claude-opus-5-5', 'high')
   const ui = await mountRow($, 'Agent', undefined, { input: { description: 'Fix login bug', effort: 'max' }, isRunning: true }, '/p/a.txt', 'a1')
-  expect(await textOf(ui, 'a1')).toBe('● Agent (Fix login bug) [opus · high]  running')
-  for (const part of [/^opus$/, /^high$/]) expect((await ui.find({ type: 'Text', text: part }))?.props.color).toBe('inactive')
-  expect((await ui.find({ type: 'Text', text: /^ · $/ }))?.props.color).toBe('promptBorder')
-  expect((await ui.find({ type: 'Text', text: /^ \[$/ }))?.props.color).toBe('promptBorder')
+  expect(await textOf(ui, 'a1')).toBe('◆ running  agent (Fix login bug)  as opus high')
+  for (const [part, color] of [[/^as$/, 'inactive'], [/^opus$/, undefined], [/^high$/, 'inactive']] as const) {
+    const node = await ui.find({ type: 'Text', text: part })
+    expect(node).toBeDefined()
+    expect(node?.props.color).toBe(color)
+  }
 })
 
 for (const [name, input, output, want] of [
-  ['a finished agent takes its resolved model over the input one', { description: 'Find callers', model: 'haiku', effort: 'medium' },
-    { ...agentDone, resolvedModel: 'claude-sonnet-5-5' }, '● Agent (Find callers) [sonnet · medium]  done'],
-  ['a finished agent with only an input model', { description: 'd', model: 'haiku' }, agentDone, '● Agent (d) [haiku]  done'],
+  ['a finished agent leaves its model and effort out', { description: 'Find callers', model: 'haiku', effort: 'medium' },
+    { ...agentDone, resolvedModel: 'claude-sonnet-5-5' }, '◆ done     agent (Find callers)'],
+  ['a finished agent with only an input model', { description: 'd', model: 'haiku' }, agentDone, '◆ done     agent (d)'],
   ['a backgrounded agent with only an effort', { description: 'Review diff', effort: 'low' },
-    { status: 'async_launched', agentId: 'a1', description: 'Review diff', prompt: 'p', outputFile: '/o' }, '● Agent (Review diff) [low]  backgrounded'],
+    { status: 'async_launched', agentId: 'a1', description: 'Review diff', prompt: 'p', outputFile: '/o' }, '◇ working  agent (Review diff)  as low'],
+  ['a backgrounded agent with a resolved model over the input one', { description: 'd', model: 'haiku', effort: 'low' },
+    { status: 'async_launched', agentId: 'a1', description: 'd', prompt: 'p', outputFile: '/o', resolvedModel: 'claude-sonnet-5-5' }, '◇ working  agent (d)  as sonnet low'],
 ] as const) {
   test(`${name}: ${want}`, async ($, on) => {
     native(on)
@@ -2381,10 +2691,10 @@ for (const [name, input, output, want] of [
   })
 }
 
-test("a background agent's finish row keeps its tag", async ($, on) => {
+test("a background agent's finish row leaves model and effort out", async ($, on) => {
   finished(on)
   await spawnAgent($, on, 'claude-haiku-5-5', 'medium')
-  expect(await textOf(await notice($, { status: 'completed', durationMs: 9_000 }))).toBe('● Agent (Slow task) [haiku · medium]  done · 9s')
+  expect(await textOf(await notice($, { status: 'completed', durationMs: 9_000 }))).toBe('◆ done     agent (Slow task)  in 9s')
 })
 
 test("a finish row takes the spawn's description when the call's row drew none", async ($, on) => {
@@ -2393,20 +2703,20 @@ test("a finish row takes the spawn's description when the call's row drew none",
   await mountRow($, 'Agent', launched, { input: {} }, '/p/a.txt', 'a1')
   const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
     props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 'a1', status: 'completed', durationMs: 1_000 } }, viewport: VIEW })
-  expect(await textOf(ui)).toBe('● Agent (Slow task) [haiku · medium]  done · 1s')
+  expect(await textOf(ui)).toBe('◆ done     agent (Slow task)  in 1s')
 })
 
 // The description in the type's colour, as margin's PLAN draws agents: a common type its own, any other hashed by name.
-const label = async (ui: any, text = /^d$/) => (await ui.find({ type: 'Text', text }))?.props.color
-test("a running agent's description takes its spawned type's colour", async ($, on) => {
+const label = async (ui: any, text: RegExp) => (await ui.find({ type: 'Text', text }))?.props.color
+test("a running agent's label takes its spawned type's colour", async ($, on) => {
   native(on)
   await spawnAgent($, on, 'claude-haiku-5-5', 'low', { subagentType: 'caveman:cavecrew-investigator' })
-  expect(await label(await mountRow($, 'Agent', undefined, { input: { description: 'd' }, isRunning: true }, '/p/a.txt', 'a1'))).toBe('#b3c46a')
+  expect(await label(await mountRow($, 'Agent', undefined, { input: { description: 'd' }, isRunning: true }, '/p/a.txt', 'a1'), /^investigator$/)).toBe('#b3c46a')
 })
 
-test("a finished agent's description takes its input type's colour", async ($, on) => {
+test("a finished agent's label takes its input type's colour", async ($, on) => {
   native(on)
-  expect(await label(await mountRow($, 'Agent', agentDone, { input: { description: 'd', subagent_type: 'general-purpose' } }, '/p/a.txt', 'a1'))).toBe('#e8927c')
+  expect(await label(await mountRow($, 'Agent', agentDone, { input: { description: 'd', subagent_type: 'general-purpose' } }, '/p/a.txt', 'a1'), /^general$/)).toBe('#e8927c')
 })
 
 for (const [name, input, want] of [
@@ -2415,14 +2725,14 @@ for (const [name, input, want] of [
 ] as const) {
   test(`${name}: ${want}`, async ($, on) => {
     native(on)
-    expect(await label(await mountRow($, 'Agent', agentDone, { input: { description: 'd', ...input } }, '/p/a.txt', 'a1'))).toBe(want)
+    expect(await label(await mountRow($, 'Agent', agentDone, { input: { description: 'd', ...input } }, '/p/a.txt', 'a1'), /^Plan$/)).toBe(want)
   })
 }
 
-test("a background agent's finish row keeps its description colour", async ($, on) => {
+test("a background agent's finish row keeps its label colour", async ($, on) => {
   finished(on)
   await spawnAgent($, on, 'claude-haiku-5-5', 'medium', { subagentType: 'caveman:cavecrew-reviewer' })
-  expect(await label(await notice($, { status: 'completed', durationMs: 9_000 }), /^Slow task$/)).toBe('#d17fcf')
+  expect(await label(await notice($, { status: 'completed', durationMs: 9_000 }), /^reviewer$/)).toBe('#d17fcf')
 })
 
 const reloaded = (command: string, hunks: object[], output: object = {}) =>
@@ -2542,4 +2852,146 @@ test('a live Bash call whose write target folio cannot read keeps its output dra
 test('a Bash result without bashEditDiff and a record keeps today\'s row', async ($, on) => {
   native(on)
   expect(await rowsOf(await useRow($, call('b1', 'Bash', { command: 'python fix.py' })))).toEqual([])
+})
+
+test('an open fold shows a failed call\'s first three error lines', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Bash', { stdout: '' }, { input: { command: 'ls' } }, '', 'e1')
+  await mountRow($, 'Bash', { stderr: 'a\n\nb\nc\nd' }, { input: { command: 'false' }, isErrored: true }, '', 'e2')
+  const texts = async () => (await first.findAll({ type: 'Text' })).map((x: any) => x.text)
+  expect(await texts()).not.toContain('    a')
+  await click(first, 'fold:e1')
+  const rows = (await texts()).filter((t: string) => t.startsWith('    '))
+  expect(rows.filter((t: string) => t.trim())).toEqual(['    a', '    b', '    … +2 lines'])
+  expect(rows.indexOf('    b') - rows.indexOf('    a')).toBeGreaterThan(2)
+  expect(rows).not.toContain('    c')
+})
+
+test('a long command in the open tree is cut with an ellipsis and keeps its failed tail', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Bash', { stdout: '' }, { input: { command: 'ls' } }, '', 'e1')
+  await mountRow($, 'Bash', { stderr: 'x' }, { input: { command: 'x'.repeat(300) }, isErrored: true, }, '', 'e2', { columns: 60, rows: 20, isFullscreen: true })
+  await click(first, 'fold:e1')
+  const row = (await first.findAll({ type: 'Text' })).map((x: any) => x.text).find((t: string) => t.startsWith('  └ x'))
+  expect(row).toMatch(/….*failed$/)
+})
+
+test('an agent row forks off the rail: ╰ while last, ├ once another folio row joins', async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  await said($, 'a1')
+  const agent = await mountRow($, 'Agent', agentDone, { input: { description: 'Slow task' } }, '/p/a.txt', 'g1')
+  expect(await rail(agent, /^╰─$/)).toBe(1)
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  expect(await rail(agent, /^├─$/)).toBe(1)
+})
+
+test('a background launch forks with ┄, and its finish row takes the corner from it', async ($, on) => {
+  finished(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  await said($, 'm1')
+  const launch = await mountRow($, 'Agent', launched, { input: { description: 'Slow task', prompt: 'p' } }, '/p/a.txt', 'a1')
+  expect(await rail(launch, /^╰┄$/)).toBe(1)
+  expect((await launch.findAll({ type: 'Text', text: /^◇ working  agent \(Slow task\)$/ })).length).toBe(1)
+  const fin = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
+    props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 'a1', status: 'completed', durationMs: 12_000 } }, viewport: VIEW })
+  expect(await rail(fin, /^╰┄$/)).toBe(1)
+  expect(await rail(launch, /^├┄$/)).toBe(1)
+})
+
+test('a group the engine re-keys keeps its rail', async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['you'] }))
+  await head($, 'h1')
+  const live = await mountGroup($, 'collapsed-toolu_x000', reads('r1', 'r2'))
+  await live.unmount()
+  const final = await mountGroup($, 'collapsed-uuid', reads('r1', 'r2'))
+  expect(await rail(final, OWN)).toBe(1)
+})
+
+test('an agent launch row stays the section corner when a later section holds its finish row', async ($, on) => {
+  finished(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  await said($, 'm1')
+  const launch = await mountRow($, 'Agent', launched, { input: { description: 'Slow task', prompt: 'p' } }, '/p/a.txt', 'a1')
+  await said($, 'm2', 'launched')
+  await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
+    props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 'a1', status: 'completed', durationMs: 12_000 } }, viewport: VIEW })
+  await launch.unmount()
+  const again = await mountRow($, 'Agent', launched, { input: { description: 'Slow task', prompt: 'p' } }, '/p/a.txt', 'a1')
+  expect(await rail(again, /^╰┄$/)).toBe(1)
+  expect(await rail(again, GAP)).toBe(1)
+})
+
+const nativeText = async (ui: any) => (await ui.find({ type: 'Text', text: 'native' }))?.text
+const saidFirst = async ($: any, on: any) => {
+  native(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  await said($, 'a1')
+}
+
+test('a lone Bash command sits inside the rail with its native row', async ($, on) => {
+  await saidFirst($, on)
+  const ui = await mountRow($, 'Bash', { stdout: '' }, { input: { command: 'ls' } }, '', 'b1')
+  expect(await nativeText(ui)).toBe('native')
+  expect(await rail(ui, OWN)).toBe(1)
+})
+
+test('a lone errored Read sits inside the rail with its native row', async ($, on) => {
+  await saidFirst($, on)
+  const ui = await mountRow($, 'Read', 'Error: nope', { isErrored: true }, '/p/a.txt', 'r1')
+  expect(await nativeText(ui)).toBe('native')
+  expect(await rail(ui, OWN)).toBe(1)
+})
+
+test('a lone MCP call keeps its native row, inside the rail', async ($, on) => {
+  await saidFirst($, on)
+  const ui = await mountRow($, 'mcp__srv__lookup', 'x', { input: { query: 'q' } }, '', 'm1')
+  expect(await nativeText(ui)).toBe('native')
+  expect(await rail(ui, OWN)).toBe(1)
+})
+
+test('off the fullscreen layout a lone Read keeps the native row', async ($, on) => {
+  native(on)
+  const ui = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1', { columns: 80, rows: 20, isFullscreen: false })
+  expect(await nativeText(ui)).toBe('native')
+})
+
+test('an open fold shows a failed WebFetch error text', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  await mountRow($, 'WebFetch', 'Error: refused', { input: { url: 'https://x.y' }, isErrored: true }, '', 'w1')
+  await click(first, 'fold:r1')
+  const texts = (await first.findAll({ type: 'Text' })).map((x: any) => x.text)
+  expect(texts).toContain('    Error: refused')
+})
+
+test('a session end closes the open section', async ($, on) => {
+  native(on)
+  on('session.end', () => ({ sessionId: 's1' }))
+  on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['you'] }))
+  await head($, 'h1')
+  await $.session.end({ reason: 'clear' } as any)
+  const fold = await twoReads($)
+  expect(await rail(fold, /│/)).toBe(0)
+})
+
+test('hideEditDiff false keeps agent rows native', async ($, on) => {
+  native(on)
+  configured(on, { '/cfg/claudzilla.json': off })
+  await $.session.start(start)
+  expect(await drawn($, 'Agent', agentDone, { input: { description: 'Say hi' } })).toBe('native')
+})
+
+test('a notification the engine draws leaves the last agent row its corner', async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['note'] }))
+  await said($, 'm1')
+  const agent = await mountRow($, 'Agent', agentDone, { input: { description: 'Slow task' } }, '/p/a.txt', 'g1')
+  await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1', viewport: VIEW,
+    props: { text: 'done', origin: { kind: 'task-notification' }, task: { toolUseId: 'none', status: 'completed' } } })
+  await agent.unmount()
+  const again = await mountRow($, 'Agent', agentDone, { input: { description: 'Slow task' } }, '/p/a.txt', 'g1')
+  expect(await rail(again, /^╰─$/)).toBe(1)
 })
