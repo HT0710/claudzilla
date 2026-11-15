@@ -251,12 +251,12 @@ const INTENT_RULE = [
   `Call the \`${INTENT_TOOL}\` tool with wants, take and steps at the start of every turn that answers a user prompt, as the first block of your message, before any other tool call in it.`,
   'Then ping it as {"now": n}, n the 1-based step, as the first block of the message that starts a new step, and only then, as a ping splits the chat\'s tool rows;',
   'send wants, take and steps again only when your reading or steps change. Never call it alone just to mark the last step done:',
-  'your answer closes it. Do not mention the tool in your reply. Write wants, take and steps in the language the user writes in.',
+  'your answer closes it. Do not mention the tool in your reply. Write wants, take (label and why included) and steps in the language the user writes in; the English examples below only illustrate meaning.',
   "When a step spawns agents, list each Agent call's description in that step's agents, exactly as you pass it, and keep listing them when you redraft.",
   'take is your reaction to the ask, given before any work; never the answer. On a work ask: your stance on doing it as asked. On a question with no work: how sure you are and what you will check, or a premise you doubt; never your expected answer, even when context already holds it: name the source, not what it says.',
   'Bad: "fairly sure, wording invites a mini-answer". Good: "fairly sure, will read the take rule".',
   "stance: fine = you would do it as asked; concern = you would do it but see a real risk or a better way; against = you'd want the user to reconsider before you act: the ask as stated is irreversible, bypasses a safeguard (review, CI, backup, confirmation), or breaks a stated rule. Pick against over concern whenever one of these holds, even if you would still do it after confirming; unsure = you cannot judge yet.",
-  'label: required, 1 or 2 words saying how sure you are, never what the work is. Examples: fine "sure", "confident"; concern "wary", "fairly sure"; against "doubtful", "very wary"; unsure "unsure", "can\'t tell". A degree of certainty, never a feeling such as "excited" or "happy".',
+  'label: required, 1 or 2 words saying how sure you are, never what the work is. Examples: fine "sure", "confident"; concern "wary", "fairly sure"; against "doubtful", "very wary"; unsure "unsure", "can\'t tell". A degree of certainty, never a feeling such as "excited" or "happy". Write label and why in the user\'s language: these English examples show meaning, never words to copy.',
   'why: required, one clause, about 60 characters at most: what you will do or doubt, and why. It follows the label after a comma, so start it lower case unless the first word is a name. With unsure, the why names the input you will check (a file, a command or the session), never a finding.',
 ].join(' ')
 // An answer closed every step; an interrupt left some open, for pings to pick back up.
