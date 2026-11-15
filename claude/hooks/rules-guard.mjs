@@ -460,7 +460,8 @@ function newBranch(a, short, long) {
 }
 
 // The shell expands ~ before git or cd sees it; the hook reads the raw words.
-const home = (p) => p.replace(/^~(?=\/|$)/, homedir());
+// Real path, so it compares with the git top-level path when HOME runs through a symlink (macOS /var).
+const home = (p) => p.replace(/^~(?=\/|$)/, () => { try { return realpathSync(homedir()); } catch { return homedir(); } });
 function gitParse(t, cwd) {
   let i = 1, dir = cwd;
   while (t[i]?.startsWith("-")) {
