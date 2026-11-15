@@ -33,6 +33,13 @@ const engine = (on: any) => {
 }
 const labels = async (ui: any) => (await ui.findAll({ type: 'Button' })).map((b: any) => b.props.label)
 
+test('parse: a transposed table, options as columns, yields no rows', () => {
+  const wide = '### Decision — wording\n\n| **row** | **A: now** | **B: playful** |\n|---|---|---|\n| SESSION | reading… | skimming… |\n| ASK | reading your prompt… | parsing the ask… |\n\n**Recommend: B**\n\n**Next:** say "B" and I\'ll swap the wording in.'
+  const offer = parse(wide)
+  expect(offer?.rows).toEqual([])
+  expect(offer?.go).toBe('B: swap the wording in')
+})
+
 test('parse: the lone decision heading is the title, as a question', () => {
   expect(parse(LONE)?.title).toBe('How to finish the branch?')
   expect(parse(LETTERS)?.title).toBe('Retry?')
