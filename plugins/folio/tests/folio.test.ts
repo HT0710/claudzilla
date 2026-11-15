@@ -2924,6 +2924,25 @@ test('an agent launch row stays the section corner when a later section holds it
   expect(await rail(again, GAP)).toBe(1)
 })
 
+test('an early finish row keeps its rail after 500 later rows', async ($, on) => {
+  finished(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  await said($, 'm1')
+  await mountRow($, 'Agent', launched, { input: { description: 'Slow task', prompt: 'p' } }, '/p/a.txt', 'a1')
+  const fin = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
+    props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 'a1', status: 'completed', durationMs: 12_000 } }, viewport: VIEW })
+  expect(await rail(fin, /^╰┄$/)).toBe(1)
+  for (let i = 0; i < 501; i++) {
+    await said($, `s${i}`)
+    await mountRow($, 'Read', 'x', {}, '/p/a.txt', `r${i}`)
+  }
+  // Scrolled back to: the chat mounts the row again.
+  await fin.unmount()
+  const again = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
+    props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 'a1', status: 'completed', durationMs: 12_000 } }, viewport: VIEW })
+  expect(await rail(again, /^[├╰]┄$/)).toBe(1)
+})
+
 const nativeText = async (ui: any) => (await ui.find({ type: 'Text', text: 'native' }))?.text
 const saidFirst = async ($: any, on: any) => {
   native(on)
