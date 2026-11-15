@@ -1055,7 +1055,7 @@ export const register: Register = on => {
     const worst = calls.some(going) ? 'running' : failed ? 'failed' : interrupted ? 'interrupted' : 'done'
     const tail: Piece[] = legacy ? [] : failed ? [{ text: ' · ' }, { text: `${failed} failed`, color: 'error' }] : interrupted ? [{ text: ' · ' }, { text: 'interrupted', color: 'inactive' }] : []
     const [mark, color] = legacy ? isLive ? [isLit ? '●' : ' ', 'inactive'] : [isOpen ? '○' : '●', 'success']
-      : [isLive && !isLit ? ' ' : isOpen ? '▼' : '▶︎', stateColour(worst)]
+      : [isLive && !isLit ? ' ' : isOpen ? '◻' : '◼', stateColour(worst)]
     const header: Piece[] = [{ text: mark, color }, { text: ' ' }, ...(lone ? [{ text: lone.isNew ? 'Created' : EDIT.Edit!, bold: true },
       { text: ' (', color: 'promptBorder' }, ...namePieces(name(lone.file)), { text: ')', color: 'promptBorder' }, ...countPieces(lone.add, lone.del, lone.isNew)]
       : [...(title ?? [...parts, ...tail]), ...(add + del ? countPieces(add, del) : [])])]
@@ -1442,7 +1442,7 @@ export const register: Register = on => {
     const { Text } = elements
     if (agent) return agentRow(elements, e.requestId, ended, agent, arg, true, task.durationMs)
     const color = stateColour(ended)
-    return textRow(elements, e.requestId, <Text color={color}>▶︎</Text>, ['Bash', arg, <Text color={color}>{task.durationMs === undefined ? ended : `${ended} · ${durationText(task.durationMs)}`}</Text>])
+    return textRow(elements, e.requestId, <Text color={color}>◼</Text>, ['Bash', arg, <Text color={color}>{task.durationMs === undefined ? ended : `${ended} · ${durationText(task.durationMs)}`}</Text>])
   })
 
   // A reply still streaming skips the hook below, so md-display.pl draws its lines from this width.
