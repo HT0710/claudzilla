@@ -257,7 +257,7 @@ export function handoffNote(input: HandoffInput): string {
   const call = d && blocks(d.row).find(b => b.type === 'tool_use' && b.name === 'mcp__primer__compact_draft')
   if (d && call?.input && d.n > since) add('Compact draft', `At line ${d.n}${d.row.timestamp ? `, ${d.row.timestamp}` : ''}.\nKeep: ${cut(String(call.input.keep ?? ''), 500)}\nDrop: ${cut(String(call.input.drop ?? ''), 500)}`)
   add('How to dig', [
-    'If this note is your whole prompt, say in one line what you loaded, then wait for the user\'s ask.',
+    'If this note is your whole prompt: when the old session stopped mid-step, continue that step. When its last reply ended on an offer, end yours with that offer as your `Next:` line, unchanged, and wait. Otherwise say in one line what you loaded, then wait for the user\'s ask.',
     'Check git before saying what is pending. Don\'t restate the last reply.',
     'The Git block was checked when this note was written. Everything else is the old session\'s claim: re-check it before acting on it.',
     'Use this note as is when your ask needs nothing more.',
