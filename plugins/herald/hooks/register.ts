@@ -284,6 +284,9 @@ export const register: Register = on => {
     t.event('update.start', { interactive: !!e.isInteractive })
     interactive = !!e.isInteractive
     if (!e.isInteractive) return started
+    // A hot reload starts a fresh module that never pinned the old instance's reminder, so it would stay up.
+    $.ui.status(undefined)
+    live.pinned = live.coldLine = false
     cfg = config($, e.cwd)
     const startedS = Math.floor((await $.clock.now()) / 1000)
     // session.start is awaited before the first prompt: the watch runs on detached, for the module's life.
