@@ -345,7 +345,7 @@ push @out, rule(3, sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]])) 
 # activity: model, skill, thinking; uptime flush right
 {   # same treatment as the identity row, measured on the rendered strings
     my $mo = $model;
-    $mo .= fg('hud_model') . "\e[2m  $EFFORT\e[0m" if defined $mo && $EFFORT;
+    $mo .= "\e[0m\e[2m  $EFFORT\e[0m" if defined $mo && $EFFORT;   # reset drops hud_model, which wraps $mo below
     my @L = ( [$mo,       sub { fg('hud_model') . "$_[0]\e[0m" }],
               [$skill,    sub { fg('hud_skill') . "$G_SKILL $_[0]\e[0m" }],
               [$thinking, sub { fg('hud_thinking') . "\x{25C7} thinking\e[0m" }] );
