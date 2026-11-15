@@ -149,17 +149,17 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
         ? ['planning', 'claude']
         : ['working', 'claude']
     : done === shown.steps.length
-      ? ['done', HUD.action]
-      : ['stopped', HUD.dirty]
+      ? ['done', 'success']
+      : ['stopped', 'inactive']
   const MARK = { completed: '✓', in_progress: '●', pending: '○' }
   // The marks scan as progress on their own; done text stays readable, a step back; the current step is lit.
   // Last turn's report, waiting on background agents, is dimmed whole.
-  const MARK_SHADE = { completed: HUD.action, in_progress: 'claude', pending: HUD.faint }
+  const MARK_SHADE = { completed: 'success', in_progress: 'claude', pending: HUD.faint }
   const TEXT_SHADE = { completed: SCOPE, in_progress: 'claude', pending: undefined }
   // An agent marks as its step would: working lit, not started faint, ended its outcome; ended text a step back.
   const AGENT_MARK: Record<AgentRow['status'], [string, string]> = {
     planned: ['○', HUD.faint], pending: ['◌', HUD.faint], running: ['◌', 'claude'], waiting: ['◌', 'claude'], idle: ['◌', 'claude'],
-    completed: ['✓', HUD.action], failed: ['✗', TYPES.fix], killed: ['■', HUD.dirty],
+    completed: ['✓', 'success'], failed: ['✗', TYPES.fix], killed: ['■', 'inactive'],
   }
   // fine is done's green, concern the warning amber, against failed's red, unsure the faint of pending.
   const TAKE_MARK: Record<Take['stance'], [string, string]> = {

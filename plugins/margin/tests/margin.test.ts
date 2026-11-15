@@ -3551,18 +3551,18 @@ test('the status row is colored by state: working, done, stopped', async ($, on)
   expect(await stateColor(ui)).toBe('claude')
   await turnEnd($, undefined, 'aborted')
   await ui.drawn()
-  expect(await stateColor(ui)).toBe('#8c7850')
+  expect(await stateColor(ui)).toBe('inactive')
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await turnEnd($)
   await ui.drawn()
-  expect(await stateColor(ui)).toBe('#5d9678')
+  expect(await stateColor(ui)).toBe('success')
 })
 
 test("a step's mark is colored apart from its text", async ($, on) => {
   const ui = await intentPane($, on)
   await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'completed' }, { text: 'plan', status: 'in_progress' }, { text: 'ship', status: 'pending' }] } as any)
   await ui.drawn()
-  expect(await colorOf(ui, /^✓ $/, 'o:step:0')).toBe('#5d9678')
+  expect(await colorOf(ui, /^✓ $/, 'o:step:0')).toBe('success')
   expect(await colorOf(ui, /^spec$/, 'o:step:0')).toBe('#808286')
   expect(await colorOf(ui, /^● $/, 'o:step:1')).toBe('claude')
   expect(await colorOf(ui, /^plan$/, 'o:step:1')).toBe('claude')
@@ -4159,7 +4159,7 @@ test('a step card names its status in its mark color', async ($, on) => {
   const ui = await intentPane($, on)
   await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'completed' }, { text: 'plan', status: 'in_progress' }, { text: 'ship', status: 'pending' }] } as any)
   await ui.drawn()
-  for (const [i, word, color] of [[0, 'done', '#5d9678'], [1, 'working', 'claude'], [2, 'not started', '#4f5c68']] as const) {
+  for (const [i, word, color] of [[0, 'done', 'success'], [1, 'working', 'claude'], [2, 'not started', '#4f5c68']] as const) {
     await hoverRow(ui, `o:step:${i}`)
     expect(await cardTexts(ui, `o:step:${i}`)).toEqual([['status  ', '#4f5c68'], [word, color]])
   }
@@ -4171,7 +4171,7 @@ test('an agent card names its status in its mark color', async ($, on) => {
   for (const one of ['c', 'p', 'k', 'f', 'r']) await spawn($, one)
   await ui.press({ key: 'more:0' })
   await ui.drawn()
-  const words = [['done', '#5d9678'], ['not started', '#4f5c68'], ['stopped', '#8c7850'], ['failed', '#e06c75'], ['running', 'claude'], ['not started', '#4f5c68']]
+  const words = [['done', 'success'], ['not started', '#4f5c68'], ['stopped', 'inactive'], ['failed', '#e06c75'], ['running', 'claude'], ['not started', '#4f5c68']]
   for (const [n, [word, color]] of words.entries()) expect((await cardTexts(ui, `o:agent:0:${n}`))[1]).toEqual([word, color])
 })
 
@@ -4378,9 +4378,9 @@ test('each agent status draws its glyph and color, in the order Claude listed th
   await ui.drawn()
   const rows = await Promise.all([0, 1, 2, 3, 4].map(n => agentRow(ui, 0, n)))
   expect(rows).toEqual([
-    { text: '├ ✓ c', glyph: '#5d9678', color: AGENT_TONE },
+    { text: '├ ✓ c', glyph: 'success', color: AGENT_TONE },
     { text: '├ ◌ p', glyph: '#4f5c68', color: AGENT_TONE },
-    { text: '├ ■ k', glyph: '#8c7850', color: AGENT_TONE },
+    { text: '├ ■ k', glyph: 'inactive', color: AGENT_TONE },
     { text: '├ ✗ f', glyph: '#e06c75', color: AGENT_TONE },
     { text: '├ ◌ r', glyph: 'claude', color: AGENT_TONE },
   ])
@@ -4434,7 +4434,7 @@ test('an answer closes the steps but agent rows keep their own marks', async ($,
   await turnEnd($)
   await ui.drawn()
   expect(await countText(ui)).toBe('2/2 steps')
-  expect(await agentRow(ui, 0, 0)).toEqual({ text: '└ ■ Read code', glyph: '#8c7850', color: AGENT_TONE })
+  expect(await agentRow(ui, 0, 0)).toEqual({ text: '└ ■ Read code', glyph: 'inactive', color: AGENT_TONE })
 })
 
 test('a long agent description is fitted to the pane', async ($, on) => {

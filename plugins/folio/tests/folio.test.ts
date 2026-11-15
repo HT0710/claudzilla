@@ -1658,12 +1658,12 @@ const notice = async ($: any, task: object, extra: object = {}) => {
 }
 
 for (const [status, durationMs, want, dot] of [
-  ['completed', 12_000, '◆ done     agent (Slow task)  in 12s', '#5d9678'],
+  ['completed', 12_000, '◆ done     agent (Slow task)  in 12s', 'success'],
   ['failed', 122_000, '◆ failed   agent (Slow task)  in 2m 2s', 'error'],
-  ['killed', 12_000, '◆ stopped  agent (Slow task)  in 12s', '#8c7850'],
-  ['completed', 3_723_000, '◆ done     agent (Slow task)  in 1h 2m 3s', '#5d9678'],
-  ['completed', undefined, '◆ done     agent (Slow task)', '#5d9678'],
-  ['completed', 0, '◆ done     agent (Slow task)  in 0s', '#5d9678'],
+  ['killed', 12_000, '◆ stopped  agent (Slow task)  in 12s', 'inactive'],
+  ['completed', 3_723_000, '◆ done     agent (Slow task)  in 1h 2m 3s', 'success'],
+  ['completed', undefined, '◆ done     agent (Slow task)', 'success'],
+  ['completed', 0, '◆ done     agent (Slow task)  in 0s', 'success'],
 ] as const) {
   test(`a ${status} background agent's notification reads ${want}`, async ($, on) => {
     const seen = finished(on)
@@ -1717,7 +1717,7 @@ test('a background shell keeps its line through many later calls', async ($, on)
   expect(await textOf(ui)).toBe('◼ Bash (npm run dev)  done')
 })
 
-for (const [word, status, command, ms, time, colour] of [['done', 'completed', 'npm test', 12_000, '12s', '#5d9678'], ['failed', 'failed', 'bun run lint', 6000, '6s', 'error'], ['stopped', 'killed', 'tail -f trace.log', 182_000, '3m 2s', '#8c7850']] as const) {
+for (const [word, status, command, ms, time, colour] of [['done', 'completed', 'npm test', 12_000, '12s', 'success'], ['failed', 'failed', 'bun run lint', 6000, '6s', 'error'], ['stopped', 'killed', 'tail -f trace.log', 182_000, '3m 2s', 'inactive']] as const) {
   test(`a ${word} shell finish row sits on the rail with its state and time in the state colour`, async ($, on) => {
     finished(on)
     on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
@@ -2153,7 +2153,7 @@ test('a live group reads Running with a blinking dot, then Ran once done', async
   expect(await treeOf(ui)).toEqual(['  ├ Updated (a.txt)  +1 −1', '  └ sleep 9'])
   await ui.redraw({ calls: [edit, { ...sleep, isRunning: false, output: { stdout: '' } }], isActive: false, isExpanded: false })
   expect(await textOf(ui, at)).toBe('◻ Ran (2 commands)  +1 −1')
-  expect((await ui.find({ type: 'Text', text: /^◻$/, in: at }))?.props.color).toBe('#5d9678')
+  expect((await ui.find({ type: 'Text', text: /^◻$/, in: at }))?.props.color).toBe('success')
 })
 
 test('a group with no Bash write folds too, one part per tool kind in first-call order', async ($, on) => {
@@ -2180,10 +2180,10 @@ test('a group with a failed call counts it after the kinds and colours the mark 
   expect((await ui.find({ type: 'Text', text: /^◼$/, in: at }))?.props.color).toBe('error')
 })
 
-test('a done group mark is the action colour', async ($, on) => {
+test('a done group mark is the success colour', async ($, on) => {
   native(on)
   const ui = await group($, [call('c2', 'Read', { file_path: '/p/a.txt' }), call('c3', 'Read', { file_path: '/p/b.txt' })])
-  expect((await ui.find({ type: 'Text', text: /^◼$/, in: `fold:g${groups}` }))?.props.color).toBe('#5d9678')
+  expect((await ui.find({ type: 'Text', text: /^◼$/, in: `fold:g${groups}` }))?.props.color).toBe('success')
 })
 
 test('two web fetches read Fetched (2 pages)', async ($, on) => {
