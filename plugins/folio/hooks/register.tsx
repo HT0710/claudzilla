@@ -6,12 +6,9 @@ import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
 let LIT = DEFAULTS.shared.lit
-let ACTION = DEFAULTS.shared.action
-let DIRTY = DEFAULTS.shared.dirty
 
 type State = 'running' | 'working' | 'remote' | 'done' | 'failed' | 'stopped' | 'interrupted'
-// Read at render, so a palette change at session start applies.
-const stateColour = (state: State) => ({ running: 'claude', working: 'claude', remote: 'claude', done: ACTION, failed: 'error', stopped: DIRTY, interrupted: 'inactive' })[state]
+const stateColour = (state: State) => ({ running: 'claude', working: 'claude', remote: 'claude', done: 'success', failed: 'error', stopped: 'inactive', interrupted: 'inactive' })[state]
 
 // margin's noun, mirrored: listing margin as a dependency would stop this plugin loading without it.
 declare module 'claude-code' {
@@ -665,8 +662,6 @@ export const register: Register = on => {
     await t.start(traceIo($))
     const { shared } = (await readPalette($)).palette
     LIT = shared.lit
-    ACTION = shared.action
-    DIRTY = shared.dirty
     hideEditDiff = await readHideEditDiff($, e.cwd)
     return next(e)
   })

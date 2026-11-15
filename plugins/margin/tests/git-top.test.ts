@@ -1460,7 +1460,7 @@ test('rebase modal: title, meta, COMMITS from one before the stop with marks, CO
   const ui = await mount($)
   await tap(ui, 'rebase')
   expect((await ui.find({ type: 'Text', text: /^step 2 of 3$/ }))?.props.color).toBe('#4f5c68')
-  expect((await ui.findAll({ type: 'Text', text: '✓' })).at(-1)?.props.color).toBe('#5d9678')
+  expect((await ui.findAll({ type: 'Text', text: '✓' })).at(-1)?.props.color).toBe('success')
   expect(await ui.find({ type: 'Text', text: 'CONFLICTS' })).toBeDefined()
   expect(((await ui.find({ key: `row:mf:${fileKey('f.txt')}` }))?.props.props as { left: { text: string; color?: string }[] }).left[0]).toEqual({ text: ' U', color: '#e06c75' })
 })
