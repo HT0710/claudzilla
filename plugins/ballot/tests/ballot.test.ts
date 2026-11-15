@@ -40,6 +40,11 @@ test('parse: a transposed table, options as columns, yields no rows', () => {
   expect(offer?.go).toBe('B: swap the wording in')
 })
 
+test('parse: an escaped pipe stays inside its cell', () => {
+  const rows = parse(LETTERS.replace('| no retry |', '| match `a\\|b` |'))?.rows
+  expect(rows?.[0]?.text).toBe('match `a|b`')
+})
+
 test('parse: the lone decision heading is the title, as a question', () => {
   expect(parse(LONE)?.title).toBe('How to finish the branch?')
   expect(parse(LETTERS)?.title).toBe('Retry?')

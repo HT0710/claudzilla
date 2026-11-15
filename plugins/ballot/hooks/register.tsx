@@ -118,8 +118,8 @@ export function parse(answer: string): Offer | null {
       inTable = false
       continue
     }
-    // The table rule bolds the `#` column (`| **A** |`); the id is the bare letter.
-    const cells = line.match(/^\|(.*)\|\s*$/)?.[1]?.split('|').map((c, i) => (i ? c.trim() : c.trim().replace(/^\*\*(.*)\*\*$/, '$1')))
+    // The table rule bolds the `#` column (`| **A** |`); the id is the bare letter. `\|` is a pipe inside a cell.
+    const cells = line.match(/^\|(.*)\|\s*$/)?.[1]?.split(/(?<!\\)\|/).map(c => c.replace(/\\\|/g, '|')).map((c, i) => (i ? c.trim() : c.trim().replace(/^\*\*(.*)\*\*$/, '$1')))
     if (current && cells) {
       // Only the decision's first table; its first line is the header; an option row's first cell is a capital letter or a number.
       if (!current.rows) {
