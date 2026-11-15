@@ -3,7 +3,8 @@
 #   bash tests/hooks.test.sh
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# Repos sit outside TMPDIR: the hook does not hold discards in scratch repos under it.
+TMP="$(mktemp -d)"; REPOS="$(mktemp -d)"; trap 'rm -rf "$TMP" "$REPOS"' EXIT
 export TMPDIR="$TMP" SID= CLAUDE_CONFIG_DIR="$TMP/cfg"
 unset COLUMNS   # width tests set it per call
 mkdir -p "$CLAUDE_CONFIG_DIR"
@@ -124,9 +125,12 @@ open_state() { local d="$TMP/g$((++n))/claudzilla-rules-$(id -u)"; mkdir -p "$d"
 check "state: reminder still shows with an open state dir" has "$(open_state)" "systematic-debugging"
 
 # --- PreToolUse: git / gh ---
-repo() { local r; r=$(mktemp -d "$TMP/repo.XXXX"); git -C "$r" init -q -b main; git -C "$r" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init; echo "$r"; }
+repo() { local r; r=$(mktemp -d "$REPOS/repo.XXXX"); git -C "$r" init -q -b main; git -C "$r" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init; echo "$r"; }
 sh_() { hook PreToolUse tool_name=Bash "tool_input.command=$1"; }
 R=$(repo); cd "$R"
+# Something to lose, so discards are held: a stash entry, a changed tracked file, an untracked file.
+printf 1 > a.txt; git add a.txt; git -c user.name=t -c user.email=t@t commit -qm a; printf 2 > a.txt
+git -c user.name=t -c user.email=t@t stash -q; printf 3 > a.txt; printf u > u.txt
 new_session; hook UserPromptSubmit prompt=ship >/dev/null
 check "push: no verification -> deny" denied "$(sh_ 'git push')"
 check "gh pr create: no verification -> deny" denied "$(sh_ 'gh pr create --fill')"
@@ -215,21 +219,51 @@ check "hold: restore of a missing path lists only it" not has "$(sh_ 'git restor
 check "hold: deny wins over ask" denied "$(sh_ 'git commit -m "update stuff"; git reset --hard')"
 check "hold: reset to a ref counts commits" has "$(sh_ 'git reset --hard HEAD~1')" '1 commit leaves the branch'
 $BG stash -q
-check "hold: nothing to lose says so" has "$(sh_ 'git reset --hard')" 'no uncommitted changes'
+check "quiet: nothing to lose -> no ask" [ -z "$(sh_ 'git reset --hard')" ]
+check "quiet: reset to a ref still counts commits" has "$(sh_ 'git reset --hard HEAD~1')" '1 commit leaves the branch'
+check "quiet: clean with nothing to remove -> no ask" [ -z "$(sh_ 'git clean -fd -e u.txt')" ]
+check "quiet: drop of a missing stash entry -> no ask" [ -z "$(sh_ 'git stash drop stash@{5}')" ]
+S=$(mktemp -d "$TMP/scratch.XXXX"); git -C "$S" init -q; printf 1 > "$S/a.txt"; git -C "$S" add .; $BG -C "$S" commit -qm a; printf 2 > "$S/a.txt"
+check "quiet: scratch repo under TMPDIR -> no ask" [ -z "$(cd "$S" && sh_ 'git checkout -- a.txt')" ]
+# Lossy forms the tracked-change list cannot see still ask.
+back=$PWD; Q=$(repo); cd "$Q"
+mkdir docs; printf 1 > a.txt; printf d > docs/x.txt; git add .; $BG commit -qm base; git branch docs
+git switch -q -c other; printf t > n.txt; git add n.txt; $BG commit -qm n; git switch -q main
+printf mine > n.txt
+for c in 'git checkout other n.txt' 'git checkout other -- n.txt' 'git restore --source other n.txt' 'git restore --source=other n.txt' \
+  'git restore -sother n.txt' 'git restore -Ws other n.txt' 'git restore --sou other n.txt' 'git restore --sourc=other n.txt' \
+  'git switch -f other' 'git checkout -f other' 'git reset --hard other'; do
+  check "lossy: $c over untracked -> ask" asked "$(sh_ "$c")"
+done
+check "lossy: ask says untracked files may be overwritten" has "$(sh_ 'git checkout other n.txt')" 'may overwrite untracked files'
+rm n.txt; printf 2 > a.txt
+check "lossy: switch -f to a branch named like a folder -> ask" asked "$(sh_ 'git switch -f docs')"
+git checkout -q -- a.txt; mkdir sub; git -C sub init -q
+check "lossy: clean -ffd over a nested repo -> ask" asked "$(sh_ 'git clean -ffd')"
+check "lossy: clean -f -f -d over a nested repo -> ask" asked "$(sh_ 'git clean -f -f -d')"
+rm -rf sub; printf 3 > a.txt; $BG stash -q
+check "lossy: stash drop refs/stash@{0} -> ask" asked "$(sh_ "git stash drop 'refs/stash@{0}'")"
+check "lossy: stash drop 00 -> ask" asked "$(sh_ 'git stash drop 00')"
+W="$TMP/wt.$$"; git worktree add -q "$W" -b feat/wt
+check "lossy: stash clear in a worktree under TMPDIR -> ask" asked "$(cd "$W" && sh_ 'git stash clear')"
+printf 4 > a.txt
+check "lossy: TMPDIR above HOME is no scratch dir" asked "$(HOME="$Q" TMPDIR="${Q%/*}" sh_ 'git checkout -- a.txt')"
+check "quiet: checkout -- path still quiet when clean" [ -z "$(git checkout -q -- a.txt; sh_ 'git checkout -- a.txt')" ]
+cd "$back"
 check "hold: stash drop names the entry" has "$(sh_ 'git stash drop')" 'stash@{0}: WIP on main'
 check "hold: cd ~/ resolves to home" has "$(cd "$TMP" && HOME="${B%/*}" sh_ "cd ~/${B##*/} && git stash drop")" 'stash@{0}: WIP on main'
 check "hold: git -C ~/ resolves to home" has "$(cd "$TMP" && HOME="${B%/*}" sh_ "git -C ~/${B##*/} stash drop")" 'stash@{0}: WIP on main'
 out=$(sh_ 'git stash && git stash drop')
 check "hold: an earlier command in the line makes the list unknown" has "$out" 'could not check: an earlier command in this line changes it'
 check "hold: an earlier command in the line lists no stale entry" not has "$out" 'stash@{0}'
-check "hold: an earlier read-only git command keeps the list" has "$(sh_ 'git status && git reset --hard')" 'no uncommitted changes'
+check "hold: an earlier read-only git command keeps the list" has "$(sh_ 'git status && git stash drop')" 'stash@{0}: WIP on main'
 check "hold: an earlier echo into a file makes the list unknown" has "$(sh_ 'echo b > a.txt && git checkout -- a.txt')" 'could not check: an earlier command'
 check "hold: an earlier heredoc into a file makes the list unknown" has "$(sh_ "cat >> a.txt <<'EOF'
 x
 EOF
 git checkout -- a.txt")" 'could not check: an earlier command'
 check "hold: an earlier stash list keeps the list" has "$(sh_ 'git stash list && git stash drop')" 'stash@{0}: WIP on main'
-check "hold: an earlier 2>&1 keeps the list" has "$(sh_ 'git status 2>&1 && git reset --hard')" 'no uncommitted changes'
+check "hold: an earlier 2>&1 keeps the list" has "$(sh_ 'git status 2>&1 && git stash drop')" 'stash@{0}: WIP on main'
 for i in 1 2 3 4 5 6 7; do printf 1 > "c$i"; done; git add c*; $BG commit -qm many; for i in 1 2 3 4 5 6 7; do printf 2 > "c$i"; done
 check "hold: long list capped" has "$(sh_ 'git reset --hard')" '… 2 more'
 git remote add origin "$TMP/nowhere"; side=$($BG commit-tree -p HEAD -m remote-only 'HEAD^{tree}')
@@ -627,6 +661,7 @@ check "branch: switch main then commit denied" denied "$(sh_ 'git switch main &&
 git switch -q main
 check "branch: switch -c then commit allowed" [ -z "$(sh_ 'git switch -c feat/z && git commit -m "fix: x"')" ]
 echo a > a.txt; git add a.txt; git -c user.name=t -c user.email=t@t commit -qm "chore: a"
+echo b > a.txt  # a change to lose, so the discards below are held
 check "checkout: file path held" asked "$(sh_ 'git checkout a.txt')"
 check "checkout: branch name allowed" [ -z "$(sh_ 'git checkout feat/m')" ]
 SP="$TMP/sp ace"; mkdir -p "$SP"; git -C "$SP" init -q -b main
@@ -665,7 +700,7 @@ check "shell -c: inner reset --hard held" asked "$(sh_ 'bash -c "git status; git
 check "shell -c: inner force push denied" denied "$(sh_ "sh -c 'cd /tmp && git push --force'")"
 check "eval: inner reset held" asked "$(sh_ 'eval "git reset --hard"')"
 check "branch: switch to missing branch keeps main" denied "$(sh_ 'git switch nope; git commit -m "fix: x"')"
-git switch -q feat/m
+git checkout -q -- a.txt; git switch -q feat/m; echo c > a.txt; git add a.txt
 check "checkout: ref + path is a discard" asked "$(sh_ 'git checkout HEAD a.txt')"
 check "checkout: branch + path is a discard, not a switch" has "$(sh_ 'git checkout main a.txt && git commit -m "fix: x"')" "Discards work"
 check "split: line continuation joins words" denied "$(sh_ $'git switch \\\n  main && git commit -m "fix: x"')"
@@ -788,6 +823,7 @@ new_session; hook UserPromptSubmit prompt="login is broken" >/dev/null
 check "trace: prompt with bug word logs guard.prompt with rule systematic-debugging" bash -c "grep '\"event\":\"guard.prompt\"' '$TD/$SID.rules-guard.jsonl' | grep -q 'debugTrigger'"
 new_session; rp=$(repo); out=$(cd "$rp" && hook PreToolUse tool_name=Bash 'tool_input.command=git commit -m "update stuff"')
 check "trace: denied commit logs guard.pretool deny" bash -c "grep '\"event\":\"guard.pretool\"' '$TD/$SID.rules-guard.jsonl' | grep -q '\"decision\":\"deny\"'"
+printf x > "$rp/f"; git -C "$rp" add f
 new_session; out=$(cd "$rp" && hook PreToolUse tool_name=Bash 'tool_input.command=git reset --hard')
 check "trace: held reset logs guard.pretool ask" bash -c "grep '\"event\":\"guard.pretool\"' '$TD/$SID.rules-guard.jsonl' | grep '\"decision\":\"ask\"' | grep -q '\"discard\"'"
 rm -rf "$TD"; out=$(echo nope | node "$RG"); code=$?
