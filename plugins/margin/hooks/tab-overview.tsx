@@ -223,7 +223,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   )
   const wrapRows = (text: string, w: number) => wrapLines(text, w).length
   // A first prompt with no report yet: ASK, TAKE and PLAN hold their rows with faint words until it lands.
-  const pending = !!shown.waiting && !shown.wants
+  const pending = !!shown.waiting && !shown.wants && !shown.agents
   const ask = shown.wants || (pending ? 'parsing the ask…' : '')
   const take = shown.take
   const takeText = take ? `${TAKE_MARK[take.stance][0]} ${take.label}${take.why ? `, ${take.why}` : ''}` : pending ? 'forming an opinion…' : ''
@@ -492,7 +492,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
         </Box>,
       ]
     : loading
-      ? [<Box key="topic" paddingLeft={2} flexShrink={0}><Text color={HUD.faint}>naming the thread…</Text></Box>]
+      ? [<Box key="topic" paddingLeft={2} flexShrink={0} height={1} overflow="hidden">{dimText(dimFor(sessionRows + 1), HUD.faint, 'naming the thread…')}</Box>]
       : []
   // The footer, pinned at the pane bottom: one place whether a report, TOPIC or both show.
   const statusRow = (
@@ -539,7 +539,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                       {!loading && <Text color={HUD.faint}>{readSlot}</Text>}
                     </Box>,
                     <Box key="summary" paddingLeft={2} height={summaryRows} overflow="hidden" flexShrink={0}>
-                      {loading ? <Text color={HUD.faint}>skimming the story so far…</Text> : dimText(dimFor(1), about.running ? HUD.faint : undefined, about.summary, 'wrap')}
+                      {dimText(dimFor(1), about.running ? HUD.faint : undefined, loading ? 'skimming the story so far…' : about.summary, 'wrap')}
                     </Box>,
                     <Box key="sessionRule" marginX={-PAD}>{dimText(dimFor(1 + summaryRows), 'promptBorder', '─'.repeat(width + 2 * PAD))}</Box>,
                   ]
