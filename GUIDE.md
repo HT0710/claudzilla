@@ -272,7 +272,7 @@ The *guard* is a hook: it checks each git and GitHub command Claude runs, before
 
 > **A guardrail, not security:** if the guard itself fails, the command goes through.
 
-A force-push, or a command that discards work such as `git reset --hard`, waits for you: the permission prompt lists what it would lose, and you pick Yes to run it or No to stop Claude. See *Stop and undo* (`/claudzilla undo`).
+A force-push, or a command that discards work such as `git reset --hard`, waits for you: the permission prompt lists what it would lose, and you pick Yes to run it or No to stop Claude. A simple discard, such as `git checkout -- <file>` or `git reset --hard` with no ref, runs without asking when it would lose nothing or when the repo sits in the temp folder, such as a test repo. See *Stop and undo* (`/claudzilla undo`).
 
 By default, the guard blocks these and tells Claude what to do instead:
 
