@@ -314,6 +314,8 @@ check "worktree: inside repo -> deny" denied "$(sh_ 'git worktree add .worktrees
 check "worktree: sibling allowed" [ -z "$(sh_ "git worktree add ../$(basename "$R")-y -b feat/y")" ]
 check "worktree: ~/ sibling allowed" [ -z "$(HOME="${R%/*}" sh_ "git worktree add ~/$(basename "$R")-y -b feat/y")" ]
 check "worktree: ~/ inside repo -> deny" denied "$(HOME="$R" sh_ 'git worktree add ~/x -b feat/y')"
+ln -s "$R" "$TMP/rlink"
+check "worktree: ~/ via a symlinked HOME inside repo -> deny" denied "$(HOME="$TMP/rlink" sh_ 'git worktree add ~/x -b feat/y')"
 U=$(mktemp -d "$TMP/unborn.XXXX"); git -C "$U" init -q -b main
 check "commit: unborn main -> deny" denied "$(cd "$U" && sh_ 'git commit -m "fix: x"')"
 cd "$REPO"
