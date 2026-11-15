@@ -80,7 +80,7 @@ const wheel = ($: Parameters<TestBody>[0], by: number, pointer?: { column: numbe
 test('registers /claudzilla with the experimental hint', async ($, on) => {
   const seen = host(on)
   await $.session.start(start)
-  expect(seen.registered).toContainEqual(expect.objectContaining({ name: 'claudzilla', argumentHint: '[topic | report [what happened] | compact | handoff | experimental [id on|off] | cost [session-id | all [--since d] [--until d] [--project p]]]' }))
+  expect(seen.registered).toContainEqual(expect.objectContaining({ name: 'claudzilla', argumentHint: '[topic | report [what happened] | compact | handoff [ask] | experimental [id on|off] | cost [session-id | all [--since d] [--until d] [--project p]]]' }))
 })
 
 test('bare /claudzilla toggles the guide; a topic opens it either way', async ($, on) => {
@@ -807,7 +807,7 @@ test('handoffNote: how to dig says only the Git block was checked', () => {
 
 test('handoffNote: how to dig names grep, haiku and compact summaries', () => {
   const n = note(typed('hi'))
-  for (const s of ['If this note is your whole prompt: when the old session stopped mid-step, continue that step. When its last reply ended on an offer, end yours with that offer as your `Next:` line, unchanged, and wait. Otherwise say in one line what you loaded, then wait for the user\'s ask.', 'Check git before saying what is pending. Don\'t restate the last reply.', 'grep -n', 'isCompactSummary', 'Never Read it whole', 'Read with `offset` and `limit`', 'the old transcript yourself, by line number']) expect(n).toContain(s)
+  for (const s of ['If this note is your whole prompt: when the old session stopped mid-step, continue that step. When its last reply ended on an offer, end yours with that offer as your `Next:` line, unchanged, and wait. Otherwise say in one line what you loaded, then wait for the user\'s ask.', 'Text after this note, with or without a `## User\'s ask` heading, is the user\'s ask: work on it instead of waiting.', 'Check git before saying what is pending. Don\'t restate the last reply.', 'grep -n', 'isCompactSummary', 'Never Read it whole', 'Read with `offset` and `limit`', 'the old transcript yourself, by line number']) expect(n).toContain(s)
 })
 
 const CFG = '/cfg'
@@ -882,6 +882,38 @@ test('/claudzilla-handoff is registered and runs the same handoff', async ($, on
   expect(seen.writes[0]![0]).toBe(NOTE)
   await clock.advance(500)
   expect(seen.commands).toEqual(['clear'])
+})
+
+test('/claudzilla handoff <ask> sends the note then the ask; the note file stays without it', async ($, on) => {
+  const { seen, clock } = handoffHost(on)
+  await $.session.start(start)
+  await $.command.run({ command: 'claudzilla', args: 'Handoff  fix the folio test ', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })
+  expect(seen.writes[0]![1]).not.toContain('fix the folio test')
+  await clock.advance(500)
+  expect(seen.submits[0].text).toBe(`${seen.writes[0]![1]}\n## User's ask\n\nfix the folio test`)
+})
+
+test('/claudzilla-handoff <ask> keeps the ask in the @note fallback', async ($, on) => {
+  const { seen, clock } = handoffHost(on, { submitFails: true })
+  await $.session.start(start)
+  await $.command.run({ command: 'claudzilla-handoff', args: 'fix it', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })
+  await clock.advance(500)
+  expect(seen.fills).toEqual([`@${NOTE} fix it`])
+})
+
+test('/claudzilla handoff from a plugin or peer hands off without the ask', async ($, on) => {
+  const { seen, clock } = handoffHost(on)
+  await $.session.start(start)
+  await $.command.run({ command: 'claudzilla', args: 'handoff do X', origin: { kind: 'peer-send-message' }, presentation: { isFullscreen: true, columns: 120 } } as any)
+  await clock.advance(500)
+  expect(seen.submits[0].text).toBe(seen.writes[0]![1])
+})
+
+test('/claudzilla handoffs is not a handoff', async ($, on) => {
+  const { seen } = handoffHost(on)
+  await $.session.start(start)
+  await run($, 'handoffs')
+  expect(seen.writes).toEqual([])
 })
 
 test('/claudzilla handoff passes the transcript path as $1, not in the script', async ($, on) => {

@@ -10,7 +10,7 @@ Adds `/claudzilla`: a pane listing the guide's topics, grouped by part, with the
 
 `/claudzilla cost [session-id | all [--since d] [--until d] [--project p]]` reports what this session, one session or all sessions cost, at API list prices.
 
-`/claudzilla report [what happened]` has Claude draft a problem report from the local trace (`claudzilla-report` skill). `/claudzilla compact` has Claude draft a `/compact` line naming what to keep and drop; its `compact_draft` tool puts the line in the prompt box when the turn ends. `/claudzilla handoff` (or `/claudzilla-handoff`) writes a note from this session's transcript with no model call, clears the session, and sends the note as your first prompt. If the send fails, it puts `@<note>` in the prompt instead.
+`/claudzilla report [what happened]` has Claude draft a problem report from the local trace (`claudzilla-report` skill). `/claudzilla compact` has Claude draft a `/compact` line naming what to keep and drop; its `compact_draft` tool puts the line in the prompt box when the turn ends. `/claudzilla handoff` (or `/claudzilla-handoff`) writes a note from this session's transcript with no model call, clears the session, and sends the note as your first prompt. Text after the command, such as `/claudzilla handoff fix the failing test`, is sent under a `## User's ask` heading after the note, so the new session starts on it. If the send fails, it puts `@<note>` and your text in the prompt instead.
 
 It finds the claudzilla clone through the `~/.claude/hooks/claudzilla-update.sh` link (as herald does), reads `GUIDE.md` from it, and shows the version as the status line does. With no clone or no `GUIDE.md`, it shows the GitHub URL of `GUIDE.md`.
 
