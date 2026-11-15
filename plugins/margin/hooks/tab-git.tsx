@@ -475,7 +475,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   // Against the upstream: ✓ in sync, ↑ unpushed, ↓ unpulled, both when diverged; local never pushed, gone deleted.
   const syncOf = (b: { upstream: string; ahead: number; behind: number }) =>
     b.upstream !== 'ok' ? <Text color={HUD.faint}>{b.upstream}</Text>
-    : !b.ahead && !b.behind ? <Text color={HUD.action}>✓</Text>
+    : !b.ahead && !b.behind ? <Text color="success">✓</Text>
     : (
       <Text>
         {b.ahead ? <Text color={AHEAD}>{`↑${b.ahead}`}</Text> : ''}
@@ -485,7 +485,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
     )
   const sync = syncOf(hd)
   // Overview's marks: done, failed, running; skipped faint.
-  const GLYPHS: Record<CheckState, [string, string]> = { ok: ['✓', HUD.action], bad: ['✗', TYPES.fix!], run: ['◌', 'claude'], skip: ['–', HUD.faint] }
+  const GLYPHS: Record<CheckState, [string, string]> = { ok: ['✓', 'success'], bad: ['✗', TYPES.fix!], run: ['◌', 'claude'], skip: ['–', HUD.faint] }
   const glyph = (state: CheckState) => <Text color={GLYPHS[state][1]}>{GLYPHS[state][0]}</Text>
   // A branch prefix in its commit type's colour (feat/ green, fix/ red); any other prefix faint.
   const prefixColor = (prefix: string) => (type => (Object.hasOwn(TYPES, type) ? TYPES[type] : HUD.faint))(prefix.replace(/\/$/, ''))
@@ -537,7 +537,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
     <Text backgroundColor={PILL[state][0]} color={PILL[state][1]}>{state}</Text>,
     <Text color={PILL[state][0]}>{''}</Text>,
   ]
-  const CI: Record<CheckState, [string, string]> = { bad: ['✗ CI failed', TYPES.fix!], run: ['◌ CI running', 'claude'], ok: ['✓ CI passed', HUD.action], skip: ['✓ CI passed', HUD.action] }
+  const CI: Record<CheckState, [string, string]> = { bad: ['✗ CI failed', TYPES.fix!], run: ['◌ CI running', 'claude'], ok: ['✓ CI passed', 'success'], skip: ['✓ CI passed', 'success'] }
   // Lines added and removed; a side that is 0 is left out, as the mockup draws it: "+8", "−9".
   const churnText = (add: number, del: number) => [add || !del ? `+${add}` : '', del ? `−${del}` : ''].filter(Boolean).join(' ')
   // A file list's count columns: the widest "+n" and "−n", so each side lines up right-aligned; `bin` fits too.
@@ -636,7 +636,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
             pr.conflicting ? <Text><Text color={TYPES.fix}>✗</Text> conflicts</Text>
             : behind === undefined ? <Text color={HUD.faint}>unknown</Text>
             : behind ? <Text><Text color="warning">↓</Text>{counted(` ${behind} behind`)}</Text>
-            : <Text><Text color={HUD.action}>✓</Text> up to date</Text>,
+            : <Text><Text color="success">✓</Text> up to date</Text>,
             pr.conflicting && conflictFiles.length ? <Text color={HUD.faint}>{plural(conflictFiles.length, 'file')}</Text> : undefined,
           ),
           kv('checks', <Text>{glyph(w)}{counted(` ${passed} of ${pr.checks.length} passed`)}</Text>, current && <Text color={GLYPHS[current.state][1]}>{current.name}</Text>),
@@ -663,7 +663,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
     const right =
       rebase && op.edit ? [<Text color="warning">edit</Text>, <Text color={HUD.faint}>{` ${stop?.sha ?? ''}`}</Text>]
       : blocked ? [<Text color={TYPES.fix}>{`✗ ${plural(op.conflicts.length, 'conflict')}`}</Text>]
-      : [<Text color={HUD.action}>✓ ready</Text>]
+      : [<Text color="success">✓ ready</Text>]
     const names = op.conflicts.map(c => printable(c.path.slice(c.path.lastIndexOf('/') + 1))).join(', ')
     // The card adds where it stopped and the files to fix; the modal's actions say what to do.
     const rows = [
@@ -701,7 +701,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
     const run = summary.list.filter(p => worst(p.checks) === 'run').length
     const right = bad ? <Text color={TYPES.fix}>{`✗ ${bad} failing`}</Text>
       : run ? <Text color="claude">{`◌ ${run} running`}</Text>
-      : <Text color={HUD.action}>✓ all passed</Text>
+      : <Text color="success">✓ all passed</Text>
     const item = (p: Pr) => (
       <Box justifyContent="space-between">
         <Box>
@@ -1133,10 +1133,10 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
       ? [act('continue', '', ['rebase', '--continue']), act('skip', '', ['rebase', '--skip']), act('abort', '', ['rebase', '--abort'])]
       : [act('commit', '', ['commit', '--no-edit']), act('abort', '', [op.verb ?? 'merge', '--abort'])]
     const mark = (m: 'done' | 'stop' | 'todo') =>
-      m === 'done' ? <Text color={HUD.action}>✓</Text>
+      m === 'done' ? <Text color="success">✓</Text>
       : m === 'todo' ? <Text color={HUD.faint}>○</Text>
       : blocked ? <Text color={TYPES.fix}>✗</Text>
-      : <Text color={HUD.dirty}>■</Text>
+      : <Text color="inactive">■</Text>
     const cols = churnCols(op.conflicts.map(c => ({ add: c.additions, del: c.deletions })))
     const conflicts = (width: number, layer: 'm' | 's' = 's') =>
       op.conflicts.map(c => fileRow(<Text color={op.resolved ? HUD.action : TYPES.fix}>{` ${op.resolved ? 'M' : 'U'}`}</Text>, c.path, c.additions, c.deletions, width, layer, false, cols))
