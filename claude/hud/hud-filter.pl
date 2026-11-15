@@ -155,17 +155,27 @@ my $row = 0;
 my @out;
 
 # identity: path + branch + session id, profile flush right
-# cwd: per-character blue ramp, drifting one character every $DRIFT seconds
-my $DRIFT = 4; my $PERIOD = 24;
+# bar sweep timing, here because the cwd pulse plays inside the sweep's rest
+my $SWEEP = 30; my $REST = 60; my $LAG = 2;
+my $CYC   = $SWEEP + $REST;
+# cwd: one pulse crosses the path $GAP seconds after each bar sweep, 1 char/s or faster to last at most $DUR seconds
+my $GAP = 5; my $DUR = 20; my $BASE = 0.5; my $PEAK = 1.25;   # $DUR must stay under $REST - $GAP; PEAK > 1 lifts the tip past hud_cwdHigh
 sub cwd_str {
     my $text = shift;
+    # by default hud_cwdLow equals the theme's promptBorder, so ~/ and / take the border colour
+    my $sep = fg('hud_cwdLow');
+    my $s = $text =~ s{^(~(?:/|\z))}{} ? "$sep$1" : "";
     my @ch = split //, $text;
-    my $ph = (time() + $OFF) / $DRIFT;
+    my $wid = @ch * 0.3 < 6 ? 6 : @ch * 0.3;
+    my $dist = @ch + $wid;                                  # head enters and leaves fully off-screen
+    my $speed = $dist > $DUR ? $dist / $DUR : 1;
+    my $head = ((time() + $OFF) % $CYC - $SWEEP - $GAP) * $speed - $wid / 2;
     my ($lo, $hi) = (pal('hud_cwdLow'), pal('hud_cwdHigh'));
-    my $s = "";
     for my $i (0 .. $#ch) {
-        my $t = (1 - cos(6.283185307 * (($i + $ph) / $PERIOD)) ) / 2;
-        my @c = map { int($lo->[$_] + ($hi->[$_]-$lo->[$_])*$t + 0.5) } 0..2;
+        if ($ch[$i] eq '/') { $s .= "$sep/"; next }
+        my $d = abs($i - $head);
+        my $t = $BASE + ($PEAK - $BASE) * ($d < $wid / 2 ? (1 + cos(6.283185307 * $d / $wid)) / 2 : 0);
+        my @c = map { my $v = int($lo->[$_] + ($hi->[$_]-$lo->[$_])*$t + 0.5); $v < 0 ? 0 : $v > 255 ? 255 : $v } 0..2;   # PEAK overshoots below 0 when cwdHigh is darker
         $s .= "\e[38;2;$c[0];$c[1];$c[2]m$ch[$i]";
     }
     return $s . "\e[0m";
@@ -219,8 +229,6 @@ my $n  = ($TWO ? $CL : $W) - 4 - 5 - 2 - $twl;
 # holds however often the HUD renders. Each pass picks one of ten motions at
 # random - the pick is a hash of the cycle number, so every render inside a
 # given pass agrees on it without any stored state.
-my $SWEEP = 30; my $REST = 60; my $LAG = 2;
-my $CYC   = $SWEEP + $REST;
 my $NOW   = time() + $OFF;
 my $VAR   = ((int($NOW / $CYC) * 1103515245 + 12345) >> 7) % 10;
 my $TAIL  = ($VAR == 6);        # trailing comet: asymmetric, needs a different shape
