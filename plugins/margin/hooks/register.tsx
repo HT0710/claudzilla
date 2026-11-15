@@ -1217,12 +1217,6 @@ export const register: Register = (on, options) => {
       await setModal($, m => (m?.sub && !isTab ? { ...m, sub: undefined } : null))
       if (!isTab) return { element: e.element }
     }
-    // Agent rows redraw mid-turn too: their fold takes the tabs' route.
-    if (e.element === 'less' || e.element?.startsWith('more:')) {
-      await update($, expanded, () => (e.element === 'less' ? -1 : Number(e.element!.slice(5))))
-
-      return { element: e.element }
-    }
     if (e.element === 'o:topics:all') {
       await setModal($, () => ({ key: 'topics', top: 0 }))
 
