@@ -2680,6 +2680,7 @@ test("waiting after an answered report shows none of that report's steps", async
   expect(await ui.find({ type: 'Text', text: '◌ waiting on 1 agent' })).toBeDefined()
   expect(await textOf(ui, 'count')).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: 'planning…' })).toBeUndefined()
+  expect(await colorOf(ui, 'a third tab')).toBe('#4f5c68')
 })
 
 test('a now ping while waiting on agents is work again', async ($, on) => {
@@ -2719,7 +2720,7 @@ test('/clear empties the report', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'Nothing here yet' })).toBeDefined()
 })
 
-test("the next prompt dims an answered report, not a stopped one", async ($, on) => {
+test("the next prompt swaps an answered report for placeholders, not a stopped one", async ($, on) => {
   mock.clock(on)
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
@@ -2737,11 +2738,12 @@ test("the next prompt dims an answered report, not a stopped one", async ($, on)
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: '◐ planning…' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '… steps' })).toBeDefined()
-  for (const text of ['a third tab', /^clear$/, /^! $/]) expect(await colorOf(ui, text)).toBe('#4f5c68')
-  expect(await colorOf(ui, /^spec$/, 'o:step:0')).toBe('#4f5c68')
+  for (const text of ['parsing the ask…', 'forming an opinion…', 'sketching a route…']) expect(await ui.find({ type: 'Text', text })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeUndefined()
+  expect(await ui.find({ key: 'o:step:0' })).toBeUndefined()
 })
 
-test("a dimmed report waits for Claude's next one: a ping leaves it, a turn without a report drops it", async ($, on) => {
+test("placeholders wait for Claude's next report: a ping leaves them, an answer without a report drops them", async ($, on) => {
   on('prompt.submit', (_, e) => ({ text: e.text }) as any)
   const ui = await intentPane($, on)
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
@@ -2750,7 +2752,7 @@ test("a dimmed report waits for Claude's next one: a ping leaves it, a turn with
   await $.tool.call({ tool: INTENT, now: 2 } as any)
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: '… steps' })).toBeDefined()
-  expect(await colorOf(ui, /^✓ $/, 'o:step:0')).toBe('#4f5c68')
+  expect(await ui.find({ type: 'Text', text: 'sketching a route…' })).toBeDefined()
   await turnEnd($)
   await ui.drawn()
   expect(await ui.find({ type: 'Text', text: /^✓ done / })).toBeDefined()
@@ -2776,7 +2778,7 @@ test('a prompt shows planning… until Claude reports', async ($, on) => {
   expect(await textOf(ui, 'count')).toBe('0/2 steps')
 })
 
-test("waiting keeps last turn's USED faint, shows ◐ planning… and … steps, and swaps when the report lands", async ($, on) => {
+test("waiting holds USED with taking stock…, shows ◐ planning… and … steps, and swaps when the report lands", async ($, on) => {
   on('prompt.submit', (_, e) => ({ text: e.text }) as any)
   on('tool.call', () => ({ result: {} }) as any)
   const ui = await intentPane($, on)
@@ -2789,13 +2791,79 @@ test("waiting keeps last turn's USED faint, shows ◐ planning… and … steps,
   expect(await colorOf(ui, '◐ planning…')).toBe('claude')
   expect(await colorOf(ui, '… steps')).toBe('#4f5c68')
   expect(await ui.find({ type: 'Text', text: '● working' })).toBeUndefined()
-  expect((await usedPiece(ui, 'files', /^old\.ts$/))?.color).toBe('#4f5c68')
+  expect(await usedPiece(ui, 'files', /old\.ts/)).toBeUndefined()
   expect(await colorOf(ui, /^USED/)).toBe('#a396d2')
+  expect(await colorOf(ui, 'taking stock…')).toBe('#4f5c68')
   expect(await usedPiece(ui, 'files', /new\.ts/)).toBeUndefined()
   await $.tool.call({ tool: INTENT, ...REPORT, wants: 'a fourth tab' } as any)
   await ui.drawn()
   expect(await usedPiece(ui, 'files', /old\.ts/)).toBeUndefined()
   expect(await usedPiece(ui, 'files', /^new\.ts$/)).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'taking stock…' })).toBeUndefined()
+})
+
+test('USED holds no placeholder on a first prompt or after a turn that used nothing', async ($, on) => {
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  const ui = await intentPane($, on)
+  await $.prompt.submit({ text: 'hi', wait: false, origin: { kind: 'composer' } })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'sketching a route…' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'taking stock…' })).toBeUndefined()
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await turnEnd($)
+  await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'sketching a route…' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'taking stock…' })).toBeUndefined()
+})
+
+test('USED holds no placeholder in a pane too short for USED', async ($, on) => {
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  on('tool.call', () => ({ result: {} }) as any)
+  noHistory(on)
+  on('turn.complete', (_, e) => ({ text: e.answer }) as any)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll: { offset: 0, bodyRows: 9 - 1 } }, requestId: 'margin' })
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/old.ts' } as any)
+  await turnEnd($)
+  await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'sketching a route…' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'taking stock…' })).toBeUndefined()
+})
+
+test("a stopped turn that used something keeps its own USED, not last turn's", async ($, on) => {
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  on('tool.call', () => ({ result: {} }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/old.ts' } as any)
+  await turnEnd($)
+  await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } })
+  await $.tool.call({ tool: 'Read', file_path: '/proj/new.ts' } as any)
+  await turnEnd($, undefined, 'aborted')
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
+  expect(await usedPiece(ui, 'files', /^new\.ts$/)).toBeDefined()
+  expect(await usedPiece(ui, 'files', /old\.ts/)).toBeUndefined()
+})
+
+test("a turn stopped before its report brings last turn's report and USED back", async ($, on) => {
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  on('tool.call', () => ({ result: {} }) as any)
+  const ui = await intentPane($, on)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/proj/old.ts' } as any)
+  await turnEnd($)
+  await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeUndefined()
+  await turnEnd($, undefined, 'aborted')
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'a third tab' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^✓ done / })).toBeDefined()
+  expect(await usedPiece(ui, 'files', /^old\.ts$/)).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'parsing the ask…' })).toBeUndefined()
 })
 
 test('a turn that ends without a report shows done', async ($, on) => {
@@ -3019,7 +3087,7 @@ test('a long topic wraps in the modal, │ down its later lines', async ($, on) 
   expect((await textsUnder(ui, 'modal')).filter(t => /^wrapping/.test(t.text)).length).toBeGreaterThan(1)
 })
 
-test('a topics read shows on the SESSION header; SESSION and the topic dim until it lands', async ($, on) => {
+test('a topics read shows its words on the SESSION and TOPIC headers; SESSION and the topic stay lit', async ($, on) => {
   let answer: (value: unknown) => void = () => undefined
   const { ui, clock } = await overviewPane($, on, n => (n === 1 ? { isAnswered: true, text: SUMMED, usage: {} } : new Promise(resolve => (answer = resolve))))
   await ui.press({ key: 'Overview' })
@@ -3027,9 +3095,10 @@ test('a topics read shows on the SESSION header; SESSION and the topic dim until
   await send($, 'next thing')
   await clock.advance(0)
   await ui.drawn()
-  expect((await textsUnder(ui, 'sessionHead')).map(t => t.text)).toEqual(['SESSION', 'updating…'])
-  expect(await colorOf(ui, 'Built the intent tab, then shipped it.')).toBe('#4f5c68')
-  expect(await colorOf(ui, 'shipping the branch')).toBe('#4f5c68')
+  expect((await textsUnder(ui, 'sessionHead')).map(t => t.text)).toEqual(['SESSION', 'skimming the story so far…'])
+  expect((await textsUnder(ui, 'topicHead')).map(t => t.text)).toEqual(['TOPIC', 'naming the thread…'])
+  expect(await colorOf(ui, 'Built the intent tab, then shipped it.')).toBeUndefined()
+  expect(await colorOf(ui, 'shipping the branch')).toBeUndefined()
   answer({ isAnswered: false, reason: 'api-error', usage: {} })
   await clock.settle()
   await ui.drawn()
@@ -3791,8 +3860,8 @@ test('with a report, a topics read shows on the TOPIC header and the footer keep
   await send($, 'next thing')
   await clock.advance(0)
   await ui.drawn()
-  const right = async () => (await ui.findAll({ type: 'Text', text: /^(updating…|update failed|show all)$/ })).map(found => found.props.text ?? found.text)
-  expect(await right()).toEqual(['updating…', 'show all'])
+  const right = async () => (await ui.findAll({ type: 'Text', text: /^(naming the thread…|update failed|show all)$/ })).map(found => found.props.text ?? found.text)
+  expect(await right()).toEqual(['naming the thread…'])
   expect(await textOf(ui, 'count')).toBe('0/2 steps')
   answer({ isAnswered: false, reason: 'api-error', usage: {} })
   await clock.settle()
@@ -3801,7 +3870,7 @@ test('with a report, a topics read shows on the TOPIC header and the footer keep
   await send($, 'another thing')
   await clock.advance(0)
   await ui.drawn()
-  expect(await right()).toEqual(['updating…', 'show all'])
+  expect(await right()).toEqual(['naming the thread…'])
 })
 
 test('the first TOPICS read, with a report, holds TOPIC with faint words', async ($, on) => {
@@ -4245,7 +4314,7 @@ test('a long agent description is fitted to the pane', async ($, on) => {
   expect((await agentRow(ui, 0, 0))?.text).toBe(`└ ◌ ${'x'.repeat(26)}…`)
 })
 
-test("a dimmed report dims its agent rows", async ($, on) => {
+test("a new prompt hides last turn's agent rows", async ($, on) => {
   on('prompt.submit', (_, e) => ({ text: e.text }) as any)
   const ui = await agentsPane($, on, { a1: 'completed' })
   await $.tool.call({ tool: INTENT, ...AGENTS_REPORT } as any)
@@ -4253,7 +4322,7 @@ test("a dimmed report dims its agent rows", async ($, on) => {
   await turnEnd($)
   await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } })
   await ui.drawn()
-  expect(await agentRow(ui, 0, 0)).toEqual({ text: '└ ✓ Read code', glyph: '#4f5c68', color: '#4f5c68' })
+  expect(await agentRow(ui, 0, 0)).toBeUndefined()
 })
 
 // Step 'spec' lists 5 agents (b1–b4 spawned, b5 not); 'plan' lists 4 none spawned.
@@ -5231,16 +5300,16 @@ test('readersOf: a byReader stored as an object by an earlier build reads as mis
   expect(recordUse({ kinds: { files: old }, stale: [], seen: [] }, { tool: 'Read', file_path: '/r/b.ts' }).kinds.files!.byReader).toEqual([['main', [['/r/b.ts', 1], ['/r/a.ts', 1]]]])
 })
 
-test("a USED press while waiting opens last turn's list", async ($, on) => {
+test('while waiting, USED holds no row to press', async ($, on) => {
   on('prompt.submit', (_, e) => ({ text: e.text }) as any)
   const ui = await usedPane($, on)
   await $.tool.call({ tool: 'Read', file_path: '/proj/old.ts' } as any)
   await turnEnd($)
   await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } })
   await $.tool.call({ tool: 'Read', file_path: '/proj/new.ts' } as any)
-  await tapRow(ui, 'o:used:files')
-  expect((await usedRow(ui, 0)).text).toContain('old.ts')
-  expect((await usedRow(ui, 1)).text).toBe('')
+  await ui.drawn()
+  expect(await ui.find({ key: 'o:used:files' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'taking stock…' })).toBeDefined()
 })
 
 test('a long path is cut from the left, the file name whole; a name with control characters draws as spaces', async ($, on) => {

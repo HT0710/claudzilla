@@ -121,16 +121,20 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const { Box, Button, Link, Text } = ctx.el
   const { props } = ctx
   const drawn: Zone[] = []
-  const shown = await read($, intent)
+  const stored = await read($, intent)
+  // Last turn's report is not this turn's: until Claude reports, ASK, TAKE, PLAN and USED hold placeholders.
+  const shown = stored.waiting && !stored.agents ? { ...stored, wants: '', take: undefined, steps: [] } : stored
   const about = await read($, overview)
   const sparks = await read($, spawns)
   const agentRows = hang(shown.steps, sparks, shown.turn ?? -1)
   const open = await read($, expanded)
   const modalNow = await read($, modal)
   const usedNow = await read($, used)
-  const usedShown = shown.waiting ? (usedNow.last ?? {}) : usedNow.kinds
+  const usedShown = shown.waiting ? (shown.agents ? (usedNow.last ?? {}) : {}) : usedNow.kinds
   const width = props.bodyColumns - 2 * PAD
-  const readSlot = about.running ? 'updating…' : about.failed ? 'update failed' : ''
+  // A later read keeps SESSION and TOPIC as they were, its words on their headers; TOPIC's replaces show all.
+  const readSlot = about.running ? 'skimming the story so far…' : about.failed ? 'update failed' : ''
+  const topicSlot = about.running ? 'naming the thread…' : readSlot
   const done = shown.steps.filter(step => step.status === 'completed').length
   // Ended with every step closed: an answer; else interrupted or failed, as Claude left it.
   // Working is lit as History lights the prompt in view; done is the branch row's green; stopped Git's dirty amber.
@@ -146,7 +150,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
       : [`■ stopped ${clock(shown.at)}`, HUD.dirty]
   const MARK = { completed: '✓', in_progress: '●', pending: '○' }
   // The marks scan as progress on their own; done text stays readable, a step back; the current step is lit.
-  // Last turn's report, waiting on this turn's, is dimmed whole.
+  // Last turn's report, waiting on background agents, is dimmed whole.
   const MARK_SHADE = { completed: HUD.action, in_progress: 'claude', pending: HUD.faint }
   const TEXT_SHADE = { completed: SCOPE, in_progress: 'claude', pending: undefined }
   // An agent marks as its step would: working lit, not started faint, ended its outcome; ended text a step back.
@@ -222,7 +226,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     </Box>
   )
   const wrapRows = (text: string, w: number) => wrapLines(text, w).length
-  // A first prompt with no report yet: ASK, TAKE and PLAN hold their rows with faint words until it lands.
+  // No report yet this turn: ASK, TAKE, PLAN and USED hold their rows with faint words until it lands.
   const pending = !!shown.waiting && !shown.wants && !shown.agents
   const ask = shown.wants || (pending ? 'parsing the ask…' : '')
   const take = shown.take
@@ -444,6 +448,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   // USED under STEPS: its rule and a row per kind, only while STEPS keep 3 rows.
   const usedKinds = USE_KINDS.filter(kind => usedShown[kind])
   const usedRows = shown.wants && usedKinds.length && roomLeft - (1 + usedKinds.length) >= 3 ? 1 + usedKinds.length : 0
+  // Its placeholder only where last turn had a USED, and where the real one would fit.
+  const usedPending = pending && Object.keys(usedNow.last ?? {}).length > 0 && roomLeft - 2 >= 3
   const stepRoom = roomLeft - usedRows
   // Over USED and the footer's 2 rows.
   const from = props.scroll.bodyRows - 2 - usedRows - stepRoom
@@ -461,6 +467,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     ...(ask && takeText && { TAKE: takeAt }),
     ...(shown.wants && shown.steps.length > 0 && { PLAN: from }),
     ...(pending && { PLAN: ruleAt + 1 }),
+    ...(usedPending && { USED: ruleAt + 3 }),
     ...(usedRows > 0 && { USED: ruleAt + 1 }),
   }
   const cardOf = (label: Label) => wrapLines(LABEL_CARD[label], rc.cardWidth - 4)
@@ -488,7 +495,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const topicRows = latest
     ? [
         <Box key="topic" paddingLeft={2} flexShrink={0}>
-          {dimText(dimFor(sessionRows + 1), about.running ? HUD.faint : undefined, latest, 'wrap')}
+          {dimText(dimFor(sessionRows + 1), undefined, latest, 'wrap')}
         </Box>,
       ]
     : loading
@@ -536,10 +543,10 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                 ? [
                     <Box key="sessionHead" justifyContent="space-between">
                       {labelWord('SESSION')}
-                      {!loading && <Text color={HUD.faint}>{readSlot}</Text>}
+                      {!loading && <Text color={HUD.faint}>{fit(readSlot, Math.max(1, width - 'SESSION'.length - 1))}</Text>}
                     </Box>,
                     <Box key="summary" paddingLeft={2} height={summaryRows} overflow="hidden" flexShrink={0}>
-                      {dimText(dimFor(1), about.running ? HUD.faint : undefined, loading ? 'skimming the story so far…' : about.summary, 'wrap')}
+                      {dimText(dimFor(1), loading ? HUD.faint : undefined, loading ? 'skimming the story so far…' : about.summary, 'wrap')}
                     </Box>,
                     <Box key="sessionRule" marginX={-PAD}>{dimText(dimFor(1 + summaryRows), 'promptBorder', '─'.repeat(width + 2 * PAD))}</Box>,
                   ]
@@ -547,8 +554,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
               <Box key="topicHead" justifyContent="space-between">
                 {labelWord('TOPIC')}
                 <Box gap={2}>
-                  {!summaryRows && <Text color={HUD.faint}>{readSlot}</Text>}
-                  {about.topics.length > 1 && (
+                  {!loading && (!summaryRows || about.running) && <Text color={HUD.faint}>{fit(topicSlot, Math.max(1, width - 'TOPIC'.length - 1))}</Text>}
+                  {about.topics.length > 1 && !about.running && (
                     <Button key="o:topics:all" plain onPress={() => ctx.setModal(() => ({ key: 'topics', top: 0 }))}>
                       <Text color="claude" hover={{ scope: 'o:topics:all', inverse: true }}>show all</Text>
                     </Button>
@@ -564,6 +571,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
               pending && labelled('TAKE', takeText, shade(), dimFor(takeAt, takeRows, 'TAKE')),
               pending && partRule('STEPS', ruleAt),
               pending && labelled('PLAN', 'sketching a route…', shade(), dimFor(ruleAt + 1, 1, 'PLAN')),
+              usedPending && partRule('USED', ruleAt + 2),
+              usedPending && labelled('USED', 'taking stock…', shade(), dimFor(ruleAt + 3, 1, 'USED')),
               take && (
                 <Box key="TAKE">
                   <Box width={LABEL} flexShrink={0}>
@@ -750,6 +759,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     ...(hasAbout && ask ? [askAt - 1] : []),
     ...(ask && takeText ? [askAt + askRows] : []),
     ...((shown.wants && shown.steps.length) || pending ? [ruleAt] : []),
+    ...(usedPending ? [ruleAt + 2] : []),
     ...(shown.wants && usedRows > 0 ? [labelAt.USED! - 1] : []),
     ...(hasReport ? [props.scroll.bodyRows - 2] : []),
   ]
