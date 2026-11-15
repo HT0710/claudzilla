@@ -52,7 +52,7 @@ export const modalOpen = () => zones.some(z => z.kind === 'modal')
 export const PAD = 1
 // HUD colors (claudzilla/claude/hud/hud-filter.pl) the theme has no key for; latest, a lighter
 // dirty yellow, is the panel's own.
-export const HUD = {} as Record<'label' | 'faint' | 'idle' | 'action' | 'compacted' | 'dirty' | 'churn' | 'latest', string>
+export const HUD = {} as Record<'label' | 'faint' | 'idle' | 'action' | 'compacted' | 'dirty' | 'churn' | 'latest' | 'clock', string>
 // Divider lines: their word's HUD color at 60%.
 export const DIM = {} as Record<'label' | 'action' | 'compacted', string>
 // A commit type (claude/rules/git.md's, plus perf) by what it does, one color each: feat adds (green),
@@ -80,7 +80,7 @@ export const PILL_BG = {} as Palette['margin']['pill']
 // Fills the holders above from a palette; DIM and chore follow its final colours.
 export function applyPalette(p: Palette): void {
   const { label, faint, idle, action, dirty, churn } = p.shared
-  Object.assign(HUD, { label, faint, idle, action, dirty, churn, compacted: p.margin.compacted, latest: p.margin.latest })
+  Object.assign(HUD, { label, faint, idle, action, dirty, churn, compacted: p.margin.compacted, latest: p.margin.latest, clock: p.hud.clock })
   Object.assign(DIM, { label: dim(HUD.label), action: dim(HUD.action), compacted: dim(HUD.compacted) })
   Object.assign(TYPES, p.margin.types, { chore: p.shared.label })
   Object.assign(STATUS, p.margin.status)

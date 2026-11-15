@@ -2,11 +2,14 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { AgentRow, Modal, Spawn, Step, Take } from '../types'
+import { footerRow } from './footer'
+import type { FooterProps, FooterState } from './footer'
 import { printable } from './git-data'
 import { DIMMED, EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, LIT, PAD, PILL_CAPS, SCOPE, TYPES, USE_KINDS, card as kitCard, clock, contentFrame, capped, counted, cues, drawLayer, emptyNote, fade, fadeBg, fit, heading, kv as kitKv, modalFrame, modalZone, readersOf, stackFrame, row as kitRow, rowHovers, toPieces, colWidth, zoneWindow } from './kit'
 import type { Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, UseKind, Zone } from './kit'
 
 const intent = atom({ plugin: 'margin', key: 'intent' } as const, EMPTY_INTENT)
+const turnStart = atom({ plugin: 'margin', key: 'turnStart' } as const, 0)
 const overview = atom({ plugin: 'margin', key: 'overview' } as const, EMPTY_OVERVIEW)
 const spawns = atom({ plugin: 'margin', key: 'spawns' } as const, [] as Spawn[])
 const expanded = atom({ plugin: 'margin', key: 'expanded' } as const, -1)
@@ -139,15 +142,15 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   // Ended with every step closed: an answer; else interrupted or failed, as Claude left it.
   // Working is lit as History lights the prompt in view; done is the branch row's green; stopped Git's dirty amber.
   // Waiting on agents takes plan mode's teal: the theme's other blues are working and the tabs.
-  const [state, stateColor] = !shown.ended
+  const [state, stateColor]: [FooterState, string] = !shown.ended
     ? shown.agents
-      ? [`◌ waiting on ${shown.agents} agent${shown.agents === 1 ? '' : 's'}`, 'planMode']
+      ? ['waiting', 'planMode']
       : shown.waiting
-        ? ['◐ planning…', 'claude']
-        : ['● working', 'claude']
+        ? ['planning', 'claude']
+        : ['working', 'claude']
     : done === shown.steps.length
-      ? [`✓ done ${clock(shown.at)}`, HUD.action]
-      : [`■ stopped ${clock(shown.at)}`, HUD.dirty]
+      ? ['done', HUD.action]
+      : ['stopped', HUD.dirty]
   const MARK = { completed: '✓', in_progress: '●', pending: '○' }
   // The marks scan as progress on their own; done text stays readable, a step back; the current step is lit.
   // Last turn's report, waiting on background agents, is dimmed whole.
@@ -501,25 +504,27 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     : loading
       ? [<Box key="topic" paddingLeft={2} flexShrink={0} height={1} overflow="hidden">{dimText(dimFor(sessionRows + 1), HUD.faint, 'naming the thread…')}</Box>]
       : []
+  const right = shown.waiting
+    ? shown.agents ? [] : [{ text: '… steps', color: HUD.faint }]
+    : shown.steps.length
+      ? [{ text: `${done}`, color: 'claude' }, { text: '/', color: HUD.faint }, { text: `${shown.steps.length}`, color: 'claude' }, { text: ' steps', color: HUD.faint }]
+      : []
+  const now = await $.clock.now()
+  const footerProps: FooterProps = { state, color: stateColor, since: await read($, turnStart), now, ...(shown.ended && { at: shown.at, end: clock(shown.at) }), right, faint: HUD.faint, clockColor: HUD.clock }
+  // Without a Client the row is drawn once, at the first frame.
+  const footer =
+    Client ? (
+      <Client key="footer-row" module="./footer.tsx" height={1} props={footerProps} />
+    ) : (
+      footerRow(ctx.el, footerProps, 0, now, width)
+    )
   // The footer, pinned at the pane bottom: one place whether a report, TOPIC or both show.
   const statusRow = (
     <Box key="footer" flexDirection="column" flexShrink={0}>
       <Box marginX={-PAD}>
         <Text color="promptBorder">{'─'.repeat(width + 2 * PAD)}</Text>
       </Box>
-      <Box justifyContent="space-between">
-        <Text color={stateColor}>{state}</Text>
-        {shown.waiting ? (
-          <Text color={HUD.faint}>{shown.agents ? '' : '… steps'}</Text>
-        ) : shown.steps.length ? (
-          <Box key="count">
-            <Text color="claude">{`${done}`}</Text>
-            <Text color={HUD.faint}>/</Text>
-            <Text color="claude">{`${shown.steps.length}`}</Text>
-            <Text color={HUD.faint}>{' steps'}</Text>
-          </Box>
-        ) : null}
-      </Box>
+      {footer}
     </Box>
   )
   const body =
