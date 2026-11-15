@@ -2976,7 +2976,8 @@ const TOPICS = '- Intent tab for the panel\n- shipping the branch'
 const overviewHosts = (on: Parameters<TestBody>[1], reply: (n: number) => unknown = () => ({ isAnswered: true, text: TOPICS, usage: {} }), typed = ['add an intent tab', 'ship it'], isPlaced = true) => {
   const clock = mock.clock(on)
   on('env.get', () => ({ value: '/home/me' }))
-  on('session.id', () => ({ value: 'chat-1' }))
+  const chat = { id: 'chat-1' }
+  on('session.id', () => ({ value: chat.id }))
   on('fs.read', () => ({ value: '' }))
   const lines = typed.map((display, i) => JSON.stringify({ display, timestamp: i + 1, sessionId: 'chat-1' }))
   on('process.run', (_, e) => ran(isHistoryGrep(e.argv) ? lines.join('\n') : ''))
@@ -2993,7 +2994,7 @@ const overviewHosts = (on: Parameters<TestBody>[1], reply: (n: number) => unknow
     const value = reply(asks.push(e as any))
     return (value instanceof Promise ? value.then(answer => ({ value: answer })) : { value }) as any
   })
-  return { clock, asks, pane }
+  return { clock, asks, pane, chat }
 }
 // Mounted on History, so a test picks Overview when its read should start.
 const overviewPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], reply?: (n: number) => unknown, typed?: string[]) => {
@@ -3012,6 +3013,20 @@ test('a session starting with the pane open reads TOPICS on the default tab', as
   await ui.drawn()
   expect(asks).toHaveLength(1)
   expect(await ui.find({ type: 'Text', text: 'shipping the branch' })).toBeDefined()
+})
+
+// An in-session /resume ends the old chat but starts no session: the resumed chat's TOPICS read once its id is in.
+test('a /resume in the session reads TOPICS once the resumed id is in', async ($, on) => {
+  const { clock, asks, chat } = overviewHosts(on)
+  chat.id = 'chat-0'
+  await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await $.session.end({ reason: 'resume', sessionId: 'chat-0' } as any)
+  await clock.advance(1000)
+  expect(asks).toHaveLength(0)
+  chat.id = 'chat-1'
+  await clock.advance(100)
+  await clock.settle()
+  expect(asks).toHaveLength(1)
 })
 
 // The session's own open places the pane: a read before it found none and never ran.
