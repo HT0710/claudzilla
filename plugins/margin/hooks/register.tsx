@@ -226,6 +226,8 @@ const intent = atom({ plugin: 'margin', key: 'intent' } as const, EMPTY_INTENT)
 const spawns = atom({ plugin: 'margin', key: 'spawns' } as const, [] as Spawn[])
 // Bumped per user prompt: tells this turn's agents from earlier ones.
 const turns = atom({ plugin: 'margin', key: 'turns' } as const, 0)
+// When the typed prompt that began this turn was sent, in ms; a background agent's result does not reset it.
+const turnStart = atom({ plugin: 'margin', key: 'turnStart' } as const, 0)
 // The step whose agents all show, past the 3 each shows folded; -1 for none.
 const expanded = atom({ plugin: 'margin', key: 'expanded' } as const, -1)
 // The Git tab's open modal, or none; a top of -1 opens the branch modal on the current branch.
@@ -1072,6 +1074,11 @@ export const register: Register = (on, options) => {
     await update($, stepsFollow, () => true)
     resetStepsHeld()
     await update($, submitted, n => n + 1)
+    // A skill's turn counts from its own submit too, though it stays out of TOPICS below.
+    if (!e.turnId && e.origin.kind !== 'task-notification' && !e.isMeta) {
+      const started = await $.clock.now()
+      await update($, turnStart, () => started)
+    }
     // A background task's result carries the last request on: Claude pings its report, not a new one, so it reopens.
     if (e.origin.kind === 'task-notification') {
       await refreshSpawns($)
