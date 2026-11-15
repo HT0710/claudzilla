@@ -1313,6 +1313,24 @@ export const register: Register = (on, options) => {
       await update($, spawns, () => [])
       await update($, overview, () => EMPTY_OVERVIEW)
     }
+    // An in-session /resume starts no session: the trace and TOPICS move to the resumed chat once its id is in,
+    // up to 5 s later; read before that, they found the old chat.
+    if (e.reason === 'resume') {
+      overviewSeq++
+      // Old topics would carry into the new list, and a dropped read leaves reading… on.
+      await update($, overview, () => EMPTY_OVERVIEW)
+      const was = await $.session.id().catch(() => '')
+      const moved = async (left: number) => {
+        const id = await $.session.id().catch(() => was)
+        if (id === was) {
+          if (left > 0) $.clock.after(100, () => void moved(left - 1))
+          return
+        }
+        void t.start(traceIo($))
+        void readOverview($)
+      }
+      $.clock.after(100, () => void moved(50))
+    }
 
     return next(e)
   })
