@@ -475,31 +475,56 @@ const MAX_LOST = 5;
 const listed = (out, none) => {
   if (out === null) return "\n  could not check";
   const l = out.split("\n").map((x) => x.trim().replace(/^Would remove /, "")).filter(Boolean);
-  if (!l.length) return `\n  ${none}`;
+  if (!l.length) return none === undefined ? null : `\n  ${none}`;
   return l.slice(0, MAX_LOST).map((x) => `\n  ${x}`).join("") + (l.length > MAX_LOST ? `\n  … ${l.length - MAX_LOST} more` : "");
 };
-// What a held discard throws away, for the person answering the ask.
+// The common dir, so a linked worktree under TMPDIR still counts as its main repo; a TMPDIR at or above HOME marks nothing.
+const scratch = (dir) => {
+  const common = git(dir, "rev-parse", "--git-common-dir");
+  try {
+    const t = realpathSync(tmpdir()) + sep;
+    return !!common && !(realpathSync(homedir()) + sep).startsWith(t) && (realpathSync(resolve(dir, common)) + sep).startsWith(t);
+  } catch { return false; }
+};
+// Forms whose loss the tracked-change list covers in full; the rest also overwrite untracked files, nested repos or other refs.
+const OVERWRITES = ["reset", "checkout", "restore", "switch"];
+const STASH_REF = /^(?:0|[1-9]\d*|stash@\{(?:0|[1-9]\d*)\})$/;
+function quietable(dir, sub, a) {
+  const dd = a.indexOf("--");
+  const ops = (dd === -1 ? a : a.slice(0, dd)).filter((x) => !x.startsWith("-"));
+  switch (sub) {
+    case "reset": return !operand(a);
+    // Allowlist: git takes -sREF, bundled -Ws and shortened --sou as a source too.
+    case "restore": return a.every((x) => !x.startsWith("-") || ["-S", "-W", "--staged", "--worktree", "-q", "--quiet", "--"].includes(x));
+    case "checkout": return !a.some((x) => ["-f", "--force"].includes(x))
+      && ops.every((x) => x === "." || (!gitOk(dir, "rev-parse", "--verify", "-q", x) && existsSync(resolve(dir, x))));
+    case "stash": return a[0] === "clear" || STASH_REF.test(operand(a.slice(1)) ?? "0");
+    case "clean": return a.reduce((n, x) => n + (x === "--force" ? 1 : /^-[a-zA-Z]+$/.test(x) ? x.split("f").length - 1 : 0), 0) < 2;
+    default: return false;
+  }
+}
+// What a held discard throws away, for the person answering the ask; null when nothing.
 function lostWork(dir, sub, a) {
   if (sub === "stash") {
     const all = gitOut(dir, "stash", "list");
     const r = operand(a.slice(1)) ?? "0";
     const ref = /^\d+$/.test(r) ? `stash@{${r}}` : r;
-    return listed(all && (a[0] === "clear" ? all : all.split("\n").filter((l) => l.startsWith(`${ref}:`)).join("\n")), "no stash entry");
+    return listed(all && (a[0] === "clear" ? all : all.split("\n").filter((l) => l.startsWith(`${ref}:`)).join("\n")));
   }
   if (sub === "clean") {
     // -n lists; -f, -i and -q would act, prompt or print nothing.
     const flags = a.map((x) => /^-[a-zA-Z]+$/.test(x) ? x.replace(/[fiq]/g, "") : x).filter((x) => !["-", "--force", "--interactive", "--quiet"].includes(x));
-    return listed(gitOut(dir, "clean", "-n", ...flags), "nothing to remove");
+    return listed(gitOut(dir, "clean", "-n", ...flags));
   }
   const dd = a.indexOf("--");
   // restore takes only paths (and a --source ref); checkout's first operand may be a ref, so only paths on disk count.
   const paths = dd !== -1 ? a.slice(dd + 1)
     : sub === "restore" ? a.filter((x, k) => !x.startsWith("-") && !["-s", "--source"].includes(a[k - 1]))
     : a.filter((x) => !x.startsWith("-") && existsSync(resolve(dir, x)));
-  const files = listed(gitOut(dir, "status", "--porcelain", "--untracked-files=no", "--", ...paths), "no uncommitted changes");
+  const files = listed(gitOut(dir, "status", "--porcelain", "--untracked-files=no", "--", ...paths));
   const ref = sub === "reset" && operand(a);
   const n = ref ? Number(git(dir, "rev-list", "--count", "--end-of-options", `${ref}..HEAD`)) : 0;
-  return files + (n ? `\n  ${n} commit${n > 1 ? "s leave" : " leaves"} the branch` : "");
+  return files === null && !n ? null : (files ?? "") + (n ? `\n  ${n} commit${n > 1 ? "s leave" : " leaves"} the branch` : "");
 }
 // What a force push drops from the remote branch, as the last fetch saw it.
 const PUSH_VALUE = ["-o", "--push-option", "--repo", "--receive-pack", "--exec"];
@@ -524,7 +549,12 @@ function checkGit(t, cwd, cmd, s, hits, branches, stale) {
   const { cfg } = loadConfig(dir);
   const hit = hitter(cfg, hits);
   const held = (id, lost) => cfg.rules[id] === "ask" ? ASK[id] + (stale ? "\n  could not check: an earlier command in this line changes it" : lost()) : WHY[id];
-  const discard = (cond) => hit("discard", cond && held("discard", () => lostWork(dir, sub, a)));
+  // A safe form with nothing to lose, or a scratch repo under TMPDIR: no ask.
+  const discard = (cond) => {
+    const quiet = cond && cfg.rules.discard === "ask" && !stale && quietable(dir, sub, a);
+    const lost = quiet && (scratch(dir) ? null : lostWork(dir, sub, a));
+    if (lost !== null) hit("discard", cond && held("discard", () => lost === false ? lostWork(dir, sub, a) ?? (OVERWRITES.includes(sub) ? "\n  not listed: it may overwrite untracked files" : "") : lost));
+  };
   const isBranch = (x) => gitOk(dir, "rev-parse", "--verify", "-q", `refs/heads/${x}`);
   const root = () => git(dir, "rev-parse", "--show-toplevel") || dir;
   const moveTo = (b) => {
