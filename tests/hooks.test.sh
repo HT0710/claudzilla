@@ -583,7 +583,9 @@ check "config: bad level warned" has "$out" "rulesGuard.rules.pushVerify ignored
 check "config: bad param warned" has "$out" "rulesGuard.subjectMax ignored"
 check "config: bad commit type warned" has "$out" "rulesGuard.commitTypes ignored"
 mcfg '{"rulesGuard":{"autoUpdate":"yes"}}'
-new_session; check "config: bad autoUpdate warned" has "$(hook UserPromptSubmit prompt=hi)" "rulesGuard.autoUpdate ignored: expected true or false"
+new_session; check "config: bad autoUpdate warned" has "$(hook UserPromptSubmit prompt=hi)" "rulesGuard.autoUpdate ignored: expected true, false or \\\"preview\\\""
+mcfg '{"rulesGuard":{"autoUpdate":"preview"}}'
+new_session; check "config: autoUpdate preview accepted" test -z "$(grep -F rulesGuard.autoUpdate <<<"$(hook UserPromptSubmit prompt=hi)")"
 mcfg '{"rulesGuard":{"coldCompact":"auto"}}'
 new_session; check "config: bad coldCompact warned" has "$(hook UserPromptSubmit prompt=hi)" "rulesGuard.coldCompact ignored: expected"
 mcfg '{"rulesGuard":{"coldCompact":-1}}'
@@ -843,6 +845,79 @@ git -C "$TMP/mclone" config core.sshCommand "$TMP/mplink"; mfetch
 check "margin fetch: plink core.sshCommand, no BatchMode" bash -c "[ -s '$TMP/m.rec' ] && ! grep -q BatchMode '$TMP/m.rec'"
 git -C "$TMP/mclone" config --unset core.sshCommand; mfetch GIT_SSH="$TMP/mplink"
 check "margin fetch: GIT_SSH used as is, no BatchMode" bash -c "[ -s '$TMP/m.rec' ] && ! grep -q BatchMode '$TMP/m.rec'"
+
+# preview: autoUpdate "preview" follows the newest release branch, only on clones it manages
+PO="$TMP/porigin"; PC="$TMP/pcfg"; mkdir -p "$PC"; echo '{"rulesGuard":{"autoUpdate":"preview"}}' > "$PC/claudzilla.json"
+HK=claude/hooks/claudzilla-update.sh
+mkclone() { d=$1 o=$2; shift 2; git clone -q "$@" "$o" "$d"; mkdir -p "$d/claude/hooks"
+  cp "$REPO"/claude/hooks/{claudzilla-update.sh,rules-guard.mjs,trace.mjs,trace.pl} "$d/claude/hooks/"; printf 'exit 0\n' > "$d/install.sh"; }
+# the hook's background job outlives it, and a skipped job writes no result file: wait on the process
+prun() { touch -t 200001010000 "$1/.git/FETCH_HEAD"; CLAUDE_CONFIG_DIR="$PC" sh "$1/$HK"
+  for _ in $(seq 1 120); do pgrep -f "$1/$HK" >/dev/null || return 0; sleep 0.25; done; }
+obr() { $G -C "$PO" switch -q -c "$1" "$2"; $G -C "$PO" commit -q --allow-empty -m "$1"; $G -C "$PO" switch -q main; }
+git init -q -b main "$PO"; echo 1 > "$PO/e.txt"; git -C "$PO" add e.txt; $G -C "$PO" commit -q -m one
+$G -C "$PO" commit -q --allow-empty -m two; git -C "$PO" tag v1.0.0; obr release/1.9 main
+mkclone "$TMP/pc1" "$PO"; prun "$TMP/pc1"
+check "preview: moves main to newest release branch" bash -c "[ \"\$(git -C '$TMP/pc1' branch --show-current)\" = release/1.9 ] && [ -f '$TMP/pc1/.git/claudzilla-update.preview' ]"
+obr release/1.10 release/1.9; git -C "$PO" branch release/hotfix main; prun "$TMP/pc1"
+check "preview: picks newest release by version" bash -c "[ \"\$(git -C '$TMP/pc1' branch --show-current)\" = release/1.10 ]"
+obr release/1.11 release/1.10; prun "$TMP/pc1"
+check "preview: moves on to a newer release branch" bash -c "[ \"\$(git -C '$TMP/pc1' branch --show-current)\" = release/1.11 ]"
+mkclone "$TMP/pc2" "file://$PO" --depth 1; prun "$TMP/pc2"
+check "preview: depth 1 clone moves to release branch" bash -c "[ \"\$(git -C '$TMP/pc2' branch --show-current)\" = release/1.11 ] && [ \"\$(git -C '$TMP/pc2' rev-parse --abbrev-ref @{u})\" = origin/release/1.11 ]"
+check "preview: release notice names the branch" grep -q 'updated to release/1[.]11 [(][0-9a-f][0-9a-f]*[)]' "$TMP/pc1/.git/claudzilla-update.events"
+mkclone "$TMP/pc3" "$PO"; echo edit > "$TMP/pc3/e.txt"; prun "$TMP/pc3"
+check "preview: edits ride along the switch" bash -c "[ \"\$(git -C '$TMP/pc3' branch --show-current)\" = release/1.11 ] && [ \"\$(cat '$TMP/pc3/e.txt')\" = edit ] && grep -q 'your edits kept' '$TMP/pc3/.git/claudzilla-update.events'"
+mkclone "$TMP/pc4" "$PO"; git -C "$TMP/pc4" switch -q release/1.9; prun "$TMP/pc4"
+check "preview: unmarked release clone stays" bash -c "[ \"\$(git -C '$TMP/pc4' branch --show-current)\" = release/1.9 ] && [ ! -e '$TMP/pc4/.git/claudzilla-update.preview' ]"
+mkclone "$TMP/pc5" "$PO"; $G -C "$TMP/pc5" commit -q --allow-empty -m local; pout=$(prun "$TMP/pc5")
+check "preview: local commits block the switch" bash -c "[ \"\$(git -C '$TMP/pc5' branch --show-current)\" = main ] && printf '%s' '$pout' | grep -q 'skipped (local commits)'"
+check "preview: blocked move names switch and marker" bash -c "printf '%s' '$pout' | grep -q 'switch release/' && printf '%s' '$pout' | grep -q 'claudzilla-update.preview'"
+mkclone "$TMP/pc6" "$PO"; printf 'exit 1\n' > "$TMP/pc6/install.sh"; prun "$TMP/pc6"
+check "preview: failed install keeps marker" bash -c "grep -q failed '$TMP/pc6/.git/claudzilla-update.result' && [ -f '$TMP/pc6/.git/claudzilla-update.preview' ] && [ \"\$(git -C '$TMP/pc6' branch --show-current)\" = release/1.11 ]"
+P0="$TMP/porigin0"; git init -q -b main "$P0"; $G -C "$P0" commit -q --allow-empty -m one
+mkclone "$TMP/pbehind" "$P0"; $G -C "$P0" commit -q --allow-empty -m two; git -C "$P0" tag v1.0.0; prun "$TMP/pbehind"
+check "preview: no release branch falls back to newest tag" bash -c "[ \"\$(git -C '$TMP/pbehind' rev-parse HEAD)\" = \"\$(git -C '$TMP/pbehind' rev-parse 'v1.0.0^{commit}')\" ] && [ ! -e '$TMP/pbehind/.git/claudzilla-update.preview' ]"
+$G -C "$P0" commit -q --allow-empty -m three; mkclone "$TMP/pahead" "$P0"; h0=$(git -C "$TMP/pahead" rev-parse HEAD); prun "$TMP/pahead"
+check "preview: main ahead of tag stays" bash -c "[ \"\$(git -C '$TMP/pahead' rev-parse HEAD)\" = $h0 ] && [ \"\$(git -C '$TMP/pahead' branch --show-current)\" = main ]"
+# a switch the job cannot make leaves the clone on main: the retry hint must re-mark it
+$G -C "$PO" switch -q -c release/1.12 release/1.11; echo x > "$PO/x.txt"; git -C "$PO" add x.txt; $G -C "$PO" commit -q -m x; git -C "$PO" switch -q main
+mkclone "$TMP/pc7" "$PO"; echo mine > "$TMP/pc7/x.txt"; prun "$TMP/pc7"; pout=$(prun "$TMP/pc7")
+check "preview: manual command keeps marker" bash -c "printf '%s' '$pout' | grep -q 'touch [^ ]*claudzilla-update.preview && git -C'"
+
+# the maintainer rebases the release branch onto main after a patch: old commits vanish from origin
+PR="$TMP/porigin5"; git init -q -b main "$PR"; echo 1 > "$PR/e.txt"; git -C "$PR" add e.txt; $G -C "$PR" commit -q -m one; git -C "$PR" tag v1.0.0
+$G -C "$PR" switch -q -c release/1.2; echo r > "$PR/r.txt"; git -C "$PR" add r.txt; $G -C "$PR" commit -q -m rel; $G -C "$PR" switch -q main
+mkclone "$TMP/prb1" "$PR"; prun "$TMP/prb1"; mkclone "$TMP/prb2" "$PR"; prun "$TMP/prb2"
+$G -C "$PR" commit -q --allow-empty -m patch; $G -C "$PR" switch -q release/1.2; $G -C "$PR" rebase -q main; $G -C "$PR" switch -q main
+echo mine > "$TMP/prb1/e.txt"; echo own > "$TMP/prb2/own.txt"; git -C "$TMP/prb2" add own.txt; $G -C "$TMP/prb2" commit -q -m own
+prun "$TMP/prb1"; prun "$TMP/prb2"; pout=$(prun "$TMP/prb2")
+check "preview: rebased release branch moves to new tip" bash -c "[ \"\$(git -C '$TMP/prb1' rev-parse HEAD)\" = \"\$(git -C '$PR' rev-parse release/1.2)\" ] && [ -f '$TMP/prb1/.git/claudzilla-update.preview' ] && [ \"\$(cat '$TMP/prb1/e.txt')\" = mine ]"
+check "preview: unique local commit on release clone still blocks" bash -c "printf '%s' '$pout' | grep -q 'skipped (local commits)' && [ \"\$(git -C '$TMP/prb2' log -1 --format=%s)\" = own ]"
+
+# return: leaving preview. true goes back to main's newest tag in the job, false only notices
+pcfg() { echo "{\"rulesGuard\":{\"autoUpdate\":$1}}" > "$PC/claudzilla.json"; }
+rset() { mkclone "$TMP/$1" "$PO"; git -C "$TMP/$1" switch -q release/1.9; touch "$TMP/$1/.git/claudzilla-update.preview"; }
+pcfg true; rset rclone; prun "$TMP/rclone"
+check "return: true moves release clone to main tag" bash -c "[ \"\$(git -C '$TMP/rclone' branch --show-current)\" = main ] && [ \"\$(git -C '$TMP/rclone' rev-parse HEAD)\" = \"\$(git -C '$TMP/rclone' rev-parse 'v1.0.0^{commit}')\" ] && [ ! -e '$TMP/rclone/.git/claudzilla-update.preview' ]"
+pcfg false; rset rfalse; pout=$(prun "$TMP/rfalse")
+check "return: false only notices" bash -c "printf '%s' '$pout' | grep -qF 'git switch main && git merge --ff-only v1.0.0' && [ \"\$(git -C '$TMP/rfalse' branch --show-current)\" = release/1.9 ] && [ -f '$TMP/rfalse/.git/claudzilla-update.preview' ]"
+pcfg true; rset rlocal; $G -C "$TMP/rlocal" commit -q --allow-empty -m local; pout=$(prun "$TMP/rlocal")
+check "return: blocked switch keeps marker" bash -c "printf '%s' '$pout' | grep -q skipped && [ \"\$(git -C '$TMP/rlocal' branch --show-current)\" = release/1.9 ] && [ -f '$TMP/rlocal/.git/claudzilla-update.preview' ]"
+git clone -q "$PO" "$TMP/porigin3"; git -C "$TMP/porigin3" branch release/1.9 origin/release/1.9; mkclone "$TMP/rbehind" "$TMP/porigin3"; git -C "$TMP/rbehind" switch -q release/1.9; touch "$TMP/rbehind/.git/claudzilla-update.preview"
+$G -C "$TMP/porigin3" commit -q --allow-empty -m three; git -C "$TMP/porigin3" tag v1.1.0; prun "$TMP/rbehind"
+check "return: local main behind newer tag" bash -c "[ \"\$(git -C '$TMP/rbehind' branch --show-current)\" = main ] && [ \"\$(git -C '$TMP/rbehind' rev-parse HEAD)\" = \"\$(git -C '$TMP/rbehind' rev-parse 'v1.1.0^{commit}')\" ]"
+pcfg '"preview"'; mkclone "$TMP/rstale" "$PO"; prun "$TMP/rstale"
+b0=$(git -C "$TMP/rstale" branch --show-current)
+pcfg true; prun "$TMP/rstale"
+mkclone "$TMP/pfeed" "$PO"; git -C "$TMP/pfeed" switch -q "$b0"; $G -C "$TMP/pfeed" commit -q --allow-empty -m r13; git -C "$TMP/pfeed" push -q origin "$b0"
+pcfg '"preview"'; prun "$TMP/rstale"
+check "stale local release branch reaches origin tip" bash -c "[ \"\$(git -C '$TMP/rstale' branch --show-current)\" = '$b0' ] && [ \"\$(git -C '$TMP/rstale' rev-parse HEAD)\" = \"\$(git -C '$TMP/rstale' rev-parse 'origin/$b0')\" ] && [ \"\$(git -C '$TMP/rstale' rev-parse HEAD)\" = \"\$(git -C '$TMP/pfeed' rev-parse HEAD)\" ]"
+pcfg true; rset rdiv; $G -C "$TMP/rdiv" switch -q main; git -C "$TMP/rdiv" reset -q --hard HEAD~1; $G -C "$TMP/rdiv" commit -q --allow-empty -m div; git -C "$TMP/rdiv" switch -q release/1.9; prun "$TMP/rdiv"
+check "return: failed merge stays on release branch" bash -c "[ \"\$(git -C '$TMP/rdiv' branch --show-current)\" = release/1.9 ] && [ -f '$TMP/rdiv/.git/claudzilla-update.preview' ] && grep -q failed '$TMP/rdiv/.git/claudzilla-update.result'"
+PN="$TMP/porigin4"; git init -q -b main "$PN"; $G -C "$PN" commit -q --allow-empty -m one; $G -C "$PN" switch -q -c release/1.9; $G -C "$PN" commit -q --allow-empty -m r; $G -C "$PN" switch -q main
+mkclone "$TMP/rnotag" "$PN"; git -C "$TMP/rnotag" switch -q release/1.9; touch "$TMP/rnotag/.git/claudzilla-update.preview"; prun "$TMP/rnotag"
+check "return: no tag on main keeps release clone" bash -c "[ \"\$(git -C '$TMP/rnotag' branch --show-current)\" = release/1.9 ] && [ -f '$TMP/rnotag/.git/claudzilla-update.preview' ] && [ ! -e '$TMP/rnotag/.git/claudzilla-update.result' ]"
 
 # --- release sync: opt-in; a PR merge reminds to rebase the open release branch onto main ---
 W=$(repo); cd "$W"; new_session; hook UserPromptSubmit prompt=merge >/dev/null
