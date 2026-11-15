@@ -4169,7 +4169,7 @@ test('an agent card names its status in its mark color', async ($, on) => {
   const ui = await agentsPane($, on, { a1: 'completed', a2: 'pending', a3: 'killed', a4: 'failed', a5: 'running' })
   await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'in_progress', agents: ['c', 'p', 'k', 'f', 'r', 'x'] }] } as any)
   for (const one of ['c', 'p', 'k', 'f', 'r']) await spawn($, one)
-  await ui.press({ key: 'more:0' })
+  await tapRow(ui, 'o:more:0')
   await ui.drawn()
   const words = [['done', 'success'], ['not started', '#4f5c68'], ['stopped', 'inactive'], ['failed', '#e06c75'], ['running', 'claude'], ['not started', '#4f5c68']]
   for (const [n, [word, color]] of words.entries()) expect((await cardTexts(ui, `o:agent:0:${n}`))[1]).toEqual([word, color])
@@ -4374,7 +4374,7 @@ test('each agent status draws its glyph and color, in the order Claude listed th
   const ui = await agentsPane($, on, { a1: 'completed', a2: 'pending', a3: 'killed', a4: 'failed', a5: 'running' })
   await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'in_progress', agents: ['c', 'p', 'k', 'f', 'r'] }] } as any)
   for (const one of ['c', 'p', 'k', 'f', 'r']) await spawn($, one)
-  await ui.press({ key: 'more:0' })
+  await tapRow(ui, 'o:more:0')
   await ui.drawn()
   const rows = await Promise.all([0, 1, 2, 3, 4].map(n => agentRow(ui, 0, n)))
   expect(rows).toEqual([
@@ -4464,37 +4464,49 @@ const crowded = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]) 
   await ui.drawn()
   return ui
 }
-const textOf = async (ui: { find: (q: any) => Promise<any> }, key: string) => (await ui.find({ key }))?.text as string | undefined
+const textOf = async (ui: { find: (q: any) => Promise<any> }, key: string) => (await pieces(ui, key))?.map(x => x.text).join('')
 
 test('a step with 5 agents shows the first 3 in order, then a count of the rest', async ($, on) => {
   const ui = await crowded($, on)
   expect(await Promise.all([0, 1, 2, 3].map(n => agentRow(ui, 0, n).then(row => row?.text)))).toEqual(['├ ✓ b1', '├ ✓ b2', '├ ◌ b3', undefined])
-  expect(await textOf(ui, 'more:0')).toBe('└ … 2 more  1 ✗ 1 ○')
-  expect(await textOf(ui, 'more:1')).toBe('└ … 1 more  1 ○')
+  expect(await textOf(ui, 'o:more:0')).toBe('└ … 2 more  1 ✗ 1 ○')
+  expect(await textOf(ui, 'o:more:1')).toBe('└ … 1 more  1 ○')
+})
+
+test('a fold row draws each count in claude and its glyph in the mark colour', async ($, on) => {
+  const ui = await crowded($, on)
+  expect((await pieces(ui, 'o:more:0'))?.slice(2).map(x => [x.text, x.color])).toEqual([[' 1', 'claude'], [' ✗', '#e06c75'], [' 1', 'claude'], [' ○', '#4f5c68']])
+})
+
+test('a fold row has no card, so the row under it does not dim when it is hovered', async ($, on) => {
+  const ui = await crowded($, on)
+  const scopes = ((await pieces(ui, 'o:step:1')) ?? []).map(x => (x as { hover?: { scope?: string } }).hover?.scope)
+  expect(scopes.length).toBeGreaterThan(0)
+  expect(scopes.filter(scope => scope?.startsWith('line:'))).toEqual([])
 })
 
 test('pressing more shows every agent of that step, less folds them, one step open at a time', async ($, on) => {
   const ui = await crowded($, on)
-  await ui.press({ key: 'more:0' })
+  await tapRow(ui, 'o:more:0')
   await ui.drawn()
   expect((await agentRow(ui, 0, 4))?.text).toBe('├ ○ b5')
-  expect(await textOf(ui, 'less')).toBe('└ … less')
-  await ui.press({ key: 'more:1' })
+  expect(await textOf(ui, 'o:less')).toBe('└ … less')
+  await tapRow(ui, 'o:more:1')
   await ui.drawn()
-  expect(await textOf(ui, 'more:0')).toBeDefined()
+  expect(await textOf(ui, 'o:more:0')).toBeDefined()
   expect((await agentRow(ui, 1, 3))?.text).toBe('├ ○ c4')
-  await ui.press({ key: 'less' })
+  await tapRow(ui, 'o:less')
   await ui.drawn()
-  expect(await textOf(ui, 'less')).toBeUndefined()
-  expect(await textOf(ui, 'more:1')).toBeDefined()
+  expect(await textOf(ui, 'o:less')).toBeUndefined()
+  expect(await textOf(ui, 'o:more:1')).toBeDefined()
 })
 
 test("Claude's next full report folds an open step", async ($, on) => {
   const ui = await crowded($, on)
-  await ui.press({ key: 'more:0' })
+  await tapRow(ui, 'o:more:0')
   await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'in_progress', agents: ['b1', 'b2', 'b3', 'b4', 'b5'] }] } as any)
   await ui.drawn()
-  expect(await textOf(ui, 'more:0')).toBe('└ … 2 more  1 ✗ 1 ○')
+  expect(await textOf(ui, 'o:more:0')).toBe('└ … 2 more  1 ✗ 1 ○')
 })
 
 test('a prompt typed mid-turn keeps the turn: agents spawned after it still hang', async ($, on) => {

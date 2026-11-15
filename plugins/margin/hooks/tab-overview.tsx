@@ -43,7 +43,7 @@ export function resetStepsHeld() {
 const STEP_WORD: Record<Step['status'], string> = { completed: 'done', in_progress: 'working', pending: 'not started' }
 const AGENT_WORD: Record<AgentRow['status'], string> = { completed: 'done', pending: 'not started', planned: 'not started', running: 'running', waiting: 'waiting', idle: 'idle', failed: 'failed', killed: 'stopped' }
 // A STEPS row: a step or agent with its card, or a fold toggle.
-type StepLine = { key?: string; left?: JSX.Element[]; word?: string; mark?: string; node?: JSX.Element; more?: JSX.Element[] }
+type StepLine = { key: string; left: JSX.Element[]; word?: string; mark?: string; more?: JSX.Element[]; fold?: boolean }
 
 const WORKING = ['running', 'waiting', 'idle']
 export const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
@@ -630,7 +630,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                       // Tab-body rows: the zone's start is the body's first row.
                       const atOf = (k: number) => from + (w.above > 0 ? 1 : 0) + (k - w.top)
                       hv.lines = Object.fromEntries(rows.flatMap((r, k) => (r.key && k >= w.top && k < w.top + w.shown ? [[r.key, atOf(k)]] : [])))
-                      const inWindow = (k: number) => k >= w.top && k < w.top + w.shown && !!rows[k]?.key
+                      const inWindow = (k: number) => k >= w.top && k < w.top + w.shown && !!rows[k]?.key && !rows[k]!.fold
                       // The line between a row and its card dims, as the Git tab's: the next row when the card opens down, the one above when up.
                       const faded = (scope: string, x: Piece) => ({ scope, color: PILL_CAPS.has(x.text) ? fadeBg(x.color) : fade(x.color), ...(x.backgroundColor && { backgroundColor: fadeBg(x.backgroundColor) }) })
                       const dimOn = (k: number, pieces: Piece[]) => {
@@ -646,11 +646,11 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                         }))
                       }
                       const shownRows = rows.slice(w.top, w.top + w.shown).map((r, n) => {
-                        if (!r.key) return r.node
                         const k = w.top + n
                         // A Button row posts no enter, so the left Client row's card cannot hide its card: hover alone shows it.
-                        kitCard(r.key in acts ? { ...rc, gone: undefined } : rc, `card:${r.key}`, atOf(k), 'center', kitKv(rc, 'status', <Text color={r.mark}>{r.word}</Text>), ...(r.more ?? []))
-                        return kitRow(rc, r.key, r.left!, [], { pieces: (key, node) => dimOn(k, toPieces(node)), line: k, act: false, lit: true, press: r.key in acts })
+                        if (!r.fold) kitCard(r.key in acts ? { ...rc, gone: undefined } : rc, `card:${r.key}`, atOf(k), 'center', kitKv(rc, 'status', <Text color={r.mark}>{r.word}</Text>), ...(r.more ?? []))
+                        // A fold row is a row Client: its press is the plugin's own, so it needs no Button.
+                        return kitRow(rc, r.key, r.left, [], { pieces: (key, node) => dimOn(k, toPieces(node)), line: k, act: false, lit: true, press: !r.fold && r.key in acts })
                       })
                       return [w.above > 0 && stepCues.up, ...shownRows, w.below > 0 && stepCues.down]
                     })(shown.steps.map((step, i) => {
@@ -659,10 +659,13 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                       const folds = all.length > 3
                       const rows = folds && open !== i ? all.slice(0, 3) : all
                       const hidden = all.slice(rows.length)
-                      const counts = ['◌', '✗', '■', '○', '✓']
-                        .map(glyph => [glyph, hidden.filter(row => AGENT_MARK[row.status][0] === glyph).length] as const)
-                        .flatMap(([glyph, n]) => (n ? `${n} ${glyph}` : []))
-                        .join(' ')
+                      // Each count in claude, its glyph in the mark colour; ◌ is lit when any of them runs, faint when none has started.
+                      const counts = ['◌', '✗', '■', '○', '✓'].flatMap(glyph => {
+                        const of = hidden.filter(row => AGENT_MARK[row.status][0] === glyph)
+                        if (!of.length) return []
+                        const color = AGENT_MARK[(of.find(row => row.status !== 'pending') ?? of[0]!).status][1]
+                        return [<Text key={`n${glyph}`} color={shade('claude')}>{` ${of.length}`}</Text>, <Text key={`g${glyph}`} color={shade(color)}>{` ${glyph}`}</Text>]
+                      })
                       // A row that is a Button inverts only its text under the pointer: padded, the whole row does, as the lit row.
                       const padded = (left: JSX.Element[], used: number) => [...left, <Text key="pad">{' '.repeat(Math.max(0, width - LABEL - used))}</Text>]
                       const stepLine = [
@@ -693,19 +696,15 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                         ]
                         return { key, left, word: AGENT_WORD[row.status], mark: shade(color), more }
                       }
-                      const toggle = (key: string, label: string, to: number): StepLine => ({
-                        node: (
-                          <Button key={key} plain onPress={() => update($, expanded, () => to)}>
-                            <Text color={shade('promptBorder')}>└ </Text>
-                            <Text color={shade(HUD.faint)}>{label}</Text>
-                          </Button>
-                        ),
-                      })
+                      const toggle = (key: string, label: string, to: number, tail: JSX.Element[] = []): StepLine => {
+                        acts[key] = () => update($, expanded, () => to)
+                        return { key, fold: true, left: [<Text key="tree" color={shade('promptBorder')}>└ </Text>, <Text key="label" color={shade(HUD.faint)}>{label}</Text>, ...tail] }
+                      }
                       const stepKey = `o:step:${i}`
                       return [
                         { key: stepKey, left: stepLine, word: STEP_WORD[step.status], mark: shade(MARK_SHADE[step.status]) },
                         ...rows.map((row, j) => agentLine(row, j === rows.length - 1 && !folds ? '└ ' : '├ ', j)),
-                        folds && (hidden.length ? toggle(`more:${i}`, `… ${hidden.length} more  ${counts}`, i) : toggle('less', '… less', -1)),
+                        folds && (hidden.length ? toggle(`o:more:${i}`, `… ${hidden.length} more `, i, counts) : toggle('o:less', '… less', -1)),
                       ].filter(Boolean) as StepLine[]
                     }))}
                   </Box>
