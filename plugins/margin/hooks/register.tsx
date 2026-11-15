@@ -1083,8 +1083,8 @@ export const register: Register = (on, options) => {
         await update($, used, resetUsed)
       }
       $.clock.after(0, () => readOverview($))
-      // Last turn's answered report is not this turn's: shown as it was, it read as current. Dimmed, planning… until Claude
-      // reports; with intent off no report comes, so it just goes.
+      // Last turn's answered report is not this turn's: shown as it was, it read as current. Kept as waiting, placeholders
+      // show until Claude reports; with intent off no report comes, so it just goes.
       await update($, intent, now =>
         !isIntentOn ? (isAnswered(now) ? EMPTY_INTENT : now)
         : isAnswered(now) ? { ...now, ended: false, waiting: true } : !now.wants ? { ...EMPTY_INTENT, waiting: true } : { ...now, agents: undefined },
@@ -1110,16 +1110,21 @@ export const register: Register = (on, options) => {
         return result
       }
       const at = await $.clock.now()
-      // No report this turn: done if answered; stopped has no steps to keep, so it shows nothing.
-      await update($, intent, now =>
-        now.waiting
+      // No report this turn: done if answered; stopped brings last turn's report and USED back, or shows nothing.
+      let stopped = false
+      await update($, intent, now => {
+        stopped = !!now.waiting && !close && !!now.wants
+        return now.waiting
           ? close
             ? { ...EMPTY_INTENT, ended: true, at }
-            : EMPTY_INTENT
+            : now.wants
+              ? { ...now, waiting: false, ended: true }
+              : EMPTY_INTENT
           : now.wants
             ? { ...now, ended: true, at, steps: close ? now.steps.map(step => ({ ...step, status: 'completed' as const })) : now.steps }
-            : now,
-      )
+            : now
+      })
+      if (stopped) await update($, used, now => (Object.keys(now.kinds).length || !now.last ? now : { ...now, kinds: now.last }))
     }
 
     return result
@@ -1131,7 +1136,7 @@ export const register: Register = (on, options) => {
       const report = e as unknown as Partial<Pick<Intent, 'wants' | 'steps'>> & { take?: { stance?: unknown; label?: unknown; why?: unknown } } & { agentId?: string; now?: unknown }
       if (report.agentId !== undefined) return { result: 'ok' }
       // A ping moves this turn's marks: done before it, in progress at it. One after an answer, every step
-      // done or dimmed for a new prompt, is dropped; one after an interrupt picks the report back up, as Claude carries on with pings alone.
+      // done or waiting on a new prompt, is dropped; one after an interrupt picks the report back up, as Claude carries on with pings alone.
       if (report.wants === undefined && typeof report.now === 'number') {
         const current = report.now - 1
         const status = (i: number): Step['status'] => (i < current ? 'completed' : i === current ? 'in_progress' : 'pending')
