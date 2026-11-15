@@ -1160,7 +1160,6 @@ export const register: Register = on => {
     // A tool row, or a finish row folio draws, takes its frame here; the rail runs through the gap after it.
     const take = () => {
       forkLast(redraw)
-      if (frames.size > 500) frames.clear()
       if (frame) frames.set(e.requestId, frame)
       section.gap = true
       lastRow = e.requestId
