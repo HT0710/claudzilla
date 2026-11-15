@@ -258,6 +258,7 @@ export function handoffNote(input: HandoffInput): string {
   if (d && call?.input && d.n > since) add('Compact draft', `At line ${d.n}${d.row.timestamp ? `, ${d.row.timestamp}` : ''}.\nKeep: ${cut(String(call.input.keep ?? ''), 500)}\nDrop: ${cut(String(call.input.drop ?? ''), 500)}`)
   add('How to dig', [
     'If this note is your whole prompt: when the old session stopped mid-step, continue that step. When its last reply ended on an offer, end yours with that offer as your `Next:` line, unchanged, and wait. Otherwise say in one line what you loaded, then wait for the user\'s ask.',
+    'Text after this note, with or without a `## User\'s ask` heading, is the user\'s ask: work on it instead of waiting.',
     'Check git before saying what is pending. Don\'t restate the last reply.',
     'The Git block was checked when this note was written. Everything else is the old session\'s claim: re-check it before acting on it.',
     'Use this note as is when your ask needs nothing more.',
@@ -319,19 +320,19 @@ d=$(git -C "$1" status --porcelain | head -20)
 git -C "$1" diff --stat HEAD | tail -1`
 
 // Writes the note for this session, then clears and sends it once the hook has returned (command.run rejects inside its own hook).
-async function coldHandoff($: EngineInterface): Promise<{ text: string } | Record<string, never>> {
+async function coldHandoff($: EngineInterface, ask: string): Promise<{ text: string } | Record<string, never>> {
   if (busy) return { text: 'A turn is running. Run /claudzilla handoff when it ends.' }
   if (handing) return { text: 'A handoff is already running.' }
   handing = true
   try {
-    return await writeHandoff($)
+    return await writeHandoff($, ask)
   } catch (err) {
     handing = false
     throw err
   }
 }
 
-async function writeHandoff($: EngineInterface): Promise<{ text: string } | Record<string, never>> {
+async function writeHandoff($: EngineInterface, ask: string): Promise<{ text: string } | Record<string, never>> {
   const home = await $.env.get('HOME').catch(() => undefined)
   const dir = (await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined)) || `${home}/.claude`
   const sessionId = await $.session.id()
@@ -372,9 +373,9 @@ async function writeHandoff($: EngineInterface): Promise<{ text: string } | Reco
         return lost()
       }
       // Inline, because a plugin's prompt does not expand @file.
-      const sent = await $.prompt.submit({ text: note, asUser: true }).then(r => !r.drop, () => false)
+      const sent = await $.prompt.submit({ text: ask ? `${note}\n## User's ask\n\n${ask}` : note, asUser: true }).then(r => !r.drop, () => false)
       if (sent) return
-      const { isFilled } = await $.prompt.fill({ text: `@${file} ` }).catch(() => ({ isFilled: false }))
+      const { isFilled } = await $.prompt.fill({ text: `@${file} ${ask}` }).catch(() => ({ isFilled: false }))
       if (!isFilled) lost()
     } finally {
       handing = false
@@ -471,8 +472,8 @@ export const register: Register = on => {
     handing = false
     await t.start(traceIo($))
     HUD.label = (await readPalette($)).palette.shared.label
-    await $.command.register({ name: 'claudzilla', description: 'The claudzilla guide, one section at a time', argumentHint: '[topic | report [what happened] | compact | handoff | experimental [id on|off] | cost [session-id | all [--since d] [--until d] [--project p]]]', immediate: true })
-    await $.command.register({ name: 'claudzilla-handoff', description: 'Start fresh with a note from this session', immediate: true })
+    await $.command.register({ name: 'claudzilla', description: 'The claudzilla guide, one section at a time', argumentHint: '[topic | report [what happened] | compact | handoff [ask] | experimental [id on|off] | cost [session-id | all [--since d] [--until d] [--project p]]]', immediate: true })
+    await $.command.register({ name: 'claudzilla-handoff', description: 'Start fresh with a note from this session', argumentHint: '[ask]', immediate: true })
     await $.tool.register(COMPACT_SPEC).catch(() => undefined)
 
     return next(e)
@@ -528,7 +529,9 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: ['claudzilla', 'claudzilla-handoff'] }, async ($, e) => {
-    if (e.command === 'claudzilla-handoff' || /^handoff$/i.test(e.args.trim())) return coldHandoff($)
+    const ask = e.command === 'claudzilla-handoff' ? e.args : /^handoff(\s|$)/i.test(e.args.trim()) ? e.args.trim().slice(7) : undefined
+    // The ask is sent as the user's own prompt, so only a person may give one.
+    if (ask !== undefined) return coldHandoff($, ['composer', 'bridge', 'sdk'].includes(e.origin?.kind) ? ask.trim() : '')
     const description = reportArgs(e.args)
     if (description !== undefined) {
       t.event('report.snapshot', await snapshot($, e.presentation?.columns).catch(() => ({})))
