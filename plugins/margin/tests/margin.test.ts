@@ -2600,6 +2600,20 @@ test("an answer closes the steps past agents the turn does not wait on: a subage
   expect(await textOf(ui, 'count')).toBe('2/2 steps')
 })
 
+test('a turn that ends on a running agent with no report drops the ASK, TAKE and PLAN placeholders', async ($, on) => {
+  on('agent.list', () => ({ value: [{ id: 'a1', description: 'sleep', type: 'general-purpose', status: 'running' }] }) as any)
+  on('prompt.submit', (_, e) => ({ text: e.text }) as any)
+  const ui = await intentPane($, on)
+  await $.prompt.submit({ text: 'first thing', wait: false, origin: { kind: 'composer' } })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'parsing the ask…' })).toBeDefined()
+  await turnEnd($)
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '◌ waiting on 1 agent' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'parsing the ask…' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'sketching a route…' })).toBeUndefined()
+})
+
 test('an agent already running at the prompt holds that prompt\'s answer open too', async ($, on) => {
   let status = 'running'
   on('agent.list', () => ({ value: [{ id: 'a1', description: 'sleep', type: 'general-purpose', status }] }) as any)
