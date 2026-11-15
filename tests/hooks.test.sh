@@ -217,6 +217,8 @@ check "hold: reset to a ref counts commits" has "$(sh_ 'git reset --hard HEAD~1'
 $BG stash -q
 check "hold: nothing to lose says so" has "$(sh_ 'git reset --hard')" 'no uncommitted changes'
 check "hold: stash drop names the entry" has "$(sh_ 'git stash drop')" 'stash@{0}: WIP on main'
+check "hold: cd ~/ resolves to home" has "$(cd "$TMP" && HOME="${B%/*}" sh_ "cd ~/${B##*/} && git stash drop")" 'stash@{0}: WIP on main'
+check "hold: git -C ~/ resolves to home" has "$(cd "$TMP" && HOME="${B%/*}" sh_ "git -C ~/${B##*/} stash drop")" 'stash@{0}: WIP on main'
 out=$(sh_ 'git stash && git stash drop')
 check "hold: an earlier command in the line makes the list unknown" has "$out" 'could not check: an earlier command in this line changes it'
 check "hold: an earlier command in the line lists no stale entry" not has "$out" 'stash@{0}'
@@ -310,6 +312,8 @@ check "commit: .env staged -> deny" denied "$(sh_ 'git commit -m "fix: x"')"
 git reset -q
 check "worktree: inside repo -> deny" denied "$(sh_ 'git worktree add .worktrees/x -b feat/y')"
 check "worktree: sibling allowed" [ -z "$(sh_ "git worktree add ../$(basename "$R")-y -b feat/y")" ]
+check "worktree: ~/ sibling allowed" [ -z "$(HOME="${R%/*}" sh_ "git worktree add ~/$(basename "$R")-y -b feat/y")" ]
+check "worktree: ~/ inside repo -> deny" denied "$(HOME="$R" sh_ 'git worktree add ~/x -b feat/y')"
 U=$(mktemp -d "$TMP/unborn.XXXX"); git -C "$U" init -q -b main
 check "commit: unborn main -> deny" denied "$(cd "$U" && sh_ 'git commit -m "fix: x"')"
 cd "$REPO"

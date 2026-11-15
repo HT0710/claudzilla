@@ -442,7 +442,7 @@ function worktreePath(a) {
 function insideRepo(dir, p) {
   const top = git(dir, "rev-parse", "--show-toplevel");
   if (!p || !top) return false;
-  const abs = resolve(realpathSync(dir), p);
+  const abs = resolve(realpathSync(dir), home(p));
   return abs === top || abs.startsWith(top + sep);
 }
 
@@ -459,10 +459,12 @@ function newBranch(a, short, long) {
   }
 }
 
+// The shell expands ~ before git or cd sees it; the hook reads the raw words.
+const home = (p) => p.replace(/^~(?=\/|$)/, homedir());
 function gitParse(t, cwd) {
   let i = 1, dir = cwd;
   while (t[i]?.startsWith("-")) {
-    if (t[i] === "-C") { dir = resolve(cwd, t[i + 1] ?? "."); i += 2; } else i += t[i] === "-c" ? 2 : 1;
+    if (t[i] === "-C") { dir = resolve(cwd, home(t[i + 1] ?? ".")); i += 2; } else i += t[i] === "-c" ? 2 : 1;
   }
   const [sub, ...a] = t.slice(i);
   return { dir, sub, a };
@@ -673,7 +675,7 @@ function checkBash(cmd, cwd, s) {
   const hits = [], branches = new Map(), was = s.checked;
   let stale = false;
   for (const t of expand(cmd)) {
-    if (t[0] === "cd" && t[1]) { cwd = resolve(cwd, t[1]); continue; }
+    if (t[0] === "cd" && t[1]) { cwd = resolve(cwd, home(t[1])); continue; }
     if (t[0] === "git") checkGit(t, cwd, cmd, s, hits, branches, stale);
     else if (t[0] === "gh") {
       const pr = ghPr(t, cwd, cmd);
