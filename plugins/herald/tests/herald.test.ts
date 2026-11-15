@@ -346,9 +346,15 @@ test('30 idle minutes past 1x pin the reminder under the prompt until the next t
   await ctxMeasure($, 160_000)
   await clock.advance(EVERY_MS)
   expect(toasts.filter(([text]) => text === T160)).toEqual([[T160, 10000]])
-  expect(status).toEqual([T160])
+  expect(status).toEqual([undefined, T160])
   await $.prompt.submit({ text: 'back', wait: false, origin: { kind: 'composer' } } as any)
-  expect(status).toEqual([T160, undefined])
+  expect(status).toEqual([undefined, T160, undefined])
+})
+
+test("a session start clears herald's status line",async ($, on) => {
+  const { status } = clocked(on)
+  await $.session.start(start)
+  expect(status).toEqual([undefined])
 })
 
 test('a turn cancels the idle toast', async ($, on) => {
@@ -357,7 +363,7 @@ test('a turn cancels the idle toast', async ($, on) => {
   await ctxMeasure($, 160_000)
   await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } } as any)
   await clock.advance(EVERY_MS)
-  expect(status).toEqual([])
+  expect(status).toEqual([undefined])
 })
 
 for (const [name, drop] of [
@@ -370,7 +376,7 @@ for (const [name, drop] of [
     await ctxMeasure($, 160_000)
     await drop($)
     await clock.advance(EVERY_MS)
-    expect(status).toEqual([])
+    expect(status).toEqual([undefined])
     await ctxMeasure($, 160_000)
     expect(toasts.filter(([text]) => text === T160)).toHaveLength(2)
   })
