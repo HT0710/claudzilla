@@ -1723,6 +1723,7 @@ for (const [status, durationMs, want, dot] of [
     const ui = await notice($, { status, durationMs })
     expect(await textOf(ui)).toBe(want)
     expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe(dot)
+    if (durationMs !== undefined) expect((await ui.find({ type: 'Text', text: /^in$/ }))?.props.color).toBe('#4f5c68')
     expect(seen.calls).toBeGreaterThan(0)
   })
 }
@@ -2721,7 +2722,7 @@ test('a running agent row tags the model it spawned on and the effort its reques
   await spawnAgent($, on, 'claude-opus-5-5', 'high')
   const ui = await mountRow($, 'Agent', undefined, { input: { description: 'Fix login bug', effort: 'max' }, isRunning: true }, '/p/a.txt', 'a1')
   expect(await textOf(ui, 'a1')).toBe('◆ running  agent (Fix login bug)  as opus high')
-  for (const [part, color] of [[/^as$/, 'inactive'], [/^opus$/, undefined], [/^high$/, 'inactive']] as const) {
+  for (const [part, color] of [[/^as$/, '#4f5c68'], [/^opus$/, undefined], [/^high$/, '#4f5c68']] as const) {
     const node = await ui.find({ type: 'Text', text: part })
     expect(node).toBeDefined()
     expect(node?.props.color).toBe(color)
