@@ -1200,6 +1200,15 @@ export const register: Register = on => {
     current = run
   }
   on('ui.render', { component: ['UserMessage', 'AssistantMessage', 'ToolGroup', 'ToolUse'] }, async ($, e, next) => {
+    // Before any row is placed: after a reload a finish row can draw in the same pass as its launch row.
+    if (e.component === 'ToolUse' && e.props.tool === 'Agent') {
+      const { input, output } = e.props
+      if (agents.size > 500) agents.clear()
+      const args = (input ?? {}) as AgentRow & { subagent_type?: string }
+      const known = agents.get(e.requestId)
+      const resolved = (output as { resolvedModel?: string } | undefined)?.resolvedModel
+      agents.set(e.requestId, { description: args.description ?? known?.description, model: resolved ?? known?.model ?? args.model, effort: known?.effort ?? args.effort, name: known?.name ?? args.name, type: known?.type ?? args.subagent_type })
+    }
     place(() => $.ui.invalidate('ui.render'), e)
     return next(e)
   })
@@ -1227,13 +1236,6 @@ export const register: Register = on => {
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
     const native = await next(e)
     const { tool, input, output, isRunning, isErrored, isInterrupted, isExpanded } = e.props
-    if (tool === 'Agent') {
-      if (agents.size > 500) agents.clear()
-      const args = (input ?? {}) as AgentRow & { subagent_type?: string }
-      const known = agents.get(e.requestId)
-      const resolved = (output as { resolvedModel?: string } | undefined)?.resolvedModel
-      agents.set(e.requestId, { description: args.description ?? known?.description, model: resolved ?? known?.model ?? args.model, effort: known?.effort ?? args.effort, name: known?.name ?? args.name, type: known?.type ?? args.subagent_type })
-    }
     // A Client draws nothing on mobile.
     if (!hideEditDiff || e.surface !== 'terminal' || isExpanded) return engineRow(e.requestId, native)
     // A result drawn first shows the engine diff until this row records the edit.
