@@ -1191,6 +1191,18 @@ test('a notification the engine draws breaks the rail at the next gap', async ($
   expect(await rail(fold, OWN)).toBe(1)
 })
 
+for (const [tool, output] of [['Agent', { status: 'async_launched' }], ['Skill', { success: true }]] as const) {
+  test(`${tool}: a row first drawn before its output keeps the rail on the next gap`, async ($, on) => {
+    native(on)
+    on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+    await said($, 'a1')
+    const row = await mountRow($, tool, undefined, {}, '/p/a.txt', 't1')
+    await row.redraw({ tool_use_id: 't1', tool, input: { file_path: '/p/a.txt' }, output, isRunning: false, isErrored: false, isInterrupted: false })
+    const fold = await twoReads($)
+    expect(await rail(fold, GAP)).toBe(1)
+  })
+}
+
 test('an errored Edit that cuts a run breaks the rail at the next gap', async ($, on) => {
   native(on)
   on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
