@@ -253,27 +253,34 @@ function contextTokens(path) {
   return 0;
 }
 
-// True when the last reply, since the user's last prompt, carried a Compact line.
+// True when the last reply carried a Compact line. The current prompt may already be written, so prompts before any reply are skipped.
 function lastReplyNudged(path) {
   const lines = tailLines(path);
+  let reply = false;
   for (let i = lines.length - 1; i >= 0; i--) {
     const l = lines[i];
     if (l.includes("compact_boundary")) return false;
-    if (l.includes('"type":"user"') && !l.includes('"tool_result"')) return false;
-    if (l.includes('"type":"assistant"') && !l.includes('"isSidechain":true') && l.includes("**Compact — ")) return true;
+    if (l.includes('"type":"user"') && !l.includes('"tool_result"') && !l.includes('"isMeta":true')) {
+      if (reply) return false;
+      continue;
+    }
+    if (!l.includes('"type":"assistant"') || l.includes('"isSidechain":true')) continue;
+    reply = true;
+    // Only a line that starts with it: not a quote, an edit's input or a fenced example.
+    if (l.includes('"text":"**Compact — ') || l.includes("\\n**Compact — ")) return true;
   }
   return false;
 }
 
 // Past the threshold, the main model judges whether to remind about compacting; /claudzilla compact drafts the line. Label strengthens at 2x and 4x.
-function compactMsg(tokens, t, nudged = false) {
+function compactMsg(tokens, t, path) {
   // Never two replies in a row: the line would repeat while the user decides.
-  if (!t || tokens < t || nudged) return;
+  if (!t || tokens < t || lastReplyNudged(path)) return;
   const k = `~${Math.round(tokens / 1e3)}k`;
   const [label, when] = tokens >= 4 * t
     ? ["recommend", "any reply that is not mid-task, Q&A included"]
     : [tokens >= 2 * t ? "suggest" : "optional", "a reply that finishes a plan task (execute phase), a subtask (todo step, agreed item) or a big piece of work; never mid-task, not on a Q&A or small-tweak reply"];
-  return `Context ${k} tokens, re-sent every turn. Remind about compacting only on ${when}, and only if the next step (from your **Next:**, or nothing pending) won't need the older context. Add one line, right before **Next:**, or at the end when there is no **Next:**; even on a short reply:
+  return `Context ${k} tokens, re-sent every turn. Remind about compacting only on ${when}, and only if the next step (from your **Next:**, or nothing pending) won't need the older turns word for word. Add one line, right before **Next:**, or at the end when there is no **Next:**; even on a short reply. Next step needs decisions settled earlier → this line:
 **Compact — ${label}:** \`${k}\` tokens re-sent every turn; <what finished, a few words>. Run \`/claudzilla compact\`.
 
 Same work continues and the next step needs only the last few turns, a plan file or committed work, not decisions settled earlier → this line instead (\`/claudzilla handoff\` writes a note with no model call; compact re-reads all \`${k}\`):
@@ -292,7 +299,7 @@ function onPrompt(d) {
   const { cfg, warnings } = loadConfig(d.cwd ?? process.cwd());
   const lines = warnings.map((w) => `claudzilla config: ${w}`);
   if (prev.flags.length) lines.push(`Previous reply broke: ${prev.flags.join("; ")}. Apply from this reply on.`);
-  const compact = !MACHINE_PROMPT.test(p) && compactMsg(contextTokens(d.transcript_path), cfg.compactNudge, lastReplyNudged(d.transcript_path));
+  const compact = !MACHINE_PROMPT.test(p) && compactMsg(contextTokens(d.transcript_path), cfg.compactNudge, d.transcript_path);
   if (compact) lines.push(compact);
   // Every prompt: a one-time line would not survive /compact, and resizes need no tracking.
   const cols = termCols();
