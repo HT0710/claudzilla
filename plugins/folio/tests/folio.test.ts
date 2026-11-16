@@ -2768,6 +2768,20 @@ test("a finish row takes the spawn's description when the call's row drew none",
   expect(await textOf(ui)).toBe('◆ done     agent (Slow task) in 1s')
 })
 
+test('a finish row drawn in the same pass as its launch row, as after a reload, forks off the rail', async ($, on) => {
+  finished(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  await said($, 'm1')
+  const [, ui] = await Promise.all([
+    mountRow($, 'Agent', launched, { input: { description: 'Slow task', prompt: 'p' } }, '/p/a.txt', 'a1'),
+    $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
+      props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 'a1', status: 'completed' } }, viewport: VIEW }),
+  ])
+  expect(await rail(ui, /^◆ done     agent \(Slow task\)$/)).toBe(1)
+  expect(await rail(ui, /^[├╰]┄$/)).toBe(1)
+  expect(await rail(await twoReads($, 'r5', 'r6'), GAP)).toBe(1)
+})
+
 // The description in the type's colour, as margin's PLAN draws agents: a common type its own, any other hashed by name.
 const label = async (ui: any, text: RegExp) => (await ui.find({ type: 'Text', text }))?.props.color
 test("a running agent's label takes its spawned type's colour", async ($, on) => {
