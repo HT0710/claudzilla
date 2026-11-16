@@ -2341,6 +2341,7 @@ test('the same errored Bash call as a row, then in a group, joins one run once',
 
 test('a live call as a row, then in a finished group with a new call, folds both calls on the rail', async ($, on) => {
   native(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
   await said($, 'a1')
   await useRow($, call('b1', 'Bash', { command: 'ls' }, { isRunning: true, output: undefined }))
   const grp = await group($, [call('b1', 'Bash', { command: 'ls' }), call('b2', 'Bash', { command: 'pwd' })])
