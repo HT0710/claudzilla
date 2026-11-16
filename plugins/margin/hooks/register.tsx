@@ -630,8 +630,27 @@ let leaves = 0
 // Found by session id, not rebuilt from the root: Claude Code cuts a long root's folder name and
 // hashes it, and /cd or a worktree move changes the root. Kept once found.
 const chatPaths = new Map<string, string>()
-// Each skill's SKILL.md, as the engine reported it when the skill loaded.
+// Each skill's SKILL.md by plugin:name and by name, read from the chat files (the session's and its subagents'):
+// cc-plugin-sec-default skips a user mod's skill.prompt hook. Reread at most every READ_TTL while a drawn skill has none.
 const skillPaths = new Map<string, string>()
+// Anchored to the engine's own row, so the phrase quoted in a tool result or a prompt never matches.
+const SKILL_DIR = '"text":"Base directory for this skill: '
+// grep -E; JS RegExp reads it the same.
+export const SKILL_ROW = `${SKILL_DIR}/[^"\\\\]+\\\\n`
+const PLUGIN_SKILL = /\/plugins\/cache\/[^/]+\/([^/]+)\/[^/]+\/skills\/([^/]+)$/
+let skillsRead = { at: -Infinity, isMissing: true }
+const readSkillPaths = async ($: EngineInterface) => {
+  const { stdout } = await chatPath($)
+    .then(path => $.process.run(['grep', '-a', '-o', '-h', '-r', '-E', SKILL_ROW, path, `${path.slice(0, -'.jsonl'.length)}/subagents`]))
+    .catch(() => ({ stdout: '' }))
+  for (const line of stdout.split('\n')) {
+    const dir = line.slice(SKILL_DIR.length, -2)
+    if (!dir) continue
+    skillPaths.set(dir.split('/').pop()!, `${dir}/SKILL.md`)
+    const plugin = PLUGIN_SKILL.exec(dir)
+    if (plugin) skillPaths.set(`${plugin[1]}:${plugin[2]}`, `${dir}/SKILL.md`)
+  }
+}
 const chatPath = async ($: EngineInterface) => {
   const [dir, sessionId] = await Promise.all([configDir($), $.session.id()])
   if (!chatPaths.has(sessionId)) {
@@ -1344,13 +1363,6 @@ export const register: Register = (on, options) => {
     return result
   })
 
-  on('skill.prompt', async ($, e, next) => {
-    const result = await next(e)
-    if (e.path) for (const name of [e.skill, ...(e.pluginName ? [`${e.pluginName}:${e.skill}`] : [])]) skillPaths.set(name, e.path)
-
-    return result
-  })
-
   // Recorded after the call runs: a call that fails or is refused used nothing. Intent off: USED never draws, so nothing is recorded.
   if (isIntentOn) on('tool.call', { tool: /^(Read|Grep|Glob|WebSearch|WebFetch|Skill|Bash|mcp__.+)$/ }, async ($, e, next) => {
     const command = e.tool === 'Bash' ? String((e as { command?: unknown }).command ?? '') : ''
@@ -1361,6 +1373,11 @@ export const register: Register = (on, options) => {
     if ('deny' in result) return result
     const uses = e.tool !== 'Bash' ? [useOf(e as never)].filter(u => !!u) : bash ? await bashFiles($, command, cwd) : []
     if (uses.length) await update($, used, u => recordUse(u, e as never, uses))
+    // Its folder row lands in the chat file after this returns: reread then, and redraw an open modal to link it.
+    if (e.tool === 'Skill') {
+      skillsRead.isMissing = true
+      $.clock.after(READ_TTL, () => $.ui.invalidate('ui.render'))
+    }
 
     return result
   })
@@ -1485,7 +1502,17 @@ export const register: Register = (on, options) => {
       out = await drawGit($, { ...ctx, readGh: () => readGh($), readCommitView: sha => readCommitView($, sha), readPrView: (n, failed) => readPrView($, n, failed), rerunFailed: runs => rerunFailed($, runs) })
     } else {
       viewing = e.props.view?.agentId
-      out = await drawOverview($, { ...ctx, viewing: () => viewing, skillPath: name => skillPaths.get(name) })
+      const at = await $.clock.now()
+      if (skillsRead.isMissing && at - skillsRead.at >= READ_TTL) {
+        skillsRead = { at, isMissing: false }
+        await readSkillPaths($)
+      }
+      const skillPath = (name: string) => {
+        const path = skillPaths.get(name) ?? skillPaths.get(name.split(':').pop()!)
+        if (!path) skillsRead.isMissing = true
+        return path
+      }
+      out = await drawOverview($, { ...ctx, viewing: () => viewing, skillPath })
     }
     if (!next.signal.aborted && (await read($, tab)) === saved) setZones(current, out.zones)
     const body = out.fade ? fadeTree(out.body, out.fade.keep, () => setModal($, () => null), out.fade.open) : out.body
