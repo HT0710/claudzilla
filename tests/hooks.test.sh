@@ -107,6 +107,15 @@ check "compact: a reply later, shown again" has "$(cn "$TX")" '**Compact — opt
 check "compact: tool result is not a new prompt" [ -z "$(cn "$TX")" ]
 : > "$TX"; said "$TX" optional 160000; printf '{"type":"system","subtype":"compact_boundary"}\n' >> "$TX"; usage "$TX" 60000 100000
 check "compact: line before a compact boundary forgotten" has "$(cn "$TX")" '**Compact — optional:**'
+: > "$TX"; said "$TX" optional 160000; prompted "$TX"
+check "compact: current prompt already written, still silent" [ -z "$(cn "$TX")" ]
+: > "$TX"; said "$TX" optional 160000; printf '{"type":"user","isMeta":true,"message":{"content":"<local-command-caveat>x</local-command-caveat>"}}\n' >> "$TX"; usage "$TX" 10000 170000
+check "compact: meta user line keeps the block" [ -z "$(cn "$TX")" ]
+: > "$TX"; usage "$TX" 60000 100000; printf '{"type":"assistant","isSidechain":true,"message":{"content":[{"type":"text","text":"**Compact — optional:** x"}],"usage":{"input_tokens":5}}}\n' >> "$TX"
+check "compact: sidechain line does not block" has "$(cn "$TX")" '**Compact — optional:**'
+: > "$TX"; printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"new_string":"x **Compact — optional:** y"}}],"usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":160000}}}\n' >> "$TX"
+check "compact: phrase inside a tool input does not block" has "$(cn "$TX")" '**Compact — optional:**'
+check "compact: compact case named" has "$(cn "$TX")" 'needs decisions settled earlier'
 check "compact: subtask ends count" has "$(cn "$TX")" "subtask"
 check "compact: no transcript_path silent" [ -z "$(new_session; hook UserPromptSubmit prompt=next)" ]
 check "compact: missing transcript silent" [ -z "$(cn "$TMP/nope.jsonl")" ]
