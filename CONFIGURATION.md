@@ -94,7 +94,7 @@ The same three files hold one folio option, under its own key and read when a se
 {"folio": {"hideEditDiff": false}}
 ```
 
-`hideEditDiff` (default `true`): folio draws an Edit or Write call as one row, such as `● Updated (a.txt)  +12 −3`, folds a run of them, and ctrl+o shows the full diffs. `false` keeps the diffs in the chat. A bad value is ignored without a message.
+`hideEditDiff` (default `true`): folio folds tool calls into one row with counts, such as `◼ Edited (1 file)  +12 −3`, and ctrl+o shows the full diffs. `false` keeps the diffs in the chat. A bad value is ignored without a message.
 
 ## Experimental features
 
