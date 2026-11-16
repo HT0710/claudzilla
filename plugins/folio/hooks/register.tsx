@@ -1326,6 +1326,8 @@ export const register: Register = on => {
       if (tool === 'Agent') return agentRow(elements, e.requestId, other[2] as State, agents.get(e.requestId), other[1], other[2] === 'working' || other[2] === 'remote')
       return textRow(elements, e.requestId, isLive ? <Text color="inactive">{isLit ? '●' : ' '}</Text> : <Text color="success">●</Text>, other)
     }
+    // A call drawn before it starts gets folio's row on a later draw: this native draw must not break the rail.
+    if (!seg && tool in ROWS && output === undefined && !isErrored && !isInterrupted) return native
     if (!seg) return engineRow(e.requestId, native)
     // A running lone Read, Grep or Glob call: one plain row; once done it folds above.
     if (e.viewport?.isFullscreen && isRunning && !isErrored && !isInterrupted && tool !== 'Bash' && !tool.startsWith('mcp__') && !(tool in EDIT) && !(tool in RUNNING)) {
