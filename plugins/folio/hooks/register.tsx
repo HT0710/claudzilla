@@ -6,6 +6,7 @@ import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
 let LIT = DEFAULTS.shared.lit
+let FAINT = DEFAULTS.shared.faint
 
 type State = 'running' | 'working' | 'remote' | 'done' | 'failed' | 'stopped' | 'interrupted'
 const stateColour = (state: State) => ({ running: 'claude', working: 'claude', remote: 'claude', done: 'success', failed: 'error', stopped: 'inactive', interrupted: 'inactive' })[state]
@@ -665,6 +666,7 @@ export const register: Register = on => {
     await t.start(traceIo($))
     const { shared } = (await readPalette($)).palette
     LIT = shared.lit
+    FAINT = shared.faint
     hideEditDiff = await readHideEditDiff($, e.cwd)
     return next(e)
   })
@@ -802,8 +804,8 @@ export const register: Register = on => {
         <Text color={color}>{state === 'running' && !isLit ? ' ' : state === 'working' || state === 'remote' ? '◇' : '◆'}</Text> <Text color={color}>{state.padEnd(7)}</Text>{'  '}
         <Text bold color={agentTone(agent ?? {})}>{agentLabel(agent?.type)}</Text>
         <Text color="promptBorder"> (</Text>{desc}<Text color="promptBorder">)</Text>
-        {isLive && (model || effort) && <Text>{'  '}<Text color="inactive">as</Text>{model && ' '}{model && <Text>{model}</Text>}{effort && ' '}{effort && <Text color="inactive">{effort}</Text>}</Text>}
-        {ms !== undefined && <Text>{'  '}<Text color="inactive">in</Text> {durationText(ms)}</Text>}
+        {isLive && (model || effort) && <Text>{'  '}<Text color={FAINT}>as</Text>{model && ' '}{model && <Text>{model}</Text>}{effort && ' '}{effort && <Text color={FAINT}>{effort}</Text>}</Text>}
+        {ms !== undefined && <Text>{'  '}<Text color={FAINT}>in</Text> {durationText(ms)}</Text>}
       </Text>
     )
     return framed(elements, frame, row, 1, 1, `${isLast ? '╰' : '├'}${isBackground ? '┄' : '─'}`)
