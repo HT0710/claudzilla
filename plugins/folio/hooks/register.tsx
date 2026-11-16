@@ -1150,7 +1150,9 @@ export const register: Register = on => {
     placed.add(e.requestId)
     const ids = memberIds(e)
     // The engine re-keys a group once it ends: the new row takes the old one's place in its section.
-    const old = e.component === 'ToolGroup' && ids?.every(id => runs.has(id)) ? frameOf(ids[0]!) : undefined
+    // A group that also holds a call a live row placed takes that row's place too; growGroup adds its new calls.
+    const placedId = e.component === 'ToolGroup' ? ids?.find(id => runs.has(id)) : undefined
+    const old = placedId ? frameOf(placedId) : undefined
     if (old) {
       if (e.viewport?.isFullscreen) frames.set(e.requestId, old)
       for (const [n, id] of tails) if (frameOf(id) === old) tails.set(n, e.requestId)

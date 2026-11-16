@@ -2339,6 +2339,15 @@ test('the same errored Bash call as a row, then in a group, joins one run once',
   expect(await groupOf($, [call('b1', 'Bash', { command }, { isErrored: true })])).toBe('◼ Ran (1 command) · 1 failed')
 })
 
+test('a live call as a row, then in a finished group with a new call, folds both calls on the rail', async ($, on) => {
+  native(on)
+  await said($, 'a1')
+  await useRow($, call('b1', 'Bash', { command: 'ls' }, { isRunning: true, output: undefined }))
+  const grp = await group($, [call('b1', 'Bash', { command: 'ls' }), call('b2', 'Bash', { command: 'pwd' })])
+  expect(await textOf(grp, `fold:g${groups}`)).toBe('◼ Ran (2 commands)')
+  expect(await rail(grp, OWN)).toBe(1)
+})
+
 test('a group of Edit calls in a run draws its calls through the fold', async ($, on) => {
   native(on)
   const grp = await mountGroup($, 'c1', [call('c2', 'Edit', { file_path: '/p/a.txt' }, { output: patch('+b') }), call('c3', 'Edit', { file_path: '/p/b.txt' }, { output: patch('+c') })])
