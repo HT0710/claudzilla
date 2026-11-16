@@ -1925,6 +1925,15 @@ test('a palette lit colours the fold row under the pointer', async ($, on) => {
   expect(await lit($)).toBe('#112233')
 })
 
+test('a palette faint colours an agent row as and effort', async ($, on) => {
+  native(on)
+  configured(on, { '/cfg/claudzilla.json': JSON.stringify({ palette: { shared: { faint: '#112233' } } }) })
+  await spawnAgent($, on, 'claude-opus-5-5', 'high')
+  await $.session.start(start)
+  const ui = await mountRow($, 'Agent', undefined, { input: { description: 'Fix login bug' }, isRunning: true }, '/p/a.txt', 'a1')
+  for (const part of [/^as$/, /^high$/]) expect((await ui.find({ type: 'Text', text: part }))?.props.color).toBe('#112233')
+})
+
 test('a palette in a repo file is not read', async ($, on) => {
   native(on)
   configured(on, { '/repo/.claude/claudzilla.json': JSON.stringify({ palette: { shared: { lit: '#112233' } } }) })
