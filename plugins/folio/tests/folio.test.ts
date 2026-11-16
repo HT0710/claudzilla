@@ -1711,12 +1711,12 @@ const notice = async ($: any, task: object, extra: object = {}) => {
 }
 
 for (const [status, durationMs, want, dot] of [
-  ['completed', 12_000, '◆ done     agent (Slow task)  in 12s', 'success'],
-  ['failed', 122_000, '◆ failed   agent (Slow task)  in 2m 2s', 'error'],
-  ['killed', 12_000, '◆ stopped  agent (Slow task)  in 12s', 'inactive'],
-  ['completed', 3_723_000, '◆ done     agent (Slow task)  in 1h 2m 3s', 'success'],
+  ['completed', 12_000, '◆ done     agent (Slow task) in 12s', 'success'],
+  ['failed', 122_000, '◆ failed   agent (Slow task) in 2m 2s', 'error'],
+  ['killed', 12_000, '◆ stopped  agent (Slow task) in 12s', 'inactive'],
+  ['completed', 3_723_000, '◆ done     agent (Slow task) in 1h 2m 3s', 'success'],
   ['completed', undefined, '◆ done     agent (Slow task)', 'success'],
-  ['completed', 0, '◆ done     agent (Slow task)  in 0s', 'success'],
+  ['completed', 0, '◆ done     agent (Slow task) in 0s', 'success'],
 ] as const) {
   test(`a ${status} background agent's notification reads ${want}`, async ($, on) => {
     const seen = finished(on)
@@ -2721,7 +2721,7 @@ test('a running agent row tags the model it spawned on and the effort its reques
   native(on)
   await spawnAgent($, on, 'claude-opus-5-5', 'high')
   const ui = await mountRow($, 'Agent', undefined, { input: { description: 'Fix login bug', effort: 'max' }, isRunning: true }, '/p/a.txt', 'a1')
-  expect(await textOf(ui, 'a1')).toBe('◆ running  agent (Fix login bug)  as opus high')
+  expect(await textOf(ui, 'a1')).toBe('◆ running  agent (Fix login bug) as opus high')
   for (const [part, color] of [[/^as$/, '#4f5c68'], [/^opus$/, undefined], [/^high$/, '#4f5c68']] as const) {
     const node = await ui.find({ type: 'Text', text: part })
     expect(node).toBeDefined()
@@ -2734,9 +2734,9 @@ for (const [name, input, output, want] of [
     { ...agentDone, resolvedModel: 'claude-sonnet-5-5' }, '◆ done     agent (Find callers)'],
   ['a finished agent with only an input model', { description: 'd', model: 'haiku' }, agentDone, '◆ done     agent (d)'],
   ['a backgrounded agent with only an effort', { description: 'Review diff', effort: 'low' },
-    { status: 'async_launched', agentId: 'a1', description: 'Review diff', prompt: 'p', outputFile: '/o' }, '◇ working  agent (Review diff)  as low'],
+    { status: 'async_launched', agentId: 'a1', description: 'Review diff', prompt: 'p', outputFile: '/o' }, '◇ working  agent (Review diff) as low'],
   ['a backgrounded agent with a resolved model over the input one', { description: 'd', model: 'haiku', effort: 'low' },
-    { status: 'async_launched', agentId: 'a1', description: 'd', prompt: 'p', outputFile: '/o', resolvedModel: 'claude-sonnet-5-5' }, '◇ working  agent (d)  as sonnet low'],
+    { status: 'async_launched', agentId: 'a1', description: 'd', prompt: 'p', outputFile: '/o', resolvedModel: 'claude-sonnet-5-5' }, '◇ working  agent (d) as sonnet low'],
 ] as const) {
   test(`${name}: ${want}`, async ($, on) => {
     native(on)
@@ -2747,7 +2747,7 @@ for (const [name, input, output, want] of [
 test("a background agent's finish row leaves model and effort out", async ($, on) => {
   finished(on)
   await spawnAgent($, on, 'claude-haiku-5-5', 'medium')
-  expect(await textOf(await notice($, { status: 'completed', durationMs: 9_000 }))).toBe('◆ done     agent (Slow task)  in 9s')
+  expect(await textOf(await notice($, { status: 'completed', durationMs: 9_000 }))).toBe('◆ done     agent (Slow task) in 9s')
 })
 
 test("a finish row takes the spawn's description when the call's row drew none", async ($, on) => {
@@ -2756,7 +2756,7 @@ test("a finish row takes the spawn's description when the call's row drew none",
   await mountRow($, 'Agent', launched, { input: {} }, '/p/a.txt', 'a1')
   const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
     props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 'a1', status: 'completed', durationMs: 1_000 } }, viewport: VIEW })
-  expect(await textOf(ui)).toBe('◆ done     agent (Slow task)  in 1s')
+  expect(await textOf(ui)).toBe('◆ done     agent (Slow task) in 1s')
 })
 
 // The description in the type's colour, as margin's PLAN draws agents: a common type its own, any other hashed by name.
