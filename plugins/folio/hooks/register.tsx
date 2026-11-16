@@ -682,7 +682,7 @@ export const register: Register = on => {
     wroteColumns = 0
     for (const rows of [runs, done, placed, agents, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails]) rows.clear()
     corners.clear()
-    section = { open: false, gap: false, n: 0 }
+    section = { open: false, n: 0 }
     lastRow = undefined
     current = undefined
     await t.flush(traceIo($))
@@ -694,11 +694,11 @@ export const register: Register = on => {
   type Run = { order: string[]; isLive: boolean; frame?: Frame }
   // Every folded row's run, by tool_use_id.
   const runs = new Map<string, Run>()
-  // A row's place in its section, taken when it is first placed: whether a section is open, and whether a rail runs
-  // through the gap above it. Kept for fullscreen rows only; the normal view keeps its rows where they are.
-  type Frame = { open: boolean; gap: boolean; n: number }
+  // A row's place in its section, taken when it is first placed: whether a section is open, and which one. Kept for
+  // fullscreen rows only; the normal view keeps its rows where they are.
+  type Frame = { open: boolean; n: number }
   const frames = new Map<string, Frame>()
-  let section: Frame = { open: false, gap: false, n: 0 }
+  let section: Frame = { open: false, n: 0 }
   let lastRow: string | undefined
   const frameOf = (id: string) => frames.get(id) ?? runs.get(id)?.frame
   // Each member's latest props, by tool_use_id, and the row that draws it: the fold's calls come from here.
@@ -770,14 +770,14 @@ export const register: Register = on => {
       {tail && '  '}{tail}
     </Text>
   )
-  // A folio tool row sits 2 columns in: blank with no section open, else a rail of `lines` lines beside it, and a rail
-  // on the gap line above unless the row before breaks it. `margin` 0 joins the row to the one above.
+  // A folio tool row sits 2 columns in: blank with no section open, else a rail of `lines` lines beside it and on the
+  // gap line above. `margin` 0 joins the row to the one above.
   const framed = ({ Box, Text }: Elements['terminal'], frame: Frame | undefined, content: RenderNode, lines = 1, margin = 1, prefix = '│ ') => {
     if (!frame) return <Box flexDirection="column" marginTop={margin}>{content}</Box>
     if (!frame.open) return <Box flexDirection="column" marginTop={margin} paddingLeft={2}>{content}</Box>
     return (
-      <Box flexDirection="column" marginTop={frame.gap ? 0 : margin}>
-        {frame.gap && !!margin && <Text color="promptBorder">│</Text>}
+      <Box flexDirection="column">
+        {!!margin && <Text color="promptBorder">│</Text>}
         <Box>
           <Box width={2}><Text color="promptBorder">{[prefix, ...Array(lines - 1).fill('│ ')].join('\n')}</Text></Box>
           <Box flexDirection="column" flexGrow={1}>{content}</Box>
@@ -975,20 +975,15 @@ export const register: Register = on => {
       runs.set(c.tool_use_id!, run)
     })
   }
-  // A row that comes back as the engine's own drawing breaks the rail at the gap of the row after it.
-  const engineRow = (id: string, drawn: any) => {
-    if (lastRow === id) section.gap = false
-    return drawn
-  }
   // A group folds into a row of its own, like a run of edits; a click opens a tree of its calls.
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
     place(() => $.ui.invalidate('ui.render'), e)
     const native = await next(e)
     const { calls, isActive, isExpanded } = e.props
     // Off the fullscreen layout a printed row cannot change: a live header would stay Running.
-    if (!hideEditDiff || e.surface !== 'terminal' || isExpanded || !e.viewport?.isFullscreen || !calls.length) return engineRow(e.requestId, native)
+    if (!hideEditDiff || e.surface !== 'terminal' || isExpanded || !e.viewport?.isFullscreen || !calls.length) return native
     const elements = $.ui.resolve(e)
-    if (!('Client' in elements)) return engineRow(e.requestId, native)
+    if (!('Client' in elements)) return native
     const root = await $.session.root().catch(() => '')
     const columns = e.viewport.columns ?? 80
     const known = calls.filter(c => c.tool_use_id)
@@ -1013,7 +1008,7 @@ export const register: Register = on => {
           blinking.add(e.requestId)
           blink ??= $.clock.every(BLINK_MS, () => toggleBlink(() => $.ui.invalidate('ui.render')))
         }
-        return foldCalls(elements, e.requestId, columns, root, seg.calls, isLive) ?? engineRow(e.requestId, native)
+        return foldCalls(elements, e.requestId, columns, root, seg.calls, isLive) ?? native
       }
     }
     const isLive = isActive || calls.some(isGoing)
@@ -1021,7 +1016,7 @@ export const register: Register = on => {
       blinking.add(e.requestId)
       blink ??= $.clock.every(BLINK_MS, () => toggleBlink(() => $.ui.invalidate('ui.render')))
     }
-    return foldCalls(elements, e.requestId, columns, root, calls, isLive) ?? engineRow(e.requestId, native)
+    return foldCalls(elements, e.requestId, columns, root, calls, isLive) ?? native
   })
 
   // Calls as one row whose press opens a tree of them. `title` stands in for the per-kind counts.
@@ -1162,22 +1157,18 @@ export const register: Register = on => {
       if (lastRow && frameOf(lastRow) === old) lastRow = e.requestId
       return
     }
-    if (e.component === 'AssistantMessage') section = { open: true, gap: true, n: section.n + 1 }
-    else if (e.component === 'UserMessage' && e.props.origin?.kind === 'composer') section = { open: true, gap: false, n: section.n + 1 }
+    if (e.component === 'AssistantMessage' || (e.component === 'UserMessage' && e.props.origin?.kind === 'composer')) section = { open: true, n: section.n + 1 }
     const frame = e.viewport?.isFullscreen ? { ...section } : undefined
-    // A tool row, or a finish row folio draws, takes its frame here; the rail runs through the gap after it.
+    // A tool row, or a finish row folio draws, takes its frame here.
     const take = () => {
       forkLast(redraw)
       if (frame) frames.set(e.requestId, frame)
-      section.gap = true
       lastRow = e.requestId
       tails.set(section.n, e.requestId)
     }
     if (!ids) {
       current = undefined
       if (e.component === 'ToolUse' || e.component === 'ToolGroup' || finishOf(e)) take()
-      // A notification the engine draws breaks the rail, but heads and ends no section.
-      else if (e.component === 'UserMessage' && e.props.origin?.kind === 'task-notification') section.gap = false
       return
     }
     // A row first drawn with its output is an old one, scrolled to: a live row must not land in its run, off screen.
@@ -1187,10 +1178,7 @@ export const register: Register = on => {
     // A row joining a run is the run's owner's to draw: it takes no frame of its own.
     if (!joined) take()
     else {
-      // A row after a break starts its own segment: its owner reads this frame, not the run's.
-      if (frame && !frame.gap && run.frame?.gap) frames.set(e.requestId, frame)
       forkLast(redraw)
-      section.gap = true
       lastRow = e.requestId
       tails.set(section.n, e.requestId)
     }
@@ -1239,14 +1227,14 @@ export const register: Register = on => {
     const native = await next(e)
     const { tool, input, output, isRunning, isErrored, isInterrupted, isExpanded } = e.props
     // A Client draws nothing on mobile.
-    if (!hideEditDiff || e.surface !== 'terminal' || isExpanded) return engineRow(e.requestId, native)
+    if (!hideEditDiff || e.surface !== 'terminal' || isExpanded) return native
     // A result drawn first shows the engine diff until this row records the edit.
     if (!isRunning && !isInterrupted && adopt(e.requestId, output, String((input as { command?: unknown } | undefined)?.command ?? ''))) $.ui.invalidate('ui.render')
     const call: ToolGroupCall = { tool_use_id: e.requestId, tool, input, isRunning, isErrored, isInterrupted, output }
     if (runs.has(e.requestId) && remember(e.requestId, call)) $.ui.invalidate('ui.render')
     const seg = runs.has(e.requestId) ? segmentOf(e.requestId) : undefined
     // A cut row keeps its native row.
-    if (runs.has(e.requestId) && !seg) return engineRow(e.requestId, native)
+    if (runs.has(e.requestId) && !seg) return native
     // A result drawn first has no record yet; a run's owner draws every member's count.
     const summary = seg && tool in EDIT && !isRunning && !isInterrupted ? editSummary(tool, output, isErrored) : undefined
     if (seg && summary && !done.has(e.requestId)) {
@@ -1261,24 +1249,24 @@ export const register: Register = on => {
     // A lone Edit or Write folds only with counts: a held edit or one with no diff keeps its native row.
     if (seg && (seg.ids.length > 1 || (e.viewport?.isFullscreen && !isRunning && isLoneFold(tool, isErrored, isInterrupted) && (!(tool in EDIT) || summary)))) {
       const elements = $.ui.resolve(e)
-      if (!('Client' in elements)) return engineRow(e.requestId, native)
+      if (!('Client' in elements)) return native
       if (seg.owner !== e.requestId) return <elements.Box />
       const isLive = seg.calls.some(isGoing)
       if (isLive) {
         blinking.add(e.requestId)
         blink ??= $.clock.every(BLINK_MS, () => toggleBlink(() => $.ui.invalidate('ui.render')))
       }
-      return foldCalls(elements, e.requestId, e.viewport?.columns ?? 80, await $.session.root().catch(() => ''), seg.calls, isLive) ?? engineRow(e.requestId, native)
+      return foldCalls(elements, e.requestId, e.viewport?.columns ?? 80, await $.session.root().catch(() => ''), seg.calls, isLive) ?? native
     }
     const bashEdit = bashEdits.get(e.requestId)?.length ? bashEdits.get(e.requestId) : undefined
     // The root, not cwd(): a shell `cd` moves cwd(), and every row would shift with it.
     const name = namer(tool in EDIT || bashEdit ? await $.session.root().catch(() => '') : '', e.viewport?.columns)
     if (bashEdit) {
       // Off the fullscreen layout a failed write keeps the native row, as a plain file row would read as a success.
-      if (isRunning || isInterrupted || (isErrored && !e.viewport?.isFullscreen)) return engineRow(e.requestId, native)
+      if (isRunning || isInterrupted || (isErrored && !e.viewport?.isFullscreen)) return native
       // A script's title names its command even for one file; off the fullscreen layout it keeps the engine row.
       const isScript = scripts.has(e.requestId)
-      if (isScript && !e.viewport?.isFullscreen) return engineRow(e.requestId, native)
+      if (isScript && !e.viewport?.isFullscreen) return native
       // On the fullscreen layout only a failed write gets here: every other finished call folds above.
       if (e.viewport?.isFullscreen && isErrored) {
         const command = String((input as { command?: unknown } | undefined)?.command ?? '').split('\n')[0]!
@@ -1292,7 +1280,7 @@ export const register: Register = on => {
         const folded = foldCalls($.ui.resolve(e), e.requestId, e.viewport.columns ?? 80, await $.session.root().catch(() => ''), [call], false, title, true)
         if (folded) return folded
       }
-      if (isScript) return engineRow(e.requestId, native)
+      if (isScript) return native
       const elements = $.ui.resolve(e)
       const { Box, Text } = elements
       const dot = <Text color="success">●</Text>
@@ -1330,9 +1318,7 @@ export const register: Register = on => {
       if (tool === 'Agent') return agentRow(elements, e.requestId, other[2] as State, agents.get(e.requestId), other[1], other[2] === 'working' || other[2] === 'remote')
       return textRow(elements, e.requestId, isLive ? <Text color="inactive">{isLit ? '●' : ' '}</Text> : <Text color="success">●</Text>, other)
     }
-    // A call drawn before it starts gets folio's row on a later draw: this native draw must not break the rail.
-    if (!seg && tool in ROWS && output === undefined && !isErrored && !isInterrupted) return native
-    if (!seg) return engineRow(e.requestId, native)
+    if (!seg) return native
     // A running lone Read, Grep or Glob call: one plain row; once done it folds above.
     if (e.viewport?.isFullscreen && isRunning && !isErrored && !isInterrupted && tool !== 'Bash' && !tool.startsWith('mcp__') && !(tool in EDIT) && !(tool in RUNNING)) {
       const liveLabel = kindOf(tool)[1]
@@ -1347,11 +1333,11 @@ export const register: Register = on => {
     }
     // A lone call's native row still sits on the rail, 2 columns in.
     if (!summary && e.viewport?.isFullscreen && seg.ids.length === 1) return framed($.ui.resolve(e), frameOf(e.requestId), native)
-    if (!summary) return engineRow(e.requestId, native)
+    if (!summary) return native
     const elements = $.ui.resolve(e)
     const { Box } = elements
     const Client = 'Client' in elements ? elements.Client : undefined
-    if (!Client) return engineRow(e.requestId, native)
+    if (!Client) return native
     const row = (key: string, pieces: Piece[]) => <Client key={key} module="./fold.tsx" width="100%" height={1} props={{ pieces, lit: LIT }} />
     const self = done.get(e.requestId)!
     // Off the fullscreen layout, the only place an edit keeps its own row: a printed row cannot open.
@@ -1381,7 +1367,7 @@ export const register: Register = on => {
     const native = await next(e)
     const { task } = e.props
     const fin = finishOf(e)
-    if (!fin) return engineRow(e.requestId, native)
+    if (!fin) return native
     const { agent, arg, ended } = fin
     const elements = $.ui.resolve(e)
     const { Text } = elements
