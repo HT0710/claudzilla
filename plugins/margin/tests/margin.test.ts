@@ -3088,14 +3088,17 @@ test('parseTopics: every bullet line, no cap', () => {
 const TOPICS = '- Intent tab for the panel\n- shipping the branch'
 // This chat's prompts in the history file, Opus answering `reply(n)`, the pane open.
 // The hosts a TOPICS read needs, the pane open; `asks` records each Opus request.
-const overviewHosts = (on: Parameters<TestBody>[1], reply: (n: number) => unknown = () => ({ isAnswered: true, text: TOPICS, usage: {} }), typed = ['add an intent tab', 'ship it'], isPlaced = true) => {
+const overviewHosts = (on: Parameters<TestBody>[1], reply: (n: number) => unknown = () => ({ isAnswered: true, text: TOPICS, usage: {} }), typed = ['add an intent tab', 'ship it'], isPlaced = true, sent: string[] = []) => {
   const clock = mock.clock(on)
   on('env.get', () => ({ value: '/home/me' }))
   const chat = { id: 'chat-1' }
   on('session.id', () => ({ value: chat.id }))
   on('fs.read', () => ({ value: '' }))
   const lines = typed.map((display, i) => JSON.stringify({ display, timestamp: i + 1, sessionId: 'chat-1' }))
-  on('process.run', (_, e) => ran(isHistoryGrep(e.argv) ? lines.join('\n') : ''))
+  const chatFile = '/home/me/.claude/projects/-proj/chat-1.jsonl'
+  on('process.run', (_, e) =>
+    ran(isHistoryGrep(e.argv) ? lines.join('\n') : e.argv[0] === 'find' ? `${chatFile}\n` : e.argv.at(-1) === chatFile && e.argv.includes('"asUser":true') ? sent.join('\n') : ''),
+  )
   const pane = { isOpen: true }
   on('ui.panes', () => ({ value: pane.isOpen ? [{ id: 'margin', isPlaced }] : [] }) as any)
   on('prompt.submit', (_, e) => ({ text: e.text }) as any)
@@ -3273,6 +3276,24 @@ test('TOPICS reads a prompt that starts with a path, not a command', async ($, o
   await clock.settle()
   expect(asks[0]!.prompt).toContain('/tmp/shot.png why is this cut')
   expect(asks[0]!.prompt).not.toContain('/compact')
+})
+
+// A mod's prompt sent as the user (primer's handoff) lands in the chat file only, not in the history file.
+test('TOPICS reads a prompt a mod sent as the user from the chat file', async ($, on) => {
+  const handoff = `# Handoff from chat-0\n\nWritten 2026-11-16. Its transcript: ${'x'.repeat(300)}\n\n## Where we were\n\nWatch CI on PR #321\n\n${'y'.repeat(4000)}\n## User's ask\n\nadd a dark theme`
+  const rows = [
+    { type: 'user', isMeta: true, origin: { kind: 'plugin', name: 'primer' }, timestamp: '2026-11-16T08:45:51Z', message: { content: '<command-name>/clear</command-name>' } },
+    { type: 'user', origin: { kind: 'plugin', name: 'primer', asUser: true }, timestamp: '2026-11-16T08:45:52Z', message: { content: handoff } },
+  ].map(row => JSON.stringify(row))
+  const { clock, asks } = overviewHosts(on, undefined, ['add an intent tab'], true, rows)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  expect(asks).toHaveLength(1)
+  // Typed and sent prompts in time order; the ask moved ahead of the note, inside the cap.
+  expect(asks[0]!.prompt).toMatch(/- add an intent tab\n- add a dark theme # Handoff from chat-0 .*Watch CI on PR #321/)
+  expect(asks[0]!.prompt).not.toContain('/clear')
 })
 
 test('a failed TOPICS read keeps the topics and says why', async ($, on) => {
