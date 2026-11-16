@@ -1218,6 +1218,16 @@ test("margin's hidden intent row does not break a run", async ($, on) => {
   expect(await textOf(first, 'e1')).toBe('● Edited (2 files)  +2')
 })
 
+test("margin's intent call in a group of its own leaves no rail above the prompt's first row", async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['you'] }))
+  await head($, 'h1')
+  await mountGroup($, 'g0', [call('i1', 'mcp__margin__intent', {})])
+  const first = await mountRow($, 'Skill', { success: true }, { input: { skill: 'x' } }, '', 's1')
+  expect(await rail(first, GAP)).toBe(0)
+  expect(await rail(first, OWN)).toBe(1)
+})
+
 test('a failed edit keeps its native row, reason included; the fold counts the rest', async ($, on) => {
   native(on)
   const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')

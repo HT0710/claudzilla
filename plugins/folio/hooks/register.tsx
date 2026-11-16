@@ -1142,7 +1142,8 @@ export const register: Register = on => {
     if (lastRow && corners.has(lastRow) && frameOf(lastRow)?.n === section.n) redraw()
   }
   const place = (redraw: () => void, e: any) => {
-    const isHidden = e.component === 'ToolUse' && e.props.tool === INTENT_TOOL
+    const isHidden = (e.component === 'ToolUse' && e.props.tool === INTENT_TOOL)
+      || (e.component === 'ToolGroup' && e.props.calls.length > 0 && e.props.calls.every((c: ToolGroupCall) => c.tool === INTENT_TOOL))
     if (isHidden || e.surface !== 'terminal' || placed.has(e.requestId)) return
     placed.add(e.requestId)
     const ids = memberIds(e)
