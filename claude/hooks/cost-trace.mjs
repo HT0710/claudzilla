@@ -172,7 +172,7 @@ export function owners(files, logged) {
       return p && { type, sessionId: f.sessionId, run: runKey(f, runOf(starts, p.ts)), pending, tokens: {}, usd: 0 };
     }
     const r = f.parsed.requests.find((x) => x.id === key);
-    return r && { type, sessionId: f.sessionId, run: runKey(f, runOf(starts, r.ts)), pending, model: r.model, tokens: tokensOf(r.usage), usd: costOf(r.model, r.usage) ?? null };
+    return r && { type, sessionId: f.sessionId, run: runKey(f, runOf(starts, r.ts)), pending, model: r.model, ts: r.ts, tokens: tokensOf(r.usage), usd: costOf(r.model, r.usage) ?? null };
   };
   const cands = new Map();
   for (const f of files) {
@@ -190,7 +190,7 @@ export function owners(files, logged) {
   }
   for (const [key, row] of logged) {
     if (out.has(key)) continue;
-    out.set(key, { type: row.type, sessionId: row.sessionId, run: row.run, pending: false, ...(row.type === "request" ? { model: row.model } : {}), tokens: row.tokens ?? {}, usd: row.usd ?? (row.type === "prompt" ? 0 : null) });
+    out.set(key, { type: row.type, sessionId: row.sessionId, run: row.run, pending: false, ...(row.type === "request" ? { model: row.model, ts: row.ts } : {}), tokens: row.tokens ?? {}, usd: row.usd ?? (row.type === "prompt" ? 0 : null) });
   }
   return out;
 }
@@ -219,7 +219,7 @@ export function assembleRun({ run, project, files, agents, owners: all }) {
   let mainUsd = 0, prompts = 0, unpriced = 0;
   for (const [key, o] of all) {
     if (!(mine(o) || (o.run === null && !o.pending && (homeIds.has(o.sessionId) || (!present.has(o.sessionId) && homeAll))))) continue;
-    keys.push({ key, sessionId: o.sessionId, type: o.type, run: o.run, model: o.model ?? null, tokens: o.tokens, usd: o.usd, pending: o.pending });
+    keys.push({ key, sessionId: o.sessionId, type: o.type, run: o.run, model: o.model ?? null, ts: o.ts, tokens: o.tokens, usd: o.usd, pending: o.pending });
     if (!mine(o)) continue;
     if (o.type === "prompt") { prompts++; continue; }
     if (o.usd === null) unpriced++; else mainUsd += o.usd;
