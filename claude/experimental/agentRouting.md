@@ -51,6 +51,8 @@ This table replaces the model choice in `subagent-driven-development` (its Model
 | plan reviewer, a fresh agent that reads the spec, plan and code before the user sees the plan; its prompt says a spec that contradicts itself is its own finding with both spec lines, never a side picked | opus | high |
 | plan re-check, scoped to the reviewer's findings | sonnet | medium |
 
+A scoped re-review brief names each fix that changes code other callers share, such as a helper, a hook or a default, and asks the reviewer to check what each other caller now does. A re-review reads only the fix diff, so it misses a regression in shared code unless the brief names it.
+
 Per-task reviewer second pass, sent once the first review is back, before you act on it:
 
 ```text
