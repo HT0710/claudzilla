@@ -105,7 +105,7 @@ export type Ctx = { level: number; at: number }
 
 // The HUD shows the size; the toast says how strongly to act, as the reply line's label does (rules-guard compactMsg).
 const TIERS = ['optional', 'suggest', 'recommend']
-const contextText = (level: number) => `Compact — ${TIERS[level - 1]}: /claudzilla compact, or /clear for new work`
+const contextText = (level: number) => `Compact — ${TIERS[level - 1]}: /claudzilla compact, ${HANDOFF}, or /clear for new work`
 
 export const coldText = (level: number, tokens: number) =>
   `Cache cold · ${TIERS[level - 1]}: ${HANDOFF} starts fresh with a note, or send to re-read ${Math.round(tokens / 1000)}k`

@@ -271,7 +271,7 @@ test('a non-interactive session neither toasts nor marks usage', async ($, on) =
   expect(store.size).toBe(0)
 })
 
-const CT = 'Compact — suggest: /claudzilla compact, or /clear for new work'
+const CT = 'Compact — suggest: /claudzilla compact, /claudzilla handoff, or /clear for new work'
 
 test('contextToast: once per level crossed', () => {
   expect(contextToast(149_000, 150_000, { level: 0, at: 0 }, NOW)).toEqual({ ctx: { level: 0, at: 0 } })
@@ -300,7 +300,7 @@ test('a context measure toasts once per level and arms the 30-min idle timer whi
   await $.session.start(start)
   await ctxMeasure($, 160_000)
   await ctxMeasure($, 170_000)
-  expect(toasts).toEqual(['Compact — optional: /claudzilla compact, or /clear for new work'])
+  expect(toasts).toEqual(['Compact — optional: /claudzilla compact, /claudzilla handoff, or /clear for new work'])
   expect(timers).toEqual([EVERY_MS, EVERY_MS])
   await ctxMeasure($, 10_000)
   expect(timers).toHaveLength(2)
@@ -338,7 +338,7 @@ function clocked(on: On) {
   on('session.end', () => ({ sessionId: 's1' }) as any)
   return { clock, toasts, status, compacts, during }
 }
-const T160 = 'Compact — optional: /claudzilla compact, or /clear for new work'
+const T160 = 'Compact — optional: /claudzilla compact, /claudzilla handoff, or /clear for new work'
 
 test('30 idle minutes past 1x pin the reminder under the prompt until the next turn', async ($, on) => {
   const { clock, toasts, status } = clocked(on)
