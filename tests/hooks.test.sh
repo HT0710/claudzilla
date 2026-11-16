@@ -74,6 +74,7 @@ check "compact: tier 1 optional line" has "$out" '**Compact — optional:** `~16
 check "compact: one line, no heading" [ "$(grep -c '## Compact' <<<"$out")" = 0 ]
 check "compact: no draft" [ "$(grep -c 'Keep:' <<<"$out")" = 0 ]
 check "compact: points to the command" has "$out" 'Run `/claudzilla compact`.'
+check "compact: handoff when recent turns suffice" has "$out" '<what finished, a few words>; next step needs only the last turns, plan or commits. Run `/claudzilla handoff`.'
 check "compact: clear for unrelated work" has "$out" '<what finished, a few words>; nothing carries over. Run `/clear`.'
 check "compact: reason is a few words" has "$out" '`~160k` tokens re-sent every turn; <what finished, a few words>. Run `/claudzilla compact`.'
 check "compact: no why clause on screen" [ "$(grep -c "why the next step" <<<"$out")" = 0 ]
@@ -96,6 +97,17 @@ check "compact: sidechain usage ignored" [ -z "$(cn "$TX")" ]
 check "compact: synthetic zero-usage reply skipped" has "$(cn "$TX")" "**Compact — optional:**"
 : > "$TX"; usage "$TX" 60000 100000; new_session
 check "compact: machine prompt silent" [ -z "$(hook UserPromptSubmit 'prompt=<task-notification>x</task-notification>' "transcript_path=$TX")" ]
+said() { printf '{"type":"assistant","message":{"content":[{"type":"text","text":"**Compact — %s:** x"}],"usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":%s}}}\n' "$2" "$3" >> "$1"; }
+: > "$TX"; said "$TX" optional 160000; usage "$TX" 10000 170000
+check "compact: right after a reply with the line, silent" [ -z "$(cn "$TX")" ]
+prompted() { printf '{"type":"user","message":{"role":"user","content":"next"}}\n' >> "$1"; }
+: > "$TX"; said "$TX" optional 160000; prompted "$TX"; usage "$TX" 10000 170000
+check "compact: a reply later, shown again" has "$(cn "$TX")" '**Compact — optional:**'
+: > "$TX"; said "$TX" optional 160000; printf '{"type":"user","message":{"content":[{"type":"tool_result","content":"x"}]}}\n' >> "$TX"; usage "$TX" 10000 170000
+check "compact: tool result is not a new prompt" [ -z "$(cn "$TX")" ]
+: > "$TX"; said "$TX" optional 160000; printf '{"type":"system","subtype":"compact_boundary"}\n' >> "$TX"; usage "$TX" 60000 100000
+check "compact: line before a compact boundary forgotten" has "$(cn "$TX")" '**Compact — optional:**'
+check "compact: subtask ends count" has "$(cn "$TX")" "subtask"
 check "compact: no transcript_path silent" [ -z "$(new_session; hook UserPromptSubmit prompt=next)" ]
 check "compact: missing transcript silent" [ -z "$(cn "$TMP/nope.jsonl")" ]
 : > "$TX"; usage "$TX" 60000 100000; mkdir -p .claude; printf '{"rulesGuard":{"compactNudge":0}}' > .claude/claudzilla.local.json
