@@ -1114,13 +1114,13 @@ const twoReads = async ($: any, a = 'r1', b = 'r2') => {
   return first
 }
 
-test('a prompt heads a section: the rail starts on the first row, under a blank gap', async ($, on) => {
+test('a prompt heads a section: the rail runs through the gap under it', async ($, on) => {
   native(on)
   on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['you'] }))
   await head($, 'h1')
   const fold = await twoReads($)
   expect(await rail(fold, OWN)).toBe(1)
-  expect(await rail(fold, GAP)).toBe(0)
+  expect(await rail(fold, GAP)).toBe(1)
 })
 
 test("Claude's text opens a section: the rail runs through the gap above the row", async ($, on) => {
@@ -1140,14 +1140,14 @@ test('a text row draws no rail on any line', async ($, on) => {
   expect(await rail(ui, OWN)).toBe(0)
 })
 
-test('a second prompt starts a new section with a blank gap', async ($, on) => {
+test('a second prompt starts a new section with the rail through its gap', async ($, on) => {
   native(on)
   on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['you'] }))
   await head($, 'h1')
   await twoReads($)
   await head($, 'h2')
   const fold = await twoReads($, 'r3', 'r4')
-  expect(await rail(fold, GAP)).toBe(0)
+  expect(await rail(fold, GAP)).toBe(1)
   expect(await rail(fold, OWN)).toBe(1)
 })
 
@@ -1167,18 +1167,18 @@ test('a lone Read row sits inside the rail', async ($, on) => {
   expect(await textOf(ui, 'r1')).toBe('◼ Read (1 file)')
 })
 
-test('a row the engine draws breaks the rail at its gap', async ($, on) => {
+test('a row the engine draws keeps the rail on the next gap', async ($, on) => {
   native(on)
   on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
   await said($, 'a1')
   await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
   await mountRow($, 'Skill', 'x', { isInterrupted: true }, '/p/c.txt', 's1')
   const fold = await twoReads($, 'r5', 'r6')
-  expect(await rail(fold, GAP)).toBe(0)
+  expect(await rail(fold, GAP)).toBe(1)
   expect(await rail(fold, OWN)).toBe(1)
 })
 
-test('a notification the engine draws breaks the rail at the next gap', async ($, on) => {
+test('a notification the engine draws keeps the rail on the next gap', async ($, on) => {
   native(on)
   on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
   on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['note'] }))
@@ -1187,7 +1187,7 @@ test('a notification the engine draws breaks the rail at the next gap', async ($
   await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1', viewport: VIEW,
     props: { text: 'done', origin: { kind: 'task-notification' }, task: { toolUseId: 'none', status: 'completed' } } })
   const fold = await twoReads($, 'r5', 'r6')
-  expect(await rail(fold, GAP)).toBe(0)
+  expect(await rail(fold, GAP)).toBe(1)
   expect(await rail(fold, OWN)).toBe(1)
 })
 
@@ -1203,14 +1203,14 @@ for (const [tool, output] of [['Agent', { status: 'async_launched' }], ['Skill',
   })
 }
 
-test('an errored Edit that cuts a run breaks the rail at the next gap', async ($, on) => {
+test('an errored Edit that cuts a run keeps the rail on the next gap', async ($, on) => {
   native(on)
   on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
   await said($, 'a1')
   await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
   await mountRow($, 'Edit', 'Error: no.', { isErrored: true }, '/p/c.txt', 'e3')
   const fold = await twoReads($, 'r5', 'r6')
-  expect(await rail(fold, GAP)).toBe(0)
+  expect(await rail(fold, GAP)).toBe(1)
   expect(await rail(fold, OWN)).toBe(1)
 })
 
@@ -1230,16 +1230,6 @@ test("margin's hidden intent row does not break a run", async ($, on) => {
   await mountRow($, 'mcp__margin__intent', {}, {}, '/p/a.txt', 'i1')
   await mountRow($, 'Edit', patch('+c'), {}, '/p/b.txt', 'e2')
   expect(await textOf(first, 'e1')).toBe('◼ Edited (2 files)  +2')
-})
-
-test("margin's intent call in a group of its own leaves no rail above the prompt's first row", async ($, on) => {
-  native(on)
-  on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['you'] }))
-  await head($, 'h1')
-  await mountGroup($, 'g0', [call('i1', 'mcp__margin__intent', {})])
-  const first = await mountRow($, 'Skill', { success: true }, { input: { skill: 'x' } }, '', 's1')
-  expect(await rail(first, GAP)).toBe(0)
-  expect(await rail(first, OWN)).toBe(1)
 })
 
 test('a failed edit keeps its native row, reason included; the fold counts the rest', async ($, on) => {
@@ -2962,6 +2952,15 @@ test('an agent row forks off the rail: ╰ while last, ├ once another folio ro
   expect(await rail(agent, /^╰─$/)).toBe(1)
   await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
   expect(await rail(agent, /^├─$/)).toBe(1)
+})
+
+test("margin's intent call in a group of its own takes no place: the agent row before it keeps its corner", async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  await said($, 'a1')
+  const agent = await mountRow($, 'Agent', agentDone, { input: { description: 'Slow task' } }, '/p/a.txt', 'g1')
+  await mountGroup($, 'g0', [call('i1', 'mcp__margin__intent', {})])
+  expect(await rail(agent, /^╰─$/)).toBe(1)
 })
 
 test('a background launch forks with ┄, and its finish row takes the corner from it', async ($, on) => {
