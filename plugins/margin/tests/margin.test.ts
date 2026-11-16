@@ -6,7 +6,7 @@ import { fileKey } from '../hooks/git-data'
 import { DIMMED, clock, hoverOf, readersOf, rowHovers } from '../hooks/kit'
 import { duration } from '../hooks/footer'
 
-import { EMPTY_USED, ICON, RAIL_COLUMNS, railTop, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, resetUsed, stampPattern, useOf, bashPaths, wrapLines, zoneWindow } from '../hooks/register'
+import { EMPTY_USED, ICON, RAIL_COLUMNS, railTop, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, SKILL_ROW, resetUsed, stampPattern, useOf, bashPaths, wrapLines, zoneWindow } from '../hooks/register'
 import { modelName } from '../hooks/tab-overview'
 
 // A process.run result with `stdout`.
@@ -5143,14 +5143,30 @@ for (const [name, key] of [['a pending step row', 'o:step:1'], ['a planned agent
   })
 
 test('a skill press opens its SKILL.md; a skill with no path is a plain row', async ($, on) => {
-  on('skill.prompt', (_, e) => ({ text: e.text }) as any)
-  const ui = await usedPane($, on)
-  await $.skill.prompt({ skill: 'cavecrew', pluginName: 'caveman', text: '', path: '/p/cavecrew/SKILL.md' } as any)
+  // The chat file's row above a loaded skill's text names its folder, written only once the skill loaded.
+  let now = 0
+  let isLoaded = false
+  const row = '"text":"Base directory for this skill: /c/plugins/cache/m/caveman/1.0/skills/cavecrew\\n'
+  on('process.run', (_, e) => ran(e.argv[0] === 'grep' && e.argv.some(a => a.includes('Base directory')) && isLoaded ? `${row}\n` : ''))
+  // usedPane, with a clock this test moves.
+  on('tool.call', () => ({ result: {} }) as any)
+  on('session.cwd', () => ({ value: '/proj' }))
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }) as any)
+  const ui = await intentPane($, on, () => now)
+  await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await $.tool.call({ tool: 'Skill', skill: 'caveman:cavecrew' } as any)
   await $.tool.call({ tool: 'Skill', skill: 'init' } as any)
+  isLoaded = true
+  now = 1000
   await tapRow(ui, 'o:used:skills')
   expect(await pieces(ui, 'o:m:use:1')).toBeDefined()
   expect(await pieces(ui, 'o:m:use:0')).toBeUndefined()
+})
+
+test('the skill row pattern matches the engine row, not the phrase quoted in other text', async () => {
+  const re = new RegExp(SKILL_ROW)
+  expect(re.test('{"type":"text","text":"Base directory for this skill: /a/skills/x\\n\\n# X"}')).toBe(true)
+  expect(re.test('{"content":"grep says Base directory for this skill: /p/cavecrew"}')).toBe(false)
 })
 
 test('web rows: a page links in parts, a search says search; other rows name their source', async ($, on) => {
