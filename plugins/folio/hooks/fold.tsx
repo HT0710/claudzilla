@@ -2,7 +2,8 @@ import type { ClientModule } from 'claude-code'
 
 // An edit fold's row. A Client, as a Button always inverts under the pointer. A press is a down and up on the row.
 type Piece = { text: string; color?: string; bold?: boolean }
-const Fold: ClientModule<{ pieces: Piece[]; lit: string }, { hot?: boolean; down?: boolean }> = ({ pieces, lit }, surface) => {
+// `tail` never shrinks: only `pieces` is cut on a narrow row.
+const Fold: ClientModule<{ pieces: Piece[]; tail?: Piece[]; lit: string }, { hot?: boolean; down?: boolean }> = ({ pieces, tail, lit }, surface) => {
   const { Box, Text } = surface.elements
   surface.onPointer(e => {
     if (e.type === 'enter') surface.setState({ hot: true })
@@ -20,6 +21,15 @@ const Fold: ClientModule<{ pieces: Piece[]; lit: string }, { hot?: boolean; down
           <Text color={color} bold={bold}>{text}</Text>
         ))}
       </Text>
+      {tail?.length ? (
+        <Box flexShrink={0}>
+          <Text wrap="truncate">
+            {tail.map(({ text, color, bold }) => (
+              <Text color={color} bold={bold}>{text}</Text>
+            ))}
+          </Text>
+        </Box>
+      ) : null}
     </Box>
   )
 }

@@ -621,6 +621,9 @@ const INTENT_TOOL = 'mcp__margin__intent'
 // Tools whose rows fold into a run; any mcp__ tool too.
 const FOLDED = new Set(['Read', 'Grep', 'Glob', 'Bash', 'Edit', 'Write', 'WebFetch', 'WebSearch'])
 const isFolded = (tool: string) => FOLDED.has(tool) || tool.startsWith('mcp__')
+// A lone call that folds as a 1-call group does; a failed or interrupted one keeps its own row.
+const isLoneFold = (tool: string, isErrored?: boolean, isInterrupted?: boolean) =>
+  isFolded(tool) && tool !== INTENT_TOOL && !isErrored && !isInterrupted
 
 // The chunk's spans that name an existing file, by span; none when the engine cannot say.
 async function links($: EngineInterface, text: string): Promise<Map<string, Link>> {
@@ -675,7 +678,7 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     // A /clear or resume goes on under a new session id, which needs its own cols file.
     wroteColumns = 0
-    for (const rows of [runs, done, placed, shownDiffs, agents, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, editOpen, frames, tails]) rows.clear()
+    for (const rows of [runs, done, placed, agents, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails]) rows.clear()
     corners.clear()
     section = { open: false, gap: false, n: 0 }
     lastRow = undefined
@@ -700,12 +703,8 @@ export const register: Register = on => {
   const members = new Map<string, { requestId: string; call: ToolGroupCall }>()
   // Edit and Write records, apart from bashEdits so the Bash-write branch never sees them.
   const editOf = new Map<string, BashEdit[]>()
-  // Edit-only runs a click opened, by owner.
-  const editOpen = new Set<string>()
   const done = new Map<string, { file: string; diff?: string; summary: NonNullable<ReturnType<typeof editSummary>> }>()
   const placed = new Set<string>()
-  // Edits whose diff a click on their tree row opened.
-  const shownDiffs = new Set<string>()
   let current: Run | undefined
   let shownView: string | undefined
   // Running rows drawn since the last blink: one timer for all, which stops once a blink finds none.
@@ -753,11 +752,10 @@ export const register: Register = on => {
   const namePieces = (path: string): Piece[] =>
     path.split(/(\/)/).filter(Boolean).map(text => (text === '/' ? { text, color: 'promptBorder' } : { text }))
   const plus = (add: number, isNew = false) => (add > 0 || isNew ? `+${add}` : '')
-  // addWidth lines up a tree's − counts; a row with none keeps no trailing pad.
-  const countPieces = (add: number, del: number, isNew = false, gap = '  ', addWidth = 0): Piece[] => [
-    { text: gap },
+  const countPieces = (add: number, del: number, isNew = false): Piece[] => [
+    { text: '  ' },
     ...(plus(add, isNew) ? [{ text: plus(add, isNew), color: 'success' }] : []),
-    ...(del > 0 && (plus(add, isNew) || addWidth) ? [{ text: ' '.repeat(Math.max(addWidth - plus(add, isNew).length, 0) + 1) }] : []),
+    ...(del > 0 && plus(add, isNew) ? [{ text: ' ' }] : []),
     ...(del > 0 ? [{ text: `−${del}`, color: 'error' }] : []),
   ]
   const head = (mark: string, color: string, label: string): Piece[] => [{ text: mark, color }, { text: ' ' }, { text: label, bold: true }]
@@ -938,8 +936,6 @@ export const register: Register = on => {
   const kindOf = (tool: string) => GROUP_KINDS[tool] ?? (tool.startsWith('mcp__') ? ['Called', 'Calling', 'tool'] as const : [tool, tool, ''] as const)
   const isGoing = (c: ToolGroupCall) => c.isRunning && !c.isInterrupted && !c.isErrored
   const isEditCall = (c: ToolGroupCall) => c.tool in EDIT
-  // Edit-only segments keep the edit-run drawing, unless a ToolGroup holds a member: its calls draw through foldCalls.
-  const isEditRun = (seg: { ids: string[]; calls: ToolGroupCall[] }) => seg.calls.every(isEditCall) && seg.ids.every(id => members.get(id)?.requestId === id)
   // The run a row sits in, cut at each errored Edit or Write; undefined for a cut row. Its owner draws the fold.
   const segmentOf = (id: string) => {
     const order = runs.get(id)?.order
@@ -994,6 +990,10 @@ export const register: Register = on => {
     const root = await $.session.root().catch(() => '')
     const columns = e.viewport.columns ?? 80
     const known = calls.filter(c => c.tool_use_id)
+    // After a reload folio holds no record: the engine's diff gives the counts.
+    for (const c of known) {
+      if (c.tool === 'Bash' && !c.isRunning && !c.isInterrupted) adopt(c.tool_use_id!, c.output, String((c.input as { command?: unknown } | undefined)?.command ?? ''))
+    }
     if (known.length && runs.has(known[0]!.tool_use_id!)) {
       growGroup(known)
       if (known.map(c => remember(e.requestId, c)).some(Boolean)) $.ui.invalidate('ui.render')
@@ -1011,7 +1011,7 @@ export const register: Register = on => {
           blinking.add(e.requestId)
           blink ??= $.clock.every(BLINK_MS, () => toggleBlink(() => $.ui.invalidate('ui.render')))
         }
-        return foldCalls(elements, e.requestId, columns, root, seg.calls, isLive, undefined, undefined, seg.calls.length === 1 || seg.calls.every(isEditCall)) ?? engineRow(e.requestId, native)
+        return foldCalls(elements, e.requestId, columns, root, seg.calls, isLive) ?? engineRow(e.requestId, native)
       }
     }
     const isLive = isActive || calls.some(isGoing)
@@ -1019,13 +1019,14 @@ export const register: Register = on => {
       blinking.add(e.requestId)
       blink ??= $.clock.every(BLINK_MS, () => toggleBlink(() => $.ui.invalidate('ui.render')))
     }
-    return foldCalls(elements, e.requestId, columns, root, calls, isLive, undefined, undefined, calls.length === 1 || calls.every(isEditCall)) ?? engineRow(e.requestId, native)
+    return foldCalls(elements, e.requestId, columns, root, calls, isLive) ?? engineRow(e.requestId, native)
   })
 
-  // Calls as one row whose press opens a tree of them. `title` stands in for the per-kind counts; `lone`, a call's
-  // only written file, draws as that file's row and a press opens its diff with no tree.
+  // Calls as one row whose press opens a tree of them. `title` stands in for the per-kind counts.
   const foldCalls = (elements: Elements['terminal'], requestId: string, columns: number, root: string,
-    calls: readonly ToolGroupCall[], isLive: boolean, title?: Piece[], lone?: BashEdit, legacy = false) => {
+    all: readonly ToolGroupCall[], isLive: boolean, title?: Piece[], legacy = false) => {
+    // Margin's intent call draws nothing, so it counts for nothing; after a reload the engine groups it with the next call.
+    const calls = all.filter(c => c.tool !== INTENT_TOOL)
     const { Box, Text } = elements
     const Client = 'Client' in elements ? elements.Client : undefined
     if (!Client) return undefined
@@ -1041,7 +1042,13 @@ export const register: Register = on => {
       const kind = kinds.get(`${done}/${noun}`) ?? kinds.set(`${done}/${noun}`, { live, noun, n: 0, going: false }).get(`${done}/${noun}`)!
       kind.n++
       kind.going ||= going(c)
+      // A Bash call's written files count beside its command.
+      if (c.tool === 'Bash' && c.tool_use_id && !c.isErrored && bashEdits.get(c.tool_use_id)?.length && !kinds.has('Edited/file')) kinds.set('Edited/file', { live: 'Editing', noun: 'file', n: 0, going: false })
     }
+    // Edited counts files: one file edited twice, or by Edit and a command, is one.
+    const edited = kinds.get('Edited/file')
+    if (edited) edited.n = new Set(calls.flatMap(c => c.tool === 'Edit' ? [String((c.input as { file_path?: unknown } | undefined)?.file_path)]
+      : c.tool === 'Bash' && c.tool_use_id && !c.isErrored ? (bashEdits.get(c.tool_use_id) ?? []).map(f => f.file) : [])).size
     const failed = calls.filter(c => c.isErrored).length
     const interrupted = calls.some(c => c.isInterrupted)
     const parts = [...kinds].flatMap(([key, { live, noun, n, going }], i): Piece[] => [...(i ? [{ text: ' · ' }] : []),
@@ -1051,13 +1058,12 @@ export const register: Register = on => {
     const tail: Piece[] = legacy ? [] : failed ? [{ text: ' · ' }, { text: `${failed} failed`, color: 'error' }] : interrupted ? [{ text: ' · ' }, { text: 'interrupted', color: 'inactive' }] : []
     const [mark, color] = legacy ? isLive ? [isLit ? '●' : ' ', 'inactive'] : [isOpen ? '○' : '●', 'success']
       : [isLive && !isLit ? ' ' : isOpen ? '◻' : '◼', stateColour(worst)]
-    const header: Piece[] = [{ text: mark, color }, { text: ' ' }, ...(lone ? [{ text: lone.isNew ? 'Created' : EDIT.Edit!, bold: true },
-      { text: ' (', color: 'promptBorder' }, ...namePieces(name(lone.file)), { text: ')', color: 'promptBorder' }, ...countPieces(lone.add, lone.del, lone.isNew)]
-      : [...(title ?? [...parts, ...tail]), ...(add + del ? countPieces(add, del) : [])])]
+    const header: Piece[] = [{ text: mark, color }, { text: ' ' }, ...(title ?? [...parts, ...tail])]
+    const counts = add + del ? countPieces(add, del) : []
     const TREE_INDENT = 4
     // A file row with a diff is the fold's Client, keyed by call and file, so a press opens the diff under it.
     type Row = { pieces: Piece[]; key?: string; edit?: { file: string; diff?: string }; out?: 'first' | 'more' }
-    const rows = isOpen && !lone ? calls.flatMap((c): Row[] => {
+    const rows = isOpen ? calls.flatMap((c): Row[] => {
       const edits = (c.tool_use_id && !c.isErrored && (bashEdits.get(c.tool_use_id) ?? editOf.get(c.tool_use_id))) || []
       if (edits.length) {
         const files = edits.map((f, i): Row => ({ key: f.diff && `file:${c.tool_use_id}:${i}`, edit: f, pieces: [{ text: f.isNew ? 'Created' : EDIT.Edit!, bold: true },
@@ -1099,8 +1105,7 @@ export const register: Register = on => {
 
     return framed(elements, frame, (
       <Box flexDirection="column">
-        <Client key={`fold:${requestId}`} module="./fold.tsx" width="100%" height={1} props={{ pieces: header, lit: LIT }} />
-        {lone && isOpen && diffBox(elements, inner, lone, false)}
+        <Client key={`fold:${requestId}`} module="./fold.tsx" width="100%" height={1} props={{ pieces: header, tail: counts, lit: LIT }} />
         {rows.flatMap(({ pieces, key, edit, out }, i) => {
           const isShown = !!key && !!openGroups.get(requestId)?.has(key)
           const line = [{ text: out === 'more' ? '    ' : i === last && !isShown ? '  └ ' : '  ├ ', color: 'promptBorder' }, ...pieces]
@@ -1108,7 +1113,7 @@ export const register: Register = on => {
             : [<Text wrap="truncate-end">{line.map(({ text, color, bold }) => <Text color={color} bold={bold}>{text}</Text>)}</Text>]
         })}
       </Box>
-    ), 1 + (lone && isOpen ? diffLines(lone) : 0) + rows.length + rows.reduce((sum, r, i) => sum + (r.key && openGroups.get(requestId)?.has(r.key) ? diffLines(r.edit!, i < rows.length - 1) : 0), 0))
+    ), 1 + rows.length + rows.reduce((sum, r, i) => sum + (r.key && openGroups.get(requestId)?.has(r.key) ? diffLines(r.edit!, i < rows.length - 1) : 0), 0))
   }
 
   // A run lies in one transcript: an agent's rows must not take in the main chat's.
@@ -1208,7 +1213,9 @@ export const register: Register = on => {
     const isStripped = isFolded && (scripts.has(e.requestId) ? !!e.viewport?.isFullscreen : true)
     const native = await next(isStripped && edits?.length && bashEditDiff && typeof e.props.output === 'object' ? { ...e, props: { ...e.props, output: rest } } : e)
     const seg = runs.has(e.requestId) ? segmentOf(e.requestId) : undefined
-    const isFoldRow = !!seg && seg.ids.length > 1 && !isEditRun(seg)
+    // A lone edit's block goes through isEdit below; a running call's stays.
+    const isLoneRow = !!e.viewport?.isFullscreen && !(e.props.tool in EDIT) && !members.get(e.requestId)?.call.isRunning && isLoneFold(e.props.tool, e.props.isErrored, members.get(e.requestId)?.call.isInterrupted ?? (e.props as { isInterrupted?: boolean }).isInterrupted)
+    const isFoldRow = !!seg && (seg.ids.length > 1 || isLoneRow)
     const isEdit = isFoldRow || (runs.has(e.requestId) && editSummary(e.props.tool, e.props.output, e.props.isErrored)) || (!!bashEdits.get(e.requestId)?.length && !e.props.isErrored && !scripts.has(e.requestId)) || lostWrites.has(e.requestId)
     const isScriptRow = scripts.has(e.requestId) && !e.props.isErrored && !!e.viewport?.isFullscreen
     if (!hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || !(isEdit || isScriptRow || toolRow(e.props.tool, {}, e.props.output, e.props.isErrored))) return native
@@ -1247,7 +1254,8 @@ export const register: Register = on => {
       if (seg.ids.length > 1) $.ui.invalidate('ui.render')
     }
     // Before the Bash, lost-write and running branches: a live Edit in a mixed run draws inside the fold.
-    if (seg && seg.ids.length > 1 && !isEditRun(seg)) {
+    // A lone Edit or Write folds only with counts: a held edit or one with no diff keeps its native row.
+    if (seg && (seg.ids.length > 1 || (e.viewport?.isFullscreen && !isRunning && isLoneFold(tool, isErrored, isInterrupted) && (!(tool in EDIT) || summary)))) {
       const elements = $.ui.resolve(e)
       if (!('Client' in elements)) return engineRow(e.requestId, native)
       if (seg.owner !== e.requestId) return <elements.Box />
@@ -1256,7 +1264,7 @@ export const register: Register = on => {
         blinking.add(e.requestId)
         blink ??= $.clock.every(BLINK_MS, () => toggleBlink(() => $.ui.invalidate('ui.render')))
       }
-      return foldCalls(elements, e.requestId, e.viewport?.columns ?? 80, await $.session.root().catch(() => ''), seg.calls, isLive, undefined, undefined, seg.calls.every(isEditCall)) ?? engineRow(e.requestId, native)
+      return foldCalls(elements, e.requestId, e.viewport?.columns ?? 80, await $.session.root().catch(() => ''), seg.calls, isLive) ?? engineRow(e.requestId, native)
     }
     const bashEdit = bashEdits.get(e.requestId)?.length ? bashEdits.get(e.requestId) : undefined
     // The root, not cwd(): a shell `cd` moves cwd(), and every row would shift with it.
@@ -1267,8 +1275,8 @@ export const register: Register = on => {
       // A script's title names its command even for one file; off the fullscreen layout it keeps the engine row.
       const isScript = scripts.has(e.requestId)
       if (isScript && !e.viewport?.isFullscreen) return engineRow(e.requestId, native)
-      // Off the fullscreen layout a printed row cannot open, so each file keeps a plain row; so does a lone file with no diff to open.
-      if (e.viewport?.isFullscreen && (isScript || isErrored || bashEdit.length > 1 || bashEdit[0]!.diff)) {
+      // On the fullscreen layout only a failed write gets here: every other finished call folds above.
+      if (e.viewport?.isFullscreen && isErrored) {
         const command = String((input as { command?: unknown } | undefined)?.command ?? '').split('\n')[0]!
         const add = bashEdit.reduce((sum, c) => sum + c.add, 0)
         const del = bashEdit.reduce((sum, c) => sum + c.del, 0)
@@ -1277,7 +1285,7 @@ export const register: Register = on => {
         const title: Piece[] = [{ text: 'Ran', bold: true }, { text: ' (', color: 'promptBorder' }, { text: clip(command, room) }, { text: ')', color: 'promptBorder' }, ...failed]
         // Not errored to foldCalls, which leaves a failed group call's writes out; the title says `failed`.
         const call = { tool_use_id: e.requestId, tool, input, isRunning, isErrored: false, isInterrupted, output }
-        const folded = foldCalls($.ui.resolve(e), e.requestId, e.viewport.columns ?? 80, await $.session.root().catch(() => ''), [call], false, title, !isScript && !isErrored && bashEdit.length === 1 ? bashEdit[0] : undefined, true)
+        const folded = foldCalls($.ui.resolve(e), e.requestId, e.viewport.columns ?? 80, await $.session.root().catch(() => ''), [call], false, title, true)
         if (folded) return folded
       }
       if (isScript) return engineRow(e.requestId, native)
@@ -1319,108 +1327,44 @@ export const register: Register = on => {
       return textRow(elements, e.requestId, isLive ? <Text color="inactive">{isLit ? '●' : ' '}</Text> : <Text color="success">●</Text>, other)
     }
     if (!seg) return engineRow(e.requestId, native)
-    // A lone Read, Grep or Glob call: one plain row, as a lone fetch draws. An MCP call keeps its native row for its name.
-    if (e.viewport?.isFullscreen && !summary && !isErrored && !isInterrupted && tool !== 'Bash' && !tool.startsWith('mcp__') && !(tool in EDIT) && !(tool in RUNNING)) {
-      const [doneLabel, liveLabel] = kindOf(tool)
+    // A running lone Read, Grep or Glob call: one plain row; once done it folds above.
+    if (e.viewport?.isFullscreen && isRunning && !isErrored && !isInterrupted && tool !== 'Bash' && !tool.startsWith('mcp__') && !(tool in EDIT) && !(tool in RUNNING)) {
+      const liveLabel = kindOf(tool)[1]
       const args = (input ?? {}) as Record<string, unknown>
       const key = ['file_path', 'pattern', 'path', 'url', 'query'].find(k => typeof args[k] === 'string')
       const arg = !key ? '' : key === 'file_path' || key === 'path' ? namer(await $.session.root().catch(() => ''), e.viewport?.columns)(String(args[key])) : String(args[key]).split('\n')[0]!
-      if (isRunning) {
-        blinking.add(e.requestId)
-        blink ??= $.clock.every(BLINK_MS, () => toggleBlink(() => $.ui.invalidate('ui.render')))
-      }
+      blinking.add(e.requestId)
+      blink ??= $.clock.every(BLINK_MS, () => toggleBlink(() => $.ui.invalidate('ui.render')))
       const elements = $.ui.resolve(e)
       const { Text } = elements
-      return textRow(elements, e.requestId, isRunning ? <Text color="inactive">{isLit ? '●' : ' '}</Text> : <Text color="success">●</Text>, [isRunning ? liveLabel : doneLabel, arg, ''])
+      return textRow(elements, e.requestId, <Text color="inactive">{isLit ? '●' : ' '}</Text>, [liveLabel, arg, ''])
     }
     // A lone call's native row still sits on the rail, 2 columns in.
     if (!summary && e.viewport?.isFullscreen && seg.ids.length === 1) return framed($.ui.resolve(e), frameOf(e.requestId), native)
     if (!summary) return engineRow(e.requestId, native)
-    const isOpen = editOpen.has(seg.owner)
     const elements = $.ui.resolve(e)
-    const { Box, Text } = elements
+    const { Box } = elements
     const Client = 'Client' in elements ? elements.Client : undefined
     if (!Client) return engineRow(e.requestId, native)
     const row = (key: string, pieces: Piece[]) => <Client key={key} module="./fold.tsx" width="100%" height={1} props={{ pieces, lit: LIT }} />
-    const result = (entry: NonNullable<ReturnType<typeof done.get>>, gap = '  ', addWidth = 0) =>
-      countPieces(entry.summary.add, entry.summary.del, entry.summary.isNew, gap, addWidth)
     const self = done.get(e.requestId)!
-    const frame = frameOf(e.requestId)
-    const inner = (e.viewport?.columns ?? 80) - (frame ? 2 : 0)
-    const diff = (entry: typeof self, hasNext = false) => diffBox(elements, inner, entry, hasNext)
-    const diffLines = (entry: typeof self, hasNext = false) => (entry.diff ? diffRows(entry.diff, inner - 4) + (hasNext ? 1 : 0) : 0)
-    const entries = seg.ids.flatMap(id => done.get(id) ?? [])
-    if (entries.length < 2) {
-      return framed(elements, frame, (
-        <Box flexDirection="column">
-          {row(`fold:${e.requestId}`, [...head('●', 'success', self.summary.isNew ? 'Created' : EDIT[tool]!), { text: ' (', color: 'promptBorder' }, ...namePieces(name(self.file)), { text: ')', color: 'promptBorder' }, ...result(self)])}
-          {isOpen && diff(self)}
-        </Box>
-      ), 1 + (isOpen ? diffLines(self) : 0))
-    }
-    const add = entries.reduce((sum, entry) => sum + entry.summary.add, 0)
-    const del = entries.reduce((sum, entry) => sum + entry.summary.del, 0)
-    const files = new Set(entries.map(entry => entry.file)).size
-    const listed = isOpen ? entries : []
-    const at = listed.indexOf(self)
-    const isFirst = entries[0] === self
-    if (!isFirst && at < 0) return <Box />
-    const mark = isOpen ? '○' : '●'
-    // Every row's counts start in one column: past the header or the widest listed name, whichever ends later.
-    const TREE_INDENT = 4
-    const noun = files === 1 ? 'file' : 'files'
-    const label = `Edited (${files} ${noun})`
-    const nameEnd = Math.max(0, ...listed.map(entry => TREE_INDENT + name(entry.file).length))
-    // A new file's "new" sits in its own column between the names and the counts.
-    const NEW = 'new'
-    const hasNew = listed.some(entry => entry.summary.isNew)
-    const end = Math.max(label.length + 2, nameEnd + (hasNew ? NEW.length + 2 : 0))
-    const gapAfter = (width: number) => ' '.repeat(end - width + 2)
-    const addWidth = Math.max(plus(add).length, ...listed.map(entry => plus(entry.summary.add, entry.summary.isNew).length))
-    const selfName = name(self.file)
-    const newPieces: Piece[] = at >= 0 && self.summary.isNew ? [{ text: ' '.repeat(nameEnd - TREE_INDENT - selfName.length + 2) }, { text: NEW }] : []
-    const nameWidth = self.summary.isNew ? nameEnd + 2 + NEW.length : TREE_INDENT + selfName.length
-
-    return framed(elements, frame, (
+    // Off the fullscreen layout, the only place an edit keeps its own row: a printed row cannot open.
+    return framed(elements, frameOf(e.requestId), (
       <Box flexDirection="column">
-        {isFirst && row(`fold:${e.requestId}`, [
-          ...head(mark, 'success', 'Edited'),
-          { text: ' (', color: 'promptBorder' },
-          { text: String(files), color: 'claude' },
-          { text: ` ${noun}` },
-          { text: ')', color: 'promptBorder' },
-          ...countPieces(add, del, false, gapAfter(label.length + 2), listed.length ? addWidth : 0),
-        ])}
-        {at >= 0 && row(`file:${e.requestId}`, [
-          { text: at === listed.length - 1 && !shownDiffs.has(e.requestId) ? '  └ ' : '  ├ ', color: 'promptBorder' },
-          ...namePieces(selfName),
-          ...newPieces,
-          ...result(self, gapAfter(nameWidth), addWidth),
-        ])}
-        {shownDiffs.has(e.requestId) && diff(self, at < listed.length - 1)}
+        {row(`fold:${e.requestId}`, [...head('●', 'success', self.summary.isNew ? 'Created' : EDIT[tool]!), { text: ' (', color: 'promptBorder' }, ...namePieces(name(self.file)), { text: ')', color: 'promptBorder' }, ...countPieces(self.summary.add, self.summary.del, self.summary.isNew)])}
       </Box>
-    ), (isFirst ? 1 : 0) + (at >= 0 ? 1 : 0) + (shownDiffs.has(e.requestId) ? diffLines(self, at < listed.length - 1) : 0), isFirst ? 1 : 0)
+    ))
   })
 
   on('ui.message', async ($, e, next) => {
-    // An edit row of an edit-only run keeps its own open state; any other fold opens through openGroups.
-    const seg = runs.has(e.requestId) ? segmentOf(e.requestId) : undefined
-    const edits = seg && (members.get(e.requestId)?.call ? isEditCall(members.get(e.requestId)!.call) : false) && isEditRun(seg) ? seg : undefined
     const element = typeof e.element === 'string' ? e.element : ''
     const isPress = !!(e.data as { press?: boolean } | undefined)?.press
     const shown = openGroups.get(e.requestId)
-    if (!edits && isPress && element === `fold:${e.requestId}`) {
+    if (isPress && element === `fold:${e.requestId}`) {
       if (!openGroups.delete(e.requestId)) openGroups.set(e.requestId, new Set())
       $.ui.invalidate('ui.render')
-    } else if (!edits && isPress && shown && element.startsWith('file:')) {
+    } else if (isPress && shown && element.startsWith('file:')) {
       if (!shown.delete(element)) shown.add(element)
-      $.ui.invalidate('ui.render')
-    }
-    if (edits && isPress) {
-      if (element.startsWith('fold:')) {
-        if (!editOpen.delete(edits.owner)) editOpen.add(edits.owner)
-        for (const id of edits.ids) shownDiffs.delete(id)
-      } else if (element.startsWith('file:') && done.get(e.requestId)?.diff && !shownDiffs.delete(e.requestId)) shownDiffs.add(e.requestId)
       $.ui.invalidate('ui.render')
     }
 
