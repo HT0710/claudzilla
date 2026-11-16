@@ -370,8 +370,9 @@ const readOverview = async ($: EngineInterface) => {
   if (!(await overviewShown($).catch(() => false))) return
   overviewStale = false
   const seq = ++overviewSeq
-  // Newest first from history; a paste can be long, its head says enough.
-  const prompts = (await pastPrompts($)).filter(prompt => !isCommand(prompt)).slice(0, MAX_PROMPTS).reverse()
+  // Newest first from history and the chat file; a paste can be long, its head says enough.
+  const [typed, sent] = await Promise.all([pastPrompts($), sentPrompts($)])
+  const prompts = [...typed, ...sent].sort((a, b) => b.timestamp - a.timestamp).filter(prompt => !isCommand(prompt)).slice(0, MAX_PROMPTS).reverse()
   if (!prompts.length) return
   await update($, overview, now => ({ ...now, running: true }))
   try {
@@ -380,7 +381,7 @@ const readOverview = async ($: EngineInterface) => {
     // The first read and a merge get the whole list back; any other read only the last topic or two.
     const latest = shown.length > 0 && !merging
     const keep = (was ? `\n${SESSION_KEEP}\n> ${was}` : '') + (shown.length ? `\n${merging ? overviewMerge(shown.length) : OVERVIEW_KEEP}\n${shown.map(topic => `- ${topic}`).join('\n')}` : '')
-    const prompt = `${latest ? LATEST_ASK : OVERVIEW_ASK}${keep}\n\nPrompts:\n${prompts.map(one => `- ${flat(one.display).slice(0, 300)}`).join('\n')}`
+    const prompt = `${latest ? LATEST_ASK : OVERVIEW_ASK}${keep}\n\nPrompts:\n${prompts.map(one => `- ${flat(one.display).slice(0, 'sent' in one ? SENT_CAP : 300)}`).join('\n')}`
     const reply = await $.model.complete({ model: 'opus', prompt, effort: 'low', maxTokens: OVERVIEW_TOKENS, timeoutMs: 20_000 })
     if (seq !== overviewSeq) {
       t.event('overview.read', { dropped: 'newer read started' }, 'debug')
@@ -469,6 +470,31 @@ const pastPrompts = async ($: EngineInterface): Promise<Prompt[]> => {
 
   return prompts.reverse()
 }
+
+// A mod's prompt sent as the user (primer's handoff) is in the chat file only: history keeps typed prompts.
+// -a: as in pastPrompts.
+const sentPrompts = async ($: EngineInterface): Promise<(Prompt & { sent: true })[]> => {
+  const path = await chatPath($).catch(() => '')
+  if (!path) return []
+  const { stdout } = await $.process.run(['grep', '-a', '-F', '--', '"asUser":true', path]).catch(() => ({ stdout: '' }))
+  return stdout.split('\n').flatMap(line => {
+    try {
+      const row = JSON.parse(line)
+      const content = row.message?.content
+      const timestamp = Date.parse(row.timestamp)
+      if (row.type !== 'user' || row.isMeta || row.origin?.asUser !== true || typeof content !== 'string' || !Number.isFinite(timestamp)) return []
+      // primer puts the user's ask after a note of 4000+ characters: first, it survives SENT_CAP.
+      const [note, ask] = content.split(HANDOFF_ASK)
+      return [{ display: ask ? `${ask}\n\n${note}` : content, timestamp, sent: true as const }]
+    } catch {
+      return []
+    }
+  })
+}
+// A handoff's header fills the first 300 characters.
+const SENT_CAP = 2000
+// primer's heading over the user's ask in its handoff.
+const HANDOFF_ASK = "\n## User's ask\n\n"
 
 // The chat wraps a paste in <pasted_content> tags; history keeps it bare. A control character (a
 // pasted escape sequence) would get the whole pane refused, so it reads as a space.
