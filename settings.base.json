@@ -185,6 +185,8 @@
   "preferredNotifChannel": "auto",
   "autoCompactEnabled": true,
   "idleCompaction": false,
+  "promptSuggestionEnabled": false,
+  "awaySummaryEnabled": false,
   "remoteControlAtStartup": false,
   "agentPushNotifEnabled": true,
   "useAutoModeDuringPlan": true,
