@@ -835,7 +835,7 @@ export const register: Register = on => {
     const frame = frameOf(id)
     // Blinked off, the rail shows through, so it never breaks.
     const mark = isLive && !isLit ? <Text color="promptBorder">{frame?.open ? '│' : ' '}</Text> : <Text color={color}>✦</Text>
-    const row = <Text><Text color={color}>{isLive ? 'loading' : 'loaded'}</Text>{'  '}{skillLabel(elements, skill)}</Text>
+    const row = <Text><Text color={color}>{(isLive ? 'loading' : 'loaded').padEnd(7)}</Text>{'  '}{skillLabel(elements, skill)}</Text>
     return frame?.open ? framed(elements, frame, <Text wrap="truncate-end">{row}</Text>, 1, 1, mark) : framed(elements, frame, <Text wrap="truncate-end">{mark} {row}</Text>)
   }
   const textRow = (elements: Elements['terminal'], id: string, dot: RenderNode, row: [string, string, RenderNode], tag?: string, tone?: string) =>
