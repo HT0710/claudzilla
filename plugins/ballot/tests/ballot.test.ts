@@ -476,6 +476,7 @@ test('/rewind past the reply clears the band; another box write keeps it', async
     return { value: at < 0 ? { deny: 'gone' } : transcript.slice(at + 1) } as any
   })
   on('prompt.change', (_: any, e: any) => ({ text: e.text }))
+  on('prompt.suggest', () => ({ isShown: true }))
   await $.turn.complete(done(LETTERS))
   const ui = await $.ui.mount({ plugin: 'ballot', surface: 'terminal', ...BAND })
   await $.prompt.change({ text: 'older', cursor: 5, origin: { kind: 'history' } })
