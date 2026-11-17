@@ -1047,9 +1047,9 @@ export const register: Register = on => {
     return foldCalls(elements, e.requestId, columns, root, calls, isLive) ?? native
   })
 
-  // Calls as one row whose press opens a tree of them. `title` stands in for the per-kind counts.
+  // Calls as one row whose press opens a tree of them. `title` stands in for the per-kind counts; `state` for the calls' worst.
   const foldCalls = (elements: Elements['terminal'], requestId: string, columns: number, root: string,
-    all: readonly ToolGroupCall[], isLive: boolean, title?: Piece[], legacy = false) => {
+    all: readonly ToolGroupCall[], isLive: boolean, title?: Piece[], legacy = false, state?: State) => {
     // Margin's intent call draws nothing, so it counts for nothing; after a reload the engine groups it with the next call.
     const calls = all.filter(c => c.tool !== INTENT_TOOL)
     const { Box, Text } = elements
@@ -1079,7 +1079,7 @@ export const register: Register = on => {
     const parts = [...kinds].flatMap(([key, { live, noun, n, going }], i): Piece[] => [...(i ? [{ text: ' · ' }] : []),
       { text: legacy ? (isLive ? live : key.split('/')[0]!) : going ? live : key.split('/')[0]!, bold: true }, { text: ' (', color: 'promptBorder' }, { text: String(n), color: 'claude' },
       ...(noun ? [{ text: ` ${noun}${n === 1 ? '' : 's'}` }] : []), { text: ')', color: 'promptBorder' }])
-    const worst = calls.some(going) ? 'running' : failed ? 'failed' : interrupted ? 'interrupted' : 'done'
+    const worst = state ?? (calls.some(going) ? 'running' : failed ? 'failed' : interrupted ? 'interrupted' : 'done')
     const tail: Piece[] = legacy ? [] : failed ? [{ text: ' · ' }, { text: `${failed} failed`, color: 'error' }] : interrupted ? [{ text: ' · ' }, { text: 'interrupted', color: 'inactive' }] : []
     const [mark, color] = legacy ? isLive ? [isLit ? '●' : ' ', 'inactive'] : [isOpen ? '○' : '●', 'success']
       : [isLive && !isLit ? ' ' : isOpen ? '◻' : '◼', stateColour(worst)]
@@ -1413,11 +1413,17 @@ export const register: Register = on => {
     if (!fin) return native
     const { agent, arg, ended, skill } = fin
     const elements = $.ui.resolve(e)
-    const { Text } = elements
     // Solid: the work has joined back; only its launch row keeps the background dash.
     if (agent || skill !== undefined) return agentRow(elements, e.requestId, ended, agent, arg, false, task.durationMs, skill)
-    const color = stateColour(ended)
-    return textRow(elements, e.requestId, <Text color={color}>◼</Text>, ['Bash', arg, <Text color={color}>{task.durationMs === undefined ? ended : `${ended} · ${durationText(task.durationMs)}`}</Text>])
+    const tag = task.durationMs === undefined ? ended : `${ended} · ${durationText(task.durationMs)}`
+    // Off the fullscreen layout a printed row cannot open, so it keeps the command.
+    if (!e.viewport?.isFullscreen) return textRow(elements, e.requestId, <elements.Text color={stateColour(ended)}>◼</elements.Text>, ['Bash', arg, <elements.Text color={stateColour(ended)}>{tag}</elements.Text>])
+    // Folds like a 1-command run; a press opens it to the command.
+    const title: Piece[] = [{ text: 'Ran', bold: true }, { text: ' (', color: 'promptBorder' }, { text: '1', color: 'claude' }, { text: ' command' }, { text: ')', color: 'promptBorder' },
+      { text: '  ' }, { text: tag, color: stateColour(ended) }]
+    // No id: the launch row already draws the files the command wrote.
+    const call: ToolGroupCall = { tool: 'Bash', input: { command: arg }, isRunning: false, isErrored: false, isInterrupted: false }
+    return foldCalls(elements, e.requestId, e.viewport?.columns ?? 80, '', [call], false, title, false, ended) ?? native
   })
 
   // A reply still streaming skips the hook below, so md-display.pl draws its lines from this width.
