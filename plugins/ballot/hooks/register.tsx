@@ -17,6 +17,8 @@ let FAINT = DEFAULTS.shared.muted
 let offer: Offer | null = null
 // The command of the last reply's Compact reminder when it offered nothing else: the dim suggestion.
 let compact: string | null = null
+// The transcript row of the reply the band and suggestion were read from; a /rewind past it removes it.
+let shownAt: string | undefined
 
 const t = tracer('ballot')
 // The band's last recorded state: a render runs on every scroll and keystroke, so only a change is traced.
@@ -234,6 +236,8 @@ export const register: Register = on => {
       offer = parsed ?? await carried($)
       // A Next that asks nothing still names the next step: the engine's guess of it stays.
       compact = offer || /^\*\*Next:\*\*/m.test(e.answer) ? null : compactCommand(e.answer)
+      const last = offer || compact ? await $.session.messages({ last: 1 }).catch(() => null) : null
+      shownAt = last && !('deny' in last) ? last.at(-1)?.uuid : undefined
       t.event('ballot.offer', {
         matched: !!offer,
         source: parsed ? 'reply' : offer ? 'carried' : 'none',
@@ -256,6 +260,20 @@ export const register: Register = on => {
     const text = e.origin.kind === 'suggestion' ? (offer ? suggestion(offer) : compact) : null
     if (offer && e.origin.kind === 'suggestion') t.event('ballot.suggest', { replaced: !!text }, 'debug')
     return next(text ? { ...e, text } : e)
+  })
+
+  // /rewind sends no prompt but puts the rewound one back in the box: the reply the band came from is gone.
+  on('prompt.change', async ($, e, next) => {
+    const at = shownAt
+    const after = (offer || compact) && at ? await $.session.messages({ after: at }).catch(() => null) : null
+    // A turn that completed during the read set its own row.
+    if (after && 'deny' in after && shownAt === at) {
+      t.event('ballot.offer', { cleared: 'reply rewound' }, 'debug')
+      offer = null
+      compact = null
+      $.ui.invalidate('ui.render')
+    }
+    return next(e)
   })
 
   on('prompt.submit', async ($, e, next) => {

@@ -467,6 +467,26 @@ test('a typed prompt clears the band', async ($, on) => {
   expect(await ui.find({ key: 'pick:A' })).toBeUndefined()
 })
 
+test('/rewind past the reply clears the band; another box write keeps it', async ($, on) => {
+  let transcript = [{ role: 'user', text: 'hi', toolUses: [], uuid: 'u1' }, { role: 'assistant', text: LETTERS, toolUses: [], uuid: 'a1' }]
+  engine(on)
+  on('session.messages', (_: any, e: any) => {
+    if (e.last) return { value: transcript.slice(-e.last) }
+    const at = transcript.findIndex(m => m.uuid === e.after)
+    return { value: at < 0 ? { deny: 'gone' } : transcript.slice(at + 1) } as any
+  })
+  on('prompt.change', (_: any, e: any) => ({ text: e.text }))
+  await $.turn.complete(done(LETTERS))
+  const ui = await $.ui.mount({ plugin: 'ballot', surface: 'terminal', ...BAND })
+  await $.prompt.change({ text: 'older', cursor: 5, origin: { kind: 'history' } })
+  await ui.drawn()
+  expect(await ui.find({ key: 'pick:A' })).toBeDefined()
+  transcript = transcript.slice(0, 1)
+  await $.prompt.change({ text: 'hi', cursor: 2, origin: { kind: 'engine' } })
+  await ui.drawn()
+  expect(await ui.find({ key: 'pick:A' })).toBeUndefined()
+})
+
 test('/clear (session.end) clears the band', async ($, on) => {
   engine(on)
   on('session.end', () => ({ sessionId: 's1' }))
