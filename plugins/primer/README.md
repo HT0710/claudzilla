@@ -4,7 +4,7 @@ Adds `/claudzilla`: a pane listing the guide's topics, grouped by part, with the
 
 <img src="../../.github/assets/primer.png" alt="The primer pane: topic list grouped by part, the What claudzilla is section under it" width="720">
 
-`/claudzilla` with no topic toggles the pane. claudzilla's `install.sh` binds alt+q unless you bound it. Each section shows its topic name under its title.
+`/claudzilla` with no topic toggles the pane. claudzilla's `install.sh` binds alt+i unless you bound it. Each section shows its topic name under its title.
 
 `/claudzilla experimental [id on|off]` lists experimental features or switches one.
 

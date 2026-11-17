@@ -576,7 +576,7 @@ Press a key at the prompt. Items marked "if installed" work only with that part.
 | Esc Esc | open the rewind menu (empty prompt) |
 | Shift+Tab | change the permission mode |
 | → or Tab | put the dim suggestion in the prompt |
-| alt+q | open or close this guide |
+| alt+i | open or close this guide |
 | alt+o | margin: Overview tab (if installed) |
 | alt+h | margin: History tab |
 | alt+e | margin: Explorer tab |
@@ -610,7 +610,7 @@ In this list, `env`, `permissions` and `model` go in `~/.claude/settings.overrid
 - **Recolour claudzilla:** put a `palette` key in `~/.claude/claudzilla.json`. Each colour is `#rrggbb`; any other value keeps its default. The status line changes at once, the plugins after `/reload-plugins` or in a new session. The margin names each ignored key in a toast.
 - **Try a new behaviour early:** turn on an experimental feature. See *Experimental features* (`/claudzilla labs`).
 - **Add your own instructions:** write them in `~/.claude/CLAUDE.local.md`. claudzilla's rules load it in every session on this machine.
-- **Change keys:** run `/keybindings` to open `~/.claude/keybindings.json`. To free **alt+q**, **alt+o**, **alt+h**, **alt+e**, **alt+g** or **alt+k**, set it to `null` in the `Chat` block. Changes apply without a restart.
+- **Change keys:** run `/keybindings` to open `~/.claude/keybindings.json`. To free **alt+i**, **alt+o**, **alt+h**, **alt+e**, **alt+g** or **alt+k**, set it to `null` in the `Chat` block. Changes apply without a restart.
 
 #### Examples
 
