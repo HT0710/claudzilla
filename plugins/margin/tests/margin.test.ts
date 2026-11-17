@@ -6,7 +6,7 @@ import { fileKey } from '../hooks/git-data'
 import { DIMMED, clock, hoverOf, readersOf, rowHovers } from '../hooks/kit'
 import { duration } from '../hooks/footer'
 
-import { EMPTY_USED, ICON, RAIL_COLUMNS, railTop, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, SKILL_ROW, resetUsed, stampPattern, useOf, bashPaths, wrapLines, zoneWindow } from '../hooks/register'
+import { EMPTY_USED, ICON, RAIL_COLUMNS, WIDE, railTop, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, SKILL_ROW, resetUsed, stampPattern, useOf, bashPaths, wrapLines, zoneWindow } from '../hooks/register'
 import { modelName } from '../hooks/tab-overview'
 
 // A process.run result with `stdout`.
@@ -947,13 +947,20 @@ test('the rail group sits in the middle, 8 rows with the blank after each tab', 
   expect(railTop(3)).toBe(0)
 })
 
-test('the Guide button sits on the rail bottom row and is no tab', async ($, on) => {
+test('the Guide button sits above the rail bottom corner and is no tab', async ($, on) => {
   noHistory(on)
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   const last = props.scroll.bodyRows - 2
-  expect((await textsUnder(ui, `rail:${last}`)).map(t => t.text).join('')).toContain(ICON.Guide)
+  expect((await textsUnder(ui, `rail:${last - 1}`)).map(t => t.text).join('')).toContain(ICON.Guide)
   expect((await ui.find({ type: 'Text', text: ` ${ICON.Guide} ` }))?.props.inverse).toBeFalsy()
-  expect((await wideRows(ui)).rows.at(-1)).toContain('Guide')
+  expect((await wideRows(ui)).rows.at(-2)).toContain('Guide')
+})
+
+test('the rail and the widened rail end their last row with ├', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  expect((await textsUnder(ui, `rail:${props.scroll.bodyRows - 2}`)).map(t => t.text).join('')).toBe('├' + '─'.repeat(RAIL_COLUMNS - 1))
+  expect((await wideRows(ui)).rows.at(-1)).toBe('├' + '─'.repeat(WIDE - 1))
 })
 
 // 9 body rows: Git sits on the row above the rail's last row, so no blank row would part them.
@@ -962,6 +969,14 @@ test('a short pane with no blank row under Git draws no Guide button', async ($,
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll: { offset: 0, bodyRows: 9 } }, requestId: 'margin' })
   expect(await ui.find({ key: 'guide' })).toBeUndefined()
   expect(await ui.find({ key: 'tab:Git' })).toBeDefined()
+})
+
+// 10 body rows: Git on row 6, the edge on row 8; the Guide on row 7 would touch Git.
+test('a pane with one free row between Git and the edge draws no Guide button', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll: { offset: 0, bodyRows: 10 } }, requestId: 'margin' })
+  expect(await ui.find({ key: 'guide' })).toBeUndefined()
+  expect((await textsUnder(ui, 'rail:8')).map(t => t.text).join('')).toBe('├───')
 })
 
 test('basic glyphs draw i for the Guide button', async ($, on) => {
@@ -5665,12 +5680,13 @@ test('the widened rail spans the pane height: top rule row to the last inner row
   expect(box.props.backgroundColor).toBeUndefined()
 })
 
-test('the widened rail is bordered top and left, open below and at the right', async ($, on) => {
+test('the widened rail is bordered top, left and below, open at the right', async ($, on) => {
   noHistory(on)
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   const { rows } = await wideRows(ui)
   expect(rows[0]).toBe('┬' + '─'.repeat(13))
-  for (const row of rows.slice(1)) expect(row[0]).toMatch(/[│┤]/)
+  for (const row of rows.slice(1, -1)) expect(row[0]).toMatch(/[│┤]/)
+  expect(rows.at(-1)).toBe('├' + '─'.repeat(13))
 })
 
 test('in a short pane every widened tab keeps its row over the bottom edge', async ($, on) => {
@@ -5679,6 +5695,8 @@ test('in a short pane every widened tab keeps its row over the bottom edge', asy
   // The shown tab's Text keeps no key: its row Box does.
   for (const n of [0, 1, 2, 3]) expect(await ui.find({ key: `wide-row:${n}` })).toBeDefined()
   expect(await ui.find({ key: 'wide:Git' })).toBeDefined()
+  // The narrow rail keeps Git on its last row too: no edge there.
+  expect((await textsUnder(ui, 'rail:6')).map(t => t.text).join('')).not.toContain('├')
 })
 
 test('every widened row is painted to the full width, so no body text shows through', async ($, on) => {
