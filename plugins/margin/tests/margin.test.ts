@@ -947,6 +947,51 @@ test('the rail group sits in the middle, 8 rows with the blank after each tab', 
   expect(railTop(3)).toBe(0)
 })
 
+test('the Guide button sits on the rail bottom row and is no tab', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  const last = props.scroll.bodyRows - 2
+  expect((await textsUnder(ui, `rail:${last}`)).map(t => t.text).join('')).toContain(ICON.Guide)
+  expect((await ui.find({ type: 'Text', text: ` ${ICON.Guide} ` }))?.props.inverse).toBeFalsy()
+  expect((await wideRows(ui)).rows.at(-1)).toContain('Guide')
+})
+
+// 9 body rows: Git sits on the row above the rail's last row, so no blank row would part them.
+test('a short pane with no blank row under Git draws no Guide button', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll: { offset: 0, bodyRows: 9 } }, requestId: 'margin' })
+  expect(await ui.find({ key: 'guide' })).toBeUndefined()
+  expect(await ui.find({ key: 'tab:Git' })).toBeDefined()
+})
+
+test('basic glyphs draw i for the Guide button', async ($, on) => {
+  noHistory(on)
+  on('fs.exists', (_, e) => ({ value: String((e as any).path ?? '').endsWith('.claudzilla-basic-glyphs') }))
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  expect((await textsUnder(ui, 'guide')).map(t => t.text).join('').trim()).toBe('i')
+})
+
+// The test's `$` carries no plugin noun, so `$.primer` is missing here, as without primer: the press toasts.
+for (const key of ['Guide', 'wide:Guide'])
+  test(`a press on ${key} asks primer, runs no command, and keeps the shown tab`, async ($, on) => {
+    noHistory(on)
+    const ran: string[] = []
+    const toasts: string[] = []
+    on('command.run', (_, e) => {
+      ran.push(e.command)
+      return { text: '' }
+    })
+    on('ui.toast', (_, e) => {
+      toasts.push(e.text)
+      return { value: undefined }
+    })
+    const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+    await ui.press({ key })
+    expect(ran).toEqual([])
+    expect(toasts).toEqual(['Could not open the Guide: is primer installed?'])
+    expect((await ui.find({ type: 'Text', text: ICON.Overview }))?.props.inverse).toBe(true)
+  })
+
 test('a narrow pane still draws the rail', async ($, on) => {
   noHistory(on)
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 8 }, requestId: 'margin' })

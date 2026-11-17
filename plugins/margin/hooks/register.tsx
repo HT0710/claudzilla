@@ -33,7 +33,17 @@ export const RAIL: RailTab[] = ['Overview', 'History', 'Explorer', 'Git']
 const TABS = RAIL
 // The tabs with an alt key: each runs /margin-<tab>.
 const KEYS: Record<RailTab, string> = { Overview: 'o', History: 'h', Explorer: 'e', Git: 'g' }
-export const ICON: Record<RailTab, string> = { Overview: '\uEA70', History: '\uEA82', Explorer: '\uEAF0', Git: '\uE702' }
+export const ICON: Record<RailTab | 'Guide', string> = { Overview: '\uEA70', History: '\uEA82', Explorer: '\uEAF0', Git: '\uE702', Guide: '\uEAA4' }
+// The Guide button on the rail's bottom row: primer's pane, not a margin tab.
+const GUIDE = /^(wide:)?Guide$/
+const openGuide = async ($: EngineInterface) => {
+  try {
+    await $.primer.open()
+  } catch (err) {
+    // A missing noun throws TypeError; any other failure is primer's to report.
+    if (err instanceof TypeError) $.ui.toast('Could not open the Guide: is primer installed?')
+  }
+}
 // The border column and the 3 columns of a tab's cell.
 export const RAIL_COLUMNS = 4
 // A tab takes 1 row and 1 blank row follows each: the 4 tabs sit in the rail's middle.
@@ -1258,12 +1268,17 @@ export const register: Register = (on, options) => {
     // A tab press closes it whole and switches.
     // The open row's own Button (`open:`) closes the whole modal through its onPress.
     if (modalOpen() && !/^([ms]|open):/.test(e.element ?? '')) {
-      const isTab = TABS.some(one => e.element === one || e.element === `wide:${one}`)
+      const isTab = TABS.some(one => e.element === one || e.element === `wide:${one}`) || GUIDE.test(e.element ?? '')
       await setModal($, m => (m?.sub && !isTab ? { ...m, sub: undefined } : null))
       if (!isTab) return { element: e.element }
     }
     if (e.element === 'o:topics:all') {
       await setModal($, () => ({ key: 'topics', top: 0 }))
+
+      return { element: e.element }
+    }
+    if (GUIDE.test(e.element ?? '')) {
+      await openGuide($)
 
       return { element: e.element }
     }
@@ -1556,6 +1571,8 @@ export const register: Register = (on, options) => {
     const flagged = await read($, notices)
     const modalShown = modalOpen()
     const top = railTop(inner)
+    // Hidden when a short pane leaves no blank row between the last tab and the pane's last row.
+    const guideRow = inner > top + SPAN ? inner - 1 : -1
     // A modal hides the rules' rows from the person: nothing joins.
     const joined = new Set(modalShown ? [] : out.rules)
     const rail = Array.from({ length: inner }, (_, row) => {
@@ -1565,7 +1582,13 @@ export const register: Register = (on, options) => {
       return (
         <Box key={`rail:${row}`}>
           <Text color="promptBorder">{joined.has(row) ? '┤' : '│'}</Text>
-          {!one ? (
+          {row === guideRow ? (
+            <Box key="guide" width={RAIL_COLUMNS - 1}>
+              <Button key="Guide" plain onPress={() => openGuide($)}>
+                <Text color={HUD.idle}>{` ${basic ? 'i' : ICON.Guide} `}</Text>
+              </Button>
+            </Box>
+          ) : !one ? (
             <Box width={RAIL_COLUMNS - 1} />
           ) : (
             <Box key={`tab:${one}`} width={RAIL_COLUMNS - 1}>
@@ -1590,6 +1613,15 @@ export const register: Register = (on, options) => {
         const n = at >= 0 && at % 2 === 0 ? at / 2 : -1
         const one = RAIL[n]
         const border = <Text color="promptBorder">{joined.has(row) ? '┤' : '│'}</Text>
+        if (row === guideRow)
+          return (
+            <Box key="wide-row:guide" width={WIDE}>
+              {border}
+              <Button key="wide:Guide" plain onPress={() => openGuide($)}>
+                <Text color={HUD.idle}>{[` ${basic ? 'i' : ICON.Guide} Gu`, <Text underline>i</Text>, 'de'.padEnd(WIDE - 7)]}</Text>
+              </Button>
+            </Box>
+          )
         if (!one) return <Box key={`wide-fill:${row}`}>{border}<Text>{' '.repeat(WIDE - 1)}</Text></Box>
         const name = one.toLowerCase().indexOf(KEYS[one])
         // The key's letter keeps the name's case.

@@ -468,6 +468,32 @@ async function snapshot($: EngineInterface, columns: number | undefined) {
 }
 
 export const register: Register = on => {
+  // `$.primer.open` for other plugins: no chat line, as a /claudzilla run leaves, and it never toggles.
+  on('engine.create', async (_$, e, next) => {
+    const built = await next(e)
+    // Calls on `built` only: it is refused as an argument. Closed, it opens as a bare /claudzilla; open, it keeps its topic.
+    // A tab the person picked keeps `focus` from bringing Guide forward, and no API picks a tab, so a toast says where it is.
+    const open = async () => {
+      const wasOpen = (await built.ui.panes()).some(pane => pane.id === PANE)
+      if (!wasOpen) {
+        // The render reads GUIDE.md again: it changes with the clone.
+        guide = undefined
+        slug = 'start'
+        note = undefined
+        await built.state.set({ plugin: 'primer', key: 'bodyTop' } as const, 0)
+        reveal = true
+      }
+      const opened = await built.ui.open({ id: PANE, title: 'Guide', focus: true, closeOnEscape: true })
+      // The open result has no isShown: only the pane list says whether Guide is in front.
+      const shown = (await built.ui.panes()).find(pane => pane.id === PANE)?.isShown
+      if (!opened.isPlaced) built.ui.toast('Guide waits: terminal too narrow.')
+      else if (!shown) built.ui.toast('Guide is open: click its tab above.')
+      built.ui.invalidate('ui.render')
+    }
+
+    return { ...built, primer: { open } }
+  })
+
   on('session.start', async ($, e, next) => {
     handing = false
     await t.start(traceIo($))
