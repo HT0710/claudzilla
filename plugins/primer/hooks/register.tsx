@@ -546,7 +546,7 @@ export const register: Register = on => {
 
       return {}
     }
-    // Bare, it toggles like /margin (alt+q); a topic opens that topic either way.
+    // Bare, it toggles like /margin (alt+i); a topic opens that topic either way.
     if (!e.args.trim() && (await $.ui.panes()).some(pane => pane.id === PANE)) {
       await $.ui.close({ id: PANE })
 
