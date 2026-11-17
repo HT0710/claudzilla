@@ -23,6 +23,7 @@ settings.base.json     ──merge────▶  ~/.claude/settings.json  your
 - **Saved choice:** `install` key in `~/.claude/claudzilla.json`. `{"skip":[...]}` = Full minus those parts; new parts reach these installs. `{"only":[...]}` = just those parts; new parts stay out. No key = Full. `--full` clears it; `--add` / `--remove` edit it. Other keys stay.
 - **Record:** `~/.claude/.claudzilla-installed.json` lists what install added outside `~/.claude` (node, rc lines, plugins, marketplaces, Windows fonts, the Windows Terminal font), plus `seeds`: defaults set once, such as ponytail's band and Task board off (`~/.claude/.ponytail-band`, `pluginConfigs` in `settings.json`). `--uninstall` undoes only the outside ones; those two stay.
 - **Theme:** with `hud` installed, a `"theme"` in `settings.overrides.json` wins over claudzilla's.
+- **Side requests off:** `settings.base.json` turns off Claude Code's prompt suggestions (`promptSuggestionEnabled`) and away recap (`awaySummaryEnabled`). Each runs a hidden request that re-reads the whole context; on the maintainer's machine in November 2026, measured with the cost trace, they cost about 5% and 1.3% of spend. To get one back, put `true` for its key in `settings.overrides.json`. `/recap` still works on demand.
 - **Font and `hud`:** newly choosing `hud` (Full, Custom, `--add hud`) installs the font without asking, unless MesloLGS NF is already installed (on WSL it is still copied to Windows).
 - **Safe to re-run:** anything replaced is backed up to `~/.claude/.claudzilla-backup/<timestamp>/`.
 
