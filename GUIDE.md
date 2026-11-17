@@ -195,6 +195,7 @@ Claude uses these skills without asking when the task fits:
 | a bug, a failing test or unexpected behaviour | `systematic-debugging`: finds the root cause, proposes the fix, fixes on `go` |
 | writing non-trivial code | `test-driven-development`: writes a failing test first |
 | before it says "done" after edits | `verification-before-completion`: runs a check |
+| before it says "done" after changing an app, CLI, server, UI or plugin | `run` (built in): launches it and uses the changed part, because passing tests alone can miss a broken app |
 | you pass on code review feedback | `receiving-code-review` |
 | you ask to push, open a pull request or merge, and the branch had no review yet | `requesting-code-review`: an agent reviews the branch first |
 
