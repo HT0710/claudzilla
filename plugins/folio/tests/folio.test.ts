@@ -1743,12 +1743,41 @@ const shellNotice = async ($: any, on: any, input: object, task: object) => {
 test("a background shell's notification reads its command's first line", async ($, on) => {
   finished(on)
   const ui = await shellNotice($, on, { command: "cd /p; python3 - <<'EOF'\nprint(1)\nEOF", run_in_background: true }, { status: 'completed', durationMs: 12_000 })
-  expect(await textOf(ui)).toBe("◼ Bash (cd /p; python3 - <<'EOF')  done · 12s")
+  expect(await textOf(ui, 'n1')).toBe('◼ Ran (1 command)  done · 12s')
+})
+
+test("a click on a background shell's finish row opens it to its command's first line", async ($, on) => {
+  finished(on)
+  const ui = await shellNotice($, on, { command: "cd /p; python3 - <<'EOF'\nprint(1)\nEOF", run_in_background: true }, { status: 'completed', durationMs: 12_000 })
+  await click(ui, 'fold:n1')
+  expect(await textOf(ui, 'n1')).toBe('◻ Ran (1 command)  done · 12s')
+  expect((await ui.find({ type: 'Text', text: /└/ }))?.text).toBe("  └ cd /p; python3 - <<'EOF'")
+})
+
+const finishRow = ($: any, id: string, task: object, viewport: object = VIEW) => $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
+  props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: id, ...task } }, viewport })
+
+test("off the fullscreen layout a background shell's finish row keeps its command, as a printed row cannot open", async ($, on) => {
+  finished(on)
+  on('tool.call', () => ({ result: { stdout: '', stderr: '' } }) as any)
+  await $.tool.call({ tool: 'Bash', tool_use_id: 's1', command: 'npm test', run_in_background: true } as any)
+  const ui = await finishRow($, 's1', { status: 'completed', durationMs: 12_000 }, { columns: 80, rows: 20, isFullscreen: false })
+  expect((await ui.find({ type: 'Text', text: /Bash/ }))?.text).toBe('◼ Bash (npm test)  done · 12s')
+})
+
+test("a background shell that wrote a file opens its finish row to its command, not the launch's files", async ($, on) => {
+  finished(on)
+  bashFs(on, {}, files => { files['/p/out.txt'] = 'x\n' })
+  await $.tool.call({ tool: 'Bash', tool_use_id: 's1', command: 'npm run dev > out.txt', run_in_background: true } as any)
+  const ui = await finishRow($, 's1', { status: 'completed' })
+  expect(await textOf(ui, 'n1')).toBe('◼ Ran (1 command)  done')
+  await click(ui, 'fold:n1')
+  expect(await treeOf(ui)).toEqual(['  └ npm run dev > out.txt'])
 })
 
 test("a shell moved to the background after its timeout reads its command's first line", async ($, on) => {
   finished(on)
-  expect(await textOf(await shellNotice($, on, { command: 'sleep 200\necho hi' }, { status: 'completed' }))).toBe('◼ Bash (sleep 200)  done')
+  expect(await textOf(await shellNotice($, on, { command: 'sleep 200\necho hi' }, { status: 'completed' }), 'n1')).toBe('◼ Ran (1 command)  done')
 })
 
 test('a background shell keeps its line through many later calls', async ($, on) => {
@@ -1758,7 +1787,7 @@ test('a background shell keeps its line through many later calls', async ($, on)
   for (let i = 0; i < 600; i++) await $.tool.call({ tool: 'Bash', tool_use_id: `c${i}`, command: 'ls' } as any)
   const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
     props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 'old', status: 'completed' } }, viewport: VIEW })
-  expect(await textOf(ui)).toBe('◼ Bash (npm run dev)  done')
+  expect(await textOf(ui, 'n1')).toBe('◼ Ran (1 command)  done')
 })
 
 for (const [word, status, command, ms, time, colour] of [['done', 'completed', 'npm test', 12_000, '12s', 'success'], ['failed', 'failed', 'bun run lint', 6000, '6s', 'error'], ['stopped', 'killed', 'tail -f trace.log', 182_000, '3m 2s', 'inactive']] as const) {
@@ -1770,9 +1799,9 @@ for (const [word, status, command, ms, time, colour] of [['done', 'completed', '
     await $.tool.call({ tool: 'Bash', tool_use_id: 's1', command, run_in_background: true } as any)
     const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
       props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 's1', status, durationMs: ms } }, viewport: VIEW })
-    expect((await ui.find({ type: 'Text', text: /◼ Bash/ })).text).toBe(`◼ Bash (${command})  ${word} · ${time}`)
+    expect(await textOf(ui, 'n1')).toBe(`◼ Ran (1 command)  ${word} · ${time}`)
     expect(await rail(ui, /^│ $/)).toBe(1)
-    const colours = (await ui.findAll({ type: 'Text' })).map((x: any) => x.props.color)
+    const colours = (await ui.findAll({ type: 'Text', in: 'fold:n1' })).map((x: any) => x.props.color)
     expect(colours.filter((c: string) => c === colour).length).toBe(2)
   })
 }
