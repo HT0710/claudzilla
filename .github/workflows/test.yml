@@ -42,7 +42,7 @@ jobs:
       - if: ${{ !startsWith(matrix.suite, 'plugins/') }}
         run: bash ${{ matrix.suite }}
       - if: startsWith(matrix.suite, 'plugins/')
-        run: npm i -g @anthropic-ai/claude-code@2.1.319
+        run: npm i -g @anthropic-ai/claude-code@2.1.326
       - if: startsWith(matrix.suite, 'plugins/')
         run: claude plugin test ${{ matrix.suite }}
 
@@ -69,7 +69,7 @@ jobs:
           [ -z "$failed" ] || { echo "::error::failed:$failed"; exit 1; }
       # Installed after the shell suites, so they run without claude on PATH, as on ubuntu.
       - if: ${{ !cancelled() }}
-        run: npm i -g @anthropic-ai/claude-code@2.1.319
+        run: npm i -g @anthropic-ai/claude-code@2.1.326
       - name: Plugin suites
         if: ${{ !cancelled() }}
         run: |
