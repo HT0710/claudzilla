@@ -1147,6 +1147,8 @@ export const register: Register = on => {
     const isHidden = (e.component === 'ToolUse' && e.props.tool === INTENT_TOOL)
       || (e.component === 'ToolGroup' && e.props.calls.length > 0 && e.props.calls.every((c: ToolGroupCall) => c.tool === INTENT_TOOL))
     if (isHidden || e.surface !== 'terminal' || placed.has(e.requestId)) return
+    // Debug: how each placed row looked, to explain a split fold when one shows. Remove once its cause is found.
+    t.event('fold.place', { component: e.component, id: String(e.requestId).slice(-8), ids: memberIds(e)?.length ?? 0, output: e.props?.output !== undefined, active: e.props?.isActive ?? null, textLen: typeof e.props?.text === 'string' ? e.props.text.length : null, current: current ? current.isLive : null, fullscreen: !!e.viewport?.isFullscreen }, 'debug')
     placed.add(e.requestId)
     const ids = memberIds(e)
     // The engine re-keys a group once it ends: the new row takes the old one's place in its section.
