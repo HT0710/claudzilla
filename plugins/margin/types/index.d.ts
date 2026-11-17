@@ -55,6 +55,7 @@ export type Modal = { key: ModalKey; top: number; kind?: UseKind; sub?: { key: s
 declare module 'claude-code' {
   interface EngineInterface {
     margin: Panel
+    primer: { open: () => Promise<void> }
   }
   interface PluginState {
     margin: { tab: Tab; notices: Tab[]; submitted: number; toolCalls: number; rowPointer: { left: string | null; at: string | null }; split: number; scrolled: { changes: number; commits: number }; historyTop: number; intent: Intent; overview: Overview; spawns: Spawn[]; turns: number; turnStart: number; expanded: number; file: FileView; modal: Modal | null; fetching: boolean; branchView: { by: 'base' | 'prefix' | 'worktrees'; showMerged: boolean }; gh: Gh; prViews: Record<number, PrView>; used: Used; stepsTop: number; stepsFollow: boolean; commitViews: Record<string, { row: LogRow; view?: CommitView }> }
