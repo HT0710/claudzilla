@@ -1571,8 +1571,10 @@ export const register: Register = (on, options) => {
     const flagged = await read($, notices)
     const modalShown = modalOpen()
     const top = railTop(inner)
-    // Hidden when a short pane leaves no blank row between the last tab and the pane's last row.
-    const guideRow = inner > top + SPAN ? inner - 1 : -1
+    // The rail's last row ends it with ├, unless a short pane puts a tab there.
+    const cornerRow = inner >= top + SPAN ? inner - 1 : -1
+    // Hidden when a short pane leaves no blank row between the last tab and the Guide row.
+    const guideRow = inner > top + SPAN + 1 ? inner - 2 : -1
     // A modal hides the rules' rows from the person: nothing joins.
     const joined = new Set(modalShown ? [] : out.rules)
     const rail = Array.from({ length: inner }, (_, row) => {
@@ -1581,8 +1583,8 @@ export const register: Register = (on, options) => {
       const glyph = one ? ` ${basic ? KEYS[one] : ICON[one]} ` : ''
       return (
         <Box key={`rail:${row}`}>
-          <Text color="promptBorder">{joined.has(row) ? '┤' : '│'}</Text>
-          {row === guideRow ? (
+          <Text color="promptBorder">{row === cornerRow ? (joined.has(row) ? '┼' : '├') + '─'.repeat(RAIL_COLUMNS - 1) : joined.has(row) ? '┤' : '│'}</Text>
+          {row === cornerRow ? null : row === guideRow ? (
             <Box key="guide" width={RAIL_COLUMNS - 1}>
               <Button key="Guide" plain onPress={() => openGuide($)}>
                 <Text color={HUD.idle}>{` ${basic ? 'i' : ICON.Guide} `}</Text>
@@ -1605,13 +1607,14 @@ export const register: Register = (on, options) => {
       )
     })
     // Every row paints all WIDE cells, so the body under it stays hidden. Row 0 is the pane's top rule (┬ joins it);
-    // the box is open below and at the right (the pane edge).
+    // the last row ends it as the rail's does; the box is open at the right (the pane edge).
     const wide = [
       <Text key="wide-top" color="promptBorder">{'┬' + '─'.repeat(WIDE - 1)}</Text>,
       ...Array.from({ length: inner }, (_, row) => {
         const at = row - top
         const n = at >= 0 && at % 2 === 0 ? at / 2 : -1
         const one = RAIL[n]
+        if (row === cornerRow) return <Text key="wide-bottom" color="promptBorder">{(joined.has(row) ? '┼' : '├') + '─'.repeat(WIDE - 1)}</Text>
         const border = <Text color="promptBorder">{joined.has(row) ? '┤' : '│'}</Text>
         if (row === guideRow)
           return (
