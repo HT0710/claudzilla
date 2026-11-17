@@ -375,7 +375,8 @@ let overviewStale = true
 const overviewShown = async ($: EngineInterface) =>
   (await read($, tab)) === 'Overview' && (await $.ui.panes()).some(pane => pane.id === PANE && pane.isPlaced)
 // Reads only while the tab shows, so its cost follows use.
-const readOverview = async ($: EngineInterface) => {
+// retries: a submit's row may reach the chat file after its hook runs, and a mod's sent prompt is in no history file.
+const readOverview = async ($: EngineInterface, retries = 0) => {
   overviewStale = true
   if (!(await overviewShown($).catch(() => false))) return
   overviewStale = false
@@ -383,7 +384,12 @@ const readOverview = async ($: EngineInterface) => {
   // Newest first from history and the chat file; a paste can be long, its head says enough.
   const [typed, sent] = await Promise.all([pastPrompts($), sentPrompts($)])
   const prompts = [...typed, ...sent].sort((a, b) => b.timestamp - a.timestamp).filter(prompt => !isCommand(prompt)).slice(0, MAX_PROMPTS).reverse()
-  if (!prompts.length) return
+  if (!prompts.length) {
+    overviewStale = true
+    // Checked when it fires: a newer read or /clear in the wait ends this chain.
+    if (retries > 0) $.clock.after(500, () => seq === overviewSeq && readOverview($, retries - 1))
+    return
+  }
   await update($, overview, now => ({ ...now, running: true }))
   try {
     const { topics: shown, summary: was } = await read($, overview)
@@ -1144,7 +1150,7 @@ export const register: Register = (on, options) => {
         await update($, turns, n => n + 1)
         await update($, used, resetUsed)
       }
-      $.clock.after(0, () => readOverview($))
+      $.clock.after(0, () => readOverview($, 10))
       // Last turn's answered report is not this turn's: shown as it was, it read as current. Kept as waiting, placeholders
       // show until Claude reports; with intent off no report comes, so it just goes.
       await update($, intent, now =>
