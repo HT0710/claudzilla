@@ -3356,6 +3356,23 @@ test('TOPICS reads a prompt a mod sent as the user from the chat file', async ($
   expect(asks[0]!.prompt).not.toContain('/clear')
 })
 
+// The submit hook runs before the chat file holds the row: a sent-only chat (primer's handoff) found nothing and never read again.
+test('TOPICS rereads a submitted prompt that reaches the chat file late', async ($, on) => {
+  const sent: string[] = []
+  const { clock, asks } = overviewHosts(on, undefined, [], true, sent)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await ui.press({ key: 'Overview' })
+  await send($, 'add a dark theme')
+  await clock.advance(10)
+  expect(asks).toHaveLength(0)
+  sent.push(JSON.stringify({ type: 'user', origin: { kind: 'plugin', name: 'primer', asUser: true }, timestamp: '2026-11-16T08:45:52Z', message: { content: 'add a dark theme' } }))
+  await clock.advance(1000)
+  await clock.settle()
+  expect(asks).toHaveLength(1)
+  expect(asks[0]!.prompt).toContain('- add a dark theme')
+})
+
 test('a failed TOPICS read keeps the topics and says why', async ($, on) => {
   const { ui, clock } = await overviewPane($, on, n => (n === 1 ? { isAnswered: true, text: TOPICS, usage: {} } : { isAnswered: false, reason: 'api-error', usage: {} }))
   await ui.press({ key: 'Overview' })
