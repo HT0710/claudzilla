@@ -1,6 +1,6 @@
 # margin
 
-A side pane that opens on its Overview tab, at session start as the last session left it (open the first time; under 144 columns it waits for room, 110 once you have opened it yourself; a tab key shows it at any width); the History tab lists this chat's prompts, newest first. A narrow rail of four icons runs down the pane's right edge: Overview, History, Explorer and Git. Hover it to widen it and show each tab's name. A Guide button on the rail's bottom row opens primer's Guide pane at its start, or keeps its place if it is already open; without primer it shows a toast.
+A side pane that opens on its Overview tab, at session start as the last session left it (open the first time; under 144 columns it waits for room, 110 once you have opened it yourself; a tab key shows it at any width); the History tab lists this chat's prompts, newest first. A narrow rail of four icons runs down the pane's right edge: Overview, History, Explorer and Git. Hover it to widen it and show each tab's name. A Guide button just above the rail's bottom edge opens primer's Guide pane at its start, or keeps its place if it is already open; without primer it shows a toast.
 
 <img src="../../.github/assets/overview.gif" alt="The Overview tab during a fix: planning, then ASK, TAKE and steps that tick off one by one until done" width="720">
 
