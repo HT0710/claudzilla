@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { CommitView, LogRow, Gh, Intent, Modal, PrView, Spawn, Step, Tab, Take } from '../types'
 import { parseCommitView, parsePrView, parsePrs, printable } from './git-data'
-import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, HUD, PAD, WHEEL_HOLD, applyPalette, basicGlyphs, configDir, clock, dim, drawnZones, fadeTree, fileView, fit, hoverOf, keepZones, modalOpen, readersOf, setZones } from './kit'
+import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, PAD, WHEEL_HOLD, applyPalette, basicGlyphs, configDir, clock, dim, drawnZones, fadeTree, fileView, fit, hoverOf, keepZones, modalOpen, readersOf, setZones } from './kit'
 import type { Prompt, Readers, TabCtx, TabDraw, UseEntry, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
@@ -1587,7 +1587,7 @@ export const register: Register = (on, options) => {
           {row === cornerRow ? null : row === guideRow ? (
             <Box key="guide" width={RAIL_COLUMNS - 1}>
               <Button key="Guide" plain onPress={() => openGuide($)}>
-                <Text color={HUD.idle}>{` ${basic ? 'i' : ICON.Guide} `}</Text>
+                <Text color="claude">{` ${basic ? 'i' : ICON.Guide} `}</Text>
               </Button>
             </Box>
           ) : !one ? (
@@ -1598,7 +1598,7 @@ export const register: Register = (on, options) => {
                 <Text bold inverse color="claude">{glyph}</Text>
               ) : (
                 <Button key={one} plain onPress={() => pick($, one)}>
-                  <Text color={flagged.includes(one) ? 'warning' : HUD.idle}>{glyph}</Text>
+                  <Text color={flagged.includes(one) ? 'warning' : 'claude'}>{glyph}</Text>
                 </Button>
               )}
             </Box>
@@ -1621,7 +1621,7 @@ export const register: Register = (on, options) => {
             <Box key="wide-row:guide" width={WIDE}>
               {border}
               <Button key="wide:Guide" plain onPress={() => openGuide($)}>
-                <Text color={HUD.idle}>{[` ${basic ? 'i' : ICON.Guide} Gu`, <Text underline>i</Text>, 'de'.padEnd(WIDE - 7)]}</Text>
+                <Text color="claude">{[` ${basic ? 'i' : ICON.Guide} Gu`, <Text underline>i</Text>, 'de'.padEnd(WIDE - 7)]}</Text>
               </Button>
             </Box>
           )
@@ -1639,7 +1639,7 @@ export const register: Register = (on, options) => {
               <Text key={`wide:${one}`} bold inverse color="claude">{label}</Text>
             ) : (
               <Button key={`wide:${one}`} plain onPress={() => pick($, one)}>
-                <Text color={HUD.idle}>{label}</Text>
+                <Text color="claude">{label}</Text>
               </Button>
             )}
           </Box>
