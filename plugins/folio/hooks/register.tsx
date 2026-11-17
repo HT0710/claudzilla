@@ -7,6 +7,7 @@ import { traceIo } from './trace-io'
 
 let LIT = DEFAULTS.shared.lit
 let FAINT = DEFAULTS.shared.faint
+let SKILL = DEFAULTS.hud.skill
 
 type State = 'running' | 'working' | 'remote' | 'done' | 'failed' | 'stopped' | 'interrupted'
 const stateColour = (state: State) => ({ running: 'claude', working: 'claude', remote: 'claude', done: 'success', failed: 'error', stopped: 'inactive', interrupted: 'inactive' })[state]
@@ -664,9 +665,10 @@ async function links($: EngineInterface, text: string): Promise<Map<string, Link
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await t.start(traceIo($))
-    const { shared } = (await readPalette($)).palette
+    const { shared, hud } = (await readPalette($)).palette
     LIT = shared.lit
     FAINT = shared.faint
+    SKILL = hud.skill
     hideEditDiff = await readHideEditDiff($, e.cwd)
     return next(e)
   })
@@ -680,7 +682,7 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     // A /clear or resume goes on under a new session id, which needs its own cols file.
     wroteColumns = 0
-    for (const rows of [runs, done, placed, agents, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails]) rows.clear()
+    for (const rows of [runs, done, placed, agents, skills, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails]) rows.clear()
     corners.clear()
     section = { open: false, n: 0 }
     lastRow = undefined
@@ -730,6 +732,8 @@ export const register: Register = on => {
   const agents = new Map<string, AgentRow>()
   // Agent calls' tool_use_id by agentId, which their requests carry.
   const spawned = new Map<string, string>()
+  // Background Skill calls' skill by tool_use_id, for its finish notification.
+  const skills = new Map<string, string>()
   // Bash commands' first line by tool_use_id, for a background command's finish notification.
   const shells = new Map<string, string>()
   // Files each Bash call changed, by tool_use_id; and the Bash groups a click opened, by requestId, to the file rows
@@ -772,14 +776,14 @@ export const register: Register = on => {
   )
   // A folio tool row sits 2 columns in: blank with no section open, else a rail of `lines` lines beside it and on the
   // gap line above. `margin` 0 joins the row to the one above.
-  const framed = ({ Box, Text }: Elements['terminal'], frame: Frame | undefined, content: RenderNode, lines = 1, margin = 1, prefix = '│ ') => {
+  const framed = ({ Box, Text }: Elements['terminal'], frame: Frame | undefined, content: RenderNode, lines = 1, margin = 1, prefix: RenderNode = '│ ') => {
     if (!frame) return <Box flexDirection="column" marginTop={margin}>{content}</Box>
     if (!frame.open) return <Box flexDirection="column" marginTop={margin} paddingLeft={2}>{content}</Box>
     return (
       <Box flexDirection="column">
         {!!margin && <Text color="promptBorder">│</Text>}
         <Box>
-          <Box width={2}><Text color="promptBorder">{[prefix, ...Array(lines - 1).fill('│ ')].join('\n')}</Text></Box>
+          <Box width={2}>{typeof prefix === 'string' ? <Text color="promptBorder">{[prefix, ...Array(lines - 1).fill('│ ')].join('\n')}</Text> : prefix}</Box>
           <Box flexDirection="column" flexGrow={1}>{content}</Box>
         </Box>
       </Box>
@@ -789,7 +793,8 @@ export const register: Register = on => {
   const corners = new Set<string>()
   // The last folio row each section drew: a row is the section's corner while it holds this.
   const tails = new Map<number, string>()
-  const agentRow = (elements: Elements['terminal'], id: string, state: State, agent: AgentRow | undefined, desc: string, isBackground: boolean, ms?: number) => {
+  // A forked skill draws as an agent row, under its own glyph and name.
+  const agentRow = (elements: Elements['terminal'], id: string, state: State, agent: AgentRow | undefined, desc: string, isBackground: boolean, ms?: number, skill?: string) => {
     const { Text } = elements
     const color = stateColour(state)
     const isLive = state === 'running' || state === 'working' || state === 'remote'
@@ -801,14 +806,37 @@ export const register: Register = on => {
     const effort = agent?.effort
     const row = (
       <Text wrap="truncate-end">
-        <Text color={color}>{state === 'running' && !isLit ? ' ' : state === 'working' || state === 'remote' ? '◇' : '◆'}</Text> <Text color={color}>{state.padEnd(7)}</Text>{'  '}
-        <Text bold color={agentTone(agent ?? {})}>{agentLabel(agent?.type)}</Text>
-        <Text color="promptBorder"> (</Text>{desc}<Text color="promptBorder">)</Text>
+        <Text color={color}>{state === 'running' && !isLit ? ' ' : skill !== undefined ? '✦' : state === 'working' || state === 'remote' ? '◇' : '◆'}</Text> <Text color={color}>{state.padEnd(7)}</Text>{'  '}
+        {skill !== undefined ? skillLabel(elements, skill) : <Text>
+          <Text bold color={agentTone(agent ?? {})}>{agentLabel(agent?.type)}</Text>
+          <Text color="promptBorder"> (</Text>{desc}<Text color="promptBorder">)</Text>
+        </Text>}
         {isLive && (model || effort) && <Text>{' '}<Text color={FAINT}>as</Text>{model && ' '}{model && <Text>{model}</Text>}{effort && ' '}{effort && <Text color={FAINT}>{effort}</Text>}</Text>}
         {ms !== undefined && <Text>{' '}<Text color={FAINT}>in</Text> {durationText(ms)}</Text>}
       </Text>
     )
     return framed(elements, frame, row, 1, 1, `${isLast ? '╰' : '├'}${isBackground ? '┄' : '─'}`)
+  }
+  // A skill's name in the skill colour, its plugin in brackets.
+  const skillLabel = ({ Text }: Elements['terminal'], skill: string) => {
+    const at = skill.indexOf(':')
+    const plugin = at < 0 ? '' : skill.slice(0, at)
+    return (
+      <Text>
+        <Text bold color={SKILL}>{skill.slice(at + 1)}</Text>
+        {plugin && <Text><Text color="promptBorder"> (</Text>{plugin}<Text color="promptBorder">)</Text></Text>}
+      </Text>
+    )
+  }
+  // A skill loaded into this thread: its ✦ sits on the rail itself.
+  const skillNode = (elements: Elements['terminal'], id: string, isLive: boolean, skill: string) => {
+    const { Text } = elements
+    const color = isLive ? 'claude' : 'success'
+    const frame = frameOf(id)
+    // Blinked off, the rail shows through, so it never breaks.
+    const mark = isLive && !isLit ? <Text color="promptBorder">{frame?.open ? '│' : ' '}</Text> : <Text color={color}>✦</Text>
+    const row = <Text><Text color={color}>{isLive ? 'loading' : 'loaded'}</Text>{'  '}{skillLabel(elements, skill)}</Text>
+    return frame?.open ? framed(elements, frame, <Text wrap="truncate-end">{row}</Text>, 1, 1, mark) : framed(elements, frame, <Text wrap="truncate-end">{mark} {row}</Text>)
   }
   const textRow = (elements: Elements['terminal'], id: string, dot: RenderNode, row: [string, string, RenderNode], tag?: string, tone?: string) =>
     framed(elements, frameOf(id), textLine(elements, dot, row, tag, tone))
@@ -1134,9 +1162,10 @@ export const register: Register = on => {
     if (e.component !== 'UserMessage' || !hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || e.props.origin?.kind !== 'task-notification') return undefined
     const { task } = e.props
     const agent = task?.toolUseId ? agents.get(task.toolUseId) : undefined
-    const arg = agent?.description ?? (task?.toolUseId ? shells.get(task.toolUseId) : undefined)
+    const skill = task?.toolUseId ? skills.get(task.toolUseId) : undefined
+    const arg = skill ?? agent?.description ?? (task?.toolUseId ? shells.get(task.toolUseId) : undefined)
     const ended = task?.status && ENDED[task.status]
-    return arg && ended ? { agent, arg, ended } : undefined
+    return arg && ended ? { agent, arg, ended, skill } : undefined
   }
   // Rows join a run in draw order; any other row ends it. A group may be placed by its own hook first.
   // A row joining the section turns the last row's corner into a fork, which redraws it.
@@ -1202,6 +1231,10 @@ export const register: Register = on => {
       const known = agents.get(e.requestId)
       const resolved = (output as { resolvedModel?: string } | undefined)?.resolvedModel
       agents.set(e.requestId, { description: args.description ?? known?.description, model: resolved ?? known?.model ?? args.model, effort: known?.effort ?? args.effort, name: known?.name ?? args.name, type: known?.type ?? args.subagent_type })
+    }
+    if (e.component === 'ToolUse' && e.props.tool === 'Skill' && e.props.output?.status === 'forked' && e.props.output.background) {
+      if (skills.size > 500) skills.clear()
+      skills.set(e.requestId, String(e.props.input?.skill ?? ''))
     }
     place(() => $.ui.invalidate('ui.render'), e)
     return next(e)
@@ -1320,6 +1353,12 @@ export const register: Register = on => {
       const elements = $.ui.resolve(e)
       const { Text } = elements
       if (tool === 'Agent') return agentRow(elements, e.requestId, other[2] as State, agents.get(e.requestId), other[1], other[2] === 'working' || other[2] === 'remote')
+      if (tool === 'Skill') {
+        const skill = String((input as { skill?: unknown } | undefined)?.skill ?? '')
+        const fork = output as { status?: string; background?: boolean } | undefined
+        if (isLive || fork?.status !== 'forked') return skillNode(elements, e.requestId, isLive, skill)
+        return agentRow(elements, e.requestId, fork.background ? 'working' : 'done', undefined, '', !!fork.background, undefined, skill)
+      }
       return textRow(elements, e.requestId, isLive ? <Text color="inactive">{isLit ? '●' : ' '}</Text> : <Text color="success">●</Text>, other)
     }
     if (!seg) return native
@@ -1372,10 +1411,11 @@ export const register: Register = on => {
     const { task } = e.props
     const fin = finishOf(e)
     if (!fin) return native
-    const { agent, arg, ended } = fin
+    const { agent, arg, ended, skill } = fin
     const elements = $.ui.resolve(e)
     const { Text } = elements
-    if (agent) return agentRow(elements, e.requestId, ended, agent, arg, true, task.durationMs)
+    // Solid: the work has joined back; only its launch row keeps the background dash.
+    if (agent || skill !== undefined) return agentRow(elements, e.requestId, ended, agent, arg, false, task.durationMs, skill)
     const color = stateColour(ended)
     return textRow(elements, e.requestId, <Text color={color}>◼</Text>, ['Bash', arg, <Text color={color}>{task.durationMs === undefined ? ended : `${ended} · ${durationText(task.durationMs)}`}</Text>])
   })

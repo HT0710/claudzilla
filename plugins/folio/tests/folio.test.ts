@@ -1605,9 +1605,9 @@ for (const [name, tool, input, output, want] of [
   ['a background agent', 'Agent', { description: 'Say hi', prompt: 'p' }, { status: 'async_launched', agentId: 'a1', description: 'Say hi', prompt: 'p', outputFile: '/o' }, '◇ working  agent (Say hi)'],
   ['a finished agent', 'Agent', { description: 'Say hi', prompt: 'p' }, agentDone, '◆ done     agent (Say hi)'],
   ['a remote agent', 'Agent', { description: 'Say hi', prompt: 'p' }, { status: 'remote_launched', taskId: 't', sessionUrl: 'u', description: 'Say hi', prompt: 'p', outputFile: '/o' }, '◇ remote   agent (Say hi)'],
-  ['a skill', 'Skill', { skill: 'caveman:caveman-help' }, { success: true, commandName: 'caveman:caveman-help' }, '● Skill (caveman:caveman-help)  loaded'],
-  ['a forked skill', 'Skill', { skill: 's' }, { success: true, commandName: 's', status: 'forked', agentId: 'a', result: 'r' }, '● Skill (s)  done'],
-  ['a background skill', 'Skill', { skill: 's' }, { success: true, commandName: 's', status: 'forked', agentId: 'a', result: 'r', background: true }, '● Skill (s)  backgrounded'],
+  ['a skill', 'Skill', { skill: 'caveman:caveman-help' }, { success: true, commandName: 'caveman:caveman-help' }, '✦ loaded  caveman-help (caveman)'],
+  ['a forked skill', 'Skill', { skill: 's' }, { success: true, commandName: 's', status: 'forked', agentId: 'a', result: 'r' }, '✦ done     s'],
+  ['a background skill', 'Skill', { skill: 's' }, { success: true, commandName: 's', status: 'forked', agentId: 'a', result: 'r', background: true }, '✦ working  s'],
 ] as const) {
   test(`${name} draws a one-line row, and its engine block nothing`, async ($, on) => {
     native(on)
@@ -1666,7 +1666,7 @@ for (const [name, tool, input, want] of [
   ['a running fetch', 'WebFetch', { url: 'https://example.com/a' }, '● Fetching (example.com)'],
   ['a running search', 'WebSearch', { query: 'example domain' }, '● Searching ("example domain")'],
   ['a running agent', 'Agent', { description: 'Say hi' }, '◆ running  agent (Say hi)'],
-  ['a running skill', 'Skill', { skill: 'caveman:caveman-help' }, '● Loading (caveman:caveman-help)'],
+  ['a running skill', 'Skill', { skill: 'caveman:caveman-help' }, '✦ loading  caveman-help (caveman)'],
   ['a running write', 'Write', { file_path: '/p/a.txt' }, '● Writing (a.txt)'],
 ] as const) {
   test(`${name} draws its running row, and its engine block stays`, async ($, on) => {
@@ -2778,7 +2778,7 @@ test('a finish row drawn in the same pass as its launch row, as after a reload, 
       props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 'a1', status: 'completed' } }, viewport: VIEW }),
   ])
   expect(await rail(ui, /^◆ done     agent \(Slow task\)$/)).toBe(1)
-  expect(await rail(ui, /^[├╰]┄$/)).toBe(1)
+  expect(await rail(ui, /^[├╰]─$/)).toBe(1)
   expect(await rail(await twoReads($, 'r5', 'r6'), GAP)).toBe(1)
 })
 
@@ -2982,7 +2982,7 @@ test('a background launch forks with ┄, and its finish row takes the corner fr
   expect((await launch.findAll({ type: 'Text', text: /^◇ working  agent \(Slow task\)$/ })).length).toBe(1)
   const fin = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
     props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 'a1', status: 'completed', durationMs: 12_000 } }, viewport: VIEW })
-  expect(await rail(fin, /^╰┄$/)).toBe(1)
+  expect(await rail(fin, /^╰─$/)).toBe(1)
   expect(await rail(launch, /^├┄$/)).toBe(1)
 })
 
@@ -3017,7 +3017,7 @@ test('an early finish row keeps its rail after 500 later rows', async ($, on) =>
   await mountRow($, 'Agent', launched, { input: { description: 'Slow task', prompt: 'p' } }, '/p/a.txt', 'a1')
   const fin = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
     props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 'a1', status: 'completed', durationMs: 12_000 } }, viewport: VIEW })
-  expect(await rail(fin, /^╰┄$/)).toBe(1)
+  expect(await rail(fin, /^╰─$/)).toBe(1)
   for (let i = 0; i < 501; i++) {
     await said($, `s${i}`)
     await mountRow($, 'Read', 'x', {}, '/p/a.txt', `r${i}`)
@@ -3026,7 +3026,41 @@ test('an early finish row keeps its rail after 500 later rows', async ($, on) =>
   await fin.unmount()
   const again = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
     props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 'a1', status: 'completed', durationMs: 12_000 } }, viewport: VIEW })
-  expect(await rail(again, /^[├╰]┄$/)).toBe(1)
+  expect(await rail(again, /^[├╰]─$/)).toBe(1)
+})
+
+const forked = { success: true, commandName: 's', status: 'forked', agentId: 'k', result: 'r' }
+
+test('a loaded skill sits on the rail as a node, its name in the skill colour', async ($, on) => {
+  native(on)
+  await said($, 'm1')
+  const ui = await mountRow($, 'Skill', { success: true, commandName: 'c:h' }, { input: { skill: 'c:h' } }, '/p/a.txt', 'k1')
+  expect(await rail(ui, OWN)).toBe(0)
+  expect(await rail(ui, GAP)).toBe(1)
+  expect((await ui.find({ type: 'Text', text: /^✦$/ }))?.props.color).toBe('success')
+  const name = await ui.find({ type: 'Text', text: /^h$/ })
+  expect([name?.props.color, name?.props.bold]).toEqual(['#93b4e0', true])
+})
+
+for (const [name, output, corner] of [['a forked skill', forked, /^╰─$/], ['a background skill', { ...forked, background: true }, /^╰┄$/]] as const) {
+  test(`${name} forks off the rail like an agent`, async ($, on) => {
+    native(on)
+    await said($, 'm1')
+    const ui = await mountRow($, 'Skill', output, { input: { skill: 's' } }, '/p/a.txt', 'k1')
+    expect(await rail(ui, corner)).toBe(1)
+  })
+}
+
+test('a background skill gets a solid finish row with its name', async ($, on) => {
+  finished(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  await said($, 'm1')
+  const launch = await mountRow($, 'Skill', { ...forked, background: true }, { input: { skill: 'p:s' } }, '/p/a.txt', 'k1')
+  const fin = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
+    props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 'k1', status: 'completed', durationMs: 12_000 } }, viewport: VIEW })
+  expect(await rail(fin, /^✦ done     s \(p\) in 12s$/)).toBe(1)
+  expect(await rail(fin, /^╰─$/)).toBe(1)
+  expect(await rail(launch, /^├┄$/)).toBe(1)
 })
 
 const nativeText = async (ui: any) => (await ui.find({ type: 'Text', text: 'native' }))?.text
