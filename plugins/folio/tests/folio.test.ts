@@ -3033,6 +3033,7 @@ const forked = { success: true, commandName: 's', status: 'forked', agentId: 'k'
 
 test('a loaded skill sits on the rail as a node, its name in the skill colour', async ($, on) => {
   native(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
   await said($, 'm1')
   const ui = await mountRow($, 'Skill', { success: true, commandName: 'c:h' }, { input: { skill: 'c:h' } }, '/p/a.txt', 'k1')
   expect(await rail(ui, OWN)).toBe(0)
@@ -3045,6 +3046,7 @@ test('a loaded skill sits on the rail as a node, its name in the skill colour', 
 for (const [name, output, corner] of [['a forked skill', forked, /^╰─$/], ['a background skill', { ...forked, background: true }, /^╰┄$/]] as const) {
   test(`${name} forks off the rail like an agent`, async ($, on) => {
     native(on)
+    on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
     await said($, 'm1')
     const ui = await mountRow($, 'Skill', output, { input: { skill: 's' } }, '/p/a.txt', 'k1')
     expect(await rail(ui, corner)).toBe(1)
