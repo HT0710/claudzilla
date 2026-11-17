@@ -11,6 +11,7 @@ Unprefixed names below = `superpowers:<name>` in the Skill tool; others carry th
 | bug, test fail, unexpected behaviour | `systematic-debugging` — §3 analysis runs inside it; stop after Phase 3 (root cause + fix proposal), Phase 4 on go |
 | writing non-trivial code (branch, loop, parser, money/security) | `test-driven-development` — trivial one-liner exempt |
 | about to claim done / fixed / passing after code edits | `verification-before-completion` — skip when a check ran after the last edit or no code changed; push / PR: always, see git.md Before push + Order |
+| about to claim done after an app, CLI, server, UI or plugin change | `run` (built-in) — launch it and drive it to the changed part; passing tests alone don't count; can't launch → say so |
 | review feedback received | `receiving-code-review` |
 | refactor, restructure or cleanup task | `caveman:safe-refactor` |
 | schema, data, API, config or dependency migration | `caveman:migration` |
