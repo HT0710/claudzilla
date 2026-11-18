@@ -388,7 +388,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
         const web = kind === 'web' && sourceFor(name) !== 'search'
         if (path && !web && Client) {
           const key = `o:${layer}:use:${i}`
-          hv.acts[key] = () => $.margin.show({ path, line: 1 })
+          hv.acts[key] = () => $.margin.show({ path })
           const left = toPieces([<Text color="promptBorder">{` ${glyph}`}</Text>, ...pieces])
           return (
             // Keyed, its own hover scope: unkeyed, it would light whenever the pointer is anywhere in the modal.
@@ -400,7 +400,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
         const target = web ? (
           <Link href={name}>{main}</Link>
         ) : path ? (
-          <Button key={`${layer}:use:${i}`} plain onPress={() => $.margin.show({ path, line: 1 })}>
+          <Button key={`${layer}:use:${i}`} plain onPress={() => $.margin.show({ path })}>
             {main}
           </Button>
         ) : (

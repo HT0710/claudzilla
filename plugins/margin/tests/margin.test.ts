@@ -6,8 +6,9 @@ import { fileKey } from '../hooks/git-data'
 import { DIMMED, clock, hoverOf, readersOf, rowHovers } from '../hooks/kit'
 import { duration } from '../hooks/footer'
 
-import { EMPTY_USED, ICON, RAIL_COLUMNS, WIDE, railTop, dayLabel, gitWeb, gone, hang, inView, keepNewest, fileView, fileWindow, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, SKILL_ROW, resetUsed, stampPattern, useOf, bashPaths, wrapLines, zoneWindow } from '../hooks/register'
+import { EMPTY_USED, ICON, RAIL_COLUMNS, WIDE, railTop, dayLabel, gitWeb, gone, hang, inView, keepNewest, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, SKILL_ROW, resetUsed, stampPattern, useOf, bashPaths, wrapLines, zoneWindow } from '../hooks/register'
 import { modelName } from '../hooks/tab-overview'
+import { pathText } from './explorer-helpers'
 
 // A process.run result with `stdout`.
 const ran = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -4864,121 +4865,6 @@ test('alt+o on a closed pane reads TOPICS once', async ($, on) => {
   expect(asks).toBe(1)
 })
 
-// The Explorer tab's rows: the body less its header row.
-const windowRows = props.scroll.bodyRows - 3 // header row + its rule
-const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\n')
-// The Explorer tab as `$.margin.show` leaves it: the test's `$` carries no plugin noun, and a hook in a test module that
-// calls one is refused ("its hooks module does not call it (host rule; the scan lists no calls)"), so the two
-// values `show` writes are answered on read. An empty text stands for a file it could not show.
-const fileTab = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], file: ReturnType<typeof fileView> | undefined) => {
-  noHistory(on)
-  on('state.get', (_$, e, next) => {
-    const value = e.key === 'tab' ? 'Explorer' : e.key === 'file' ? file : undefined
-    return (value === undefined ? next(e) : { value: { value, version: 1 } }) as any
-  })
-  return $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
-}
-
-test('the Explorer header is the path from the working directory, or from ~, with a rule under it', async ($, on) => {
-  on('session.cwd', () => ({ value: '/repo' }))
-  const ui = await fileTab($, on, fileView('/repo/src/a.ts', 65, lines(200)))
-  // As Git's branch row: the path in the action color, the line faint on the right.
-  expect(await colorOf(ui, 'src/a.ts')).toBe('#5d9678')
-  expect(await colorOf(ui, 'line 65')).toBe('#4f5c68')
-  expect(await ui.find({ type: 'Text', text: new RegExp(`^─{${props.bodyColumns - 4}}$`) })).toBeDefined()
-})
-
-test('a long Explorer header keeps its line and cuts the path from the left', async ($, on) => {
-  on('session.cwd', () => ({ value: '/repo' }))
-  const ui = await fileTab($, on, fileView(`/repo/${'deep/'.repeat(20)}a.ts`, 65, lines(200)))
-  const head = await ui.find({ type: 'Text', text: /^….*\/a\.ts$/ })
-  expect(String(head?.text)).toHaveLength(props.bodyColumns - 6 - 'line 65'.length - 1)
-  expect(await ui.find({ type: 'Text', text: 'line 65' })).toBeDefined()
-})
-
-test('an Explorer header outside the working directory starts from ~', async ($, on) => {
-  on('session.cwd', () => ({ value: '/repo' }))
-  // noHistory's env.get answers /home/me.
-  const ui = await fileTab($, on, fileView('/home/me/notes.md', 3, lines(20)))
-  expect(await ui.find({ type: 'Text', text: '~/notes.md' })).toBeDefined()
-})
-
-test('the Explorer tab shows the file at the line, marked, with the path in its header', async ($, on) => {
-  const ui = await fileTab($, on, fileView('/repo/a.ts', 65, lines(200)))
-  expect(await ui.find({ type: 'Text', text: 'line 65' })).toBeDefined()
-  const code = await ui.find({ type: 'Code' })
-  expect(code?.props.path).toBe('/repo/a.ts')
-  expect(code?.props.source).toContain('line 65')
-  // A long line must not wrap: the window is exactly its rows, the mark stays on its line.
-  expect(code?.props.wrap).toBe('truncate-end')
-  // Clicked line in the middle.
-  const above = 65 - (code?.props.startLine as number)
-  expect(above).toBe(Math.floor(windowRows / 2))
-  expect((code?.props.source as string).split('\n')).toHaveLength(windowRows)
-  const mark = await ui.find({ type: 'Text', text: /▶/ })
-  expect(String(mark?.text).split('\n').indexOf('▶')).toBe(above)
-})
-
-test('a line deep in a large file still shows marked in the middle', async ($, on) => {
-  const ui = await fileTab($, on, fileView('/repo/a.ts', 4000, lines(5000)))
-  const code = await ui.find({ type: 'Code' })
-  expect(code?.props.source).toContain('line 4000\n')
-  const above = 4000 - (code?.props.startLine as number)
-  expect(above).toBe(Math.floor(windowRows / 2))
-  const mark = await ui.find({ type: 'Text', text: /▶/ })
-  expect(String(mark?.text).split('\n').indexOf('▶')).toBe(above)
-})
-
-test('a line past the end shows the last lines', async ($, on) => {
-  const ui = await fileTab($, on, fileView('/repo/a.ts', 9999, lines(10)))
-  const code = await ui.find({ type: 'Code' })
-  expect(code?.props.source).toMatch(/line 10$/)
-  expect(code?.props.startLine).toBe(1)
-})
-
-test('the Explorer tab before any click says how to open one', async ($, on) => {
-  const ui = await fileTab($, on, undefined)
-  expect(await ui.find({ type: 'Text', text: 'No file open' })).toBeDefined()
-})
-
-test('a file that cannot be shown says so in the Explorer tab', async ($, on) => {
-  const ui = await fileTab($, on, fileView('/repo/a.ts', 3, undefined))
-  expect(await ui.find({ type: 'Text', text: "Can't show this file" })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '/repo/a.ts' })).toBeDefined()
-  expect(await ui.find({ type: 'Code' })).toBeUndefined()
-})
-
-test('a file holding ESC or a form feed still shows, the control characters as spaces', async ($, on) => {
-  const ui = await fileTab($, on, fileView('/repo/a.log', 2, 'one\n\x1b[31mred\x1b[0m\n\fpage\tend\n'))
-  const code = await ui.find({ type: 'Code' })
-  expect(code?.props.source).toBe('one\n [31mred [0m\n page\tend')
-})
-
-test('fileView keeps a bounded slice, each line cut, and maps a failed or binary read to empty text', () => {
-  expect(fileView('/a', 5, undefined).text).toBe('')
-  expect(fileView('/a', 5, 'ab\0cd').text).toBe('')
-  const big = fileView('/a', 4000, lines(5000))
-  expect(big.first).toBe(3800)
-  expect(big.text.split('\n')).toHaveLength(401)
-  expect(fileView('/a', 1, lines(5000)).first).toBe(1)
-  expect(fileView('/a', 9999, lines(5000)).first).toBe(4600)
-  const long = fileView('/a', 1, `${'x'.repeat(100000)}\nshort\n`)
-  expect(long.text.split('\n').map(one => one.length)).toEqual([500, 5])
-  expect(fileView('/a', 1, 'a\r\nb\r\n').text).toBe('a\nb')
-})
-
-test('fileWindow puts the clicked line in the middle, clamped to the slice', () => {
-  const view = fileView('/a', 4000, lines(5000))!
-  const at = fileWindow(view, 17)
-  expect(at.lines).toHaveLength(17)
-  expect(at.first + at.mark).toBe(4000)
-  expect(at.mark).toBe(8)
-  const top = fileWindow(fileView('/a', 1, lines(50))!, 17)
-  expect([top.first, top.mark]).toEqual([1, 0])
-  const end = fileWindow(fileView('/a', 50, lines(50))!, 17)
-  expect([end.first, end.mark]).toEqual([34, 16])
-})
-
 // History and claudzilla.json answers from /home/me, a session.start host; the returned array gathers the toasts.
 const paletteHost = (on: Parameters<TestBody>[1], config: string, history = '') => {
   const toasts: string[] = []
@@ -5215,7 +5101,7 @@ test('a file press opens it in the Explorer tab through $.margin.show', async ($
   await tapRow(ui, 'o:used:files')
   await tapRow(ui, 'o:m:use:0')
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: 'hooks/kit.tsx' })).toBeDefined()
+  expect(await pathText(ui)).toMatch(/hooks\/kit\.tsx$/)
   expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
 })
 

@@ -3,11 +3,11 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { CommitView, LogRow, Gh, Intent, Modal, PrView, Spawn, Step, Tab, Take } from '../types'
 import { parseCommitView, parsePrView, parsePrs, printable } from './git-data'
-import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, PAD, WHEEL_HOLD, applyPalette, basicGlyphs, configDir, clock, dim, drawnZones, fadeTree, fileView, fit, hoverOf, keepZones, modalOpen, readersOf, setZones } from './kit'
+import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, PAD, WHEEL_HOLD, applyPalette, basicGlyphs, configDir, clock, dim, drawnZones, fadeTree, fit, hoverOf, keepZones, modalOpen, readersOf, setZones } from './kit'
 import type { Prompt, Readers, TabCtx, TabDraw, UseEntry, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
-import { draw as drawFile } from './tab-file'
+import { draw as drawFile, showPlace } from './tab-file'
 import { autoFetch, draw as drawGit, resetGitReads } from './tab-git'
 import { draw as drawHistory } from './tab-history'
 import { draw as drawOverview, resetStepsHeld, same } from './tab-overview'
@@ -15,9 +15,7 @@ import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
 export { zoneWindow } from './kit'
-export { fileWindow } from './tab-file'
 export { gitWeb } from './tab-git'
-export { fileView } from './kit'
 export { dayLabel, inView, litPrompt } from './tab-history'
 export { hang, wrapLines } from './tab-overview'
 export { EMPTY_USED, USE_KINDS } from './kit'
@@ -1035,9 +1033,8 @@ export const register: Register = (on, options) => {
     const built = await next(e)
     // Calls on `built` only: it is refused as an argument. Not through /margin: its hook skips a run the plugin's own code raises
     // ("command.run skipped: re-entry"). The open overlaps /margin's on purpose.
-    const show = async ({ path, line }: { path: string; line: number }) => {
-      const text = await built.fs.read(path).then(String, () => undefined)
-      await built.state.set({ plugin: 'margin', key: 'file' } as const, fileView(path, line, text))
+    const show = async ({ path, line }: { path: string; line?: number }) => {
+      await built.state.set({ plugin: 'margin', key: 'file' } as const, { rev: showPlace({ path, line }), path, line })
       const placed = (await built.ui.panes()).some(pane => pane.id === PANE && pane.isPlaced)
       // As setModal: the open pane drops closeOnEscape.
       if ((await built.state.get({ plugin: 'margin', key: 'modal' } as const)).value) {
