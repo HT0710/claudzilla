@@ -6,7 +6,8 @@ import { cellsOf, expandTabs, fileWindow, layoutFor, layoutOf, lineAt, sliceToke
 import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '../hooks/explorer-nav'
 import { tokenize } from '../hooks/explorer-tokens'
 import { iconOf, sortListing, treeRows } from '../hooks/explorer-tree'
-import { disk, explorer, explorerRoot, lists, mountPane, open, pathText, ran, lines, setup, store, textOf } from './explorer-helpers'
+import { refOf } from '../hooks/tab-file'
+import { clock, disk, explorer, explorerRoot, lists, mountPane, open, pathText, ran, lines, setup, store, textOf } from './explorer-helpers'
 
 test('tokenize: a keyword, a string, a comment and a number', () => {
   expect(tokenize('const s = "a" // x 42')).toEqual([
@@ -319,7 +320,7 @@ test('probe: the file atom place shows in the mounted pane', async ($, on) => {
 
 test('a file shows its lines numbered, the clicked line lit', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/src/a.ts', line: 65 }, lines(200))
-  expect(textOf(await ui.find({ key: 'row:65' }))).toMatch(/^ +65 /)
+  expect((await ui.find({ key: 'explorer:gutter' }))?.props.props.rows.find((r: { line: number }) => r.line === 65)?.cell).toMatch(/65 $/)
   expect((await ui.find({ key: 'row:65' }))?.props.backgroundColor).toBe('#0f1c28')
 })
 
@@ -416,7 +417,7 @@ test('a file that is gone shows it no longer exists', async ($, on) => {
 test('back returns to the file shown before, at its line', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts', line: 5 }, lines(50))
   disk.set('/repo/b.ts', { text: lines(5), mtimeMs: 1 })
-  open({ path: '/repo/b.ts' })
+  store.set('file', { rev: 5000, path: '/repo/b.ts' })
   await ui.redraw()
   expect(await pathText(ui)).toBe('repo/b.ts')
   await ui.press({ key: 'back' })
@@ -428,7 +429,7 @@ test('back returns to the file shown before, at its line', async ($, on) => {
 test('forward returns to the file after back', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(5))
   disk.set('/repo/b.ts', { text: lines(5), mtimeMs: 1 })
-  open({ path: '/repo/b.ts' })
+  store.set('file', { rev: 5000, path: '/repo/b.ts' })
   await ui.redraw()
   await ui.press({ key: 'back' })
   await ui.redraw()
@@ -524,4 +525,61 @@ test('only the folders on screen are listed', async ($, on) => {
 test('a dot name draws in the faint colour', async ($, on) => {
   const ui = await explorerRoot($, on, { '/repo': [{ name: '.git', kind: 'dir' }] })
   expect((await ui.find({ type: 'Text', text: '.git' }))?.props.color).toBe('#4f5c68')
+})
+
+test('a reference is path:line, or path:first-last, relative to the working directory', () => {
+  expect(refOf('hooks/kit.tsx', 183, 183)).toBe('hooks/kit.tsx:183')
+  expect(refOf('hooks/kit.tsx', 183, 190)).toBe('hooks/kit.tsx:183-190')
+})
+
+test('a gutter drag from line 183 to 190 copies the reference, lowest line first', async ($, on) => {
+  const copied: string[] = []
+  on('ui.copy', (_, e) => (copied.push(e.text), { value: { isCopied: true } }) as any)
+  const ui = await explorer($, on, { path: '/repo/hooks/kit.tsx', line: 183 }, lines(300))
+  await ui.pointer({ type: 'down', x: 0, y: 8, button: 'left', in: 'explorer:gutter' })
+  await ui.pointer({ type: 'move', x: 0, y: 15, button: 'left', in: 'explorer:gutter' })
+  await ui.pointer({ type: 'up', x: 0, y: 15, button: 'left', in: 'explorer:gutter' })
+  expect(copied).toEqual(['hooks/kit.tsx:183-190'])
+})
+
+test('a file outside the working directory copies as an absolute path', async ($, on) => {
+  const copied: string[] = []
+  on('ui.copy', (_, e) => (copied.push(e.text), { value: { isCopied: true } }) as any)
+  const ui = await explorer($, on, { path: '/home/me/notes.md', line: 2 }, lines(5))
+  await ui.pointer({ type: 'down', x: 0, y: 1, button: 'left', in: 'explorer:gutter' })
+  await ui.pointer({ type: 'up', x: 0, y: 1, button: 'left', in: 'explorer:gutter' })
+  expect(copied).toEqual(['/home/me/notes.md:2'])
+})
+
+test('the notice reads copied and the reference, in the header', async ($, on) => {
+  on('ui.copy', () => ({ value: { isCopied: true } }) as any)
+  const ui = await explorer($, on, { path: '/repo/hooks/kit.tsx', line: 183 }, lines(300))
+  await ui.pointer({ type: 'down', x: 0, y: 8, button: 'left', in: 'explorer:gutter' })
+  await ui.pointer({ type: 'up', x: 0, y: 8, button: 'left', in: 'explorer:gutter' })
+  await ui.redraw()
+  expect(await pathText(ui)).toBe('copied hooks/kit.tsx:183')
+  await clock.advance(3000)
+  await ui.redraw()
+  expect(await pathText(ui)).toBe('repo/hooks/kit.tsx')
+})
+
+test('a notice still up when another file opens clears after 3 seconds', async ($, on) => {
+  on('ui.copy', () => ({ value: { isCopied: true } }) as any)
+  const ui = await explorer($, on, { path: '/repo/hooks/kit.tsx', line: 183 }, lines(300))
+  await ui.pointer({ type: 'down', x: 0, y: 8, button: 'left', in: 'explorer:gutter' })
+  await ui.pointer({ type: 'up', x: 0, y: 8, button: 'left', in: 'explorer:gutter' })
+  disk.set('/repo/b.ts', { text: lines(5), mtimeMs: 1 })
+  store.set('file', { rev: 5000, path: '/repo/b.ts' })
+  await ui.redraw()
+  await clock.advance(3000)
+  await ui.redraw()
+  expect(await pathText(ui)).toBe('repo/b.ts')
+})
+
+test('a press on the code clears the lit row', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 3 }, lines(10))
+  expect((await ui.find({ key: 'row:3' }))?.props.backgroundColor).toBe('#0f1c28')
+  await ui.press({ key: 'code:0' })
+  await ui.redraw()
+  expect((await ui.find({ key: 'row:3' }))?.props.backgroundColor).toBeUndefined()
 })
