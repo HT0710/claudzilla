@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, RenderSurface } from 'claude-code'
 
-import { cellsOf, fileWindow, layoutFor, sliceTokens } from './explorer-layout'
+import { cellsOf, fileWindow, layoutFor, sliceTokens, thumbOf } from './explorer-layout'
 import type { Cached } from './explorer-layout'
 import { listDir, loadFile, latestOf, projectRoot } from './explorer-load'
 import type { Loaded } from './explorer-load'
@@ -142,7 +142,14 @@ async function copyLines($: EngineInterface, first: number, last: number, surfac
 }
 
 export async function explorerPost($: EngineInterface, e: { element: string; data: unknown; surface?: RenderSurface }): Promise<void> {
-  const d = e.data as { first?: unknown; last?: unknown } | undefined
+  const d = e.data as { first?: unknown; last?: unknown; top?: unknown } | undefined
+  if ((e.element === 'explorer:vbar' || e.element === 'explorer:hbar') && typeof d?.top === 'number') {
+    // The next draw clamps the spot to the file.
+    if (e.element === 'explorer:vbar') state.top = d.top
+    else state.col = d.top
+    await update($, file, () => placeOf())
+    return
+  }
   if (e.element === 'explorer:gutter' && typeof d?.first === 'number' && typeof d.last === 'number') await copyLines($, d.first, d.last, e.surface)
 }
 
@@ -171,7 +178,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   }
   const place = current(state.nav)
   const rows = Math.max(0, props.scroll.bodyRows)
-  const codeRows = Math.max(0, rows - 2)
+  let codeRows = Math.max(0, rows - 2)
   const W = props.bodyColumns - 2 * PAD
   const home = await $.env.get('HOME').catch(() => undefined)
   const basic = await basicGlyphs($)
@@ -241,11 +248,14 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   } else if (loaded) {
     state.layout = layoutFor(state.layout, loaded, C, state.wrap, lines)
     const { layout } = state.layout
+    const Client = 'Client' in ctx.el ? ctx.el.Client : undefined
+    const hbar = !!Client && !state.wrap && layout.widest > C
+    if (hbar) codeRows = Math.max(0, codeRows - 1)
+    state.col = state.wrap ? 0 : Math.max(0, Math.min(state.col, layout.widest - C))
     const line = state.lit?.from
     const asked = state.top ?? (line === undefined ? 0 : Math.max(0, (layout.starts[Math.max(0, Math.min(line, lines.length) - 1)] ?? 0) - Math.floor(codeRows / 2)))
     const win = fileWindow(layout.rows, asked, codeRows)
     state.top = win.top
-    const Client = 'Client' in ctx.el ? ctx.el.Client : undefined
     const drawn: { line: number; cell: string; lit: boolean }[] = []
     const code: JSX.Element[] = []
     for (let i = win.top; i < win.last; i++) {
@@ -272,10 +282,20 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
               ))}
             </Button>
           </Box>
-          <Text color={HUD.faint}>│</Text>
+          {!Client && <Text color={HUD.faint}>│</Text>}
         </Box>,
       )
     }
+    const bar = (axis: 'v' | 'h', cells: number, total: number, top: number) => ({
+      axis,
+      cells,
+      total,
+      shown: cells,
+      top,
+      ...thumbOf(total, cells, top, cells),
+      glyph: String.fromCharCode(axis === 'v' ? 0x2590 : 0x2582),
+      color: 'promptBorder',
+    })
     body.push(
       <Box key="view">
         <Box width={G} flexShrink={0} flexDirection="column">
@@ -292,8 +312,28 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
           )}
         </Box>
         <Box flexDirection="column">{code}</Box>
+        {Client && <Client key="explorer:vbar" module="./explorer-bar.tsx" width={1} height={codeRows} props={bar('v', codeRows, layout.rows, win.top)} />}
       </Box>,
     )
+    if (hbar && Client) {
+      body.push(
+        <Box key="hview">
+          <Box width={G} flexShrink={0} />
+          <Client key="explorer:hbar" module="./explorer-bar.tsx" width={C} height={1} props={bar('h', C, layout.widest, state.col)} />
+        </Box>,
+      )
+      zones.push({
+        tab: 'Explorer',
+        kind: 'list',
+        from: 2 + codeRows,
+        to: 3 + codeRows,
+        offset: 0,
+        wheel: by => {
+          state.col = Math.max(0, Math.min(state.col + 4 * by, layout.widest - C))
+          return update($, file, () => placeOf())
+        },
+      })
+    }
     zones.push({
       tab: 'Explorer',
       kind: 'list',

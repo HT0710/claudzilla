@@ -583,3 +583,40 @@ test('a press on the code clears the lit row', async ($, on) => {
   await ui.redraw()
   expect((await ui.find({ key: 'row:3' }))?.props.backgroundColor).toBeUndefined()
 })
+
+const barOf = async (ui: { find: (q: any) => Promise<any> }, key: 'explorer:vbar' | 'explorer:hbar') => (await ui.find({ key }))?.props.props
+
+test('the vertical bar has one cell per pane row, and its thumb covers the view', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 1 }, lines(200))
+  const bar = await barOf(ui, 'explorer:vbar')
+  expect(bar).toMatchObject({ axis: 'v', cells: 16, total: 200, from: 0 })
+  expect(bar.to).toBeGreaterThan(0)
+})
+
+test('a drag on the thumb posts once on release, and the view moves', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 1 }, lines(200))
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'explorer:vbar' })
+  await ui.pointer({ type: 'move', x: 0, y: 4, button: 'left', in: 'explorer:vbar' })
+  await ui.pointer({ type: 'up', x: 0, y: 4, button: 'left', in: 'explorer:vbar' })
+  await ui.redraw()
+  // Four cells of 200 rows over 16 cells: the view moves 50 rows, so the thumb starts at cell 4.
+  expect((await barOf(ui, 'explorer:vbar')).from).toBe(4)
+})
+
+test('a press off the thumb jumps there', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 1 }, lines(200))
+  await ui.pointer({ type: 'down', x: 0, y: 15, button: 'left', in: 'explorer:vbar' })
+  await ui.pointer({ type: 'up', x: 0, y: 15, button: 'left', in: 'explorer:vbar' })
+  await ui.redraw()
+  expect((await barOf(ui, 'explorer:vbar')).from).toBeGreaterThan(0)
+})
+
+test('a long line shows the sideways bar, and a wheel tick on it moves 4 columns', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/long.ts' }, `${'x'.repeat(300)}END\n`)
+  expect(await barOf(ui, 'explorer:hbar')).toBeDefined()
+  // Inner body rows: 19 less the top rule is 18. The header and rule take 2, so 15 code rows take body rows 2 to 16,
+  // and the bar is body row 17. The pane row is body row + RULE (1), so 18.
+  await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 1, bodyRows: 19, contentRows: 19, origin: { kind: 'person' }, pointer: { column: 8, row: 18 } })
+  await ui.redraw()
+  expect((await barOf(ui, 'explorer:hbar')).top).toBe(4)
+})
