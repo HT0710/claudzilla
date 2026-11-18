@@ -3,6 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import { cellsOf, expandTabs, fileWindow, layoutFor, layoutOf, lineAt, sliceTokens, thumbOf } from '../hooks/explorer-layout'
 import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '../hooks/explorer-nav'
 import { tokenize } from '../hooks/explorer-tokens'
+import { iconOf, sortListing, treeRows } from '../hooks/explorer-tree'
 
 test('tokenize: a keyword, a string, a comment and a number', () => {
   expect(tokenize('const s = "a" // x 42')).toEqual([
@@ -148,4 +149,53 @@ test('history holds 20 entries, and the oldest drops', () => {
   expect(nav.entries).toHaveLength(20)
   expect(nav.entries[0]!.path).toBe('/r/f5.ts')
   expect(nav.at).toBe(19)
+})
+
+const glyph = (hex: number) => String.fromCharCode(hex)
+
+test('folders list before files, each by name', () => {
+  expect(sortListing([{ name: 'b.ts', kind: 'file' }, { name: 'src', kind: 'dir' }, { name: 'a', kind: 'dir' }]).map(e => e.name)).toEqual(['a', 'src', 'b.ts'])
+})
+
+test('treeRows sorts each folder and indents a child folder 1 column, a child file 2', () => {
+  const listed = new Map([
+    ['/p', [{ name: 'src', kind: 'dir' as const }, { name: 'R.md', kind: 'file' as const }]],
+    ['/p/src', [{ name: 'x.ts', kind: 'file' as const }, { name: 'lib', kind: 'dir' as const }]],
+    ['/p/src/lib', [{ name: 'y.ts', kind: 'file' as const }]],
+  ])
+  const rows = treeRows('/p', new Set(['/p/src', '/p/src/lib']), listed)
+  expect(rows.map(r => [r.name, r.x])).toEqual([['src', 0], ['lib', 1], ['y.ts', 3], ['x.ts', 2], ['R.md', 0]])
+})
+
+test('an empty folder is known as empty, and a closed folder is not open', () => {
+  const listed = new Map([['/p', [{ name: 'e', kind: 'dir' as const }]], ['/p/e', []]])
+  const [row] = treeRows('/p', new Set(), listed)
+  expect(row).toMatchObject({ name: 'e', empty: true, open: false })
+})
+
+test('names starting with a dot are dim, and so is everything inside them', () => {
+  const listed = new Map([['/p', [{ name: '.github', kind: 'dir' as const }]], ['/p/.github', [{ name: 'ci.yml', kind: 'file' as const }]]])
+  expect(treeRows('/p', new Set(['/p/.github']), listed).map(r => r.dim)).toEqual([true, true])
+})
+
+test('a broken link lists as a faint file', () => {
+  const [row] = treeRows('/p', new Set(), new Map([['/p', [{ name: 'l', kind: 'file' as const, broken: true }]]]))
+  expect(row).toMatchObject({ kind: 'file', broken: true })
+})
+
+test('icons: folder open and closed, empty, and the file types', () => {
+  expect(iconOf('src', 'dir', { open: false, empty: false })).toEqual({ glyph: glyph(0xf07b), color: 'claude' })
+  expect(iconOf('src', 'dir', { open: true, empty: false }).glyph).toBe(glyph(0xf07c))
+  expect(iconOf('src', 'dir', { open: false, empty: true }).glyph).toBe(glyph(0xf07c))
+  expect(iconOf('a.ts', 'file').glyph).toBe(glyph(0xe628))
+  expect(iconOf('a.tsx', 'file').glyph).toBe(glyph(0xe628))
+  expect(iconOf('a.md', 'file')).toEqual({ glyph: glyph(0xe609), color: 'docs' })
+  expect(iconOf('a.json', 'file').glyph).toBe(glyph(0xe60b))
+  expect(iconOf('a.py', 'file')).toEqual({ glyph: glyph(0xe606), color: 'test' })
+  expect(iconOf('a.sh', 'file')).toEqual({ glyph: glyph(0xe795), color: 'feat' })
+  expect(iconOf('a.bin', 'file')).toEqual({ glyph: glyph(0xf15b), color: 'faint' })
+})
+
+test('an extension named like an object member gets the faint file icon', () => {
+  expect(iconOf('a.constructor', 'file')).toEqual({ glyph: glyph(0xf15b), color: 'faint' })
 })
