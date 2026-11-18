@@ -1250,6 +1250,20 @@ test('a live edit never joins a run an old row started, so it keeps its own row'
   expect(await textOf(live, 'e2')).toBe('◼ Edited (1 file)  +1')
 })
 
+test('a finished row of a call a live run holds keeps the next live group in that run', async ($, on) => {
+  native(on)
+  blinks(on)
+  bashFs(on, {})
+  const live = (id: string) => call(id, 'Bash', { command: `echo ${id}` }, { isRunning: true, output: undefined })
+  const first = await mountGroup($, 'g1', [live('b1')], { isActive: true })
+  const done = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolUse', requestId: 'b1',
+    props: { tool_use_id: 'b1', tool: 'Bash', input: { command: 'echo b1' }, output: { stdout: '' }, isRunning: false, isErrored: false, isInterrupted: false }, viewport: VIEW })
+  const second = await mountGroup($, 'g2', [live('b2')], { isActive: true })
+  expect(await textOf(first, 'g1')).toBe('◼ Running (2 commands)')
+  expect(await textOf(second, 'g2')).toBeUndefined()
+  expect(await textOf(done, 'b1')).toBe('◼ Running (2 commands)')
+})
+
 test('a live run draws one running fold, then folds as its edits land', async ($, on) => {
   native(on)
   const row = (file: string, id: string) => ({ tool_use_id: id, tool: 'Edit', input: { file_path: file }, output: patch('+b'), isRunning: false, isErrored: false, isInterrupted: false })
