@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, RenderSurface } from 'claude-code'
 
-import { cellsOf, fileWindow, layoutFor, sliceTokens, thumbOf } from './explorer-layout'
+import { cellsOf, fileWindow, layoutFor, layoutOf, lineAt, sliceTokens, thumbOf } from './explorer-layout'
 import type { Cached } from './explorer-layout'
 import { listDir, loadFile, latestOf, projectRoot } from './explorer-load'
 import type { Loaded } from './explorer-load'
@@ -12,7 +12,7 @@ import type { Token } from './explorer-tokens'
 import { iconOf, treeRows } from './explorer-tree'
 import type { Listing } from './explorer-tree'
 import { printable } from './git-data'
-import { HUD, LIT, PAD, TYPES, basicGlyphs, emptyNote } from './kit'
+import { CARD, HUD, LIT, PAD, TYPES, basicGlyphs, emptyNote } from './kit'
 import type { TabCtx, TabDraw } from './kit'
 
 // The open place, so a change redraws the pane; the draw applies a place whose rev it has not seen.
@@ -38,6 +38,7 @@ type State = {
   // The last atom rev the module state has taken.
   applied: number
   notice?: string
+  noticeVerb?: string
 }
 
 const fresh = (): State => ({ nav: navStart(''), tokens: new Map(), expanded: new Set(), listed: new Map(), col: 0, wrap: false, menuPinned: false, rev: 0, applied: 0 })
@@ -92,7 +93,6 @@ export async function reloadPlace($: EngineInterface): Promise<void> {
     if (guard.isLatest(n)) {
       state.loaded = loaded
       state.tokens = new Map()
-      if (state.top !== undefined) state.top = Math.min(state.top, Math.max(0, loaded.lines.length - 1))
     }
   }
   await update($, file, () => placeOf())
@@ -124,21 +124,37 @@ function headOf(path: string, root: string, home: string | undefined, room: numb
 
 export const refOf = (rel: string, first: number, last: number): string => (first === last ? `${rel}:${first}` : `${rel}:${first}-${last}`)
 
-async function copyLines($: EngineInterface, first: number, last: number, surface?: RenderSurface): Promise<void> {
-  const here = current(state.nav)
-  if (here.kind === 'folder') return
+// A path as the menu and the copied reference give it: from the working directory when under it, else absolute.
+function relOf(path: string): string {
   const cwd = (state.cwd ?? '').replace(/\/$/, '')
-  const ref = refOf(cwd && here.path.startsWith(`${cwd}/`) ? here.path.slice(cwd.length + 1) : here.path, first, last)
-  const copied = await $.ui.copy({ text: ref, surface }).catch(() => undefined)
-  if (!copied?.isCopied) return
-  state.lit = { from: first, to: last }
-  state.notice = ref
-  await update($, file, () => placeOf())
+  const bare = path.replace(/(.)\/$/, '$1')
+  return cwd && bare === cwd ? '.' : cwd && bare.startsWith(`${cwd}/`) ? bare.slice(cwd.length + 1) : bare
+}
+
+// Shows the header notice and clears it after 3 seconds if it is still the same.
+function notify($: EngineInterface, verb: string, text: string): void {
+  state.noticeVerb = verb
+  state.notice = text
   $.clock.after(3000, async () => {
-    if (state.notice !== ref) return
+    if (state.notice !== text || state.noticeVerb !== verb) return
     state.notice = undefined
     await update($, file, () => placeOf())
   })
+}
+
+async function copyText($: EngineInterface, text: string, surface?: RenderSurface): Promise<boolean> {
+  const copied = await $.ui.copy({ text, surface }).catch(() => undefined)
+  return !!copied?.isCopied
+}
+
+async function copyLines($: EngineInterface, first: number, last: number, surface?: RenderSurface): Promise<void> {
+  const here = current(state.nav)
+  if (here.kind === 'folder') return
+  const ref = refOf(relOf(here.path), first, last)
+  if (!(await copyText($, ref, surface))) return
+  state.lit = { from: first, to: last }
+  notify($, 'copied ', ref)
+  await update($, file, () => placeOf())
 }
 
 export async function explorerPost($: EngineInterface, e: { element: string; data: unknown; surface?: RenderSurface }): Promise<void> {
@@ -256,26 +272,28 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     const asked = state.top ?? (line === undefined ? 0 : Math.max(0, (layout.starts[Math.max(0, Math.min(line, lines.length) - 1)] ?? 0) - Math.floor(codeRows / 2)))
     const win = fileWindow(layout.rows, asked, codeRows)
     state.top = win.top
-    const drawn: { line: number; cell: string; lit: boolean }[] = []
+    const drawn: { row: number; line: number; cell: string; lit: boolean }[] = []
     const code: JSX.Element[] = []
-    for (let i = win.top; i < win.last; i++) {
+    for (let r = win.top; r < win.last; r++) {
+      const i = lineAt(layout, r)
+      const seg = r - layout.starts[i]!
       const n = i + 1
       let tokens = state.tokens.get(i)
       if (!tokens) state.tokens.set(i, (tokens = tokenize(lines[i]!)))
       const lit = !!state.lit && n >= state.lit.from && n <= state.lit.to
-      drawn.push({ line: n, cell: ` ${String(n).padStart(digits)} `, lit })
+      drawn.push({ row: r, line: n, cell: seg ? ' '.repeat(G) : ` ${String(n).padStart(digits)} `, lit })
       code.push(
-        <Box key={`row:${n}`} backgroundColor={lit ? LIT : undefined}>
+        <Box key={seg ? `row:${n}:${seg}` : `row:${n}`} backgroundColor={lit ? LIT : undefined}>
           <Box width={C} flexShrink={0}>
             <Button
-              key={`code:${i - win.top}`}
+              key={`code:${r - win.top}`}
               plain
               onPress={() => {
                 state.lit = undefined
                 return update($, file, () => placeOf())
               }}
             >
-              {sliceTokens(tokens, state.col, C).map((t, k) => (
+              {sliceTokens(tokens, state.wrap ? seg * C : state.col, C).map((t, k) => (
                 <Text key={k} color={t.kind === 'keyword' ? HUD.label : t.kind === 'string' ? TYPES.feat : t.kind === 'number' ? TYPES.perf : t.kind === 'comment' ? HUD.faint : undefined}>
                   {t.text}
                 </Text>
@@ -303,7 +321,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
             <Client key="explorer:gutter" module="./explorer-gutter.tsx" height={codeRows} props={{ rows: drawn, colors: { lit: LIT, faint: HUD.faint, claude: 'claude' } }} />
           ) : (
             drawn.map(r => (
-              <Button key={`gutter:${r.line}`} plain onPress={press => copyLines($, r.line, r.line, press.surface)}>
+              <Button key={`gutter:${r.row}`} plain onPress={press => copyLines($, r.line, r.line, press.surface)}>
                 <Text color={HUD.faint} backgroundColor={r.lit ? LIT : undefined}>
                   {r.cell}
                 </Text>
@@ -387,6 +405,69 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       )
     })
   }
+  const item = (key: string, label: string, act: () => unknown, mark?: string) => (
+    <Button
+      key={key}
+      plain
+      onPress={async () => {
+        state.menuPinned = false
+        await act()
+        await update($, file, () => placeOf())
+      }}
+    >
+      <Text>{label.padEnd(17)}</Text>
+      <Text color="claude">{mark ?? ' '}</Text>
+    </Button>
+  )
+  const target = () => relOf(place.path)
+  const card = (
+    <Box
+      key="explorer:menu-card"
+      position="absolute"
+      top={2}
+      right={0}
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="promptBorder"
+      backgroundColor={CARD}
+      paddingX={1}
+      display={state.menuPinned ? 'flex' : 'none'}
+      hover={state.menuPinned ? undefined : { scope: 'explorer:menu', display: 'flex' }}
+    >
+      {item('copy-path', 'Copy path', async () => {
+        const rel = target()
+        if (await copyText($, rel)) notify($, 'copied ', rel)
+      })}
+      {item('copy-abs', 'Copy absolute path', async () => {
+        const abs = place.path.replace(/(.)\/$/, '$1')
+        if (await copyText($, abs)) notify($, 'copied ', abs)
+      })}
+      {item('mention', 'Mention to Claude', async () => {
+        await $.prompt.fill({ text: `@${target()}${place.kind === 'folder' ? '/' : ''}`, mode: 'append' }).catch(() => undefined)
+      })}
+      {item('open-editor', 'Open in editor', async () => {
+        const has = await $.process.run(['sh', '-c', 'command -v code >/dev/null 2>&1']).catch(() => undefined)
+        const launched = await $.process.run(['sh', '-c', 'setsid -f "$0" "$1" </dev/null >/dev/null 2>&1', has?.exitCode === 0 ? 'code' : 'xdg-open', place.path]).catch(() => undefined)
+        if (launched?.exitCode === 0) notify($, 'opened ', target())
+      })}
+      <Box marginX={-1}>
+        <Text color="promptBorder">{`├${'─'.repeat(18)}┤`}</Text>
+      </Box>
+      <Button
+        key="wrap"
+        plain
+        onPress={() => {
+          const old = state.layout?.layout
+          state.wrap = !state.wrap
+          if (old && place.kind === 'file') state.top = layoutOf(lines, C, state.wrap).starts[lineAt(old, state.top ?? 0)]
+          return update($, file, () => placeOf())
+        }}
+      >
+        <Text>{'Wrap lines'.padEnd(17)}</Text>
+        <Text color="claude">{state.wrap ? (basic ? '✓' : String.fromCharCode(0xeab2)) : ' '}</Text>
+      </Button>
+    </Box>
+  )
   return {
     body: (
       <Box flexDirection="column" height={rows} flexShrink={0}>
@@ -398,19 +479,27 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
           </Box>
           <Box key="path" flexGrow={1} justifyContent="center">
             {state.notice ? (
-              [<Text key="verb" color={HUD.faint}>copied </Text>, <Text key="ref" color="claude">{state.notice}</Text>]
+              [<Text key="verb" color={HUD.faint}>{state.noticeVerb}</Text>, <Text key="ref" color="claude">{state.notice}</Text>]
             ) : typeof path === 'string' ? (
               <Text color={HUD.action}>{path}</Text>
             ) : (
               path
             )}
           </Box>
-          <Box width={1} flexShrink={0} />
+          <Box width={1} flexShrink={0}>
+            <Button key="menu" plain hover={{ scope: 'explorer:menu' }} onPress={() => {
+              state.menuPinned = !state.menuPinned
+              return update($, file, () => placeOf())
+            }}>
+              <Text color="promptBorder" inverse={state.menuPinned}>{basic ? '≡' : String.fromCharCode(0xeb94)}</Text>
+            </Button>
+          </Box>
         </Box>
         <Box marginX={-PAD}>
           <Text color="promptBorder">{'─'.repeat(W + 2 * PAD)}</Text>
         </Box>
         {body}
+        {card}
       </Box>
     ),
     zones,

@@ -1,6 +1,6 @@
 import type { ClientModule } from 'claude-code'
 
-type Props = { rows: { line: number; cell: string; lit: boolean }[]; colors: { lit: string; faint: string; claude: string } }
+type Props = { rows: { row: number; line: number; cell: string; lit: boolean }[]; colors: { lit: string; faint: string; claude: string } }
 
 // The code view's line numbers: a drag from one to another posts the lines it covered once let go. The gutter
 // stays put while dragging and draws the range, so rows are never counted from a spot that has moved.
@@ -25,7 +25,7 @@ const Gutter: ClientModule<Props, { anchor?: number; to?: number }> = ({ rows, c
       {rows.map(r => {
         const inRange = dragging ? r.line >= Math.min(anchor, to) && r.line <= Math.max(anchor, to) : r.lit
         return (
-          <Text key={r.line} color={colors.faint} backgroundColor={inRange ? colors.lit : undefined}>
+          <Text key={r.row} color={colors.faint} backgroundColor={inRange ? colors.lit : undefined}>
             {r.cell}
           </Text>
         )

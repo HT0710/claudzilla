@@ -7,7 +7,7 @@ import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '
 import { tokenize } from '../hooks/explorer-tokens'
 import { iconOf, sortListing, treeRows } from '../hooks/explorer-tree'
 import { refOf } from '../hooks/tab-file'
-import { clock, disk, explorer, explorerRoot, lists, mountPane, open, pathText, ran, lines, setup, store, textOf } from './explorer-helpers'
+import { clock, disk, explorer, explorerRoot, lists, mountPane, launch, open, pathText, ran, runs, lines, setup, store, textOf } from './explorer-helpers'
 
 test('tokenize: a keyword, a string, a comment and a number', () => {
   expect(tokenize('const s = "a" // x 42')).toEqual([
@@ -619,4 +619,138 @@ test('a long line shows the sideways bar, and a wheel tick on it moves 4 columns
   await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 1, bodyRows: 19, contentRows: 19, origin: { kind: 'person' }, pointer: { column: 8, row: 18 } })
   await ui.redraw()
   expect((await barOf(ui, 'explorer:hbar')).top).toBe(4)
+})
+
+const CHECK = String.fromCharCode(0xeab2)
+
+test('the menu button pins the card, and Copy path copies the path from the working directory', async ($, on) => {
+  const copied: string[] = []
+  on('ui.copy', (_, e) => (copied.push(e.text), { value: { isCopied: true } }) as any)
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
+  expect((await ui.find({ key: 'explorer:menu-card' }))?.props.display).toBe('none')
+  await ui.press({ key: 'menu' })
+  await ui.redraw()
+  expect((await ui.find({ key: 'explorer:menu-card' }))?.props.display).toBe('flex')
+  expect(await ui.find({ type: 'Text', text: 'Copy path' })).toBeDefined()
+  await ui.press({ key: 'copy-path' })
+  expect(copied).toEqual(['src/a.ts'])
+})
+
+test('an action unpins the card, so its display is none', async ($, on) => {
+  on('ui.copy', () => ({ value: { isCopied: true } }) as any)
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'copy-path' })
+  await ui.redraw()
+  expect((await ui.find({ key: 'explorer:menu-card' }))?.props.display).toBe('none')
+})
+
+test('Copy absolute path copies the full path', async ($, on) => {
+  const copied: string[] = []
+  on('ui.copy', (_, e) => (copied.push(e.text), { value: { isCopied: true } }) as any)
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'copy-abs' })
+  expect(copied).toEqual(['/repo/src/a.ts'])
+})
+
+test('a file outside the working directory copies its absolute path, and Mention gives it too', async ($, on) => {
+  const copied: string[] = []
+  const filled: Array<{ text: string }> = []
+  on('ui.copy', (_, e) => (copied.push(e.text), { value: { isCopied: true } }) as any)
+  on('prompt.fill', (_, e) => (filled.push(e as any), { isFilled: true }) as any)
+  const ui = await explorer($, on, { path: '/home/me/notes.md' }, lines(3))
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'copy-path' })
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'mention' })
+  expect(copied).toEqual(['/home/me/notes.md'])
+  expect(filled[0]!.text).toBe('@/home/me/notes.md')
+})
+
+test('on a folder page, Copy path has no trailing slash and Mention ends with one', async ($, on) => {
+  const copied: string[] = []
+  const filled: Array<{ text: string }> = []
+  on('ui.copy', (_, e) => (copied.push(e.text), { value: { isCopied: true } }) as any)
+  on('prompt.fill', (_, e) => (filled.push(e as any), { isFilled: true }) as any)
+  const ui = await explorerRoot($, on, { '/repo': [{ name: 'src', kind: 'dir' }] })
+  open({ path: '/repo/src', kind: 'folder' })
+  await ui.redraw()
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'copy-path' })
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'mention' })
+  expect(copied).toEqual(['src'])
+  expect(filled[0]!.text).toBe('@src/')
+})
+
+test('Mention to Claude appends @path to the draft', async ($, on) => {
+  const filled: Array<{ text: string; mode?: string }> = []
+  on('prompt.fill', (_, e) => (filled.push(e as any), { isFilled: true }) as any)
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'mention' })
+  expect(filled).toEqual([expect.objectContaining({ text: '@src/a.ts', mode: 'append' })])
+})
+
+test('Open in editor runs a detached sh with setsid and the path, and says opened', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
+  runs.length = 0
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'open-editor' })
+  await ui.redraw()
+  const detached = runs.find(a => a[0] === 'sh' && a.some(x => x.includes('setsid -f')))
+  expect(detached?.at(-1)).toBe('/repo/src/a.ts')
+  expect(await pathText(ui)).toBe('opened src/a.ts')
+})
+
+test('Wrap lines toggles, keeps the top source line, and shows a check while on', async ($, on) => {
+  const text = Array.from({ length: 60 }, (_, i) => `L${i + 1} ${'x'.repeat(100)}`).join('\n')
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 30 }, text)
+  const top = textOf(await ui.find({ key: 'code:0' })).split(' ')[0]
+  expect(await ui.find({ key: 'explorer:hbar' })).toBeDefined()
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'wrap' })
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: CHECK })).toBeDefined()
+  expect(textOf(await ui.find({ key: 'code:0' })).split(' ')[0]).toBe(top)
+  expect(await ui.find({ key: 'explorer:hbar' })).toBeUndefined()
+  expect((await ui.find({ key: 'explorer:menu-card' }))?.props.display).toBe('flex')
+})
+
+const longLines = (n: number) => Array.from({ length: n }, (_, i) => `L${i + 1} ${'x'.repeat(100)}`).join('\n')
+
+test('wrapped rows each carry their own gutter key, and a drag on a continuation row copies its source line', async ($, on) => {
+  const copied: string[] = []
+  on('ui.copy', (_, e) => (copied.push(e.text), { value: { isCopied: true } }) as any)
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 1 }, longLines(10))
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'wrap' })
+  await ui.redraw()
+  const rows = (await ui.find({ key: 'explorer:gutter' }))?.props.props.rows
+  expect(new Set(rows.map((r: any) => r.row)).size).toBe(rows.length)
+  expect(rows[1].line).toBe(1)
+  await ui.pointer({ type: 'down', x: 0, y: 1, button: 'left', in: 'explorer:gutter' })
+  await ui.pointer({ type: 'up', x: 0, y: 1, button: 'left', in: 'explorer:gutter' })
+  expect(copied).toEqual(['a.ts:1'])
+})
+
+test('Open in editor says nothing when the launch fails', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
+  launch.exit = 1
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'open-editor' })
+  await ui.redraw()
+  expect(await pathText(ui)).toBe('repo/src/a.ts')
+})
+
+test('a refresh deep in a wrapped file keeps the top source line', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 55 }, longLines(60))
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'wrap' })
+  await ui.redraw()
+  const top = textOf(await ui.find({ key: 'code:0' })).split(' ')[0]
+  await ui.press({ key: 'refresh' })
+  await ui.redraw()
+  expect(textOf(await ui.find({ key: 'code:0' })).split(' ')[0]).toBe(top)
 })
