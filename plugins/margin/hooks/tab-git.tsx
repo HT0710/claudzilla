@@ -1,11 +1,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import type { Check, CheckState, CommitView, Counts, FileView, Gh, LogRow, Modal, ModalKey, Op, Pr, PrState, PrView, Stage, Word } from '../types'
+import type { Check, CheckState, CommitView, Counts, Gh, LogRow, Modal, ModalKey, Op, Pr, PrState, PrView, Stage, Word } from '../types'
 import { LOG_FORMAT, age, ago, branches, cutMiddle, fetchDue, fileKey, incomingPrs, ownPrs, parseHead, parseLog, parseMerge, parseNumstat, parseRebase, parseShortstat, parseStatusZ, printable, sortChecks, stashCount, syncMark, treeRows, worktrees, worst } from './git-data'
-import { AHEAD, BEHIND, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, basicGlyphs, capped, card as kitCard, clock, configDir, contentFrame, counted as kitCounted, cues, dayName, dim, drawLayer as kitDrawLayer, emptyNote, fade, fadeBg, fileView, fit, heading as kitHeading, kv as kitKv, line as kitLine, modalFrame, modalZone, nudge, readTheme, row as kitRow, rowHovers, stackFrame, toPieces, colWidth, zoneWindow } from './kit'
+import { AHEAD, BEHIND, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, basicGlyphs, capped, card as kitCard, clock, configDir, contentFrame, counted as kitCounted, cues, dayName, dim, drawLayer as kitDrawLayer, emptyNote, fade, fadeBg, fit, heading as kitHeading, kv as kitKv, line as kitLine, modalFrame, modalZone, nudge, readTheme, row as kitRow, rowHovers, stackFrame, toPieces, colWidth, zoneWindow } from './kit'
 import type { Frame, Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, Zone } from './kit'
+import { statOf } from './explorer-load'
 import { mdRows } from './markdown'
+import { openPlace } from './tab-file'
 
 const submitted = atom({ plugin: 'margin', key: 'submitted' } as const, 0)
 const toolCalls = atom({ plugin: 'margin', key: 'toolCalls' } as const, 0)
@@ -14,8 +16,6 @@ const rowPointer = atom({ plugin: 'margin', key: 'rowPointer' } as const, { left
 const split = atom({ plugin: 'margin', key: 'split' } as const, -1)
 // The first row each Git zone shows, as the wheel moved it.
 const scrolled = atom({ plugin: 'margin', key: 'scrolled' } as const, { changes: 0, commits: 0 })
-// What the Explorer tab shows: the last one, the whole text.
-const file = atom({ plugin: 'margin', key: 'file' } as const, undefined as FileView)
 const modal = atom({ plugin: 'margin', key: 'modal' } as const, null as Modal | null)
 // While `git fetch origin` runs from the branch row.
 const fetching = atom({ plugin: 'margin', key: 'fetching' } as const, false)
@@ -390,12 +390,12 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   const wcKey = `${key}:${untrackedShown.join('\0')}`
   if (untrackedShown.length && wcRead?.key !== wcKey) wcRead = { key: wcKey, run: readWc($, root, untrackedShown) }
   const lineCounts = untrackedShown.length ? await wcRead!.run : new Map<string, Counts>()
-  // As the Explorer tab's show: the file read whole, the tab switched. `path`: from the repo's top. A file no longer
-  // in the working tree, as a commit's may be, says so instead of opening empty.
+  // Opens `path` (from the repo's top) in the Explorer tab. A file no longer in the working tree, as a commit's may be,
+  // says so instead of opening.
   const openFile = async (path: string) => {
-    const text = await $.fs.read(`${root}/${path}`).then(String, () => undefined)
-    if (text === undefined) return void $.ui.toast(`Not in the working tree: ${printable(path)}`)
-    await update($, file, () => fileView(`${root}/${path}`, 1, text))
+    const abs = `${root}/${path}`
+    if (!(await statOf($, abs))) return void $.ui.toast(`Not in the working tree: ${printable(path)}`)
+    await openPlace($, { path: abs })
     await ctx.pick('Explorer')
   }
   rowHover.acts = dimmed
