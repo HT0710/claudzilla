@@ -5,7 +5,7 @@ import { cellsOf, fileWindow, layoutFor, sliceTokens } from './explorer-layout'
 import type { Cached } from './explorer-layout'
 import { loadFile, latestOf, projectRoot } from './explorer-load'
 import type { Loaded } from './explorer-load'
-import { current, navStart, remember, visit } from './explorer-nav'
+import { back, current, forward, navStart, remember, visit } from './explorer-nav'
 import type { Nav } from './explorer-nav'
 import { tokenize } from './explorer-tokens'
 import type { Token } from './explorer-tokens'
@@ -15,7 +15,7 @@ import { HUD, LIT, PAD, TYPES, basicGlyphs, emptyNote } from './kit'
 import type { TabCtx, TabDraw } from './kit'
 
 // The open place, so a change redraws the pane; the draw applies a place whose rev it has not seen.
-const file = atom({ plugin: 'margin', key: 'file' } as const, undefined as { rev: number; path: string; line?: number } | undefined)
+const file = atom({ plugin: 'margin', key: 'file' } as const, undefined as { rev: number; path: string; line?: number; kind?: 'file' | 'folder' } | undefined)
 
 type State = {
   nav: Nav
@@ -44,19 +44,21 @@ const state = fresh()
 const guard = latestOf()
 
 // Remembers the spot, moves through `change`, and restores the spot of an entry it landed on.
-function moveTo(change: (nav: Nav) => Nav): void {
+function moveTo(change: (nav: Nav) => Nav): boolean {
   const remembered = remember(state.nav, state.top ?? 0, state.lit?.from)
   state.nav = change(remembered)
   const entry = current(state.nav)
-  if (entry === current(remembered)) return
+  if (entry === current(remembered)) return false
   state.top = entry.top
   state.lit = entry.kind === 'file' && entry.line !== undefined ? { from: entry.line, to: entry.line } : undefined
   state.col = 0
+  return true
 }
 
 // The open place at a new revision the draw has already taken.
 function placeOf() {
-  return { rev: (state.applied = ++state.rev), path: current(state.nav).path, line: state.lit?.from }
+  const here = current(state.nav)
+  return { rev: (state.applied = ++state.rev), path: here.path, line: state.lit?.from, kind: here.kind }
 }
 
 export function showPlace(place: { path: string; line?: number }): number {
@@ -83,6 +85,16 @@ export async function reloadPlace($: EngineInterface): Promise<void> {
   await update($, file, () => placeOf())
 }
 
+export async function goBack($: EngineInterface): Promise<void> {
+  if (!moveTo(back)) return
+  await update($, file, () => placeOf())
+}
+
+export async function goForward($: EngineInterface): Promise<void> {
+  if (!moveTo(forward)) return
+  await update($, file, () => placeOf())
+}
+
 // The path as the header shows it: from the project root's name, else from ~, else whole; cut from the start to fit.
 function headOf(path: string, root: string, home: string | undefined, room: number): string {
   const name = root.slice(root.lastIndexOf('/') + 1)
@@ -98,11 +110,12 @@ function headOf(path: string, root: string, home: string | undefined, room: numb
 }
 
 export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
-  const { Box, Text } = ctx.el
+  const { Box, Button, Text } = ctx.el
   const { props } = ctx
   const open = await read($, file)
   if (open && open.rev > state.applied) {
-    showPlace({ path: open.path, line: open.line })
+    if (open.kind === 'folder') moveTo(nav => visit(nav, { kind: 'folder', path: open.path }))
+    else showPlace({ path: open.path, line: open.line })
     state.rev = state.applied = Math.max(state.rev, open.rev)
   }
   state.root ??= await projectRoot($)
@@ -175,17 +188,49 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       },
     })
   }
-  const glyphs = basic ? '‹ › ↻' : `${String.fromCharCode(0xea9b)} ${String.fromCharCode(0xea9c)} ${String.fromCharCode(0xeb37)}`
-  const path = place.kind === 'file' ? headOf(place.path, state.root, home, W - 6) : ''
+  const glyph = (key: string, plain: string, code: number, press: () => unknown) => (
+    <Button key={key} plain onPress={press}>
+      <Text color={HUD.faint}>{basic ? plain : String.fromCharCode(code)}</Text>
+    </Button>
+  )
+  const shown = place.kind === 'file' ? headOf(place.path, state.root, home, W - 6) : ''
+  const inRoot = place.kind === 'file' && state.root !== '/' && place.path.startsWith(`${state.root}/`)
+  let path: JSX.Element[] | string = shown
+  if (inRoot && !shown.startsWith('…')) {
+    const parts = place.path.slice(state.root.length + 1).split('/')
+    let at = state.root
+    path = [
+      <Button key={at} plain onPress={() => {}}>
+        <Text color={HUD.action}>{printable(at.slice(at.lastIndexOf('/') + 1))}</Text>
+      </Button>,
+    ]
+    parts.forEach((part, i) => {
+      path.push(<Text key={`sep:${i}`} color="promptBorder">/</Text>)
+      at += `/${part}`
+      path.push(
+        i < parts.length - 1 ? (
+          <Button key={at} plain onPress={() => {}}>
+            <Text color={HUD.action}>{printable(part)}</Text>
+          </Button>
+        ) : (
+          <Text key="last" bold color="claude">
+            {printable(part)}
+          </Text>
+        ),
+      )
+    })
+  }
   return {
     body: (
       <Box flexDirection="column" height={rows} flexShrink={0}>
         <Box>
-          <Box width={5} flexShrink={0}>
-            <Text color={HUD.faint}>{glyphs}</Text>
+          <Box width={5} flexShrink={0} gap={1}>
+            {glyph('back', '‹', 0xea9b, () => goBack($))}
+            {glyph('forward', '›', 0xea9c, () => goForward($))}
+            {glyph('refresh', '↻', 0xeb37, () => reloadPlace($))}
           </Box>
           <Box key="path" flexGrow={1} justifyContent="center">
-            <Text color={HUD.action}>{path}</Text>
+            {typeof path === 'string' ? <Text color={HUD.action}>{path}</Text> : path}
           </Box>
           <Box width={1} flexShrink={0} />
         </Box>
