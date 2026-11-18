@@ -7,7 +7,9 @@ import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '
 import { tokenize } from '../hooks/explorer-tokens'
 import { iconOf, sortListing, treeRows } from '../hooks/explorer-tree'
 import { refOf } from '../hooks/tab-file'
-import { clock, disk, props, explorer, explorerRoot, failList, hold, lists, mountPane, launch, open, pathText, ran, reads, runs, lines, setup, sets, store, textOf, tree, waitFor } from './explorer-helpers'
+import { fileKey } from '../hooks/git-data'
+import { LIT } from '../hooks/kit'
+import { clock, disk, props, chevron, tapTree, treeRow, explorer, explorerRoot, failList, hold, lists, mountPane, launch, open, pathText, ran, reads, runs, lines, setup, sets, store, textOf, tree, waitFor } from './explorer-helpers'
 
 test('tokenize: a keyword, a string, a comment and a number', () => {
   expect(tokenize('const s = "a" // x 42')).toEqual([
@@ -464,31 +466,31 @@ test('a folder place in the file atom shows its folder page, not the unreadable 
 
 test('with no file open, the root folder page lists folders before files', async ($, on) => {
   const ui = await explorerRoot($, on, { '/repo': [{ name: 'src', kind: 'dir' }, { name: 'README.md', kind: 'file' }] })
-  expect(await ui.find({ type: 'Text', text: 'src' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'README.md' })).toBeDefined()
+  expect(await treeRow(ui, 'src')).toBeDefined()
+  expect(await treeRow(ui, 'README.md')).toBeDefined()
 })
 
 test('a closed folder shows the closed chevron, an open one the open chevron', async ($, on) => {
   const ui = await explorerRoot($, on, { '/repo': [{ name: 'src', kind: 'dir' }], '/repo/src': [{ name: 'a.ts', kind: 'file' }] })
-  expect(await ui.find({ type: 'Text', text: '▸' })).toBeDefined()
-  await ui.press({ key: '/repo/src' })
+  expect(await chevron(ui, '▸')).toBeDefined()
+  await tapTree(ui, 'src')
   await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: '▾' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'a.ts' })).toBeDefined()
+  expect(await chevron(ui, '▾')).toBeDefined()
+  expect(await treeRow(ui, 'a.ts')).toBeDefined()
 })
 
 test('an empty folder has no chevron and draws the open-folder icon, and a press does nothing', async ($, on) => {
   const ui = await explorerRoot($, on, { '/repo': [{ name: 'empty', kind: 'dir' }], '/repo/empty': [] })
-  expect(await ui.find({ type: 'Text', text: '▸' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: String.fromCharCode(0xf07c) })).toBeDefined()
-  await ui.press({ key: '/repo/empty' })
-  expect(await ui.find({ type: 'Text', text: 'empty' })).toBeDefined()
+  expect(await chevron(ui, '▸')).toBeUndefined()
+  expect(await chevron(ui, String.fromCharCode(0xf07c))).toBeDefined()
+  await tapTree(ui, 'empty')
+  expect(await treeRow(ui, 'empty')).toBeDefined()
 })
 
 test('a press on a file opens it, and the header shows it', async ($, on) => {
   const ui = await explorerRoot($, on, { '/repo': [{ name: 'a.ts', kind: 'file' }] })
   disk.set('/repo/a.ts', { text: 'x\n', mtimeMs: 1 })
-  await ui.press({ key: '/repo/a.ts' })
+  await tapTree(ui, 'a.ts')
   await ui.drawn()
   expect(await pathText(ui)).toBe('repo/a.ts')
   expect(await ui.find({ key: 'row:1' })).toBeDefined()
@@ -498,7 +500,7 @@ test('a folder segment opens its folder page', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3), { '/repo/src': [{ name: 'lib.ts', kind: 'file' }] })
   await ui.press({ key: '/repo/src' })
   await ui.redraw()
-  expect(await ui.find({ type: 'Text', text: 'lib.ts' })).toBeDefined()
+  expect(await treeRow(ui, 'lib.ts')).toBeDefined()
 })
 
 test('opening a folder expands the folders down to the open file', async ($, on) => {
@@ -508,21 +510,21 @@ test('opening a folder expands the folders down to the open file', async ($, on)
     '/repo/src/lib': [{ name: 'a.ts', kind: 'file' }],
   })
   await ui.press({ key: '/repo' })
-  await ui.drawn()
-  expect(await ui.find({ type: 'Text', text: 'a.ts' })).toBeDefined()
+  await ui.redraw()
+  expect(await treeRow(ui, 'a.ts')).toBeDefined()
 })
 
 test('a folder of 5,000 files draws only the rows that fit', async ($, on) => {
   const many = Array.from({ length: 5000 }, (_, i) => ({ name: `f${String(i).padStart(4, '0')}.ts`, kind: 'file' as const }))
   const ui = await explorerRoot($, on, { '/repo': many })
-  expect(await ui.find({ type: 'Text', text: 'f0000.ts' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'f0100.ts' })).toBeUndefined()
+  expect(await treeRow(ui, 'f0000.ts')).toBeDefined()
+  expect(await treeRow(ui, 'f0100.ts')).toBeUndefined()
 })
 
 test('only the folders on screen are listed', async ($, on) => {
   const dirs = Array.from({ length: 60 }, (_, i) => ({ name: `d${String(i).padStart(2, '0')}`, kind: 'dir' as const }))
   const ui = await explorerRoot($, on, { '/repo': dirs })
-  expect(await ui.find({ type: 'Text', text: 'd00' })).toBeDefined()
+  expect(await treeRow(ui, 'd00')).toBeDefined()
   expect(lists).toContain('/repo')
   expect(lists).toContain('/repo/d00')
   expect(lists).not.toContain('/repo/d30')
@@ -531,7 +533,7 @@ test('only the folders on screen are listed', async ($, on) => {
 
 test('a dot name draws in the faint colour', async ($, on) => {
   const ui = await explorerRoot($, on, { '/repo': [{ name: '.git', kind: 'dir' }] })
-  expect((await ui.find({ type: 'Text', text: '.git' }))?.props.color).toBe('#4f5c68')
+  expect((await treeRow(ui, '.git')).props.props.left.at(-1).color).toBe('#4f5c68')
 })
 
 test('a reference is path:line, or path:first-last, relative to the working directory', () => {
@@ -876,17 +878,17 @@ test('a Write call re-lists the open folder page', async ($, on) => {
   tree.set('/repo', [{ name: 'a.ts', kind: 'file' }, { name: 'b.ts', kind: 'file' }])
   await $.tool.call({ tool: 'Write', file_path: '/repo/b.ts' } as any)
   await ui.redraw()
-  expect(await ui.find({ key: '/repo/b.ts' })).toBeDefined()
+  expect(await ui.find({ key: `row:x:${fileKey('/repo/b.ts')}` })).toBeDefined()
 })
 
 test('a Write into a folder seen empty re-lists it, so it shows as non-empty', async ($, on) => {
   hostOk(on)
   const ui = await explorerRoot($, on, { '/repo': [{ name: 'empty', kind: 'dir' }], '/repo/empty': [] })
-  expect(await ui.find({ type: 'Text', text: '▸' })).toBeUndefined()
+  expect(await chevron(ui, '▸')).toBeUndefined()
   tree.set('/repo/empty', [{ name: 'n.ts', kind: 'file' }])
   await $.tool.call({ tool: 'Write', file_path: '/repo/empty/n.ts' } as any)
   await ui.redraw()
-  expect(await ui.find({ type: 'Text', text: '▸' })).toBeDefined()
+  expect(await chevron(ui, '▸')).toBeDefined()
 })
 
 test('refresh re-lists the open folder page', async ($, on) => {
@@ -896,7 +898,7 @@ test('refresh re-lists the open folder page', async ($, on) => {
   tree.set('/repo/src', [{ name: 'a.ts', kind: 'file' }, { name: 'c.ts', kind: 'file' }])
   await ui.press({ key: 'refresh' })
   await ui.redraw()
-  expect(await ui.find({ key: '/repo/src/c.ts' })).toBeDefined()
+  expect(await ui.find({ key: `row:x:${fileKey('/repo/src/c.ts')}` })).toBeDefined()
 })
 
 test('an empty file reloaded with content shows it at the atom line', async ($, on) => {
@@ -966,11 +968,11 @@ test('refresh lists a folder again after its listing failed', async ($, on) => {
   tree.set('/repo', [{ name: 'a.ts', kind: 'file' }])
   failList.on = true
   const ui = await mountPane($)
-  expect(await ui.find({ key: '/repo/a.ts' })).toBeUndefined()
+  expect(await ui.find({ key: `row:x:${fileKey('/repo/a.ts')}` })).toBeUndefined()
   failList.on = false
   await ui.press({ key: 'refresh' })
   await ui.redraw()
-  expect(await ui.find({ key: '/repo/a.ts' })).toBeDefined()
+  expect(await ui.find({ key: `row:x:${fileKey('/repo/a.ts')}` })).toBeDefined()
 })
 
 test('a notice longer than the header keeps the verb, a space and the end of the path', async ($, on) => {
@@ -991,4 +993,32 @@ test('the menu divider is plain rule cells over the padding, between the card bo
   const dashes = 'Copy absolute path'.length + 1 + 2
   expect(await ui.find({ type: 'Text', text: new RegExp(`^─{${dashes}}$`) })).toBeDefined()
   expect(await ui.find({ type: 'Box', marginX: -1 })).toBeDefined()
+})
+
+test('a tree row is a row Client in a Box that lights the whole row on hover', async ($, on) => {
+  const ui = await explorerRoot($, on, { '/repo': [{ name: 'src', kind: 'dir' }, { name: 'a.ts', kind: 'file' }], '/repo/src': [{ name: 'b.ts', kind: 'file' }] })
+  const row = await treeRow(ui, 'src')
+  expect(String(row.props.module)).toMatch(/row\.tsx$/)
+  expect(row.props.key).toBe(`row:x:${fileKey('/repo/src')}`)
+  expect(await ui.find({ type: 'Button', key: '/repo/src' })).toBeUndefined()
+  const walk = (n: any, up: any[] = []): any[] =>
+    !n || typeof n !== 'object' ? [] : Array.isArray(n) ? n.flatMap(x => walk(x, up)) : n.props?.key === row.props.key ? up : walk([n.children, n.props?.children], [...up, n])
+  const lit = walk(await ui.drawn()).findLast(n => n.hover?.backgroundColor === LIT)
+  expect(lit?.props.flexDirection).toBe('column')
+  const left = row.props.props.left.map((x: any) => x.text)
+  expect(left).toEqual(['▸', ' ', expect.any(String), ' ', 'src'])
+})
+
+test('a press on a tree file row opens it, and on a folder row toggles it', async ($, on) => {
+  const ui = await explorerRoot($, on, { '/repo': [{ name: 'src', kind: 'dir' }, { name: 'a.ts', kind: 'file' }], '/repo/src': [{ name: 'b.ts', kind: 'file' }] })
+  disk.set('/repo/a.ts', { text: 'x\n', mtimeMs: 1 })
+  await tapTree(ui, 'src')
+  await ui.drawn()
+  expect(await treeRow(ui, 'b.ts')).toBeDefined()
+  await tapTree(ui, 'src')
+  await ui.drawn()
+  expect(await treeRow(ui, 'b.ts')).toBeUndefined()
+  await tapTree(ui, 'a.ts')
+  await ui.drawn()
+  expect(await pathText(ui)).toBe('repo/a.ts')
 })

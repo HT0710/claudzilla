@@ -309,8 +309,8 @@ export type Layer = { frame: Frame; top: number; end: number }
 // top row's card spans, from its top to its end; `lines`, each top row's own.
 export type RowHover = { acts: Record<string, () => unknown>; spans: Record<string, [number, number]>; lines: Record<string, number> }
 // Each tab's own: a stale draw of one never clears the other's.
-export const rowHovers: Record<'Git' | 'Overview', RowHover> = { Git: { acts: {}, spans: {}, lines: {} }, Overview: { acts: {}, spans: {}, lines: {} } }
-export const hoverOf = (row: string): RowHover => (row.startsWith('o:') ? rowHovers.Overview : rowHovers.Git)
+export const rowHovers: Record<'Git' | 'Overview' | 'Explorer', RowHover> = { Git: { acts: {}, spans: {}, lines: {} }, Overview: { acts: {}, spans: {}, lines: {} }, Explorer: { acts: {}, spans: {}, lines: {} } }
+export const hoverOf = (row: string): RowHover => (row.startsWith('o:') ? rowHovers.Overview : row.startsWith('x:') ? rowHovers.Explorer : rowHovers.Git)
 // What the Git draw's row and card closures read from its scope.
 export type RowCtx = {
   el: Els
