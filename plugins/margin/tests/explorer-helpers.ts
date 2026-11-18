@@ -13,6 +13,8 @@ export const tree = new Map<string, Entry[]>()
 export const hold: { reads?: Array<() => void> } = {}
 // Every process.run argv, in order, for tests that check a command.
 export const runs: string[][] = []
+// A test sets exit to make the detached editor launch fail.
+export const launch = { exit: 0 }
 // The clock the plugin's timers run on; a test advances it.
 export let clock: ReturnType<typeof mock.clock>
 // Every fs.list path, in order.
@@ -34,6 +36,7 @@ export const setup = async ($: Body[0], on: Body[1]) => {
   disk.clear()
   tree.clear()
   hold.reads = undefined
+  launch.exit = 0
   lists.length = 0
   tree.set('/repo', [])
   store.clear()
@@ -45,7 +48,7 @@ export const setup = async ($: Body[0], on: Body[1]) => {
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('session.cwd', () => ({ value: '/repo' }))
-  on('process.run', (_, e) => (runs.push([...e.argv]), e.argv.includes('rev-parse') ? ran(0, '/repo\n') : ran(0)) as any)
+  on('process.run', (_, e) => (runs.push([...e.argv]), e.argv.includes('rev-parse') ? ran(0, '/repo\n') : ran(e.argv.some(x => x.includes('setsid -f')) ? launch.exit : 0)) as any)
   on('fs.stat', (_, e) => (tree.has(e.path) ? { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } : disk.has(e.path) ? { value: { kind: 'file', size: disk.get(e.path)!.text.length, mtimeMs: disk.get(e.path)!.mtimeMs, isLink: false } } : { deny: 'ENOENT' }) as any)
   on('fs.read', (_, e) => {
     const answer = disk.has(e.path) ? { value: disk.get(e.path)!.text } : { deny: 'ENOENT' }
