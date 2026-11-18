@@ -7,7 +7,7 @@ import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, PAD, WHEEL_HOLD, applyPalette
 import type { Prompt, Readers, TabCtx, TabDraw, UseEntry, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
-import { draw as drawFile, showPlace } from './tab-file'
+import { draw as drawFile, explorerPost, showPlace } from './tab-file'
 import { autoFetch, draw as drawGit, resetGitReads } from './tab-git'
 import { draw as drawHistory } from './tab-history'
 import { draw as drawOverview, resetStepsHeld, same } from './tab-overview'
@@ -1294,6 +1294,10 @@ export const register: Register = (on, options) => {
 
   // A divider, dragged or clicked: the render clamps a divider to keep 1 row on either side.
   on('ui.message', async ($, e, next) => {
+    if (e.requestId === PANE && typeof e.element === 'string' && e.element.startsWith('explorer:')) {
+      await explorerPost($, e)
+      return {}
+    }
     // A row Client: the pointer entered or left it, or it was pressed.
     if (e.requestId === PANE && typeof e.element === 'string' && e.element.startsWith('row:')) {
       const row = e.element.slice(4)

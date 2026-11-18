@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface } from 'claude-code'
+import type { EngineInterface, RenderSurface } from 'claude-code'
 
 import { cellsOf, fileWindow, layoutFor, sliceTokens } from './explorer-layout'
 import type { Cached } from './explorer-layout'
@@ -122,6 +122,30 @@ function headOf(path: string, root: string, home: string | undefined, room: numb
   return `…${tail}`
 }
 
+export const refOf = (rel: string, first: number, last: number): string => (first === last ? `${rel}:${first}` : `${rel}:${first}-${last}`)
+
+async function copyLines($: EngineInterface, first: number, last: number, surface?: RenderSurface): Promise<void> {
+  const here = current(state.nav)
+  if (here.kind === 'folder') return
+  const cwd = (state.cwd ?? '').replace(/\/$/, '')
+  const ref = refOf(cwd && here.path.startsWith(`${cwd}/`) ? here.path.slice(cwd.length + 1) : here.path, first, last)
+  const copied = await $.ui.copy({ text: ref, surface }).catch(() => undefined)
+  if (!copied?.isCopied) return
+  state.lit = { from: first, to: last }
+  state.notice = ref
+  await update($, file, () => placeOf())
+  $.clock.after(3000, async () => {
+    if (state.notice !== ref) return
+    state.notice = undefined
+    await update($, file, () => placeOf())
+  })
+}
+
+export async function explorerPost($: EngineInterface, e: { element: string; data: unknown; surface?: RenderSurface }): Promise<void> {
+  const d = e.data as { first?: unknown; last?: unknown } | undefined
+  if (e.element === 'explorer:gutter' && typeof d?.first === 'number' && typeof d.last === 'number') await copyLines($, d.first, d.last, e.surface)
+}
+
 export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const { Box, Button, Text } = ctx.el
   const { props } = ctx
@@ -221,25 +245,55 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     const asked = state.top ?? (line === undefined ? 0 : Math.max(0, (layout.starts[Math.max(0, Math.min(line, lines.length) - 1)] ?? 0) - Math.floor(codeRows / 2)))
     const win = fileWindow(layout.rows, asked, codeRows)
     state.top = win.top
+    const Client = 'Client' in ctx.el ? ctx.el.Client : undefined
+    const drawn: { line: number; cell: string; lit: boolean }[] = []
+    const code: JSX.Element[] = []
     for (let i = win.top; i < win.last; i++) {
       const n = i + 1
       let tokens = state.tokens.get(i)
       if (!tokens) state.tokens.set(i, (tokens = tokenize(lines[i]!)))
-      const lit = state.lit && n >= state.lit.from && n <= state.lit.to
-      body.push(
+      const lit = !!state.lit && n >= state.lit.from && n <= state.lit.to
+      drawn.push({ line: n, cell: ` ${String(n).padStart(digits)} `, lit })
+      code.push(
         <Box key={`row:${n}`} backgroundColor={lit ? LIT : undefined}>
-          <Text color={HUD.faint}>{` ${String(n).padStart(digits)} `}</Text>
           <Box width={C} flexShrink={0}>
-            {sliceTokens(tokens, state.col, C).map((t, k) => (
-              <Text key={k} color={t.kind === 'keyword' ? HUD.label : t.kind === 'string' ? TYPES.feat : t.kind === 'number' ? TYPES.perf : t.kind === 'comment' ? HUD.faint : undefined}>
-                {t.text}
-              </Text>
-            ))}
+            <Button
+              key={`code:${i - win.top}`}
+              plain
+              onPress={() => {
+                state.lit = undefined
+                return update($, file, () => placeOf())
+              }}
+            >
+              {sliceTokens(tokens, state.col, C).map((t, k) => (
+                <Text key={k} color={t.kind === 'keyword' ? HUD.label : t.kind === 'string' ? TYPES.feat : t.kind === 'number' ? TYPES.perf : t.kind === 'comment' ? HUD.faint : undefined}>
+                  {t.text}
+                </Text>
+              ))}
+            </Button>
           </Box>
           <Text color={HUD.faint}>│</Text>
         </Box>,
       )
     }
+    body.push(
+      <Box key="view">
+        <Box width={G} flexShrink={0} flexDirection="column">
+          {Client ? (
+            <Client key="explorer:gutter" module="./explorer-gutter.tsx" height={codeRows} props={{ rows: drawn, colors: { lit: LIT, faint: HUD.faint, claude: 'claude' } }} />
+          ) : (
+            drawn.map(r => (
+              <Button key={`gutter:${r.line}`} plain onPress={press => copyLines($, r.line, r.line, press.surface)}>
+                <Text color={HUD.faint} backgroundColor={r.lit ? LIT : undefined}>
+                  {r.cell}
+                </Text>
+              </Button>
+            ))
+          )}
+        </Box>
+        <Box flexDirection="column">{code}</Box>
+      </Box>,
+    )
     zones.push({
       tab: 'Explorer',
       kind: 'list',
@@ -303,7 +357,13 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
             {glyph('refresh', '↻', 0xeb37, () => reloadPlace($))}
           </Box>
           <Box key="path" flexGrow={1} justifyContent="center">
-            {typeof path === 'string' ? <Text color={HUD.action}>{path}</Text> : path}
+            {state.notice ? (
+              [<Text key="verb" color={HUD.faint}>copied </Text>, <Text key="ref" color="claude">{state.notice}</Text>]
+            ) : typeof path === 'string' ? (
+              <Text color={HUD.action}>{path}</Text>
+            ) : (
+              path
+            )}
           </Box>
           <Box width={1} flexShrink={0} />
         </Box>

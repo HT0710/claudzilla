@@ -1,3 +1,4 @@
+import { mock } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
 type Body = Parameters<TestBody>
@@ -12,6 +13,8 @@ export const tree = new Map<string, Entry[]>()
 export const hold: { reads?: Array<() => void> } = {}
 // Every process.run argv, in order, for tests that check a command.
 export const runs: string[][] = []
+// The clock the plugin's timers run on; a test advances it.
+export let clock: ReturnType<typeof mock.clock>
 // Every fs.list path, in order.
 export const lists: string[] = []
 // Polls until `pred` holds. Each turn yields a macrotask, so answers the host queued can land.
@@ -38,7 +41,7 @@ export const setup = async ($: Body[0], on: Body[1]) => {
   on('state.get', (_$, e, next) => (store.has(e.key) ? { value: { value: store.get(e.key), version: 1 } } : next(e)) as any)
   // A write reaches the engine, so the pane redraws; the engine's value answers from then on.
   on('state.set', (_$, e, next) => (store.delete(e.key), next(e)) as any)
-  on('clock.now', () => ({ value: 0 }))
+  clock = mock.clock(on, { now: 0 })
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('session.cwd', () => ({ value: '/repo' }))
