@@ -6,7 +6,7 @@ import { cellsOf, expandTabs, fileWindow, layoutFor, layoutOf, lineAt, sliceToke
 import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '../hooks/explorer-nav'
 import { tokenize } from '../hooks/explorer-tokens'
 import { iconOf, sortListing, treeRows } from '../hooks/explorer-tree'
-import { disk, explorer, explorerRoot, mountPane, open, pathText, ran, lines, setup, textOf } from './explorer-helpers'
+import { disk, explorer, explorerRoot, mountPane, open, pathText, ran, lines, setup, store, textOf } from './explorer-helpers'
 
 test('tokenize: a keyword, a string, a comment and a number', () => {
   expect(tokenize('const s = "a" // x 42')).toEqual([
@@ -411,4 +411,45 @@ test('a file that is gone shows it no longer exists', async ($, on) => {
   const ui = await mountPane($)
   expect(await ui.find({ type: 'Text', text: "Can't show this file" })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'It no longer exists.' })).toBeDefined()
+})
+
+test('back returns to the file shown before, at its line', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 5 }, lines(50))
+  disk.set('/repo/b.ts', { text: lines(5), mtimeMs: 1 })
+  open({ path: '/repo/b.ts' })
+  await ui.redraw()
+  expect(await pathText(ui)).toBe('repo/b.ts')
+  await ui.press({ key: 'back' })
+  await ui.redraw()
+  expect(await pathText(ui)).toBe('repo/a.ts')
+  expect((await ui.find({ key: 'row:5' }))?.props.backgroundColor).toBe('#0f1c28')
+})
+
+test('forward returns to the file after back', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(5))
+  disk.set('/repo/b.ts', { text: lines(5), mtimeMs: 1 })
+  open({ path: '/repo/b.ts' })
+  await ui.redraw()
+  await ui.press({ key: 'back' })
+  await ui.redraw()
+  expect(await pathText(ui)).toBe('repo/a.ts')
+  await ui.press({ key: 'forward' })
+  await ui.redraw()
+  expect(await pathText(ui)).toBe('repo/b.ts')
+})
+
+test('path segments: the root and each folder are links, the last part is plain text', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
+  expect(await ui.find({ type: 'Button', key: '/repo' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: '/repo/src' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: '/repo/src/a.ts' })).toBeUndefined()
+  expect(await pathText(ui)).toBe('repo/src/a.ts')
+})
+
+test('a folder place in the file atom shows no file, not the unreadable panel', async ($, on) => {
+  await setup($, on)
+  store.set('file', { rev: 900000, path: '/repo', kind: 'folder' })
+  const ui = await mountPane($)
+  expect(await ui.find({ type: 'Text', text: 'No file open' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: "Can't show this file" })).toBeUndefined()
 })
