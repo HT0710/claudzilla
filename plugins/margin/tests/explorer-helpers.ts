@@ -12,6 +12,8 @@ export const tree = new Map<string, Entry[]>()
 export const hold: { reads?: Array<() => void> } = {}
 // Every process.run argv, in order, for tests that check a command.
 export const runs: string[][] = []
+// Every fs.list path, in order.
+export const lists: string[] = []
 // Polls until `pred` holds. Each turn yields a macrotask, so answers the host queued can land.
 export const waitFor = async (pred: () => boolean) => {
   for (let i = 0; i < 1000 && !pred(); i++) await new Promise(done => setTimeout(done, 0))
@@ -24,11 +26,12 @@ export const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${
 export const store = new Map<string, unknown>()
 // The place the `file` key answers; the plugin's draw applies it. Each call is a new revision, kept above the plugin's own counter.
 let revs = 0
-export const open = (place: { path: string; line?: number }) => void store.set('file', { rev: 1000 + ++revs, ...place })
+export const open = (place: { path: string; line?: number; kind?: 'file' | 'folder' }) => void store.set('file', { rev: 1000 + ++revs, ...place })
 export const setup = async ($: Body[0], on: Body[1]) => {
   disk.clear()
   tree.clear()
   hold.reads = undefined
+  lists.length = 0
   tree.set('/repo', [])
   store.clear()
   store.set('tab', 'Explorer')
@@ -45,7 +48,7 @@ export const setup = async ($: Body[0], on: Body[1]) => {
     const answer = disk.has(e.path) ? { value: disk.get(e.path)!.text } : { deny: 'ENOENT' }
     return (hold.reads ? new Promise(done => hold.reads!.push(() => done(answer))) : answer) as any
   })
-  on('fs.list', (_, e) => ({ value: (tree.get(e.path) ?? []).map(x => ({ ...x, size: 0, mtimeMs: 0, isLink: false })) }) as any)
+  on('fs.list', (_, e) => (lists.push(e.path), { value: (tree.get(e.path) ?? []).map(x => ({ ...x, size: 0, mtimeMs: 0, isLink: false })) }) as any)
 }
 export const mountPane = ($: Body[0]) => $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
 // An Explorer tab showing `open`, with `text` on disk at its path. `trees` fills folder listings before the mount.

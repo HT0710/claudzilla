@@ -6,7 +6,7 @@ import { cellsOf, expandTabs, fileWindow, layoutFor, layoutOf, lineAt, sliceToke
 import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '../hooks/explorer-nav'
 import { tokenize } from '../hooks/explorer-tokens'
 import { iconOf, sortListing, treeRows } from '../hooks/explorer-tree'
-import { disk, explorer, explorerRoot, mountPane, open, pathText, ran, lines, setup, store, textOf } from './explorer-helpers'
+import { disk, explorer, explorerRoot, lists, mountPane, open, pathText, ran, lines, setup, store, textOf } from './explorer-helpers'
 
 test('tokenize: a keyword, a string, a comment and a number', () => {
   expect(tokenize('const s = "a" // x 42')).toEqual([
@@ -400,9 +400,9 @@ test('a long header path is cut from the left with an ellipsis', async ($, on) =
   expect(head.length).toBeLessThanOrEqual(36)
 })
 
-test('with no file open the pane says so', async ($, on) => {
+test('an empty root folder page shows one faint empty row', async ($, on) => {
   const ui = await explorerRoot($, on)
-  expect(await ui.find({ type: 'Text', text: 'No file open' })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: 'empty' }))?.props.color).toBe('#4f5c68')
 })
 
 test('a file that is gone shows it no longer exists', async ($, on) => {
@@ -446,10 +446,82 @@ test('path segments: the root and each folder are links, the last part is plain 
   expect(await pathText(ui)).toBe('repo/src/a.ts')
 })
 
-test('a folder place in the file atom shows no file, not the unreadable panel', async ($, on) => {
+test('a folder place in the file atom shows its folder page, not the unreadable panel', async ($, on) => {
   await setup($, on)
-  store.set('file', { rev: 900000, path: '/repo', kind: 'folder' })
+  open({ path: '/repo', kind: 'folder' })
   const ui = await mountPane($)
-  expect(await ui.find({ type: 'Text', text: 'No file open' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'empty' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: "Can't show this file" })).toBeUndefined()
+})
+
+test('with no file open, the root folder page lists folders before files', async ($, on) => {
+  const ui = await explorerRoot($, on, { '/repo': [{ name: 'src', kind: 'dir' }, { name: 'README.md', kind: 'file' }] })
+  expect(await ui.find({ type: 'Text', text: 'src' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'README.md' })).toBeDefined()
+})
+
+test('a closed folder shows the closed chevron, an open one the open chevron', async ($, on) => {
+  const ui = await explorerRoot($, on, { '/repo': [{ name: 'src', kind: 'dir' }], '/repo/src': [{ name: 'a.ts', kind: 'file' }] })
+  expect(await ui.find({ type: 'Text', text: '▸' })).toBeDefined()
+  await ui.press({ key: '/repo/src' })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: '▾' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'a.ts' })).toBeDefined()
+})
+
+test('an empty folder has no chevron and draws the open-folder icon, and a press does nothing', async ($, on) => {
+  const ui = await explorerRoot($, on, { '/repo': [{ name: 'empty', kind: 'dir' }], '/repo/empty': [] })
+  expect(await ui.find({ type: 'Text', text: '▸' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: String.fromCharCode(0xf07c) })).toBeDefined()
+  await ui.press({ key: '/repo/empty' })
+  expect(await ui.find({ type: 'Text', text: 'empty' })).toBeDefined()
+})
+
+test('a press on a file opens it, and the header shows it', async ($, on) => {
+  const ui = await explorerRoot($, on, { '/repo': [{ name: 'a.ts', kind: 'file' }] })
+  disk.set('/repo/a.ts', { text: 'x\n', mtimeMs: 1 })
+  await ui.press({ key: '/repo/a.ts' })
+  await ui.drawn()
+  expect(await pathText(ui)).toBe('repo/a.ts')
+  expect(await ui.find({ key: 'row:1' })).toBeDefined()
+})
+
+test('a folder segment opens its folder page', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3), { '/repo/src': [{ name: 'lib.ts', kind: 'file' }] })
+  await ui.press({ key: '/repo/src' })
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: 'lib.ts' })).toBeDefined()
+})
+
+test('opening a folder expands the folders down to the open file', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/src/lib/a.ts' }, 'x\n', {
+    '/repo': [{ name: 'src', kind: 'dir' }],
+    '/repo/src': [{ name: 'lib', kind: 'dir' }],
+    '/repo/src/lib': [{ name: 'a.ts', kind: 'file' }],
+  })
+  await ui.press({ key: '/repo' })
+  await ui.drawn()
+  expect(await ui.find({ type: 'Text', text: 'a.ts' })).toBeDefined()
+})
+
+test('a folder of 5,000 files draws only the rows that fit', async ($, on) => {
+  const many = Array.from({ length: 5000 }, (_, i) => ({ name: `f${String(i).padStart(4, '0')}.ts`, kind: 'file' as const }))
+  const ui = await explorerRoot($, on, { '/repo': many })
+  expect(await ui.find({ type: 'Text', text: 'f0000.ts' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'f0100.ts' })).toBeUndefined()
+})
+
+test('only the folders on screen are listed', async ($, on) => {
+  const dirs = Array.from({ length: 60 }, (_, i) => ({ name: `d${String(i).padStart(2, '0')}`, kind: 'dir' as const }))
+  const ui = await explorerRoot($, on, { '/repo': dirs })
+  expect(await ui.find({ type: 'Text', text: 'd00' })).toBeDefined()
+  expect(lists).toContain('/repo')
+  expect(lists).toContain('/repo/d00')
+  expect(lists).not.toContain('/repo/d30')
+  expect(lists.length).toBeLessThanOrEqual(1 + 17)
+})
+
+test('a dot name draws in the faint colour', async ($, on) => {
+  const ui = await explorerRoot($, on, { '/repo': [{ name: '.git', kind: 'dir' }] })
+  expect((await ui.find({ type: 'Text', text: '.git' }))?.props.color).toBe('#4f5c68')
 })

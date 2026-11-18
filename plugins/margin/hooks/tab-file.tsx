@@ -3,12 +3,13 @@ import type { EngineInterface } from 'claude-code'
 
 import { cellsOf, fileWindow, layoutFor, sliceTokens } from './explorer-layout'
 import type { Cached } from './explorer-layout'
-import { loadFile, latestOf, projectRoot } from './explorer-load'
+import { listDir, loadFile, latestOf, projectRoot } from './explorer-load'
 import type { Loaded } from './explorer-load'
 import { back, current, forward, navStart, remember, visit } from './explorer-nav'
 import type { Nav } from './explorer-nav'
 import { tokenize } from './explorer-tokens'
 import type { Token } from './explorer-tokens'
+import { iconOf, treeRows } from './explorer-tree'
 import type { Listing } from './explorer-tree'
 import { printable } from './git-data'
 import { HUD, LIT, PAD, TYPES, basicGlyphs, emptyNote } from './kit'
@@ -42,6 +43,8 @@ type State = {
 const fresh = (): State => ({ nav: navStart(''), tokens: new Map(), expanded: new Set(), listed: new Map(), col: 0, wrap: false, menuPinned: false, rev: 0, applied: 0 })
 const state = fresh()
 const guard = latestOf()
+// A row icon's colour name (explorer-tree.ts) to the colour the Git tab draws that name in.
+const ICON_COLORS = (): Record<string, string> => ({ claude: 'claude', faint: HUD.faint, refactor: TYPES.refactor!, docs: TYPES.docs!, test: TYPES.test!, feat: TYPES.feat! })
 
 // Remembers the spot, moves through `change`, and restores the spot of an entry it landed on.
 function moveTo(change: (nav: Nav) => Nav): boolean {
@@ -64,6 +67,16 @@ function placeOf() {
 export function showPlace(place: { path: string; line?: number }): number {
   moveTo(nav => visit(nav, { kind: 'file', ...place }))
   state.lastFile = place.path
+  return (state.applied = ++state.rev)
+}
+
+// Opens a folder page, expanding the folders down to the last file shown when it lies under it.
+export function showFolder(path: string): number {
+  moveTo(nav => visit(nav, { kind: 'folder', path }))
+  const last = state.lastFile
+  if (last?.startsWith(`${path.replace(/\/$/, '')}/`)) {
+    for (let at = last.slice(0, last.lastIndexOf('/')); at.length > path.length; at = at.slice(0, at.lastIndexOf('/'))) state.expanded.add(at)
+  }
   return (state.applied = ++state.rev)
 }
 
@@ -98,7 +111,7 @@ export async function goForward($: EngineInterface): Promise<void> {
 // The path as the header shows it: from the project root's name, else from ~, else whole; cut from the start to fit.
 function headOf(path: string, root: string, home: string | undefined, room: number): string {
   const name = root.slice(root.lastIndexOf('/') + 1)
-  const shown = root && path.startsWith(`${root}/`) ? `${name}/${path.slice(root.length + 1)}` : home && path.startsWith(`${home}/`) ? `~/${path.slice(home.length + 1)}` : path
+  const shown = root && path.startsWith(`${root}/`) ? `${name}/${path.slice(root.length + 1)}` : root.length > 1 && path === root ? name : home && path.startsWith(`${home}/`) ? `~/${path.slice(home.length + 1)}` : path
   const clean = printable(shown)
   if (cellsOf(clean) <= room) return clean
   let tail = ''
@@ -114,7 +127,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const { props } = ctx
   const open = await read($, file)
   if (open && open.rev > state.applied) {
-    if (open.kind === 'folder') moveTo(nav => visit(nav, { kind: 'folder', path: open.path }))
+    if (open.kind === 'folder') showFolder(open.path)
     else showPlace({ path: open.path, line: open.line })
     state.rev = state.applied = Math.max(state.rev, open.rev)
   }
@@ -145,8 +158,60 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const C = W - G - 1
   let body: JSX.Element[] = []
   const zones: TabDraw['zones'] = []
-  if (place.kind !== 'file') {
-    body = [emptyNote(ctx.el, codeRows, 'No file open', <Text color={HUD.faint}>Click a file path in</Text>, <Text color={HUD.faint}>a reply to show it here.</Text>)]
+  if (place.kind === 'folder') {
+    const n = guard.begin()
+    // A newer draw or a move since the awaits: this page is old, so draw the current one instead.
+    const stale = () => !guard.isLatest(n) || current(state.nav).path !== place.path
+    if (!state.listed.has(place.path)) state.listed.set(place.path, await listDir($, place.path))
+    if (stale()) return draw($, ctx)
+    let all = treeRows(place.path, state.expanded, state.listed)
+    for (;;) {
+      const top = Math.max(0, Math.min(state.top ?? 0, all.length - codeRows))
+      const todo = all.slice(top, top + codeRows).filter(r => r.kind === 'dir' && !state.listed.has(r.path))
+      if (!todo.length) break
+      await Promise.all(todo.map(async r => void state.listed.set(r.path, await listDir($, r.path))))
+      if (stale()) return draw($, ctx)
+      all = treeRows(place.path, state.expanded, state.listed)
+    }
+    state.top = Math.max(0, Math.min(state.top ?? 0, all.length - codeRows))
+    const top = state.top
+    if (!all.length) body = [<Text key="empty" color={HUD.faint}>empty</Text>]
+    for (const r of all.slice(top, top + codeRows)) {
+      const icon = iconOf(r.name, r.kind, r)
+      const faint = r.dim || r.broken
+      const tone = (name: string) => (faint ? HUD.faint : ICON_COLORS()[name] ?? HUD.faint)
+      body.push(
+        <Button
+          key={r.path}
+          plain
+          onPress={() => {
+            if (r.kind === 'file') return openPlace($, { path: r.path })
+            if (r.empty) return
+            if (!state.expanded.delete(r.path)) state.expanded.add(r.path)
+            return update($, file, () => placeOf())
+          }}
+        >
+          <Text>{' '.repeat(r.x)}</Text>
+          <Text color={HUD.faint}>{r.kind === 'dir' && !r.empty ? (r.open ? '▾' : '▸') : ' '}</Text>
+          <Text> </Text>
+          {basic ? null : <Text color={tone(icon.color)}>{icon.glyph}</Text>}
+          {basic ? null : <Text> </Text>}
+          <Text color={faint ? HUD.faint : undefined}>{printable(r.name)}</Text>
+        </Button>,
+      )
+    }
+    zones.push({
+      tab: 'Explorer',
+      kind: 'list',
+      from: 2,
+      to: 2 + codeRows,
+      offset: 0,
+      fallback: true,
+      wheel: by => {
+        state.top = Math.max(0, Math.min((state.top ?? 0) + by, all.length - codeRows))
+        return update($, file, () => placeOf())
+      },
+    })
   } else if (loaded?.unreadable) {
     body = [emptyNote(ctx.el, codeRows, "Can't show this file", <Text color={HUD.faint}>{loaded.missing ? 'It no longer exists.' : 'It is binary, unreadable or over 4 MiB.'}</Text>)]
   } else if (loaded) {
@@ -193,23 +258,31 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       <Text color={HUD.faint}>{basic ? plain : String.fromCharCode(code)}</Text>
     </Button>
   )
-  const shown = place.kind === 'file' ? headOf(place.path, state.root, home, W - 6) : ''
-  const inRoot = place.kind === 'file' && state.root !== '/' && place.path.startsWith(`${state.root}/`)
+  const shown = headOf(place.path, state.root, home, W - 6)
+  const inRoot = state.root !== '/' && (place.path === state.root || place.path.startsWith(`${state.root}/`))
   let path: JSX.Element[] | string = shown
   if (inRoot && !shown.startsWith('…')) {
-    const parts = place.path.slice(state.root.length + 1).split('/')
+    const parts = place.path === state.root ? [] : place.path.slice(state.root.length + 1).split('/')
     let at = state.root
+    const openFolder = (dir: string) => () => update($, file, () => (showFolder(dir), placeOf()))
+    const rootName = printable(at.slice(at.lastIndexOf('/') + 1))
     path = [
-      <Button key={at} plain onPress={() => {}}>
-        <Text color={HUD.action}>{printable(at.slice(at.lastIndexOf('/') + 1))}</Text>
-      </Button>,
+      parts.length ? (
+        <Button key={at} plain onPress={openFolder(at)}>
+          <Text color={HUD.action}>{rootName}</Text>
+        </Button>
+      ) : (
+        <Text key="last" bold color="claude">
+          {rootName}
+        </Text>
+      ),
     ]
     parts.forEach((part, i) => {
       path.push(<Text key={`sep:${i}`} color="promptBorder">/</Text>)
       at += `/${part}`
       path.push(
         i < parts.length - 1 ? (
-          <Button key={at} plain onPress={() => {}}>
+          <Button key={at} plain onPress={openFolder(at)}>
             <Text color={HUD.action}>{printable(part)}</Text>
           </Button>
         ) : (
