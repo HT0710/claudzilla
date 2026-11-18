@@ -1,5 +1,7 @@
+import type { EngineInterface } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 
+import { CUT, gitArgs, latestOf, listDir, loadFile, projectRoot, statOf } from '../hooks/explorer-load'
 import { cellsOf, expandTabs, fileWindow, layoutFor, layoutOf, lineAt, sliceTokens, thumbOf } from '../hooks/explorer-layout'
 import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '../hooks/explorer-nav'
 import { tokenize } from '../hooks/explorer-tokens'
@@ -198,4 +200,114 @@ test('icons: folder open and closed, empty, and the file types', () => {
 
 test('an extension named like an object member gets the faint file icon', () => {
   expect(iconOf('a.constructor', 'file')).toEqual({ glyph: glyph(0xf15b), color: 'faint' })
+})
+
+// The test client has no fs, process or session; this stands for the engine `$` the loaders take.
+const engine = () => {
+  const handlers = new Map<string, (_: unknown, e: any) => any>()
+  const call = (name: string) => async (arg: unknown) => {
+    const out = await handlers.get(name)!(undefined, name === 'process.run' ? { argv: arg } : { path: arg })
+    if (out && 'deny' in out) throw new Error(out.deny)
+    return out?.value
+  }
+  const $ = {
+    process: { run: call('process.run') },
+    fs: { stat: call('fs.stat'), read: call('fs.read'), list: call('fs.list') },
+    session: { cwd: call('session.cwd') },
+  } as unknown as EngineInterface
+  return { $, on: (name: string, fn: (_: unknown, e: any) => any) => void handlers.set(name, fn) }
+}
+
+const ran = (exitCode: number, stdout = '') => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
+
+test('every git run carries --no-optional-locks and quotePath off, before the subcommand', async () => {
+  const { $, on } = engine()
+  const argvs: string[][] = []
+  on('process.run', (_, e) => (argvs.push([...e.argv]), ran(0, '/repo\n')))
+  expect(await projectRoot($)).toBe('/repo')
+  expect(gitArgs('status')).toEqual(['git', '--no-optional-locks', '-c', 'core.quotePath=false', 'status'])
+  for (const argv of argvs) expect(argv.slice(0, 4)).toEqual(['git', '--no-optional-locks', '-c', 'core.quotePath=false'])
+})
+
+test('outside a repo, or with an empty answer, the root is the session working directory', async () => {
+  const { $, on } = engine()
+  on('session.cwd', () => ({ value: '/home/me/notes' }))
+  let answer = ran(128)
+  on('process.run', () => answer)
+  expect(await projectRoot($)).toBe('/home/me/notes')
+  answer = ran(0, '')
+  expect(await projectRoot($)).toBe('/home/me/notes')
+})
+
+test('statOf is undefined for a missing path', async () => {
+  const { $, on } = engine()
+  on('fs.stat', () => ({ deny: 'ENOENT' }))
+  expect(await statOf($, '/r/none')).toBeUndefined()
+})
+
+test('a missing file loads as missing, and never throws', async () => {
+  const { $, on } = engine()
+  on('fs.stat', () => ({ deny: 'ENOENT' }))
+  expect(await loadFile($, '/r/gone.ts')).toMatchObject({ missing: true, unreadable: true, lines: [] })
+})
+
+test('a file holding a NUL byte is unreadable, under 4 MiB', async () => {
+  const { $, on } = engine()
+  on('fs.stat', () => ({ value: { kind: 'file', size: 4, mtimeMs: 1, isLink: false } }))
+  on('fs.read', () => ({ value: 'ab\0cd' }))
+  expect(await loadFile($, '/r/a.bin')).toMatchObject({ unreadable: true, missing: false })
+})
+
+test('a file over the read cap is unreadable', async () => {
+  const { $, on } = engine()
+  on('fs.stat', () => ({ value: { kind: 'file', size: 5_000_000, mtimeMs: 1, isLink: false } }))
+  on('fs.read', () => {
+    throw new Error('over 4 MiB')
+  })
+  expect(await loadFile($, '/r/big.log')).toMatchObject({ unreadable: true, missing: false })
+})
+
+test('a text file splits on CRLF, drops the last newline, cuts lines at CUT; an empty file has no lines', async () => {
+  const { $, on } = engine()
+  on('fs.stat', () => ({ value: { kind: 'file', size: 1, mtimeMs: 1, isLink: false } }))
+  on('fs.read', () => ({ value: `a\r\nb\r\n${'x'.repeat(CUT + 10)}\n` }))
+  const loaded = await loadFile($, '/r/a.ts')
+  expect(loaded.lines.slice(0, 2)).toEqual(['a', 'b'])
+  expect(loaded.lines[2]).toHaveLength(CUT)
+  on('fs.read', () => ({ value: '' }))
+  expect((await loadFile($, '/r/empty.ts')).lines).toEqual([])
+})
+
+test('a link lists as its target kind; a broken link as a faint file; a failed list as none', async () => {
+  const { $, on } = engine()
+  on('fs.list', () => ({ value: [
+    { name: 'dirlink', kind: 'other', size: 0, mtimeMs: 0, isLink: true },
+    { name: 'broken', kind: 'other', size: 0, mtimeMs: 0, isLink: true },
+    { name: 'a.ts', kind: 'file', size: 1, mtimeMs: 1, isLink: false },
+  ] }))
+  on('fs.stat', (_, e) => (e.path.endsWith('dirlink') ? { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: true } } : { deny: 'ENOENT' }))
+  expect(await listDir($, '/r')).toEqual([
+    { name: 'dirlink', kind: 'dir' },
+    { name: 'broken', kind: 'file', broken: true },
+    { name: 'a.ts', kind: 'file' },
+  ])
+  on('fs.list', () => ({ deny: 'ENOENT' }))
+  expect(await listDir($, '/gone')).toEqual([])
+})
+
+test('only the newest begun load is latest', () => {
+  const guard = latestOf()
+  const a = guard.begin()
+  const b = guard.begin()
+  expect(guard.isLatest(a)).toBe(false)
+  expect(guard.isLatest(b)).toBe(true)
+})
+
+test('a path that is not a plain file is unreadable and never read', async () => {
+  const { $, on } = engine()
+  let reads = 0
+  on('fs.stat', () => ({ value: { kind: 'other', size: 0, mtimeMs: 1, isLink: false } }))
+  on('fs.read', () => (reads++, { value: 'x' }))
+  expect(await loadFile($, '/r/pipe')).toMatchObject({ unreadable: true, missing: false, lines: [] })
+  expect(reads).toBe(0)
 })
