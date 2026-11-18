@@ -3,6 +3,7 @@ import type { TestBody } from 'claude-code/testing'
 import Row from '../hooks/row'
 import Divider from '../hooks/divider'
 import { fileKey } from '../hooks/git-data'
+import { normal } from '../hooks/register'
 import { pathText } from './explorer-helpers'
 
 // A process.run result with `stdout`.
@@ -47,12 +48,13 @@ const NOW = 1_800_000_000_000
 // An empty History, the clock at NOW, FETCH_HEAD `fetched` ago.
 // `dir`: the git dir's files; fs.read answers from it by path under /repo/.git.
 // `clock`: a mock clock the test drives, which answers clock.now itself.
-// `dir`: file text by path; null, a file that is gone, so its read fails.
+// `dir`: file text by path; null, a file that is gone, so its read fails; DIR, a folder.
 // `session`: the session id each read answers, so a test can start a new one.
+const DIR = 'dir:'
 const quiet = (on: Parameters<TestBody>[1], fetched = 5 * MIN, basic = false, dir: Record<string, string | null> = {}, clock = false, session = () => 'chat-1') => {
   if (!clock) on('clock.now', () => ({ value: NOW }))
   on('env.get', () => ({ value: '/home/me' }))
-  on('fs.stat', (_, e) => (dir[String((e as any).path).replace('/repo/.git/', '')] === null ? { deny: 'ENOENT' } : { value: { kind: 'file', size: 1, mtimeMs: 1, isLink: false } }) as any)
+  on('fs.stat', (_, e) => (dir[String((e as any).path).replace('/repo/.git/', '')] === null ? { deny: 'ENOENT' } : { value: { kind: dir[String((e as any).path)] === DIR ? 'dir' : 'file', size: 1, mtimeMs: 1, isLink: false } }) as any)
   on('session.id', () => ({ value: session() }))
   on('fs.read', (_, e) => {
     const text = dir[String((e as any).path).replace('/repo/.git/', '')]
@@ -1775,6 +1777,15 @@ test('file click opens the path from the top level', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'CHANGES' })).toBeUndefined()
 })
 
+test('a folder row (a submodule) opens a folder page, not an unreadable file', async ($, on) => {
+  quiet(on, 5 * MIN, false, { '/repo/sub': DIR })
+  on('process.run', (_, e) => ran(git(changesRepo(' M sub\n', '', { '--absolute-git-dir': '/repo/.git\n/repo/.git\n/repo\n' }))(e.argv) ?? ''))
+  const ui = await mount($)
+  await tap(ui, fileKey('sub'))
+  expect(await pathText(ui)).toBe('repo/sub')
+  expect(await ui.find({ type: 'Text', text: 'It is binary, unreadable or over 4 MiB.' })).toBeUndefined()
+})
+
 test('deleted row neither presses nor lights; its card still shows', async ($, on) => {
   quiet(on, 5 * MIN, false, { '/repo/old.ts': 'gone text' })
   on('process.run', (_, e) => ran(git(changesRepo('D  old.ts\n', '0\t9\told.ts\0', { '--absolute-git-dir': '/repo/.git\n/repo/.git\n/repo\n' }))(e.argv) ?? ''))
@@ -2820,6 +2831,24 @@ test('a jump to Explorer closes an open Git modal, so Escape and the Git tab fin
   expect(opens.at(-1)).toBeUndefined()
   await ui.press({ key: 'Git' })
   expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()
+})
+
+test('normal keeps a leading .. in a relative path and stops at the root of an absolute one', () => {
+  expect(normal('../x.ts')).toBe('../x.ts')
+  expect(normal('a/../../x.ts')).toBe('../x.ts')
+  expect(normal('../other/x.ts')).toBe('../other/x.ts')
+  expect(normal('/a/../..')).toBe('/')
+  expect(normal('/repo/./sub//../x.ts')).toBe('/repo/x.ts')
+})
+
+const dotted = { name: 'dotted', register: (on => { on('command.run', { command: 'show-dotted' }, async $ => (await ($ as any).margin.show({ path: '/repo/./sub//../x.ts' }), {})) }) as Register }
+test('a shown path with . and .. parts lands on its normal form', { plugins: [dotted] }, async ($, on) => {
+  quiet(on, 5 * MIN, false, { '/repo/x.ts': 'one\n' })
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }) as any)
+  on('process.run', (_, e) => ran(git(repoOn('b20'))(e.argv) ?? ''))
+  const ui = await mount($)
+  await $.command.run({ command: 'show-dotted', args: '', origin: { kind: 'composer' } } as any)
+  expect(await pathText(ui)).toBe('repo/x.ts')
 })
 
 // The rail rows (0-based, under its top rule) drawing ┤.

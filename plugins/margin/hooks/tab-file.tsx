@@ -3,7 +3,7 @@ import type { EngineInterface, RenderSurface } from 'claude-code'
 
 import { cellsOf, fileWindow, layoutFor, layoutOf, lineAt, sliceTokens, thumbOf } from './explorer-layout'
 import type { Cached } from './explorer-layout'
-import { listDir, loadFile, latestOf, projectRoot } from './explorer-load'
+import { listDir, loadFile, latestOf, projectRoot, statOf } from './explorer-load'
 import type { Loaded } from './explorer-load'
 import { back, current, forward, navStart, remember, visit } from './explorer-nav'
 import type { Nav } from './explorer-nav'
@@ -24,6 +24,7 @@ type State = {
   cwd?: string
   lastFile?: string
   loaded?: Loaded
+  afterFolder?: boolean
   layout?: Cached
   tokens: Map<number, Token[]>
   expanded: Set<string>
@@ -44,6 +45,8 @@ type State = {
 const fresh = (): State => ({ nav: navStart(''), tokens: new Map(), expanded: new Set(), listed: new Map(), col: 0, wrap: false, menuPinned: false, rev: 0, applied: 0 })
 const state = fresh()
 const guard = latestOf()
+// Folder listings count apart from file loads, so folder work never drops a reload.
+const folders = latestOf()
 // A row icon's colour name (explorer-tree.ts) to the colour the Git tab draws that name in.
 const ICON_COLORS = (): Record<string, string> => ({ claude: 'claude', faint: HUD.faint, refactor: TYPES.refactor!, docs: TYPES.docs!, test: TYPES.test!, feat: TYPES.feat! })
 
@@ -81,21 +84,44 @@ export function showFolder(path: string): number {
   return (state.applied = ++state.rev)
 }
 
-export function openPlace($: EngineInterface, place: { path: string; line?: number }): Promise<void> {
+export function openPlace($: EngineInterface, place: { path: string; line?: number; kind?: 'file' | 'folder' }): Promise<void> {
+  if (place.kind === 'folder') return update($, file, () => (showFolder(place.path), placeOf()))
   return update($, file, () => ({ rev: showPlace(place), path: place.path, line: place.line }))
+}
+
+// Lists every folder again at the next draw, which reads only those on screen.
+async function relistPage($: EngineInterface): Promise<void> {
+  state.listed.clear()
+  await update($, file, () => placeOf())
 }
 
 export async function reloadPlace($: EngineInterface): Promise<void> {
   const place = current(state.nav)
-  if (place.kind === 'file') {
-    const n = guard.begin()
-    const loaded = await loadFile($, place.path)
-    if (guard.isLatest(n)) {
-      state.loaded = loaded
-      state.tokens = new Map()
-    }
+  if (place.kind === 'folder') return relistPage($)
+  const n = guard.begin()
+  const loaded = await loadFile($, place.path)
+  if (guard.isLatest(n)) {
+    state.loaded = loaded
+    state.tokens = new Map()
   }
   await update($, file, () => placeOf())
+}
+
+// Reloads the open file when its stamp changed or it is gone.
+export async function checkOpenFile($: EngineInterface): Promise<void> {
+  const place = current(state.nav)
+  if (place.kind !== 'file' || state.loaded?.path !== place.path) return
+  const st = await statOf($, place.path)
+  if (st ? st.mtimeMs !== state.loaded.mtimeMs || st.size !== state.loaded.size : !state.loaded.missing) await reloadPlace($)
+}
+
+export async function changedOnDisk($: EngineInterface, call: { tool: string } & Record<string, unknown>): Promise<void> {
+  if (!state.root) return
+  const here = current(state.nav)
+  const target = call.tool === 'NotebookEdit' ? call.notebook_path : call.file_path
+  if (here.kind === 'file' && (call.tool === 'Edit' || call.tool === 'Write' || call.tool === 'NotebookEdit') && target === here.path) return reloadPlace($)
+  if (here.kind === 'folder' && (call.tool === 'Write' || call.tool === 'Bash')) await relistPage($)
+  if (call.tool === 'Bash') await checkOpenFile($)
 }
 
 export async function goBack($: EngineInterface): Promise<void> {
@@ -108,11 +134,18 @@ export async function goForward($: EngineInterface): Promise<void> {
   await update($, file, () => placeOf())
 }
 
+// Width of a menu label column; the mark column adds 1.
+const LABEL = 18
+
 // The path as the header shows it: from the project root's name, else from ~, else whole; cut from the start to fit.
 function headOf(path: string, root: string, home: string | undefined, room: number): string {
   const name = root.slice(root.lastIndexOf('/') + 1)
   const shown = root && path.startsWith(`${root}/`) ? `${name}/${path.slice(root.length + 1)}` : root.length > 1 && path === root ? name : home && path.startsWith(`${home}/`) ? `~/${path.slice(home.length + 1)}` : path
-  const clean = printable(shown)
+  return cutStart(printable(shown), room)
+}
+
+// Text cut from its start with `…` to fit room cells.
+function cutStart(clean: string, room: number): string {
   if (cellsOf(clean) <= room) return clean
   let tail = ''
   for (const ch of [...clean].reverse()) {
@@ -153,7 +186,7 @@ async function copyLines($: EngineInterface, first: number, last: number, surfac
   const ref = refOf(relOf(here.path), first, last)
   if (!(await copyText($, ref, surface))) return
   state.lit = { from: first, to: last }
-  notify($, 'copied ', ref)
+  notify($, 'copied', ref)
   await update($, file, () => placeOf())
 }
 
@@ -183,6 +216,12 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const first = state.nav.entries[0]!
   if (first.path === '') state.nav = { ...state.nav, entries: [{ ...first, path: state.root }, ...state.nav.entries.slice(1)] }
   const wanted = current(state.nav)
+  // A file shown again after a folder page may have changed meanwhile.
+  if (wanted.kind === 'file' && state.afterFolder && state.loaded?.path === wanted.path) {
+    const st = await statOf($, wanted.path)
+    if (!st || st.mtimeMs !== state.loaded.mtimeMs || st.size !== state.loaded.size) state.loaded = undefined
+  }
+  if (wanted.kind === 'file') state.afterFolder = false
   if (wanted.kind === 'file' && wanted.path !== state.loaded?.path) {
     const n = guard.begin()
     const loaded = await loadFile($, wanted.path)
@@ -193,6 +232,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     }
   }
   const place = current(state.nav)
+  if (place.kind === 'folder') state.afterFolder = true
   const rows = Math.max(0, props.scroll.bodyRows)
   let codeRows = Math.max(0, rows - 2)
   const W = props.bodyColumns - 2 * PAD
@@ -206,9 +246,9 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   let body: JSX.Element[] = []
   const zones: TabDraw['zones'] = []
   if (place.kind === 'folder') {
-    const n = guard.begin()
+    const n = folders.begin()
     // A newer draw or a move since the awaits: this page is old, so draw the current one instead.
-    const stale = () => !guard.isLatest(n) || current(state.nav).path !== place.path
+    const stale = () => !folders.isLatest(n) || current(state.nav).path !== place.path
     if (!state.listed.has(place.path)) state.listed.set(place.path, await listDir($, place.path))
     if (stale()) return draw($, ctx)
     let all = treeRows(place.path, state.expanded, state.listed)
@@ -280,6 +320,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       const n = i + 1
       let tokens = state.tokens.get(i)
       if (!tokens) state.tokens.set(i, (tokens = tokenize(lines[i]!)))
+      const slice = sliceTokens(tokens, state.wrap ? seg * C : state.col, C)
       const lit = !!state.lit && n >= state.lit.from && n <= state.lit.to
       drawn.push({ row: r, line: n, cell: seg ? ' '.repeat(G) : ` ${String(n).padStart(digits)} `, lit })
       code.push(
@@ -293,11 +334,11 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
                 return update($, file, () => placeOf())
               }}
             >
-              {sliceTokens(tokens, state.wrap ? seg * C : state.col, C).map((t, k) => (
+              {slice.length ? slice.map((t, k) => (
                 <Text key={k} color={t.kind === 'keyword' ? HUD.label : t.kind === 'string' ? TYPES.feat : t.kind === 'number' ? TYPES.perf : t.kind === 'comment' ? HUD.faint : undefined}>
                   {t.text}
                 </Text>
-              ))}
+              )) : <Text> </Text>}
             </Button>
           </Box>
           {!Client && <Text color={HUD.faint}>│</Text>}
@@ -367,7 +408,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   }
   const glyph = (key: string, plain: string, code: number, press: () => unknown) => (
     <Button key={key} plain onPress={press}>
-      <Text color={HUD.faint}>{basic ? plain : String.fromCharCode(code)}</Text>
+      <Text color="claude">{basic ? plain : String.fromCharCode(code)}</Text>
     </Button>
   )
   const shown = headOf(place.path, state.root, home, W - 6)
@@ -381,7 +422,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     path = [
       parts.length ? (
         <Button key={at} plain onPress={openFolder(at)}>
-          <Text color={HUD.action}>{rootName}</Text>
+          <Text>{rootName}</Text>
         </Button>
       ) : (
         <Text key="last" bold color="claude">
@@ -395,7 +436,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       path.push(
         i < parts.length - 1 ? (
           <Button key={at} plain onPress={openFolder(at)}>
-            <Text color={HUD.action}>{printable(part)}</Text>
+            <Text>{printable(part)}</Text>
           </Button>
         ) : (
           <Text key="last" bold color="claude">
@@ -415,7 +456,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
         await update($, file, () => placeOf())
       }}
     >
-      <Text>{label.padEnd(17)}</Text>
+      <Text>{label.padEnd(LABEL)}</Text>
       <Text color="claude">{mark ?? ' '}</Text>
     </Button>
   )
@@ -436,22 +477,23 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     >
       {item('copy-path', 'Copy path', async () => {
         const rel = target()
-        if (await copyText($, rel)) notify($, 'copied ', rel)
+        if (await copyText($, rel)) notify($, 'copied', rel)
       })}
       {item('copy-abs', 'Copy absolute path', async () => {
         const abs = place.path.replace(/(.)\/$/, '$1')
-        if (await copyText($, abs)) notify($, 'copied ', abs)
+        if (await copyText($, abs)) notify($, 'copied', abs)
       })}
       {item('mention', 'Mention to Claude', async () => {
-        await $.prompt.fill({ text: `@${target()}${place.kind === 'folder' ? '/' : ''}`, mode: 'append' }).catch(() => undefined)
+        const ref = `${target()}${place.kind === 'folder' ? '/' : ''}`
+        await $.prompt.fill({ text: /\s/.test(ref) ? `@"${ref}"` : `@${ref}`, mode: 'append' }).catch(() => undefined)
       })}
       {item('open-editor', 'Open in editor', async () => {
         const has = await $.process.run(['sh', '-c', 'command -v code >/dev/null 2>&1']).catch(() => undefined)
         const launched = await $.process.run(['sh', '-c', 'setsid -f "$0" "$1" </dev/null >/dev/null 2>&1', has?.exitCode === 0 ? 'code' : 'xdg-open', place.path]).catch(() => undefined)
-        if (launched?.exitCode === 0) notify($, 'opened ', target())
+        if (launched?.exitCode === 0) notify($, 'opened', target())
       })}
       <Box marginX={-1}>
-        <Text color="promptBorder">{`├${'─'.repeat(18)}┤`}</Text>
+        <Text color="promptBorder">{'─'.repeat(LABEL + 1 + 2)}</Text>
       </Box>
       <Button
         key="wrap"
@@ -463,7 +505,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
           return update($, file, () => placeOf())
         }}
       >
-        <Text>{'Wrap lines'.padEnd(17)}</Text>
+        <Text>{'Wrap lines'.padEnd(LABEL)}</Text>
         <Text color="claude">{state.wrap ? (basic ? '✓' : String.fromCharCode(0xeab2)) : ' '}</Text>
       </Button>
     </Box>
@@ -479,11 +521,14 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
           </Box>
           <Box key="path" flexGrow={1} justifyContent="center">
             {state.notice ? (
-              [<Text key="verb" color={HUD.faint}>{state.noticeVerb}</Text>, <Text key="ref" color="claude">{state.notice}</Text>]
+              <Text>
+                <Text color={HUD.faint}>{state.noticeVerb} </Text>
+                <Text color="claude">{cutStart(printable(state.notice), W - 6 - (state.noticeVerb?.length ?? 0) - 1)}</Text>
+              </Text>
             ) : typeof path === 'string' ? (
               <Text color={HUD.action}>{path}</Text>
             ) : (
-              path
+              <Box key="parts" flexShrink={0}>{path}</Box>
             )}
           </Box>
           <Box width={1} flexShrink={0}>
@@ -491,7 +536,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
               state.menuPinned = !state.menuPinned
               return update($, file, () => placeOf())
             }}>
-              <Text color="promptBorder" inverse={state.menuPinned}>{basic ? '≡' : String.fromCharCode(0xeb94)}</Text>
+              <Text color="claude" inverse={state.menuPinned}>{basic ? '≡' : String.fromCharCode(0xeb94)}</Text>
             </Button>
           </Box>
         </Box>

@@ -7,7 +7,7 @@ import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, PAD, WHEEL_HOLD, applyPalette
 import type { Prompt, Readers, TabCtx, TabDraw, UseEntry, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
-import { draw as drawFile, explorerPost, showPlace } from './tab-file'
+import { changedOnDisk, checkOpenFile, draw as drawFile, explorerPost, showPlace } from './tab-file'
 import { autoFetch, draw as drawGit, resetGitReads } from './tab-git'
 import { draw as drawHistory } from './tab-history'
 import { draw as drawOverview, resetStepsHeld, same } from './tab-overview'
@@ -1025,6 +1025,19 @@ const rowTimes = async ($: EngineInterface, keys: string[]) => {
 }
 
 
+// Collapses `.`, `..` and repeated slashes, so a joined `${cwd}/./x.ts` matches the path an Edit names.
+export const normal = (path: string): string => {
+  const abs = path.startsWith('/')
+  const out: string[] = []
+  for (const part of path.split('/')) {
+    if (part === '..') {
+      if (out.length && out[out.length - 1] !== '..') out.pop()
+      else if (!abs) out.push('..')
+    } else if (part && part !== '.') out.push(part)
+  }
+  return (abs ? '/' : '') + out.join('/')
+}
+
 export const register: Register = (on, options) => {
   // Off: Claude is never asked, so its prompt and tools stay as without the panel.
   const isIntentOn = options.intent !== false
@@ -1033,7 +1046,8 @@ export const register: Register = (on, options) => {
     const built = await next(e)
     // Calls on `built` only: it is refused as an argument. Not through /margin: its hook skips a run the plugin's own code raises
     // ("command.run skipped: re-entry"). The open overlaps /margin's on purpose.
-    const show = async ({ path, line }: { path: string; line?: number }) => {
+    const show = async ({ path: given, line }: { path: string; line?: number }) => {
+      const path = normal(given)
       await built.state.set({ plugin: 'margin', key: 'file' } as const, { rev: showPlace({ path, line }), path, line })
       const placed = (await built.ui.panes()).some(pane => pane.id === PANE && pane.isPlaced)
       // As setModal: the open pane drops closeOnEscape.
@@ -1068,6 +1082,11 @@ export const register: Register = (on, options) => {
     $.clock.every(60_000, () => {
       void (async () => {
         if ((await read($, tab)) === 'Git' && (await isPlaced($))) await Promise.all([readGh($), autoFetch($)])
+      })()
+    })
+    $.clock.every(5_000, () => {
+      void (async () => {
+        if ((await read($, tab)) === 'Explorer' && (await isPlaced($))) await checkOpenFile($)
       })()
     })
     for (const name of Object.keys(KEYS)) await $.command.register({ name: tabCommand(name), description: `Margin: ${name} tab`, immediate: true })
@@ -1407,6 +1426,7 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     const result = await next(e)
     if (!READ_ONLY.has(e.tool)) await update($, toolCalls, n => n + 1)
+    await changedOnDisk($, e as Record<string, unknown> & { tool: string }).catch(() => undefined)
 
     return result
   })

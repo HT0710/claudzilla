@@ -17,6 +17,12 @@ export const runs: string[][] = []
 export const launch = { exit: 0 }
 // The clock the plugin's timers run on; a test advances it.
 export let clock: ReturnType<typeof mock.clock>
+// A test sets failList to make every fs.list fail.
+export const failList = { on: false }
+// Every fs.read path, in order.
+export const reads: string[] = []
+// Every state key written, in order.
+export const sets: string[] = []
 // Every fs.list path, in order.
 export const lists: string[] = []
 // Polls until `pred` holds. Each turn yields a macrotask, so answers the host queued can land.
@@ -29,21 +35,24 @@ export const pathText = async (ui: { find: (q: any) => Promise<any> }) => textOf
 export const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\n')
 // What the engine answers for the plugin's state keys.
 export const store = new Map<string, unknown>()
-// The place the `file` key answers; the plugin's draw applies it. Each call is a new revision, kept above the plugin's own counter.
+// The place the `file` key answers; the plugin's draw applies it. Each call is a new revision, stepping 1000 so it stays above the plugin's own counter.
 let revs = 0
-export const open = (place: { path: string; line?: number; kind?: 'file' | 'folder' }) => void store.set('file', { rev: 1000 + ++revs, ...place })
+export const open = (place: { path: string; line?: number; kind?: 'file' | 'folder' }) => void store.set('file', { rev: 1000 * ++revs, ...place })
 export const setup = async ($: Body[0], on: Body[1]) => {
   disk.clear()
   tree.clear()
   hold.reads = undefined
   launch.exit = 0
   lists.length = 0
+  reads.length = 0
+  sets.length = 0
+  failList.on = false
   tree.set('/repo', [])
   store.clear()
   store.set('tab', 'Explorer')
   on('state.get', (_$, e, next) => (store.has(e.key) ? { value: { value: store.get(e.key), version: 1 } } : next(e)) as any)
   // A write reaches the engine, so the pane redraws; the engine's value answers from then on.
-  on('state.set', (_$, e, next) => (store.delete(e.key), next(e)) as any)
+  on('state.set', (_$, e, next) => (sets.push(e.key), store.delete(e.key), next(e)) as any)
   clock = mock.clock(on, { now: 0 })
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
@@ -51,10 +60,11 @@ export const setup = async ($: Body[0], on: Body[1]) => {
   on('process.run', (_, e) => (runs.push([...e.argv]), e.argv.includes('rev-parse') ? ran(0, '/repo\n') : ran(e.argv.some(x => x.includes('setsid -f')) ? launch.exit : 0)) as any)
   on('fs.stat', (_, e) => (tree.has(e.path) ? { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } : disk.has(e.path) ? { value: { kind: 'file', size: disk.get(e.path)!.text.length, mtimeMs: disk.get(e.path)!.mtimeMs, isLink: false } } : { deny: 'ENOENT' }) as any)
   on('fs.read', (_, e) => {
+    reads.push(e.path)
     const answer = disk.has(e.path) ? { value: disk.get(e.path)!.text } : { deny: 'ENOENT' }
     return (hold.reads ? new Promise(done => hold.reads!.push(() => done(answer))) : answer) as any
   })
-  on('fs.list', (_, e) => (lists.push(e.path), { value: (tree.get(e.path) ?? []).map(x => ({ ...x, size: 0, mtimeMs: 0, isLink: false })) }) as any)
+  on('fs.list', (_, e) => (lists.push(e.path), failList.on ? { deny: 'EIO' } : { value: (tree.get(e.path) ?? []).map(x => ({ ...x, size: 0, mtimeMs: 0, isLink: false })) }) as any)
 }
 export const mountPane = ($: Body[0]) => $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
 // An Explorer tab showing `open`, with `text` on disk at its path. `trees` fills folder listings before the mount.
