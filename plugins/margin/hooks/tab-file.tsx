@@ -11,8 +11,8 @@ import { tokenize } from './explorer-tokens'
 import type { Token } from './explorer-tokens'
 import { iconOf, treeRows } from './explorer-tree'
 import type { Listing } from './explorer-tree'
-import { printable } from './git-data'
-import { CARD, HUD, LIT, PAD, TYPES, basicGlyphs, emptyNote } from './kit'
+import { fileKey, printable } from './git-data'
+import { CARD, HUD, LIT, PAD, TYPES, basicGlyphs, emptyNote, rowHovers, toPieces } from './kit'
 import type { TabCtx, TabDraw } from './kit'
 
 // The open place, so a change redraws the pane; the draw applies a place whose rev it has not seen.
@@ -44,6 +44,7 @@ type State = {
 
 const fresh = (): State => ({ nav: navStart(''), tokens: new Map(), expanded: new Set(), listed: new Map(), col: 0, wrap: false, menuPinned: false, rev: 0, applied: 0 })
 const state = fresh()
+const rowHover = rowHovers.Explorer
 const guard = latestOf()
 // Folder listings count apart from file loads, so folder work never drops a reload.
 const folders = latestOf()
@@ -263,28 +264,38 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     state.top = Math.max(0, Math.min(state.top ?? 0, all.length - codeRows))
     const top = state.top
     if (!all.length) body = [<Text key="empty" color={HUD.faint}>empty</Text>]
+    rowHover.acts = {}
+    const Client = 'Client' in ctx.el ? ctx.el.Client : undefined
     for (const r of all.slice(top, top + codeRows)) {
       const icon = iconOf(r.name, r.kind, r)
       const faint = r.dim || r.broken
       const tone = (name: string) => (faint ? HUD.faint : ICON_COLORS()[name] ?? HUD.faint)
+      const left = [
+        <Text>{' '.repeat(r.x)}</Text>,
+        <Text color={HUD.faint}>{r.kind === 'dir' && !r.empty ? (r.open ? '▾' : '▸') : ' '}</Text>,
+        <Text> </Text>,
+        ...(basic ? [] : [<Text color={tone(icon.color)}>{icon.glyph}</Text>, <Text> </Text>]),
+        <Text color={faint ? HUD.faint : undefined}>{printable(r.name)}</Text>,
+      ]
+      const press = () => {
+        if (r.kind === 'file') return openPlace($, { path: r.path })
+        if (r.empty) return
+        if (!state.expanded.delete(r.path)) state.expanded.add(r.path)
+        return update($, file, () => placeOf())
+      }
+      const key = `x:${fileKey(r.path)}`
+      rowHover.acts[key] = press
       body.push(
-        <Button
-          key={r.path}
-          plain
-          onPress={() => {
-            if (r.kind === 'file') return openPlace($, { path: r.path })
-            if (r.empty) return
-            if (!state.expanded.delete(r.path)) state.expanded.add(r.path)
-            return update($, file, () => placeOf())
-          }}
-        >
-          <Text>{' '.repeat(r.x)}</Text>
-          <Text color={HUD.faint}>{r.kind === 'dir' && !r.empty ? (r.open ? '▾' : '▸') : ' '}</Text>
-          <Text> </Text>
-          {basic ? null : <Text color={tone(icon.color)}>{icon.glyph}</Text>}
-          {basic ? null : <Text> </Text>}
-          <Text color={faint ? HUD.faint : undefined}>{printable(r.name)}</Text>
-        </Button>,
+        // Keyed, its own hover scope: unkeyed, it would light whenever the pointer is anywhere in the tree.
+        <Box key={key} flexDirection="column" height={1} hover={{ backgroundColor: LIT }}>
+          {Client ? (
+            <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left: toPieces(left), right: [] }} />
+          ) : (
+            <Button plain key={r.path} onPress={press}>
+              {left}
+            </Button>
+          )}
+        </Box>,
       )
     }
     zones.push({

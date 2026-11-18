@@ -81,3 +81,35 @@ export const explorerRoot = async ($: Body[0], on: Body[1], trees: Record<string
   for (const [path, list] of Object.entries(trees)) tree.set(path, list)
   return mountPane($)
 }
+// The tree rows' keys as drawn: a row's Box and its Client share the key `x:<hash>`.
+export const treeRow = async (ui: { drawn: () => Promise<any> }, name: string) => {
+  const found: any[] = []
+  const walk = (n: any) => {
+    if (!n || typeof n !== 'object') return
+    if (Array.isArray(n)) return n.forEach(walk)
+    const left = n.props?.props?.left
+    if (n.props?.module && Array.isArray(left) && left.at(-1)?.text === name) found.push(n)
+    walk([n.children, n.props?.children])
+  }
+  walk(await ui.drawn())
+  return found[0]
+}
+// A tree row Client is pressed by a down and up on it.
+export const tapTree = async (ui: any, name: string) => {
+  const row = (await treeRow(ui, name)).props.key
+  await ui.resize({ columns: 30, rows: 1, in: row })
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: row })
+  await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: row })
+}
+// Whether any drawn tree row has a piece reading `text` (a chevron or icon glyph).
+export const chevron = async (ui: { drawn: () => Promise<any> }, text: string) => {
+  let hit: any
+  const walk = (n: any) => {
+    if (!n || typeof n !== 'object' || hit) return
+    if (Array.isArray(n)) return n.forEach(walk)
+    if (n.props?.module && n.props.props?.left?.some((x: any) => x.text === text)) hit = n
+    walk([n.children, n.props?.children])
+  }
+  walk(await ui.drawn())
+  return hit
+}
