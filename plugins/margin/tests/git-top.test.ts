@@ -3,6 +3,7 @@ import type { TestBody } from 'claude-code/testing'
 import Row from '../hooks/row'
 import Divider from '../hooks/divider'
 import { fileKey } from '../hooks/git-data'
+import { pathText } from './explorer-helpers'
 
 // A process.run result with `stdout`.
 const ran = (stdout: string, exitCode = 0) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -51,6 +52,7 @@ const NOW = 1_800_000_000_000
 const quiet = (on: Parameters<TestBody>[1], fetched = 5 * MIN, basic = false, dir: Record<string, string | null> = {}, clock = false, session = () => 'chat-1') => {
   if (!clock) on('clock.now', () => ({ value: NOW }))
   on('env.get', () => ({ value: '/home/me' }))
+  on('fs.stat', (_, e) => (dir[String((e as any).path).replace('/repo/.git/', '')] === null ? { deny: 'ENOENT' } : { value: { kind: 'file', size: 1, mtimeMs: 1, isLink: false } }) as any)
   on('session.id', () => ({ value: session() }))
   on('fs.read', (_, e) => {
     const text = dir[String((e as any).path).replace('/repo/.git/', '')]
@@ -68,6 +70,7 @@ const repoOn = (branch: string, more: Record<string, string> = {}) => ({
   status: `## ${branch}...origin/${branch}\n`,
   log: 'abc1234ffff abc1234 first\n',
   '--absolute-git-dir': '/repo/.git\n/repo/.git\n',
+  '--show-toplevel': '/repo\n',
   'get-url': 'git@github.com:o/r.git\n',
   'for-each-ref': refs(forty),
   ...more,
@@ -1225,7 +1228,7 @@ test('PR modal: a FILES row opens the file in the Explorer tab', async ($, on) =
   // FILES sits below the window: scroll the modal to its end.
   await wheel($, 20, 8)
   await tap(ui, `mf:${fileKey('b.ts')}`)
-  expect(await ui.find({ type: 'Text', text: '/repo/b.ts' })).toBeDefined()
+  expect(await pathText(ui)).toBe('repo/b.ts')
 })
 
 test('4 checks show whole; 5 show 3 and show all', async ($, on) => {
@@ -1471,7 +1474,7 @@ test('rebase modal: a CONFLICTS row opens the file to fix', async ($, on) => {
   const ui = await mount($)
   await tap(ui, 'rebase')
   await tap(ui, `mf:${fileKey('f.txt')}`)
-  expect(await ui.find({ type: 'Text', text: '/repo/f.txt' })).toBeDefined()
+  expect(await pathText(ui)).toBe('repo/f.txt')
 })
 
 test('merge modal: title, incoming count, incoming commits', async ($, on) => {
@@ -1768,7 +1771,7 @@ test('file click opens the path from the top level', async ($, on) => {
   const ui = await mount($)
   await tap(ui, fileKey('a.ts'))
   // The Explorer tab's header: the path from the top level, not from the session's folder.
-  expect(await ui.find({ type: 'Text', text: '/repo/a.ts' })).toBeDefined()
+  expect(await pathText(ui)).toBe('repo/a.ts')
   expect(await ui.find({ type: 'Text', text: 'CHANGES' })).toBeUndefined()
 })
 
@@ -2039,7 +2042,7 @@ test('commit modal: a file row lights under the pointer and opens the file in th
   expect(await ui.find({ type: 'Button', key: 'm:file:a.ts' })).toBeUndefined()
   await tap(ui, `mf:${fileKey('a.ts')}`)
   // The Explorer tab's header: the path from the top level.
-  expect(await ui.find({ type: 'Text', text: '/repo/a.ts' })).toBeDefined()
+  expect(await pathText(ui)).toBe('repo/a.ts')
   expect(await ui.find({ type: 'Text', text: 'COMMITS' })).toBeUndefined()
 })
 
@@ -2240,7 +2243,7 @@ test('a path with a space or a tab: unquoted, counted, opened, drawn as spaces',
   expect(await piece(ui, fileKey('a b.ts'), '+2')).toBeDefined()
   expect(await piece(ui, fileKey('c\td.ts'), /^ c d\.ts$/)).toBeDefined()
   await tap(ui, fileKey('a b.ts'))
-  expect(await ui.find({ type: 'Text', text: '/repo/a b.ts' })).toBeDefined()
+  expect(await pathText(ui)).toBe('repo/a b.ts')
 })
 
 test('untracked counts read only files up to 1 MiB, found by size first', async ($, on) => {
@@ -2680,7 +2683,7 @@ test('a rebase conflict on a non-ASCII path opens that file', async ($, on) => {
   const ui = await mount($)
   await tap(ui, 'rebase')
   await tap(ui, `mf:${fileKey('café.ts')}`)
-  expect(await ui.find({ type: 'Text', text: '/repo/café.ts' })).toBeDefined()
+  expect(await pathText(ui)).toBe('repo/café.ts')
 })
 
 test('the base conflict list reads a non-ASCII path as it is', async ($, on) => {
@@ -2709,16 +2712,17 @@ test('a conflict path with a control character opens in the Explorer tab, drawn 
   const ui = await mount($)
   await tap(ui, 'rebase')
   await tap(ui, `mf:${fileKey('a\x1bb.ts')}`)
-  expect(await ui.find({ type: 'Text', text: '/repo/a b.ts' })).toBeDefined()
+  expect(await pathText(ui)).toBe('repo/a b.ts')
 })
 
 test('a file the Explorer tab cannot show names its path with control characters as spaces', async ($, on) => {
-  quiet(on, 5 * MIN, false, rebaseDir(2))
+  quiet(on, 5 * MIN, false, { ...rebaseDir(2), '/repo/a\x1bb.ts': 'ab\0cd' })
   on('process.run', (_, e) => ran(git(conflictRepo({ '--diff-filter=U': 'a\x1bb.ts\0', '--numstat': '4\t0\ta\x1bb.ts\0' }))(e.argv) ?? ''))
   const ui = await mount($)
   await tap(ui, 'rebase')
   await tap(ui, `mf:${fileKey('a\x1bb.ts')}`)
-  expect(await ui.find({ type: 'Text', text: '/repo/a b.ts' })).toBeDefined()
+  expect(await pathText(ui)).toBe('repo/a b.ts')
+  expect(await ui.find({ type: 'Text', text: "Can't show this file" })).toBeDefined()
 })
 
 test('a conflict path with a tab keeps its whole name', async ($, on) => {
@@ -2727,7 +2731,7 @@ test('a conflict path with a tab keeps its whole name', async ($, on) => {
   const ui = await mount($)
   await tap(ui, 'rebase')
   await tap(ui, `mf:${fileKey('a\tb.ts')}`)
-  expect(await ui.find({ type: 'Text', text: '/repo/a b.ts' })).toBeDefined()
+  expect(await pathText(ui)).toBe('repo/a b.ts')
 })
 
 test('picking Git again drops a rebase that ended outside this chat', async ($, on) => {
@@ -2812,7 +2816,7 @@ test('a jump to Explorer closes an open Git modal, so Escape and the Git tab fin
   await tap(ui, 'branch')
   expect(opens.at(-1)).toBe(true)
   await $.command.run({ command: 'show-file', args: '', origin: { kind: 'composer' } } as any)
-  expect(await ui.find({ type: 'Text', text: 'line 3' })).toBeDefined()
+  expect((await ui.find({ key: 'row:3' }))?.props.backgroundColor).toBe('#0f1c28')
   expect(opens.at(-1)).toBeUndefined()
   await ui.press({ key: 'Git' })
   expect(await ui.find({ type: 'Box', key: 'modal' })).toBeUndefined()

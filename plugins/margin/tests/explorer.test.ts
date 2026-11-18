@@ -6,6 +6,7 @@ import { cellsOf, expandTabs, fileWindow, layoutFor, layoutOf, lineAt, sliceToke
 import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '../hooks/explorer-nav'
 import { tokenize } from '../hooks/explorer-tokens'
 import { iconOf, sortListing, treeRows } from '../hooks/explorer-tree'
+import { disk, explorer, explorerRoot, mountPane, open, pathText, ran, lines, setup, textOf } from './explorer-helpers'
 
 test('tokenize: a keyword, a string, a comment and a number', () => {
   expect(tokenize('const s = "a" // x 42')).toEqual([
@@ -218,8 +219,6 @@ const engine = () => {
   return { $, on: (name: string, fn: (_: unknown, e: any) => any) => void handlers.set(name, fn) }
 }
 
-const ran = (exitCode: number, stdout = '') => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
-
 test('every git run carries --no-optional-locks and quotePath off, before the subcommand', async () => {
   const { $, on } = engine()
   const argvs: string[][] = []
@@ -310,4 +309,106 @@ test('a path that is not a plain file is unreadable and never read', async () =>
   on('fs.read', () => (reads++, { value: 'x' }))
   expect(await loadFile($, '/r/pipe')).toMatchObject({ unreadable: true, missing: false, lines: [] })
   expect(reads).toBe(0)
+})
+
+// Probe, first: an answered `file` place shows in the mounted pane.
+test('probe: the file atom place shows in the mounted pane', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, 'a\n')
+  expect(await pathText(ui)).toBe('repo/a.ts')
+})
+
+test('a file shows its lines numbered, the clicked line lit', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/src/a.ts', line: 65 }, lines(200))
+  expect(textOf(await ui.find({ key: 'row:65' }))).toMatch(/^ +65 /)
+  expect((await ui.find({ key: 'row:65' }))?.props.backgroundColor).toBe('#0f1c28')
+})
+
+test('the header starts at the project root name', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
+  expect(await pathText(ui)).toBe('repo/src/a.ts')
+})
+
+test('a file outside the project root shows its path from ~', async ($, on) => {
+  const ui = await explorer($, on, { path: '/home/me/notes.md' }, lines(3))
+  expect(await pathText(ui)).toBe('~/notes.md')
+})
+
+test('a NUL byte shows the unreadable panel, with no path line in it', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.bin' }, 'ab\0cd')
+  expect(await ui.find({ type: 'Text', text: "Can't show this file" })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'It is binary, unreadable or over 4 MiB.' })).toBeDefined()
+  expect(await ui.find({ key: 'row:1' })).toBeUndefined()
+})
+
+test('an empty file shows no panel', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/empty.ts' }, '')
+  expect(await ui.find({ type: 'Text', text: "Can't show this file" })).toBeUndefined()
+})
+
+test('keywords take the shared label colour, strings the feat colour', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, 'const s = "x"')
+  expect((await ui.find({ type: 'Text', text: 'const' }))?.props.color).toBe('#a396d2')
+  expect((await ui.find({ type: 'Text', text: '"x"' }))?.props.color).toBe('#98c379')
+})
+
+test('control characters show as spaces, and tabs stop at 4', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.log' }, 'one\n\x1b[31mred\x1b[0m\n\fpage\tend\n')
+  expect(textOf(await ui.find({ key: 'row:2' }))).toContain(' [31mred [0m')
+  // The tab after ' page' (5 cells) stops at cell 8: 3 spaces.
+  expect(textOf(await ui.find({ key: 'row:3' }))).toContain(' page   end')
+})
+
+test('the wheel moves the view by notches, so a press reaches the plugin module memory', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 1 }, lines(200))
+  expect(await ui.find({ key: 'row:1' })).toBeDefined()
+  await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 3, bodyRows: 19, contentRows: 19, origin: { kind: 'person' }, pointer: { column: 0, row: 6 } })
+  // The answered `file` key is no engine read, so the pane is not subscribed to it: redraw by hand.
+  await ui.redraw()
+  expect(await ui.find({ key: 'row:1' })).toBeUndefined()
+})
+
+test('a line jump lights its line, and reopening with no line keeps the remembered spot', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 5 }, lines(50))
+  expect((await ui.find({ key: 'row:5' }))?.props.backgroundColor).toBe('#0f1c28')
+  open({ path: '/repo/a.ts' })
+  await ui.redraw()
+  expect((await ui.find({ key: 'row:5' }))?.props.backgroundColor).toBe('#0f1c28')
+  open({ path: '/repo/a.ts', line: 40 })
+  await ui.redraw()
+  expect((await ui.find({ key: 'row:40' }))?.props.backgroundColor).toBe('#0f1c28')
+})
+
+test('an empty file opened at a line, then another file at a line, still draws code rows', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/empty.ts', line: 1 }, '')
+  expect(await ui.find({ key: 'row:1' })).toBeUndefined()
+  disk.set('/repo/b.ts', { text: lines(50), mtimeMs: 1 })
+  open({ path: '/repo/b.ts', line: 40 })
+  await ui.redraw()
+  expect((await ui.find({ key: 'row:40' }))?.props.backgroundColor).toBe('#0f1c28')
+})
+
+test('a line past the end centres on the last line', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 999 }, lines(50))
+  expect(await ui.find({ key: 'row:50' })).toBeDefined()
+  expect(await ui.find({ key: 'row:1' })).toBeUndefined()
+})
+
+test('a long header path is cut from the left with an ellipsis', async ($, on) => {
+  const ui = await explorer($, on, { path: `/repo/${'deep/'.repeat(20)}a.ts` }, lines(3))
+  const head = await pathText(ui)
+  expect(head).toMatch(/^….*\/a\.ts$/)
+  expect(head.length).toBeLessThanOrEqual(36)
+})
+
+test('with no file open the pane says so', async ($, on) => {
+  const ui = await explorerRoot($, on)
+  expect(await ui.find({ type: 'Text', text: 'No file open' })).toBeDefined()
+})
+
+test('a file that is gone shows it no longer exists', async ($, on) => {
+  await setup($, on)
+  open({ path: '/repo/gone.ts' })
+  const ui = await mountPane($)
+  expect(await ui.find({ type: 'Text', text: "Can't show this file" })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'It no longer exists.' })).toBeDefined()
 })

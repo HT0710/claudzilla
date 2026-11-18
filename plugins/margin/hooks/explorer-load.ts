@@ -15,8 +15,9 @@ export async function projectRoot($: EngineInterface): Promise<string> {
   return top || (await $.session.cwd().catch(() => ''))
 }
 
-export const statOf = ($: EngineInterface, path: string): Promise<{ kind: 'file' | 'dir' | 'other'; size: number; mtimeMs: number } | undefined> =>
-  $.fs.stat(path).then(s => s, () => undefined)
+export function statOf($: EngineInterface, path: string): Promise<{ kind: 'file' | 'dir' | 'other'; size: number; mtimeMs: number } | undefined> {
+  return $.fs.stat(path).then(s => s, () => undefined)
+}
 
 export async function loadFile($: EngineInterface, path: string): Promise<Loaded> {
   const st = await statOf($, path)

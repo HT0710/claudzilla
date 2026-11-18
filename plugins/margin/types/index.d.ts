@@ -10,10 +10,8 @@ export type AgentRow = { id?: string; description: string; status: AgentStatus |
 export type Take = { stance: 'fine' | 'concern' | 'against' | 'unsure'; label: string; why?: string }
 export type Intent = { wants: string; take?: Take; steps: Step[]; at: number; ended: boolean; waiting?: boolean; agents?: number; turn?: number }
 export type Overview = { topics: string[]; summary?: string; running: boolean; failed?: string }
-export type PanelShow = { path: string; line: number }
+export type PanelShow = { path: string; line?: number }
 export type Panel = { show: (at: PanelShow) => Promise<void> }
-// `text`: the lines around `line`, from line number `first`; empty when the file cannot be shown.
-export type FileView = { path: string; line: number; first: number; text: string } | undefined
 
 export type CheckState = 'bad' | 'run' | 'ok' | 'skip'
 // `run` and `job`: the Actions ids in its details link, for a rerun and its log.
@@ -58,6 +56,6 @@ declare module 'claude-code' {
     primer: { open: () => Promise<void> }
   }
   interface PluginState {
-    margin: { tab: Tab; notices: Tab[]; submitted: number; toolCalls: number; rowPointer: { left: string | null; at: string | null }; split: number; scrolled: { changes: number; commits: number }; historyTop: number; intent: Intent; overview: Overview; spawns: Spawn[]; turns: number; turnStart: number; expanded: number; file: FileView; modal: Modal | null; fetching: boolean; branchView: { by: 'base' | 'prefix' | 'worktrees'; showMerged: boolean }; gh: Gh; prViews: Record<number, PrView>; used: Used; stepsTop: number; stepsFollow: boolean; commitViews: Record<string, { row: LogRow; view?: CommitView }> }
+    margin: { tab: Tab; notices: Tab[]; submitted: number; toolCalls: number; rowPointer: { left: string | null; at: string | null }; split: number; scrolled: { changes: number; commits: number }; historyTop: number; intent: Intent; overview: Overview; spawns: Spawn[]; turns: number; turnStart: number; expanded: number; file: { rev: number; path: string; line?: number } | undefined; modal: Modal | null; fetching: boolean; branchView: { by: 'base' | 'prefix' | 'worktrees'; showMerged: boolean }; gh: Gh; prViews: Record<number, PrView>; used: Used; stepsTop: number; stepsFollow: boolean; commitViews: Record<string, { row: LogRow; view?: CommitView }> }
   }
 }
