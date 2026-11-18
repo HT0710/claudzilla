@@ -7,7 +7,7 @@ import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '
 import { tokenize } from '../hooks/explorer-tokens'
 import { iconOf, sortListing, treeRows } from '../hooks/explorer-tree'
 import { refOf } from '../hooks/tab-file'
-import { clock, disk, explorer, explorerRoot, lists, mountPane, launch, open, pathText, ran, runs, lines, setup, store, textOf } from './explorer-helpers'
+import { clock, disk, props, explorer, explorerRoot, failList, hold, lists, mountPane, launch, open, pathText, ran, reads, runs, lines, setup, sets, store, textOf, tree, waitFor } from './explorer-helpers'
 
 test('tokenize: a keyword, a string, a comment and a number', () => {
   expect(tokenize('const s = "a" // x 42')).toEqual([
@@ -401,6 +401,13 @@ test('a long header path is cut from the left with an ellipsis', async ($, on) =
   expect(head.length).toBeLessThanOrEqual(36)
 })
 
+test('the header folder buttons sit in a Box that does not shrink, so no letter is lost', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
+  const parts = await ui.find({ key: 'parts' })
+  expect(parts?.props.flexShrink).toBe(0)
+  expect(textOf(parts)).toBe('repo/src/a.ts')
+})
+
 test('an empty root folder page shows one faint empty row', async ($, on) => {
   const ui = await explorerRoot($, on)
   expect((await ui.find({ type: 'Text', text: 'empty' }))?.props.color).toBe('#4f5c68')
@@ -417,7 +424,7 @@ test('a file that is gone shows it no longer exists', async ($, on) => {
 test('back returns to the file shown before, at its line', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts', line: 5 }, lines(50))
   disk.set('/repo/b.ts', { text: lines(5), mtimeMs: 1 })
-  store.set('file', { rev: 5000, path: '/repo/b.ts' })
+  open({ path: '/repo/b.ts' })
   await ui.redraw()
   expect(await pathText(ui)).toBe('repo/b.ts')
   await ui.press({ key: 'back' })
@@ -429,7 +436,7 @@ test('back returns to the file shown before, at its line', async ($, on) => {
 test('forward returns to the file after back', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(5))
   disk.set('/repo/b.ts', { text: lines(5), mtimeMs: 1 })
-  store.set('file', { rev: 5000, path: '/repo/b.ts' })
+  open({ path: '/repo/b.ts' })
   await ui.redraw()
   await ui.press({ key: 'back' })
   await ui.redraw()
@@ -569,7 +576,7 @@ test('a notice still up when another file opens clears after 3 seconds', async (
   await ui.pointer({ type: 'down', x: 0, y: 8, button: 'left', in: 'explorer:gutter' })
   await ui.pointer({ type: 'up', x: 0, y: 8, button: 'left', in: 'explorer:gutter' })
   disk.set('/repo/b.ts', { text: lines(5), mtimeMs: 1 })
-  store.set('file', { rev: 5000, path: '/repo/b.ts' })
+  open({ path: '/repo/b.ts' })
   await ui.redraw()
   await clock.advance(3000)
   await ui.redraw()
@@ -693,6 +700,50 @@ test('Mention to Claude appends @path to the draft', async ($, on) => {
   expect(filled).toEqual([expect.objectContaining({ text: '@src/a.ts', mode: 'append' })])
 })
 
+test('Mention quotes a path with a space', async ($, on) => {
+  const filled: Array<{ text: string }> = []
+  on('prompt.fill', (_, e) => (filled.push(e as any), { isFilled: true }) as any)
+  const ui = await explorer($, on, { path: '/repo/a b.ts' }, lines(3))
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'mention' })
+  expect(filled[0]!.text).toBe('@"a b.ts"')
+})
+
+test('toolbar glyphs take the claude colour, and a path folder part has no colour', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
+  for (const code of [0xea9b, 0xea9c, 0xeb37, 0xeb94]) expect((await ui.find({ type: 'Text', text: String.fromCharCode(code) }))?.props.color).toBe('claude')
+  const folder = await ui.find({ type: 'Text', text: 'src' })
+  expect(folder).toBeDefined()
+  expect(folder?.props.color).toBeUndefined()
+})
+
+// The live engine throws on a Button with no string or Text child.
+const bareButtons = (n: any): number => {
+  if (!n || typeof n !== 'object') return 0
+  if (Array.isArray(n)) return n.reduce((sum: number, x) => sum + bareButtons(x), 0)
+  const kids = [n.children, n.props?.children].flat(Infinity).filter(x => x !== undefined && x !== null && x !== false && x !== '')
+  const labelled = kids.some(k => typeof k === 'string' || k?.type === 'Text')
+  return (n.type === 'Button' && !labelled ? 1 : 0) + bareButtons(kids)
+}
+
+test('a blank line draws a Button with a Text child, so no Button is bare', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, 'one\n\ntwo\n')
+  expect(await ui.find({ key: 'row:2' })).toBeDefined()
+  expect(bareButtons(await ui.drawn())).toBe(0)
+})
+
+test('the header row never takes more cells than the pane body, at any path length', async ($, on) => {
+  await setup($, on)
+  for (let n = 1; n < 40; n++) {
+    const name = `${'n'.repeat(n)}.ts`
+    disk.set(`/repo/${name}`, { text: 'x\n', mtimeMs: 1 })
+    open({ path: `/repo/${name}` })
+    const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 30 }, requestId: `h${n}` })
+    // toolbar Box 5 + path + menu Box 1
+    expect(5 + cellsOf(await pathText(ui)) + 1, name).toBeLessThanOrEqual(30 - 2)
+  }
+})
+
 test('Open in editor runs a detached sh with setsid and the path, and says opened', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
   runs.length = 0
@@ -753,4 +804,191 @@ test('a refresh deep in a wrapped file keeps the top source line', async ($, on)
   await ui.press({ key: 'refresh' })
   await ui.redraw()
   expect(textOf(await ui.find({ key: 'code:0' })).split(' ')[0]).toBe(top)
+})
+
+const hostOk = (on: any) => on('tool.call', () => ({ result: { stdout: '', stderr: '' } }) as any)
+
+test('an Edit to the open file reloads it at once', async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  disk.set('/repo/a.ts', { text: 'fresh\nlines\n', mtimeMs: 2 })
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts' } as any)
+  await ui.redraw()
+  expect(await ui.find({ key: 'row:1' })).toBeDefined()
+  expect(textOf(await ui.find({ key: 'row:1' }))).toContain('fresh')
+})
+
+test('a NotebookEdit names its file in notebook_path', async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/n.ipynb' }, 'old\n')
+  disk.set('/repo/n.ipynb', { text: 'new\n', mtimeMs: 2 })
+  await $.tool.call({ tool: 'NotebookEdit', notebook_path: '/repo/n.ipynb' } as any)
+  await ui.redraw()
+  expect(textOf(await ui.find({ key: 'row:1' }))).toContain('new')
+})
+
+test('a Bash call reloads when the open file mtime changed', async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, 'a\n')
+  disk.set('/repo/a.ts', { text: 'b\n', mtimeMs: 2 })
+  await $.tool.call({ tool: 'Bash', command: 'sed -i s/a/b/ a.ts' } as any)
+  await ui.redraw()
+  expect(textOf(await ui.find({ key: 'row:1' }))).toContain('b')
+  expect(textOf(await ui.find({ key: 'row:1' }))).not.toContain('a')
+})
+
+test('the five-second check shows a deleted open file as no longer existing', async ($, on) => {
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }) as any)
+  on('store.keys', () => ({ value: [] }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('tool.register', (_, e) => ({ value: { tool: `mcp__margin__${e.name}` } }) as any)
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, 'a\n')
+  await $.session.start({ source: 'startup', cwd: '/repo', surface: null, isInteractive: false } as any)
+  disk.delete('/repo/a.ts')
+  await clock.advance(5000)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: 'It no longer exists.' })).toBeDefined()
+})
+
+test('a stale reload result is dropped as stale', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, 'old\n')
+  hold.reads = []
+  disk.set('/repo/a.ts', { text: 'first\n', mtimeMs: 2 })
+  const first = ui.press({ key: 'refresh' })
+  await waitFor(() => hold.reads!.length === 1)
+  disk.set('/repo/a.ts', { text: 'second\n', mtimeMs: 3 })
+  const second = ui.press({ key: 'refresh' })
+  await waitFor(() => hold.reads!.length === 2)
+  hold.reads[1]!()
+  await second
+  hold.reads[0]!()
+  await first
+  hold.reads = undefined
+  await ui.redraw()
+  expect(textOf(await ui.find({ key: 'row:1' }))).toContain('second')
+  expect(textOf(await ui.find({ key: 'row:1' }))).not.toContain('first')
+})
+
+test('a Write call re-lists the open folder page', async ($, on) => {
+  hostOk(on)
+  const ui = await explorerRoot($, on, { '/repo': [{ name: 'a.ts', kind: 'file' }] })
+  tree.set('/repo', [{ name: 'a.ts', kind: 'file' }, { name: 'b.ts', kind: 'file' }])
+  await $.tool.call({ tool: 'Write', file_path: '/repo/b.ts' } as any)
+  await ui.redraw()
+  expect(await ui.find({ key: '/repo/b.ts' })).toBeDefined()
+})
+
+test('a Write into a folder seen empty re-lists it, so it shows as non-empty', async ($, on) => {
+  hostOk(on)
+  const ui = await explorerRoot($, on, { '/repo': [{ name: 'empty', kind: 'dir' }], '/repo/empty': [] })
+  expect(await ui.find({ type: 'Text', text: '▸' })).toBeUndefined()
+  tree.set('/repo/empty', [{ name: 'n.ts', kind: 'file' }])
+  await $.tool.call({ tool: 'Write', file_path: '/repo/empty/n.ts' } as any)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: '▸' })).toBeDefined()
+})
+
+test('refresh re-lists the open folder page', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, 'x\n', { '/repo/src': [{ name: 'a.ts', kind: 'file' }] })
+  await ui.press({ key: '/repo/src' })
+  await ui.redraw()
+  tree.set('/repo/src', [{ name: 'a.ts', kind: 'file' }, { name: 'c.ts', kind: 'file' }])
+  await ui.press({ key: 'refresh' })
+  await ui.redraw()
+  expect(await ui.find({ key: '/repo/src/c.ts' })).toBeDefined()
+})
+
+test('an empty file reloaded with content shows it at the atom line', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 3 }, '')
+  disk.set('/repo/a.ts', { text: lines(5), mtimeMs: 2 })
+  await ui.press({ key: 'refresh' })
+  await ui.redraw()
+  expect(textOf(await ui.find({ key: 'row:3' }))).toContain('line 3')
+})
+
+test('a file shown again after a folder page is read again', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, 'old\n', { '/repo/src': [{ name: 'a.ts', kind: 'file' }] })
+  await ui.press({ key: '/repo/src' })
+  await ui.redraw()
+  disk.set('/repo/src/a.ts', { text: 'new\n', mtimeMs: 2 })
+  await ui.press({ key: 'back' })
+  await ui.redraw()
+  expect(textOf(await ui.find({ key: 'row:1' }))).toContain('new')
+})
+
+test('a reload in flight keeps its text when a folder page draws and completes', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, 'old\n', { '/repo/src': [{ name: 'a.ts', kind: 'file' }] })
+  hold.reads = []
+  disk.set('/repo/src/a.ts', { text: 'new\n', mtimeMs: 2 })
+  const refresh = ui.press({ key: 'refresh' })
+  await waitFor(() => hold.reads!.length === 1)
+  await ui.press({ key: '/repo/src' })
+  await ui.redraw()
+  hold.reads[0]!()
+  await refresh
+  hold.reads = undefined
+  const before = reads.length
+  await ui.press({ key: 'back' })
+  await ui.redraw()
+  expect(textOf(await ui.find({ key: 'row:1' }))).toContain('new')
+  expect(reads.length).toBe(before)
+})
+
+test('an old draw read landing after a newer reload keeps the newer text', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, 'x\n')
+  disk.set('/repo/b.ts', { text: 'old\n', mtimeMs: 1 })
+  hold.reads = []
+  open({ path: '/repo/b.ts' })
+  const drew = ui.redraw()
+  await waitFor(() => hold.reads!.length === 1)
+  disk.set('/repo/b.ts', { text: 'new\n', mtimeMs: 2 })
+  const refresh = ui.press({ key: 'refresh' })
+  await waitFor(() => hold.reads!.length === 2)
+  hold.reads[1]!()
+  await refresh
+  hold.reads[0]!()
+  await drew
+  hold.reads = undefined
+  await ui.redraw()
+  expect(textOf(await ui.find({ key: 'row:1' }))).toContain('new')
+})
+
+test('a Bash call before the Explorer has drawn writes no place', async ($, on) => {
+  await setup($, on)
+  hostOk(on)
+  await $.tool.call({ tool: 'Bash', command: 'ls' } as any)
+  expect(sets).not.toContain('file')
+})
+
+test('refresh lists a folder again after its listing failed', async ($, on) => {
+  await setup($, on)
+  tree.set('/repo', [{ name: 'a.ts', kind: 'file' }])
+  failList.on = true
+  const ui = await mountPane($)
+  expect(await ui.find({ key: '/repo/a.ts' })).toBeUndefined()
+  failList.on = false
+  await ui.press({ key: 'refresh' })
+  await ui.redraw()
+  expect(await ui.find({ key: '/repo/a.ts' })).toBeDefined()
+})
+
+test('a notice longer than the header keeps the verb, a space and the end of the path', async ($, on) => {
+  on('ui.copy', () => ({ value: { isCopied: true } }) as any)
+  const deep = `/elsewhere/${'dir/'.repeat(14)}file.ts`
+  const ui = await explorer($, on, { path: deep, line: 1 }, lines(5))
+  await ui.pointer({ type: 'down', x: 0, y: 1, button: 'left', in: 'explorer:gutter' })
+  await ui.pointer({ type: 'up', x: 0, y: 1, button: 'left', in: 'explorer:gutter' })
+  await ui.redraw()
+  const text = await pathText(ui)
+  expect(text).toMatch(/^copied …\S*dir\/file\.ts:\d+$/)
+  expect([...text].length).toBeLessThanOrEqual(44 - 2 - 6)
+})
+
+test('the menu divider is plain rule cells over the padding, between the card borders', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
+  // the longest label + 1-cell mark, plus the padding cell on each side
+  const dashes = 'Copy absolute path'.length + 1 + 2
+  expect(await ui.find({ type: 'Text', text: new RegExp(`^─{${dashes}}$`) })).toBeDefined()
+  expect(await ui.find({ type: 'Box', marginX: -1 })).toBeDefined()
 })

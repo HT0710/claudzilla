@@ -394,8 +394,9 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   // says so instead of opening.
   const openFile = async (path: string) => {
     const abs = `${root}/${path}`
-    if (!(await statOf($, abs))) return void $.ui.toast(`Not in the working tree: ${printable(path)}`)
-    await openPlace($, { path: abs })
+    const st = await statOf($, abs)
+    if (!st) return void $.ui.toast(`Not in the working tree: ${printable(path)}`)
+    await openPlace($, st.kind === 'dir' ? { path: abs, kind: 'folder' } : { path: abs })
     await ctx.pick('Explorer')
   }
   rowHover.acts = dimmed
