@@ -1,5 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 
+import { walkNames } from './explorer-find'
+import type { NameEntry } from './explorer-find'
 import type { Listing } from './explorer-tree'
 
 export type Loaded = { path: string; lines: string[]; unreadable: boolean; missing: boolean; mtimeMs: number; size: number }
@@ -46,4 +48,14 @@ export async function listDir($: EngineInterface, dir: string): Promise<Listing[
 export function latestOf(): { begin(): number; isLatest(n: number): boolean } {
   let n = 0
   return { begin: () => ++n, isLatest: m => m === n }
+}
+
+/** Every file and folder under `folder`, as paths relative to it. */
+export async function listNames($: EngineInterface, folder: string): Promise<NameEntry[]> {
+  const run = await $.process.run(gitArgs('-C', folder, 'ls-files', '--cached', '--others', '--exclude-standard', '-z')).catch(() => undefined)
+  if (run?.exitCode !== 0) return walkNames(dir => $.fs.list(dir).catch(() => []), folder)
+  const dirs = new Set<string>()
+  const files = run.stdout.split('\0').filter(Boolean)
+  for (const f of files) for (let i = f.indexOf('/'); i >= 0; i = f.indexOf('/', i + 1)) dirs.add(f.slice(0, i))
+  return [...dirs].map((path): NameEntry => ({ path, kind: 'dir' })).concat(files.map((path): NameEntry => ({ path, kind: 'file' })))
 }
