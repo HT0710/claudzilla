@@ -34,3 +34,10 @@ export function findIn(lines: readonly string[], query: FindQuery): FindResult {
 
 // A move onto one of the find bar's own buttons keeps the field open.
 export const leavesField = (e: { element?: string }, key: string): boolean => e.element !== key && !e.element?.startsWith('explorer:find:')
+
+// The cell of `cells` each row of `total` marks: the one thumbOf maps it to.
+export const markCells = (total: number, cells: number, rows: readonly number[]): boolean[] => {
+  const marks = Array<boolean>(cells).fill(false)
+  for (const r of rows) if (r >= 0 && r < total) marks[total <= cells ? r : Math.floor((r * cells) / total)] = true
+  return marks
+}

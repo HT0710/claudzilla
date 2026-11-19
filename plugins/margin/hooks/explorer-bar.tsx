@@ -2,14 +2,14 @@ import type { ClientModule } from 'claude-code'
 
 import { thumbOf } from './explorer-layout'
 
-type Props = { axis: 'v' | 'h'; cells: number; from: number; to: number; total: number; shown: number; top: number; glyph: string; color: string }
+type Props = { axis: 'v' | 'h'; cells: number; from: number; to: number; total: number; shown: number; top: number; glyph: string; color: string; marks?: (string | null)[] }
 type State = { grab?: number; top0?: number; to?: number; by?: number }
 
 // A scroll bar: `cells` cells along `axis`, the thumb the cells in [from, to). Dragged, the bar stays put and
 // draws the thumb where it would land, posting `{ top }` once let go: moved under the pointer, a drag got cells
 // counted from where the terminal had not yet moved it, and jumped. A press off the thumb draws the jump at once
 // and posts it on release.
-const Bar: ClientModule<Props, State> = ({ axis, cells, from, to, total, shown, top, glyph, color }, surface) => {
+const Bar: ClientModule<Props, State> = ({ axis, cells, from, to, total, shown, top, glyph, color, marks }, surface) => {
   const { Box, Text } = surface.elements
   const clamp = (t: number) => Math.max(0, Math.min(t, Math.max(0, total - shown)))
   surface.onPointer(e => {
@@ -30,12 +30,13 @@ const Bar: ClientModule<Props, State> = ({ axis, cells, from, to, total, shown, 
   const { top0, to: jump, by } = surface.state ?? {}
   const at = jump ?? (by === undefined ? top : clamp((top0 ?? top) + Math.round(by)))
   const thumb = at === top ? { from, to } : thumbOf(total, shown, at, cells)
-  const cell = (i: number) => (i >= thumb.from && i < thumb.to ? glyph : ' ')
+  const inThumb = (i: number) => i >= thumb.from && i < thumb.to
+  const cell = (i: number) => (inThumb(i) ? glyph : marks?.[i] ? '\u2501' : ' ')
   const all = Array.from({ length: cells }, (_, i) => cell(i))
   return axis === 'v' ? (
     <Box flexDirection="column">
       {all.map((c, i) => (
-        <Text key={i} color={color}>
+        <Text key={i} color={marks?.[i] ?? color}>
           {c}
         </Text>
       ))}
