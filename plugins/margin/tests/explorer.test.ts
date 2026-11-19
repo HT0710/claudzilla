@@ -741,8 +741,8 @@ test('the header row never takes more cells than the pane body, at any path leng
     disk.set(`/repo/${name}`, { text: 'x\n', mtimeMs: 1 })
     open({ path: `/repo/${name}` })
     const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 30 }, requestId: `h${n}` })
-    // toolbar Box 5 + path + menu Box 1
-    expect(5 + cellsOf(await pathText(ui)) + 1, name).toBeLessThanOrEqual(30 - 2)
+    // toolbar Box 5 + path + right Box 3
+    expect(5 + cellsOf(await pathText(ui)) + 3, name).toBeLessThanOrEqual(30 - 2)
   }
 })
 
@@ -1021,4 +1021,74 @@ test('a press on a tree file row opens it, and on a folder row toggles it', asyn
   await tapTree(ui, 'a.ts')
   await ui.drawn()
   expect(await pathText(ui)).toBe('repo/a.ts')
+})
+
+const findText = async (ui: any, text: string) => ui.input({ key: 'explorer:find', text, kind: 'change' })
+const isLit = async (ui: any, n: number) => (await ui.find({ key: `row:${n}` }))?.props.backgroundColor === LIT
+
+test('the search button is drawn on a file', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  expect(await ui.find({ key: 'explorer:search' })).toBeDefined()
+})
+
+test('search opens the field with its placeholder, no label and autofocus', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  const field = await ui.find({ key: 'explorer:find' })
+  expect(field?.props.placeholder).toBe('type text to find')
+  expect(field?.props.submitLabel).toBe('')
+  expect(field?.props.autoFocus).toBe(true)
+  expect(field?.props.label).toBeUndefined()
+})
+
+test('the label appears once text is typed', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: 'lines with ' })).toBeUndefined()
+  await findText(ui, 'line 4')
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: 'lines with ' })).toBeDefined()
+})
+
+test('a typed find waits 150 ms before it runs', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  await findText(ui, 'line 42')
+  await clock.advance(149)
+  await ui.redraw()
+  expect(await isLit(ui, 42)).toBe(false)
+  await clock.advance(1)
+  await ui.redraw()
+  expect(await isLit(ui, 42)).toBe(true)
+  expect(await ui.find({ key: 'row:1' })).toBeUndefined()
+})
+
+test('each key restarts the wait', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  await findText(ui, 'line 4')
+  await clock.advance(100)
+  await findText(ui, 'line 42')
+  await clock.advance(149)
+  await ui.redraw()
+  expect(await isLit(ui, 4)).toBe(false)
+  await clock.advance(1)
+  await ui.redraw()
+  expect(await isLit(ui, 42)).toBe(true)
+  expect(await isLit(ui, 4)).toBe(false)
+})
+
+test('clearing the text clears the lit line that find set', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  await findText(ui, 'line 42')
+  await clock.advance(150)
+  await findText(ui, '')
+  await ui.redraw()
+  expect(await isLit(ui, 42)).toBe(false)
 })

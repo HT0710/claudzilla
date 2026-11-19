@@ -7,7 +7,7 @@ import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, PAD, WHEEL_HOLD, applyPalette
 import type { Prompt, Readers, TabCtx, TabDraw, UseEntry, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
-import { changedOnDisk, checkOpenFile, draw as drawFile, explorerPost, showPlace } from './tab-file'
+import { changedOnDisk, checkOpenFile, draw as drawFile, explorerPost, fieldLeft, showPlace } from './tab-file'
 import { autoFetch, draw as drawGit, resetGitReads } from './tab-git'
 import { draw as drawHistory } from './tab-history'
 import { draw as drawOverview, resetStepsHeld, same } from './tab-overview'
@@ -1301,6 +1301,11 @@ export const register: Register = (on, options) => {
       return yield* next(e)
     })
   }
+
+  on('ui.focus', { requestId: PANE }, async ($, e, next) => {
+    await fieldLeft($, e).catch(() => undefined)
+    return next(e)
+  })
 
   // Tabs switch here, not in their onPress: mid-turn, a click landing as a redraw swaps the tree
   // reached this hook but lost its onPress.

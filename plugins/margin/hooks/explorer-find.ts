@@ -31,3 +31,6 @@ export function findIn(lines: readonly string[], query: FindQuery): FindResult {
   }
   return { ...none, matches }
 }
+
+// A move onto one of the find bar's own buttons keeps the field open.
+export const leavesField = (e: { element?: string }, key: string): boolean => e.element !== key && !e.element?.startsWith('explorer:find:')

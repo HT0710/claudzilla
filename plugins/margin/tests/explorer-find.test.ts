@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { findIn } from '../hooks/explorer-find'
+import { findIn, leavesField } from '../hooks/explorer-find'
 import { hitsOf, sliceTokens } from '../hooks/explorer-layout'
 import { tokenize } from '../hooks/explorer-tokens'
 
@@ -125,4 +125,20 @@ test('a wide glyph cut at the slice edge is a plain space with no hit', () => {
 test('no hits leaves the tokens unchanged', () => {
   const out = sliceTokens(tokenize('const x'), 0, 7)
   expect(out.some((t) => 'hit' in t)).toBe(false)
+})
+
+test('a find bar button does not count as leaving', () => {
+  expect(leavesField({ element: 'explorer:find:case' }, 'explorer:find')).toBe(false)
+})
+
+test('no element counts as leaving', () => {
+  expect(leavesField({}, 'explorer:find')).toBe(true)
+})
+
+test('another element counts as leaving', () => {
+  expect(leavesField({ element: 'explorer:name' }, 'explorer:find')).toBe(true)
+})
+
+test('the field itself does not count as leaving', () => {
+  expect(leavesField({ element: 'explorer:find' }, 'explorer:find')).toBe(false)
 })
