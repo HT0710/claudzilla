@@ -1,6 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, RenderSurface } from 'claude-code'
 
+import { FIND_WAIT, findIn, leavesField } from './explorer-find'
+import type { FindResult } from './explorer-find'
 import { cellsOf, fileWindow, layoutFor, layoutOf, lineAt, sliceTokens, thumbOf } from './explorer-layout'
 import type { Cached } from './explorer-layout'
 import { listDir, loadFile, latestOf, projectRoot, statOf } from './explorer-load'
@@ -35,6 +37,8 @@ type State = {
   wrap: boolean
   lit?: { from: number; to: number }
   menuPinned: boolean
+  find?: { open: boolean; text: string; pending: boolean; result: FindResult; current: number }
+  toggles: { matchCase: boolean; word: boolean; regex: boolean }
   rev: number
   // The last atom rev the module state has taken.
   applied: number
@@ -42,12 +46,13 @@ type State = {
   noticeVerb?: string
 }
 
-const fresh = (): State => ({ nav: navStart(''), tokens: new Map(), expanded: new Set(), listed: new Map(), col: 0, wrap: false, menuPinned: false, rev: 0, applied: 0 })
+const fresh = (): State => ({ nav: navStart(''), tokens: new Map(), expanded: new Set(), listed: new Map(), col: 0, wrap: false, menuPinned: false, toggles: { matchCase: false, word: false, regex: false }, rev: 0, applied: 0 })
 const state = fresh()
 const rowHover = rowHovers.Explorer
 const guard = latestOf()
 // Folder listings count apart from file loads, so folder work never drops a reload.
 const folders = latestOf()
+const finds = latestOf()
 // A row icon's colour name (explorer-tree.ts) to the colour the Git tab draws that name in.
 const ICON_COLORS = (): Record<string, string> => ({ claude: 'claude', faint: HUD.faint, refactor: TYPES.refactor!, docs: TYPES.docs!, test: TYPES.test!, feat: TYPES.feat! })
 
@@ -123,6 +128,49 @@ export async function changedOnDisk($: EngineInterface, call: { tool: string } &
   if (here.kind === 'file' && (call.tool === 'Edit' || call.tool === 'Write' || call.tool === 'NotebookEdit') && target === here.path) return reloadPlace($)
   if (here.kind === 'folder' && (call.tool === 'Write' || call.tool === 'Bash')) await relistPage($)
   if (call.tool === 'Bash') await checkOpenFile($)
+}
+
+const FIELD = 'explorer:find'
+const PLACEHOLDER = 'type text to find'
+
+// Closes the find field when focus leaves it with no text.
+export async function fieldLeft($: EngineInterface, e: { element?: string }): Promise<void> {
+  if (!state.find?.open || state.find.text || !leavesField(e, FIELD)) return
+  state.find = undefined
+  await update($, file, () => placeOf())
+}
+
+async function openFind($: EngineInterface): Promise<void> {
+  state.find ??= { open: true, text: '', pending: false, result: { matches: [], bad: false, capped: false }, current: 0 }
+  state.find.open = true
+  await update($, file, () => placeOf())
+  await $.ui.focus({ requestId: 'margin', key: FIELD }).catch(() => undefined)
+}
+
+function typeFind($: EngineInterface, text: string): void {
+  const find = state.find
+  if (!find) return
+  find.text = text
+  const n = finds.begin()
+  if (!text) {
+    find.pending = false
+    find.result = { matches: [], bad: false, capped: false }
+    find.current = 0
+    state.lit = undefined
+  } else {
+    find.pending = true
+    $.clock.after(FIND_WAIT, async () => {
+      if (!finds.isLatest(n) || !state.find?.open) return
+      find.result = findIn(state.loaded?.lines ?? [], { text, ...state.toggles })
+      find.pending = false
+      find.current = 0
+      const first = find.result.matches[0]
+      state.lit = first && { from: first.line, to: first.line }
+      state.top = undefined
+      await update($, file, () => placeOf())
+    })
+  }
+  $.ui.invalidate('ui.render')
 }
 
 export async function goBack($: EngineInterface): Promise<void> {
@@ -205,6 +253,7 @@ export async function explorerPost($: EngineInterface, e: { element: string; dat
 
 export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const { Box, Button, Text } = ctx.el
+  const Input = ctx.el.Input
   const { props } = ctx
   const open = await read($, file)
   if (open && open.rev > state.applied) {
@@ -422,7 +471,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       <Text color="claude">{basic ? plain : String.fromCharCode(code)}</Text>
     </Button>
   )
-  const shown = headOf(place.path, state.root, home, W - 6)
+  const shown = headOf(place.path, state.root, home, W - 8)
   const inRoot = state.root !== '/' && (place.path === state.root || place.path.startsWith(`${state.root}/`))
   let path: JSX.Element[] | string = shown
   if (inRoot && !shown.startsWith('…')) {
@@ -531,10 +580,17 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
             {glyph('refresh', '↻', 0xeb37, () => reloadPlace($))}
           </Box>
           <Box key="path" flexGrow={1} justifyContent="center">
-            {state.notice ? (
+            {state.find?.open && place.kind === 'file' ? (
+              <Box key="find" flexShrink={0}>
+                {state.find.text && <Text color={HUD.faint}>lines with </Text>}
+                <Box width={Math.min(cellsOf(state.find.text || PLACEHOLDER) + 1, W - 8 - (state.find.text ? 11 : 0))} flexShrink={0}>
+                  <Input key={FIELD} value={state.find.text} placeholder={PLACEHOLDER} submitLabel="" autoFocus onInput={v => typeFind($, v)} onSubmit={() => {}} />
+                </Box>
+              </Box>
+            ) : state.notice ? (
               <Text>
                 <Text color={HUD.faint}>{state.noticeVerb} </Text>
-                <Text color="claude">{cutStart(printable(state.notice), W - 6 - (state.noticeVerb?.length ?? 0) - 1)}</Text>
+                <Text color="claude">{cutStart(printable(state.notice), W - 8 - (state.noticeVerb?.length ?? 0) - 1)}</Text>
               </Text>
             ) : typeof path === 'string' ? (
               <Text color={HUD.action}>{path}</Text>
@@ -542,7 +598,8 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
               <Box key="parts" flexShrink={0}>{path}</Box>
             )}
           </Box>
-          <Box width={1} flexShrink={0}>
+          <Box width={3} flexShrink={0} gap={1} justifyContent="flex-end">
+            {place.kind === 'file' && glyph('explorer:search', '/', 0xea6d, () => openFind($))}
             <Button key="menu" plain hover={{ scope: 'explorer:menu' }} onPress={() => {
               state.menuPinned = !state.menuPinned
               return update($, file, () => placeOf())
