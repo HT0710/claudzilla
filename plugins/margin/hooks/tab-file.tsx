@@ -69,12 +69,26 @@ const finds = latestOf()
 // A row icon's colour name (explorer-tree.ts) to the colour the Git tab draws that name in.
 const ICON_COLORS = (): Record<string, string> => ({ claude: 'claude', faint: HUD.faint, refactor: TYPES.refactor!, docs: TYPES.docs!, test: TYPES.test!, feat: TYPES.feat! })
 
+// Closes find and drops its matches and any pending run; the toggles stay.
+function endFind(): void {
+  finds.begin()
+  const find = state.find
+  if (!find) return
+  find.text = ''
+  find.pending = false
+  find.result = { matches: [], bad: false, capped: false }
+  find.spans = new Map()
+  find.current = 0
+  find.open = false
+}
+
 // Remembers the spot, moves through `change`, and restores the spot of an entry it landed on.
 function moveTo(change: (nav: Nav) => Nav): boolean {
   const remembered = remember(state.nav, state.top ?? 0, state.lit?.from)
   state.nav = change(remembered)
   const entry = current(state.nav)
   if (entry === current(remembered)) return false
+  endFind()
   state.top = entry.top
   state.lit = entry.kind === 'file' && entry.line !== undefined ? { from: entry.line, to: entry.line } : undefined
   state.col = 0
@@ -122,8 +136,24 @@ export async function reloadPlace($: EngineInterface): Promise<void> {
   if (guard.isLatest(n)) {
     state.loaded = loaded
     state.tokens = new Map()
+    rerunFind()
   }
   await update($, file, () => placeOf())
+}
+
+// Runs find again on a reloaded file at once, keeping the view; the current match is the first at or after the old line.
+function rerunFind(): void {
+  const find = state.find
+  if (!find?.open || !find.text || !state.loaded) return
+  const line = find.result.matches[find.current]?.line
+  finds.begin()
+  find.pending = false
+  find.result = findIn(state.loaded.lines, { text: find.text, ...state.toggles })
+  find.spans = spansOf(find.result)
+  const at = line === undefined ? -1 : find.result.matches.findIndex(m => m.line >= line)
+  find.current = Math.max(at, 0)
+  const m = find.result.matches[find.current]
+  state.lit = m && { from: m.line, to: m.line }
 }
 
 // Reloads the open file when its stamp changed or it is gone.
@@ -223,13 +253,7 @@ async function toggleFind($: EngineInterface, flag: keyof State['toggles']): Pro
 async function closeFind($: EngineInterface): Promise<void> {
   const find = state.find
   if (!find) return
-  finds.begin()
-  find.text = ''
-  find.pending = false
-  find.result = { matches: [], bad: false, capped: false }
-  find.spans = new Map()
-  find.current = 0
-  find.open = false
+  endFind()
   state.lit = undefined
   await update($, file, () => placeOf())
 }
