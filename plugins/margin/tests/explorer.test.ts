@@ -1092,3 +1092,162 @@ test('clearing the text clears the lit line that find set', async ($, on) => {
   await ui.redraw()
   expect(await isLit(ui, 42)).toBe(false)
 })
+
+const texts = (n: any, out: { text: string; color?: string; bg?: string }[] = []) => {
+  if (!n || typeof n !== 'object') return out
+  if (Array.isArray(n)) return n.forEach(x => texts(x, out)), out
+  if (n.type === 'Text' && typeof textOf(n) === 'string') out.push({ text: textOf(n), color: n.props?.color, bg: n.props?.backgroundColor })
+  texts([n.children, n.props?.children], out)
+  return out
+}
+const barTexts = async (ui: any) => texts(await ui.find({ key: 'explorer:find-bar' }))
+const barText = async (ui: any) => textOf(await ui.find({ key: 'explorer:find-bar' }))
+const submit = async (ui: any, text: string) => {
+  await ui.input({ key: 'explorer:find', text, kind: 'submit' })
+  await ui.redraw()
+}
+const search = async (ui: any, text: string) => {
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  await findText(ui, text)
+  await clock.advance(150)
+  await ui.redraw()
+}
+const AB = 'a\nb\na'
+
+test('the find bar takes 2 rows', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  const closed = (await barOf(ui, 'explorer:vbar')).cells
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  expect((await barOf(ui, 'explorer:vbar')).cells).toBe(closed - 2)
+})
+
+test('the bar counts matches, with the current number in warning', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await search(ui, 'line 1')
+  const t = await barTexts(ui)
+  expect(t.find(x => x.text === '1')?.color).toBe('warning')
+  expect(t.find(x => x.text === 'of')?.color).toBe('#4f5c68')
+  expect(t.find(x => x.text === '111')?.color).toBeUndefined()
+  expect(await barText(ui)).toContain('1 of 111')
+})
+
+test('no matches shows no matches in warning and greys the steps', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await search(ui, 'zzz')
+  const t = await barTexts(ui)
+  expect(t.find(x => x.text === 'no matches')?.color).toBe('warning')
+  expect(t.find(x => x.text === 'prev')?.color).toBe('#4f5c68')
+  expect(t.find(x => x.text === 'next')?.color).toBe('#4f5c68')
+})
+
+test('an empty field shows no count and greys the steps', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  const t = await barTexts(ui)
+  expect(await barText(ui)).not.toMatch(/of|no matches|bad pattern/)
+  expect(t.find(x => x.text === 'prev')?.color).toBe('#4f5c68')
+  expect(t.find(x => x.text === 'next')?.color).toBe('#4f5c68')
+})
+
+test('Enter steps to the next match and wraps', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, AB)
+  await search(ui, 'a')
+  expect(await barText(ui)).toContain('1 of 2')
+  await submit(ui, 'a')
+  expect(await barText(ui)).toContain('2 of 2')
+  await submit(ui, 'a')
+  expect(await barText(ui)).toContain('1 of 2')
+})
+
+test('Enter on a pending run flushes it and stays on match 1', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, AB)
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  await findText(ui, 'a')
+  await submit(ui, 'a')
+  expect(await barText(ui)).toContain('1 of 2')
+  await submit(ui, 'a')
+  expect(await barText(ui)).toContain('2 of 2')
+})
+
+test('prev and next step too', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, AB)
+  await search(ui, 'a')
+  await ui.press({ key: 'explorer:find:next' })
+  await ui.redraw()
+  expect(await barText(ui)).toContain('2 of 2')
+  await ui.press({ key: 'explorer:find:prev' })
+  await ui.redraw()
+  expect(await barText(ui)).toContain('1 of 2')
+  await ui.press({ key: 'explorer:find:prev' })
+  await ui.redraw()
+  expect(await barText(ui)).toContain('2 of 2')
+})
+
+test('a toggle re-runs from the first match', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, AB)
+  await search(ui, 'a')
+  await submit(ui, 'a')
+  expect(await barText(ui)).toContain('2 of 2')
+  await ui.press({ key: 'explorer:find:case' })
+  await ui.redraw()
+  expect(await barText(ui)).toContain('1 of 2')
+})
+
+test('the toggles survive closing the find', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, AB)
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  await ui.press({ key: 'explorer:find:regex' })
+  await ui.redraw()
+  await ui.press({ key: 'explorer:find:close' })
+  await ui.redraw()
+  expect(await ui.find({ key: 'explorer:find-bar' })).toBeUndefined()
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  const on_ = (await ui.find({ key: 'explorer:find:regex' }))
+  expect(texts(on_)[0]?.text).toBeDefined()
+  expect(JSON.stringify(on_)).toContain('"inverse":true')
+})
+
+test('a bad pattern shows bad pattern in error and greys the steps', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, AB)
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  await ui.press({ key: 'explorer:find:regex' })
+  await findText(ui, '(')
+  await clock.advance(150)
+  await ui.redraw()
+  const t = await barTexts(ui)
+  expect(t.find(x => x.text === 'bad pattern')?.color).toBe('error')
+  expect(await barText(ui)).not.toContain(' of ')
+  expect(t.find(x => x.text === 'prev')?.color).toBe('#4f5c68')
+})
+
+test('the current match and the other matches take their colours', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, 'a a')
+  await search(ui, 'a')
+  const t = texts(await ui.find({ key: 'row:1' })).filter(x => x.bg)
+  expect(t[0]).toMatchObject({ color: 'inverseText', bg: 'warning' })
+  expect(t[1]).toMatchObject({ color: '#e5c07b', bg: '#3a3220' })
+})
+
+test('a whitespace query highlights the spaces', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, 'a b')
+  await search(ui, ' ')
+  expect(texts(await ui.find({ key: 'row:1' })).find(x => x.text === ' ')?.bg).toBeDefined()
+})
+
+test('at 36 columns the bar drops its step words before it overflows', async ($, on) => {
+  await setup($, on)
+  disk.set('/repo/a.ts', { text: Array.from({ length: 10001 }, () => 'x').join('\n'), mtimeMs: 1 })
+  open({ path: '/repo/a.ts' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 36 }, requestId: 'margin' })
+  await search(ui, 'x')
+  const text = await barText(ui)
+  expect(text).toContain('‹  1 of 10000+  ›')
+  expect(cellsOf(text)).toBeLessThanOrEqual(34)
+})

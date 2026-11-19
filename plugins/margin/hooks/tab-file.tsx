@@ -3,7 +3,7 @@ import type { EngineInterface, RenderSurface } from 'claude-code'
 
 import { FIND_WAIT, findIn, leavesField } from './explorer-find'
 import type { FindResult } from './explorer-find'
-import { cellsOf, fileWindow, layoutFor, layoutOf, lineAt, sliceTokens, thumbOf } from './explorer-layout'
+import { cellsOf, fileWindow, hitsOf, layoutFor, layoutOf, lineAt, sliceTokens, thumbOf } from './explorer-layout'
 import type { Cached } from './explorer-layout'
 import { listDir, loadFile, latestOf, projectRoot, statOf } from './explorer-load'
 import type { Loaded } from './explorer-load'
@@ -14,7 +14,7 @@ import type { Token } from './explorer-tokens'
 import { iconOf, treeRows } from './explorer-tree'
 import type { Listing } from './explorer-tree'
 import { fileKey, printable } from './git-data'
-import { CARD, HUD, LIT, PAD, TYPES, basicGlyphs, emptyNote, rowHovers, toPieces } from './kit'
+import { CARD, HUD, LIT, PAD, PILL_BG, STATUS, TYPES, basicGlyphs, emptyNote, rowHovers, toPieces } from './kit'
 import type { TabCtx, TabDraw } from './kit'
 
 // The open place, so a change redraws the pane; the draw applies a place whose rev it has not seen.
@@ -147,6 +147,20 @@ async function openFind($: EngineInterface): Promise<void> {
   await $.ui.focus({ requestId: 'margin', key: FIELD }).catch(() => undefined)
 }
 
+// Runs the find on the loaded lines and lights the first match.
+async function runFind($: EngineInterface): Promise<void> {
+  const find = state.find
+  if (!find) return
+  find.pending = false
+  if (state.loaded?.path !== current(state.nav).path) return
+  find.result = findIn(state.loaded.lines, { text: find.text, ...state.toggles })
+  find.current = 0
+  const first = find.result.matches[0]
+  state.lit = first && { from: first.line, to: first.line }
+  state.top = undefined
+  await update($, file, () => placeOf())
+}
+
 function typeFind($: EngineInterface, text: string): void {
   const find = state.find
   if (!find) return
@@ -161,17 +175,47 @@ function typeFind($: EngineInterface, text: string): void {
     find.pending = true
     $.clock.after(FIND_WAIT, async () => {
       if (!finds.isLatest(n) || !state.find?.open) return
-      find.pending = false
-      if (state.loaded?.path !== current(state.nav).path) return
-      find.result = findIn(state.loaded.lines, { text, ...state.toggles })
-      find.current = 0
-      const first = find.result.matches[0]
-      state.lit = first && { from: first.line, to: first.line }
-      state.top = undefined
-      await update($, file, () => placeOf())
+      await runFind($)
     })
   }
   $.ui.invalidate('ui.render')
+}
+
+// Steps to the next or previous match, wrapping; a pending run flushes first and stays on match 1.
+async function stepFind($: EngineInterface, by: 1 | -1): Promise<void> {
+  const find = state.find
+  if (!find?.open) return
+  if (find.pending) {
+    finds.begin()
+    return runFind($)
+  }
+  const total = find.result.matches.length
+  if (!total) return
+  find.current = (find.current + by + total) % total
+  const at = find.result.matches[find.current]!
+  state.lit = { from: at.line, to: at.line }
+  state.top = undefined
+  await update($, file, () => placeOf())
+}
+
+async function toggleFind($: EngineInterface, flag: keyof State['toggles']): Promise<void> {
+  state.toggles[flag] = !state.toggles[flag]
+  finds.begin()
+  if (state.find?.text) return runFind($)
+  await update($, file, () => placeOf())
+}
+
+async function closeFind($: EngineInterface): Promise<void> {
+  const find = state.find
+  if (!find) return
+  finds.begin()
+  find.text = ''
+  find.pending = false
+  find.result = { matches: [], bad: false, capped: false }
+  find.current = 0
+  find.open = false
+  state.lit = undefined
+  await update($, file, () => placeOf())
 }
 
 export async function goBack($: EngineInterface): Promise<void> {
@@ -285,7 +329,8 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const place = current(state.nav)
   if (place.kind === 'folder') state.afterFolder = true
   const rows = Math.max(0, props.scroll.bodyRows)
-  let codeRows = Math.max(0, rows - 2)
+  const findOpen = !!state.find?.open && place.kind === 'file'
+  let codeRows = Math.max(0, rows - 2 - (findOpen ? 2 : 0))
   const W = props.bodyColumns - 2 * PAD
   const home = await $.env.get('HOME').catch(() => undefined)
   const basic = await basicGlyphs($)
@@ -373,6 +418,14 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     const asked = state.top ?? (line === undefined ? 0 : Math.max(0, (layout.starts[Math.max(0, Math.min(line, lines.length) - 1)] ?? 0) - Math.floor(codeRows / 2)))
     const win = fileWindow(layout.rows, asked, codeRows)
     state.top = win.top
+    const spans = new Map<number, { start: number; end: number; current: boolean }[]>()
+    if (findOpen && state.find) {
+      state.find.result.matches.forEach((m, k) => {
+        const list = spans.get(m.line) ?? []
+        list.push({ start: m.start, end: m.end, current: k === state.find!.current })
+        spans.set(m.line, list)
+      })
+    }
     const drawn: { row: number; line: number; cell: string; lit: boolean }[] = []
     const code: JSX.Element[] = []
     for (let r = win.top; r < win.last; r++) {
@@ -381,7 +434,8 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       const n = i + 1
       let tokens = state.tokens.get(i)
       if (!tokens) state.tokens.set(i, (tokens = tokenize(lines[i]!)))
-      const slice = sliceTokens(tokens, state.wrap ? seg * C : state.col, C)
+      const on = spans.get(n)
+      const slice = sliceTokens(tokens, state.wrap ? seg * C : state.col, C, on && hitsOf(lines[i]!, on))
       const lit = !!state.lit && n >= state.lit.from && n <= state.lit.to
       drawn.push({ row: r, line: n, cell: seg ? ' '.repeat(G) : ` ${String(n).padStart(digits)} `, lit })
       code.push(
@@ -396,7 +450,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
               }}
             >
               {slice.length ? slice.map((t, k) => (
-                <Text key={k} color={t.kind === 'keyword' ? HUD.label : t.kind === 'string' ? TYPES.feat : t.kind === 'number' ? TYPES.perf : t.kind === 'comment' ? HUD.faint : undefined}>
+                <Text key={k} backgroundColor={t.hit === 'current' ? 'warning' : t.hit ? PILL_BG.yellow : undefined} color={t.hit === 'current' ? 'inverseText' : t.hit ? STATUS.M : t.kind === 'keyword' ? HUD.label : t.kind === 'string' ? TYPES.feat : t.kind === 'number' ? TYPES.perf : t.kind === 'comment' ? HUD.faint : undefined}>
                   {t.text}
                 </Text>
               )) : <Text> </Text>}
@@ -521,6 +575,59 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       <Text color="claude">{mark ?? ' '}</Text>
     </Button>
   )
+  let findBar: JSX.Element | undefined
+  if (findOpen && state.find) {
+    const { text, result } = state.find
+    const total = result.matches.length
+    const live = !!text && !result.bad && total > 0
+    const dim = (s: string) => <Text color={live ? undefined : HUD.faint}>{s}</Text>
+    const toggle = (flag: keyof State['toggles'], name: string, plain: string, code: number) => (
+      <Button key={`explorer:find:${name}`} plain onPress={() => toggleFind($, flag)}>
+        <Text color="claude" inverse={state.toggles[flag]}>{basic ? plain : String.fromCharCode(code)}</Text>
+      </Button>
+    )
+    const count = !text ? '' : result.bad ? 'bad pattern' : !total ? 'no matches' : `${result.capped ? `${total}+` : total}`
+    const shownCount = !text ? undefined : result.bad ? <Text color="error">bad pattern</Text> : !total ? <Text color="warning">no matches</Text> : (
+      <>
+        <Text color="warning">{String(state.find.current + 1)}</Text>
+        <Text> </Text>
+        <Text color={HUD.faint}>of</Text>
+        <Text> </Text>
+        <Text>{result.capped ? `${total}+` : String(total)}</Text>
+      </>
+    )
+    const toggles = basic ? 'Aa'.length + 1 + 'W'.length + 1 + '.*'.length : 5
+    const countCells = !text ? 0 : result.bad || !total ? count.length : `${state.find.current + 1} of ${count}`.length
+    const group = (words: boolean) => 1 + (words ? 5 : 0) + 2 + countCells + (countCells ? 2 : 0) + (words ? 5 : 0) + 1
+    const words = toggles + 2 + group(true) + 2 + 1 <= W
+    findBar = (
+      <Box key="explorer:find-bar" flexShrink={0}>
+        {toggle('matchCase', 'case', 'Aa', 0xeab1)}
+        <Text> </Text>
+        {toggle('word', 'word', 'W', 0xeb7e)}
+        <Text> </Text>
+        {toggle('regex', 'regex', '.*', 0xeb38)}
+        <Text>  </Text>
+        <Button key="explorer:find:prev" plain onPress={() => stepFind($, -1)}>
+          {dim('‹')}
+          {words && dim(' ')}
+          {words && dim('prev')}
+        </Button>
+        <Text>  </Text>
+        {shownCount}
+        {shownCount && <Text>  </Text>}
+        <Button key="explorer:find:next" plain onPress={() => stepFind($, 1)}>
+          {words && dim('next')}
+          {words && dim(' ')}
+          {dim('›')}
+        </Button>
+        <Text>  </Text>
+        <Button key="explorer:find:close" plain onPress={() => closeFind($)}>
+          <Text color="claude">✕</Text>
+        </Button>
+      </Box>
+    )
+  }
   const target = () => relOf(place.path)
   const card = (
     <Box
@@ -585,7 +692,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
               <Box key="find" flexShrink={0}>
                 {state.find.text && <Text color={HUD.faint}>lines with </Text>}
                 <Box width={Math.min(cellsOf(state.find.text || PLACEHOLDER) + 1, W - 8 - (state.find.text ? 11 : 0))} flexShrink={0}>
-                  <Input key={FIELD} value={state.find.text} placeholder={PLACEHOLDER} submitLabel="" autoFocus onInput={v => typeFind($, v)} onSubmit={() => {}} />
+                  <Input key={FIELD} value={state.find.text} placeholder={PLACEHOLDER} submitLabel="" autoFocus onInput={v => typeFind($, v)} onSubmit={() => stepFind($, 1)} />
                 </Box>
               </Box>
             ) : state.notice ? (
@@ -613,6 +720,12 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
           <Text color="promptBorder">{'─'.repeat(W + 2 * PAD)}</Text>
         </Box>
         {body}
+        {findBar && (
+          <Box key="explorer:find-rule" marginX={-PAD}>
+            <Text color="promptBorder">{'─'.repeat(W + 2 * PAD)}</Text>
+          </Box>
+        )}
+        {findBar}
         {card}
       </Box>
     ),
