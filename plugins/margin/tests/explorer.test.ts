@@ -1,7 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 
-import { CUT, gitArgs, latestOf, listDir, loadFile, projectRoot, statOf } from '../hooks/explorer-load'
+import { CUT, gitArgs, latestOf, listDir, listNames, loadFile, projectRoot, statOf } from '../hooks/explorer-load'
 import { markCells } from '../hooks/explorer-find'
 import { cellsOf, expandTabs, fileWindow, layoutFor, layoutOf, lineAt, sliceTokens, thumbOf } from '../hooks/explorer-layout'
 import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '../hooks/explorer-nav'
@@ -10,7 +10,7 @@ import { iconOf, sortListing, treeRows } from '../hooks/explorer-tree'
 import { refOf } from '../hooks/tab-file'
 import { fileKey } from '../hooks/git-data'
 import { LIT } from '../hooks/kit'
-import { clock, disk, props, chevron, tapTree, treeRow, explorer, explorerRoot, failList, hold, lists, mountPane, launch, open, pathText, ran, reads, runs, lines, setup, sets, store, textOf, tree, waitFor } from './explorer-helpers'
+import { clock, disk, props, chevron, tapTree, treeRow, explorer, explorerRoot, failList, hold, lists, mountPane, launch, open, pathText, ran, reads, runs, lines, listed, setup, sets, store, textOf, tree, waitFor } from './explorer-helpers'
 
 test('tokenize: a keyword, a string, a comment and a number', () => {
   expect(tokenize('const s = "a" // x 42')).toEqual([
@@ -1348,4 +1348,116 @@ test('a file that shrank below the current line falls back to the first match', 
   await editTo($, ui, 'a')
   expect(await barText(ui)).toContain('1 of 1')
   expect(await isLit(ui, 1)).toBe(true)
+})
+
+test('inside a repo the listing runs ls-files in the folder and reads its paths', async () => {
+  const { $, on } = engine()
+  const argvs: string[][] = []
+  on('process.run', (_, e) => (argvs.push([...e.argv]), ran(0, 'hooks/a.ts\0b.ts\0')))
+  expect(await listNames($, '/r')).toEqual([
+    { path: 'hooks', kind: 'dir' },
+    { path: 'hooks/a.ts', kind: 'file' },
+    { path: 'b.ts', kind: 'file' },
+  ])
+  expect(argvs[0]).toEqual(gitArgs('-C', '/r', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'))
+})
+
+test('outside a repo the listing falls back to the walk', async () => {
+  const { $, on } = engine()
+  on('process.run', () => ran(128))
+  on('fs.list', () => ({ value: [{ name: 'a.ts', kind: 'file', isLink: false }, { name: '.git', kind: 'dir', isLink: false }] }))
+  expect(await listNames($, '/r')).toEqual([{ path: 'a.ts', kind: 'file' }])
+})
+
+const nameRoot = async ($: any, on: any) => {
+  await setup($, on)
+  tree.set('/repo', [{ name: 'hooks', kind: 'dir' }, { name: 'ab.ts', kind: 'file' }])
+  tree.set('/repo/hooks', [{ name: 'abc.ts', kind: 'file' }])
+  disk.set('/repo/ab.ts', { text: 'x', mtimeMs: 1 })
+  disk.set('/repo/hooks/abc.ts', { text: 'y', mtimeMs: 1 })
+  listed.out = 'hooks/abc.ts\0ab.ts\0hooks/zz.ts\0'
+  return mountPane($)
+}
+const nameType = async (ui: any, text: string) => {
+  await ui.input({ key: 'explorer:name', text, kind: 'change' })
+  await ui.redraw()
+}
+const nameOpen = async (ui: any, text: string) => {
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  await nameType(ui, text)
+}
+const pieces = async (ui: any) => {
+  const out: any[][] = []
+  const walk = (n: any) => {
+    if (!n || typeof n !== 'object') return
+    if (Array.isArray(n)) return n.forEach(walk)
+    if (n.props?.module && Array.isArray(n.props?.props?.left)) out.push(n.props.props.left)
+    walk([n.children, n.props?.children])
+  }
+  walk(await ui.drawn())
+  return out
+}
+const nameRows = async (ui: any) => (await pieces(ui)).map(l => l.map((x: any) => x.text).join('').trim())
+
+test('search on a folder page opens the name field, and the tree hides while text is typed', async ($, on) => {
+  const ui = await nameRoot($, on)
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  const field = await ui.find({ key: 'explorer:name' })
+  expect(field?.props.placeholder).toBe('type a name')
+  expect(field?.props.autoFocus).toBe(true)
+  expect(await treeRow(ui, 'hooks')).toBeDefined()
+  await nameType(ui, 'ab')
+  expect(await treeRow(ui, 'hooks')).toBeUndefined()
+  expect(await nameRows(ui)).toEqual(expect.arrayContaining([expect.stringContaining('abc.ts')]))
+})
+
+test('a result row shows its parent folder in faint text, and a direct child shows none', async ($, on) => {
+  const ui = await nameRoot($, on)
+  await nameOpen(ui, 'ab')
+  const rows = await pieces(ui)
+  const nested = rows.find(l => l.some((x: any) => x.text === 'abc.ts'))!
+  const direct = rows.find(l => l.some((x: any) => x.text === 'ab.ts'))!
+  expect(nested.at(-1).text).toContain('hooks')
+  expect(nested.at(-1).color).toBeDefined()
+  expect(direct.at(-1).text).toBe('ab.ts')
+})
+
+test('Enter opens the top row', async ($, on) => {
+  const ui = await nameRoot($, on)
+  await nameOpen(ui, 'ab.')
+  await ui.input({ key: 'explorer:name', text: 'ab.', kind: 'submit' })
+  await ui.redraw()
+  expect(await pathText(ui)).toBe('repo/ab.ts')
+})
+
+test('Enter on a folder row opens its page', async ($, on) => {
+  const ui = await nameRoot($, on)
+  await nameOpen(ui, 'hooks')
+  await ui.input({ key: 'explorer:name', text: 'hooks', kind: 'submit' })
+  await ui.redraw()
+  expect(await pathText(ui)).toBe('repo/hooks')
+  expect(await ui.find({ key: 'explorer:name' })).toBeUndefined()
+})
+
+test('no match shows no match in faint text', async ($, on) => {
+  const ui = await nameRoot($, on)
+  await nameOpen(ui, 'qqq')
+  const t = await ui.find({ type: 'Text', text: 'no match' })
+  expect(t).toBeDefined()
+  expect(t.props.color).toBe('#4f5c68')
+})
+
+test('a move ends the name search', async ($, on) => {
+  const ui = await nameRoot($, on)
+  await nameOpen(ui, 'ab')
+  open({ path: '/repo/ab.ts' })
+  await ui.redraw()
+  expect(await ui.find({ key: 'explorer:name' })).toBeUndefined()
+  open({ path: '/repo', kind: 'folder' })
+  await ui.redraw()
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  expect((await ui.find({ key: 'explorer:name' }))?.props.value).toBe('')
 })

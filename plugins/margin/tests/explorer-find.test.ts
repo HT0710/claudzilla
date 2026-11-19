@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { findIn, leavesField, markCells } from '../hooks/explorer-find'
+import { filterNames, findIn, leavesField, markCells, NAME_CAP, walkNames } from '../hooks/explorer-find'
 import { hitsOf, sliceTokens } from '../hooks/explorer-layout'
 import { tokenize } from '../hooks/explorer-tokens'
 
@@ -168,4 +168,51 @@ test('a wrapped line marks every row it spans', () => {
 
 test("a total below the cell count marks each row's own cell", () => {
   expect(markCells(2, 4, [1])).toEqual([false, true, false, false])
+})
+
+const names = [
+  { path: 'hooks', kind: 'dir' as const },
+  { path: 'hooks/a.ts', kind: 'file' as const },
+  { path: 'b.hook.ts', kind: 'file' as const },
+]
+
+test('the name holds the text, not the path', () => {
+  expect(filterNames(names, 'hooks').map(e => e.path)).toEqual(['hooks'])
+})
+
+test('case is ignored', () => {
+  expect(filterNames(names, 'HOOK').map(e => e.path)).toEqual(['hooks', 'b.hook.ts'])
+})
+
+test('empty text gives no rows', () => {
+  expect(filterNames(names, '')).toEqual([])
+})
+
+const entry = (name: string, kind: 'file' | 'dir' | 'other' = 'file', isLink = false) => ({ name, kind, isLink })
+
+test('the walk stops at the cap', async () => {
+  const list = async () => Array.from({ length: 6000 }, (_, i) => entry(`f${i}`))
+  expect(await walkNames(list, '/r')).toHaveLength(NAME_CAP)
+})
+
+test('the walk skips .git and node_modules', async () => {
+  const asked: string[] = []
+  const list = async (dir: string) => (asked.push(dir), dir === '/r' ? [entry('.git', 'dir'), entry('node_modules', 'dir'), entry('src', 'dir')] : [entry('a.ts')])
+  const out = await walkNames(list, '/r')
+  expect(out.map(e => e.path)).toEqual(['src', 'src/a.ts'])
+  expect(asked).toEqual(['/r', '/r/src'])
+})
+
+test('the walk does not descend into a link', async () => {
+  const asked: string[] = []
+  const list = async (dir: string) => (asked.push(dir), dir === '/r' ? [entry('l', 'dir', true)] : [entry('x')])
+  expect(await walkNames(list, '/r')).toEqual([{ path: 'l', kind: 'file' }])
+  expect(asked).toEqual(['/r'])
+})
+
+test('an other-kind entry lists as a file', async () => {
+  const asked: string[] = []
+  const list = async (dir: string) => (asked.push(dir), [entry('sock', 'other')])
+  expect(await walkNames(list, '/r')).toEqual([{ path: 'sock', kind: 'file' }])
+  expect(asked).toEqual(['/r'])
 })

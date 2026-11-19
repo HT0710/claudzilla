@@ -1,11 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, RenderSurface } from 'claude-code'
 
-import { FIND_WAIT, findIn, leavesField, markCells } from './explorer-find'
-import type { FindResult } from './explorer-find'
+import { FIND_WAIT, filterNames, findIn, leavesField, markCells } from './explorer-find'
+import type { FindResult, NameEntry } from './explorer-find'
 import { cellsOf, fileWindow, hitsOf, layoutFor, layoutOf, lineAt, sliceTokens, thumbOf } from './explorer-layout'
 import type { Cached } from './explorer-layout'
-import { listDir, loadFile, latestOf, projectRoot, statOf } from './explorer-load'
+import { listDir, listNames, loadFile, latestOf, projectRoot, statOf } from './explorer-load'
 import type { Loaded } from './explorer-load'
 import { back, current, forward, navStart, remember, visit } from './explorer-nav'
 import type { Nav } from './explorer-nav'
@@ -51,6 +51,7 @@ type State = {
   lit?: { from: number; to: number }
   menuPinned: boolean
   find?: { open: boolean; text: string; pending: boolean; result: FindResult; spans: Spans; current: number }
+  names?: { text: string; entries: NameEntry[] }
   toggles: { matchCase: boolean; word: boolean; regex: boolean }
   rev: number
   // The last atom rev the module state has taken.
@@ -82,6 +83,11 @@ function endFind(): void {
   find.open = false
 }
 
+// Closes the name field and drops its text and listing.
+function endNames(): void {
+  state.names = undefined
+}
+
 // Remembers the spot, moves through `change`, and restores the spot of an entry it landed on.
 function moveTo(change: (nav: Nav) => Nav): boolean {
   const remembered = remember(state.nav, state.top ?? 0, state.lit?.from)
@@ -89,6 +95,7 @@ function moveTo(change: (nav: Nav) => Nav): boolean {
   const entry = current(state.nav)
   if (entry === current(remembered)) return false
   endFind()
+  endNames()
   state.top = entry.top
   state.lit = entry.kind === 'file' && entry.line !== undefined ? { from: entry.line, to: entry.line } : undefined
   state.col = 0
@@ -175,12 +182,35 @@ export async function changedOnDisk($: EngineInterface, call: { tool: string } &
 
 const FIELD = 'explorer:find'
 const PLACEHOLDER = 'type text to find'
+const NAME = 'explorer:name'
+const NAME_PLACEHOLDER = 'type a name'
 
-// Closes the find field when focus leaves it with no text.
+// Closes the find or name field when focus leaves it with no text.
 export async function fieldLeft($: EngineInterface, e: { element?: string }): Promise<void> {
-  if (!state.find?.open || state.find.text || !leavesField(e, FIELD)) return
-  state.find = undefined
+  if (state.find?.open && !state.find.text && leavesField(e, FIELD)) state.find = undefined
+  else if (state.names && !state.names.text && leavesField(e, NAME)) endNames()
+  else return
   await update($, file, () => placeOf())
+}
+
+async function openNames($: EngineInterface): Promise<void> {
+  const entries = await listNames($, current(state.nav).path)
+  state.names = { text: state.names?.text ?? '', entries }
+  await update($, file, () => placeOf())
+  await $.ui.focus({ requestId: 'margin', key: NAME }).catch(() => undefined)
+}
+
+function typeName($: EngineInterface, text: string): void {
+  if (!state.names) return
+  state.names.text = text
+  state.top = 0
+  $.ui.invalidate('ui.render')
+}
+
+// Opens the top result, which ends the name search through the move.
+async function submitName($: EngineInterface): Promise<void> {
+  const top = state.names && filterNames(state.names.entries, state.names.text)[0]
+  if (top) await openPlace($, { path: `${current(state.nav).path.replace(/\/$/, '')}/${top.path}`, kind: top.kind === 'dir' ? 'folder' : undefined })
 }
 
 async function openFind($: EngineInterface): Promise<void> {
@@ -388,7 +418,8 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     if (!state.listed.has(place.path)) state.listed.set(place.path, await listDir($, place.path))
     if (stale()) return draw($, ctx)
     let all = treeRows(place.path, state.expanded, state.listed)
-    for (;;) {
+    const hits = state.names?.text ? filterNames(state.names.entries, state.names.text) : undefined
+    while (!hits) {
       const top = Math.max(0, Math.min(state.top ?? 0, all.length - codeRows))
       const todo = all.slice(top, top + codeRows).filter(r => r.kind === 'dir' && !state.listed.has(r.path))
       if (!todo.length) break
@@ -396,12 +427,45 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       if (stale()) return draw($, ctx)
       all = treeRows(place.path, state.expanded, state.listed)
     }
-    state.top = Math.max(0, Math.min(state.top ?? 0, all.length - codeRows))
+    const total = hits ? hits.length : all.length
+    state.top = Math.max(0, Math.min(state.top ?? 0, total - codeRows))
     const top = state.top
-    if (!all.length) body = [<Text key="empty" color={HUD.faint}>empty</Text>]
+    if (!total) body = [<Text key="empty" color={HUD.faint}>{hits ? 'no match' : 'empty'}</Text>]
     rowHover.acts = {}
     const Client = 'Client' in ctx.el ? ctx.el.Client : undefined
-    for (const r of all.slice(top, top + codeRows)) {
+    const put = (path: string, left: JSX.Element[], press: () => unknown) => {
+      const key = `x:${fileKey(path)}`
+      rowHover.acts[key] = press
+      body.push(
+        // Keyed, its own hover scope: unkeyed, it would light whenever the pointer is anywhere in the tree.
+        <Box key={key} flexDirection="column" height={1} hover={{ backgroundColor: LIT }}>
+          {Client ? (
+            <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left: toPieces(left), right: [] }} />
+          ) : (
+            <Button plain key={path} onPress={press}>
+              {left}
+            </Button>
+          )}
+        </Box>,
+      )
+    }
+    for (const hit of hits?.slice(top, top + codeRows) ?? []) {
+      const name = hit.path.slice(hit.path.lastIndexOf('/') + 1)
+      const parent = hit.path.slice(0, Math.max(0, hit.path.length - name.length - 1))
+      const icon = iconOf(name, hit.kind, { open: false, empty: false })
+      put(
+        hit.path,
+        [
+          <Text> </Text>,
+          <Text> </Text>,
+          ...(basic ? [] : [<Text color={ICON_COLORS()[icon.color] ?? HUD.faint}>{icon.glyph}</Text>, <Text> </Text>]),
+          <Text>{printable(name)}</Text>,
+          ...(parent ? [<Text color={HUD.faint}>{` ${printable(parent)}`}</Text>] : []),
+        ],
+        () => openPlace($, { path: `${place.path.replace(/\/$/, '')}/${hit.path}`, kind: hit.kind === 'dir' ? 'folder' : undefined }),
+      )
+    }
+    for (const r of hits ? [] : all.slice(top, top + codeRows)) {
       const icon = iconOf(r.name, r.kind, r)
       const faint = r.dim || r.broken
       const tone = (name: string) => (faint ? HUD.faint : ICON_COLORS()[name] ?? HUD.faint)
@@ -418,20 +482,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
         if (!state.expanded.delete(r.path)) state.expanded.add(r.path)
         return update($, file, () => placeOf())
       }
-      const key = `x:${fileKey(r.path)}`
-      rowHover.acts[key] = press
-      body.push(
-        // Keyed, its own hover scope: unkeyed, it would light whenever the pointer is anywhere in the tree.
-        <Box key={key} flexDirection="column" height={1} hover={{ backgroundColor: LIT }}>
-          {Client ? (
-            <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left: toPieces(left), right: [] }} />
-          ) : (
-            <Button plain key={r.path} onPress={press}>
-              {left}
-            </Button>
-          )}
-        </Box>,
-      )
+      put(r.path, left, press)
     }
     zones.push({
       tab: 'Explorer',
@@ -441,7 +492,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       offset: 0,
       fallback: true,
       wheel: by => {
-        state.top = Math.max(0, Math.min((state.top ?? 0) + by, all.length - codeRows))
+        state.top = Math.max(0, Math.min((state.top ?? 0) + by, total - codeRows))
         return update($, file, () => placeOf())
       },
     })
@@ -732,6 +783,13 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
                   <Input key={FIELD} value={state.find.text} placeholder={PLACEHOLDER} submitLabel="" autoFocus onInput={v => typeFind($, v)} onSubmit={() => stepFind($, 1)} />
                 </Box>
               </Box>
+            ) : state.names && place.kind === 'folder' ? (
+              <Box key="names" flexShrink={0}>
+                {state.names.text && <Text color={HUD.faint}>named </Text>}
+                <Box width={Math.min(cellsOf(state.names.text || NAME_PLACEHOLDER) + 1, W - 8 - (state.names.text ? 6 : 0))} flexShrink={0}>
+                  <Input key={NAME} value={state.names.text} placeholder={NAME_PLACEHOLDER} submitLabel="" autoFocus onInput={v => typeName($, v)} onSubmit={() => submitName($)} />
+                </Box>
+              </Box>
             ) : state.notice ? (
               <Text>
                 <Text color={HUD.faint}>{state.noticeVerb} </Text>
@@ -744,7 +802,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
             )}
           </Box>
           <Box width={3} flexShrink={0} gap={1} justifyContent="flex-end">
-            {place.kind === 'file' && glyph('explorer:search', '/', 0xea6d, () => openFind($))}
+            {glyph('explorer:search', '/', 0xea6d, () => (place.kind === 'file' ? openFind($) : openNames($)))}
             <Button key="menu" plain hover={{ scope: 'explorer:menu' }} onPress={() => {
               state.menuPinned = !state.menuPinned
               return update($, file, () => placeOf())
