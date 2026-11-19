@@ -1274,3 +1274,78 @@ test('a file with no find has no marks', async ($, on) => {
   const bar = await barOf(ui, 'explorer:vbar')
   expect(bar.marks.every((m: string | null) => m === null)).toBe(true)
 })
+
+const fieldGone = async (ui: any) => {
+  await ui.redraw()
+  expect(await ui.find({ key: 'explorer:find' })).toBeUndefined()
+  expect(await ui.find({ key: 'explorer:find-bar' })).toBeUndefined()
+}
+
+test('opening another file ends find', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  disk.set('/repo/b.ts', { text: lines(300), mtimeMs: 1 })
+  await search(ui, 'line 1')
+  expect(await isLit(ui, 1)).toBe(true)
+  open({ path: '/repo/b.ts' })
+  await fieldGone(ui)
+  expect(await isLit(ui, 1)).toBe(false)
+})
+
+test('a folder page ends find', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await search(ui, 'line 1')
+  open({ path: '/repo', kind: 'folder' })
+  await fieldGone(ui)
+})
+
+test('a line jump in the same file ends find', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await search(ui, 'line 42')
+  open({ path: '/repo/a.ts', line: 5 })
+  await fieldGone(ui)
+})
+
+test('opening the same file with no line keeps find', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await search(ui, 'line 42')
+  open({ path: '/repo/a.ts' })
+  await ui.redraw()
+  expect(await ui.find({ key: 'explorer:find' })).toBeDefined()
+  expect(await isLit(ui, 42)).toBe(true)
+})
+
+const editTo = async ($: any, ui: any, text: string) => {
+  disk.set('/repo/a.ts', { text, mtimeMs: 2 })
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts' } as any)
+  await ui.redraw()
+}
+
+test('an Edit that inserts a line above moves the current match down with its place', async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, AB)
+  await search(ui, 'a')
+  await submit(ui, 'a')
+  await editTo($, ui, 'x\na\nb\na')
+  expect(await barText(ui)).toContain('2 of 2')
+  expect(await isLit(ui, 4)).toBe(true)
+})
+
+test('an Edit that removes the current line moves to the next match', async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, 'a\nb\na\nc\na')
+  await search(ui, 'a')
+  await submit(ui, 'a')
+  await editTo($, ui, 'a\nb\nc\na')
+  expect(await barText(ui)).toContain('2 of 2')
+  expect(await isLit(ui, 4)).toBe(true)
+})
+
+test('a file that shrank below the current line falls back to the first match', async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, AB)
+  await search(ui, 'a')
+  await submit(ui, 'a')
+  await editTo($, ui, 'a')
+  expect(await barText(ui)).toContain('1 of 1')
+  expect(await isLit(ui, 1)).toBe(true)
+})
