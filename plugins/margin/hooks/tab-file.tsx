@@ -51,7 +51,7 @@ type State = {
   lit?: { from: number; to: number }
   menuPinned: boolean
   find?: { open: boolean; text: string; pending: boolean; result: FindResult; spans: Spans; current: number }
-  names?: { text: string; entries: NameEntry[] }
+  names?: { text: string; entries: NameEntry[]; rows: NameEntry[] }
   toggles: { matchCase: boolean; word: boolean; regex: boolean }
   rev: number
   // The last atom rev the module state has taken.
@@ -194,8 +194,11 @@ export async function fieldLeft($: EngineInterface, e: { element?: string }): Pr
 }
 
 async function openNames($: EngineInterface): Promise<void> {
-  const entries = await listNames($, current(state.nav).path)
-  state.names = { text: state.names?.text ?? '', entries }
+  const folder = current(state.nav).path
+  const entries = await listNames($, folder)
+  if (current(state.nav).path !== folder) return
+  const text = state.names?.text ?? ''
+  state.names = { text, entries, rows: filterNames(entries, text) }
   await update($, file, () => placeOf())
   await $.ui.focus({ requestId: 'margin', key: NAME }).catch(() => undefined)
 }
@@ -203,13 +206,14 @@ async function openNames($: EngineInterface): Promise<void> {
 function typeName($: EngineInterface, text: string): void {
   if (!state.names) return
   state.names.text = text
+  state.names.rows = filterNames(state.names.entries, text)
   state.top = 0
   $.ui.invalidate('ui.render')
 }
 
 // Opens the top result, which ends the name search through the move.
 async function submitName($: EngineInterface): Promise<void> {
-  const top = state.names && filterNames(state.names.entries, state.names.text)[0]
+  const top = state.names?.rows[0]
   if (top) await openPlace($, { path: `${current(state.nav).path.replace(/\/$/, '')}/${top.path}`, kind: top.kind === 'dir' ? 'folder' : undefined })
 }
 
@@ -418,7 +422,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     if (!state.listed.has(place.path)) state.listed.set(place.path, await listDir($, place.path))
     if (stale()) return draw($, ctx)
     let all = treeRows(place.path, state.expanded, state.listed)
-    const hits = state.names?.text ? filterNames(state.names.entries, state.names.text) : undefined
+    const hits = state.names?.text ? state.names.rows : undefined
     while (!hits) {
       const top = Math.max(0, Math.min(state.top ?? 0, all.length - codeRows))
       const todo = all.slice(top, top + codeRows).filter(r => r.kind === 'dir' && !state.listed.has(r.path))
