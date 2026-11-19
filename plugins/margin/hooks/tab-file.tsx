@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, RenderSurface } from 'claude-code'
 
-import { FIND_WAIT, findIn, leavesField } from './explorer-find'
+import { FIND_WAIT, findIn, leavesField, markCells } from './explorer-find'
 import type { FindResult } from './explorer-find'
 import { cellsOf, fileWindow, hitsOf, layoutFor, layoutOf, lineAt, sliceTokens, thumbOf } from './explorer-layout'
 import type { Cached } from './explorer-layout'
@@ -434,7 +434,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     const asked = state.top ?? (line === undefined ? 0 : Math.max(0, (layout.starts[Math.max(0, Math.min(line, lines.length) - 1)] ?? 0) - Math.floor(codeRows / 2)))
     const win = fileWindow(layout.rows, asked, codeRows)
     state.top = win.top
-    const drawn: { row: number; line: number; cell: string; lit: boolean }[] = []
+    const drawn: { row: number; line: number; cell: string; lit: boolean; hit?: boolean }[] = []
     const code: JSX.Element[] = []
     for (let r = win.top; r < win.last; r++) {
       const i = lineAt(layout, r)
@@ -445,7 +445,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       const on = findOpen ? state.find!.spans.get(n) : undefined
       const slice = sliceTokens(tokens, state.wrap ? seg * C : state.col, C, on && hitsOf(lines[i]!, on.map(m => ({ ...m, current: m.index === state.find!.current }))))
       const lit = !!state.lit && n >= state.lit.from && n <= state.lit.to
-      drawn.push({ row: r, line: n, cell: seg ? ' '.repeat(G) : ` ${String(n).padStart(digits)} `, lit })
+      drawn.push({ row: r, line: n, cell: seg ? ' '.repeat(G) : ` ${String(n).padStart(digits)} `, lit, hit: !seg && !!on })
       code.push(
         <Box key={seg ? `row:${n}:${seg}` : `row:${n}`} backgroundColor={lit ? LIT : undefined}>
           <Box width={C} flexShrink={0}>
@@ -478,15 +478,20 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       glyph: String.fromCharCode(axis === 'v' ? 0x2590 : 0x2582),
       color: 'promptBorder',
     })
+    const matched: number[] = []
+    if (findOpen)
+      for (const n of state.find!.spans.keys())
+        for (let r = layout.starts[n - 1]!; r < layout.starts[n]!; r++) matched.push(r)
+    const marks = markCells(layout.rows, codeRows, matched).map(m => (m ? 'warning' : null))
     body.push(
       <Box key="view">
         <Box width={G} flexShrink={0} flexDirection="column">
           {Client ? (
-            <Client key="explorer:gutter" module="./explorer-gutter.tsx" height={codeRows} props={{ rows: drawn, colors: { lit: LIT, faint: HUD.faint, claude: 'claude' } }} />
+            <Client key="explorer:gutter" module="./explorer-gutter.tsx" height={codeRows} props={{ rows: drawn, colors: { lit: LIT, faint: HUD.faint, claude: 'claude', warning: 'warning' } }} />
           ) : (
             drawn.map(r => (
               <Button key={`gutter:${r.row}`} plain onPress={press => copyLines($, r.line, r.line, press.surface)}>
-                <Text color={HUD.faint} backgroundColor={r.lit ? LIT : undefined}>
+                <Text color={r.hit ? 'warning' : HUD.faint} backgroundColor={r.lit ? LIT : undefined}>
                   {r.cell}
                 </Text>
               </Button>
@@ -494,7 +499,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
           )}
         </Box>
         <Box flexDirection="column">{code}</Box>
-        {Client && <Client key="explorer:vbar" module="./explorer-bar.tsx" width={1} height={codeRows} props={bar('v', codeRows, layout.rows, win.top)} />}
+        {Client && <Client key="explorer:vbar" module="./explorer-bar.tsx" width={1} height={codeRows} props={{ ...bar('v', codeRows, layout.rows, win.top), marks }} />}
       </Box>,
     )
     if (hbar && Client) {

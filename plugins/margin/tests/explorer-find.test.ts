@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { findIn, leavesField } from '../hooks/explorer-find'
+import { findIn, leavesField, markCells } from '../hooks/explorer-find'
 import { hitsOf, sliceTokens } from '../hooks/explorer-layout'
 import { tokenize } from '../hooks/explorer-tokens'
 
@@ -141,4 +141,31 @@ test('another element counts as leaving', () => {
 
 test('the field itself does not count as leaving', () => {
   expect(leavesField({ element: 'explorer:find' }, 'explorer:find')).toBe(false)
+})
+
+const flagged = (f: boolean[]) => f.flatMap((b, i) => (b ? [i] : []))
+
+test('a row in the first cell marks only cell 0', () => {
+  expect(flagged(markCells(200, 16, [0]))).toEqual([0])
+})
+
+test('the last row marks the last cell', () => {
+  expect(flagged(markCells(200, 16, [199]))).toEqual([15])
+})
+
+test('rows map to cells by floor(r * cells / total)', () => {
+  expect(markCells(3, 2, [1, 2])).toEqual([true, true])
+  expect(markCells(3, 2, [0])).toEqual([true, false])
+})
+
+test('rows past the total are ignored', () => {
+  expect(markCells(3, 2, [5])).toEqual([false, false])
+})
+
+test('a wrapped line marks every row it spans', () => {
+  expect(markCells(4, 4, [1, 2])).toEqual([false, true, true, false])
+})
+
+test("a total below the cell count marks each row's own cell", () => {
+  expect(markCells(2, 4, [1])).toEqual([false, true, false, false])
 })

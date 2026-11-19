@@ -2,6 +2,7 @@ import type { EngineInterface } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 
 import { CUT, gitArgs, latestOf, listDir, loadFile, projectRoot, statOf } from '../hooks/explorer-load'
+import { markCells } from '../hooks/explorer-find'
 import { cellsOf, expandTabs, fileWindow, layoutFor, layoutOf, lineAt, sliceTokens, thumbOf } from '../hooks/explorer-layout'
 import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '../hooks/explorer-nav'
 import { tokenize } from '../hooks/explorer-tokens'
@@ -1250,4 +1251,26 @@ test('at 36 columns the bar drops its step words before it overflows', async ($,
   const text = await barText(ui)
   expect(text).toContain('‹  1 of 10000+  ›')
   expect(cellsOf(text)).toBeLessThanOrEqual(34)
+})
+
+test('the scroll bar marks the cell that holds a match', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(200))
+  await search(ui, 'line 150')
+  const bar = await barOf(ui, 'explorer:vbar')
+  const at = markCells(200, bar.cells, [149]).indexOf(true)
+  expect(bar.marks.map((m: string | null, i: number) => (m ? i : -1)).filter((i: number) => i >= 0)).toEqual([at])
+  expect(bar.marks[at]).toBe('warning')
+})
+
+test('the matched line number takes the warning colour', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(200))
+  await search(ui, 'line 150')
+  const rows = (await ui.find({ key: 'explorer:gutter' }))?.props.props.rows
+  expect(rows.filter((r: any) => r.hit).map((r: any) => r.line)).toEqual([150])
+})
+
+test('a file with no find has no marks', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(200))
+  const bar = await barOf(ui, 'explorer:vbar')
+  expect(bar.marks.every((m: string | null) => m === null)).toBe(true)
 })
