@@ -1,6 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 
 import { findIn } from '../hooks/explorer-find'
+import { hitsOf, sliceTokens } from '../hooks/explorer-layout'
+import { tokenize } from '../hooks/explorer-tokens'
 
 const q = (text: string, o: Partial<{ matchCase: boolean; word: boolean; regex: boolean }> = {}) => ({ text, matchCase: false, word: false, regex: false, ...o })
 const starts = (r: { matches: { start: number }[] }) => r.matches.map((m) => m.start)
@@ -85,4 +87,42 @@ test('the count stops at 10,000 and sets capped only past it', () => {
 test('a match that ends at the cut is found', () => {
   const r = findIn(['x'.repeat(1998) + 'ab'], q('ab'))
   expect(r.matches.map((m) => [m.start, m.end])).toEqual([[1998, 2000]])
+})
+
+test('a match after a tab lands past the tab stop', () => {
+  expect(hitsOf('\tfoo', [{ start: 1, end: 4, current: false }])).toEqual([{ from: 4, to: 7, current: false }])
+})
+
+test('a match after a wide glyph counts 2 cells', () => {
+  expect(hitsOf('中foo', [{ start: 1, end: 4, current: true }])).toEqual([{ from: 2, to: 5, current: true }])
+})
+
+test('a literal emoji takes its 2 cells', () => {
+  expect(hitsOf('😀x', [{ start: 0, end: 2, current: false }])).toEqual([{ from: 0, to: 2, current: false }])
+})
+
+test('slicing from a column keeps each hit at its offset', () => {
+  const hits = hitsOf('\tfoo', [{ start: 1, end: 4, current: false }])
+  expect(sliceTokens(tokenize('\tfoo'), 3, 4, hits)).toEqual([
+    { text: ' ', kind: 'plain' },
+    { text: 'foo', kind: 'plain', hit: 'match' },
+  ])
+})
+
+test('a match that ends at the cut is highlighted at the last cells', () => {
+  const line = 'x'.repeat(1998) + 'ab'
+  const hits = hitsOf(line, [{ start: 1998, end: 2000, current: true }])
+  const out = sliceTokens([{ text: line, kind: 'plain' }], 1990, 10, hits)
+  expect(out.map((t) => [t.text, t.hit])).toEqual([['x'.repeat(8), undefined], ['ab', 'current']])
+})
+
+test('a wide glyph cut at the slice edge is a plain space with no hit', () => {
+  const out = sliceTokens([{ text: '中', kind: 'plain' }], 1, 4, [{ from: 0, to: 2, current: false }])
+  expect(out).toEqual([{ text: ' ', kind: 'plain' }])
+  expect('hit' in out[0]).toBe(false)
+})
+
+test('no hits leaves the tokens unchanged', () => {
+  const out = sliceTokens(tokenize('const x'), 0, 7)
+  expect(out.some((t) => 'hit' in t)).toBe(false)
 })

@@ -143,13 +143,17 @@ function widthOf(cp: number): number {
   return 1
 }
 
+function tabStep(col: number): number {
+  return TAB_STOP - (col % TAB_STOP)
+}
+
 /** Pads each tab to the next multiple of TAB_STOP cells. */
 export function expandTabs(text: string): string {
   let out = ''
   let col = 0
   for (const ch of text) {
     if (ch === '\t') {
-      const n = TAB_STOP - (col % TAB_STOP)
+      const n = tabStep(col)
       out += ' '.repeat(n)
       col += n
     } else {
@@ -167,30 +171,51 @@ export function cellsOf(text: string): number {
   return n
 }
 
-/** Keeps the cells in [from, from + width), tabs expanded; a cut wide glyph becomes a space. */
-export function sliceTokens(tokens: Token[], from: number, width: number): Token[] {
+export type Hit = { from: number; to: number; current: boolean }
+
+/** Display columns of UTF-16 spans in line, counted as layoutOf does. */
+export function hitsOf(line: string, spans: readonly { start: number; end: number; current: boolean }[]): Hit[] {
+  const colAt = (offset: number) => {
+    let col = 0
+    let i = 0
+    for (const ch of line) {
+      if (i >= offset) break
+      col += ch === '\t' ? tabStep(col) : widthOf(ch.codePointAt(0)!)
+      i += ch.length
+    }
+    return col
+  }
+  return spans.map((s) => ({ from: colAt(s.start), to: colAt(s.end), current: s.current }))
+}
+
+/** Keeps the cells in [from, from + width), tabs expanded; a cut wide glyph becomes a space. Cells inside a hit carry its kind. */
+export function sliceTokens(tokens: Token[], from: number, width: number, hits?: readonly Hit[]): Token[] {
   const end = from + width
   const out: Token[] = []
   let col = 0
-  const put = (s: string, kind: Token['kind']) => {
+  const hitAt = (c: number): Token['hit'] => {
+    const h = hits?.find((x) => c >= x.from && c < x.to)
+    return h && (h.current ? 'current' : 'match')
+  }
+  const put = (s: string, kind: Token['kind'], hit?: Token['hit']) => {
     const last = out[out.length - 1]
-    if (last?.kind === kind) last.text += s
-    else out.push({ text: s, kind })
+    if (last?.kind === kind && last.hit === hit) last.text += s
+    else out.push(hit ? { text: s, kind, hit } : { text: s, kind })
   }
   for (const { text, kind } of tokens) {
     for (const ch of text) {
       const cp = ch.codePointAt(0)!
       if (ch === '\t') {
-        const n = TAB_STOP - (col % TAB_STOP)
-        for (let i = 0; i < n; i++) if (col + i >= from && col + i < end) put(' ', kind)
+        const n = tabStep(col)
+        for (let i = 0; i < n; i++) if (col + i >= from && col + i < end) put(' ', kind, hitAt(col + i))
         col += n
         continue
       }
       const w = widthOf(cp)
       const glyph = cp < 0x20 || cp === 0x7f ? ' ' : ch
       if (w === 1) {
-        if (col >= from && col < end) put(glyph, kind)
-      } else if (col >= from && col + 2 <= end) put(ch, kind)
+        if (col >= from && col < end) put(glyph, kind, hitAt(col))
+      } else if (col >= from && col + 2 <= end) put(ch, kind, hitAt(col))
       else if (col + 2 > from && col < end) put(' ', 'plain')
       col += w
     }

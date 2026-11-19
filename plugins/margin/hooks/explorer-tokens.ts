@@ -1,5 +1,5 @@
 export type TokenKind = 'plain' | 'keyword' | 'string' | 'comment' | 'number'
-export type Token = { text: string; kind: TokenKind }
+export type Token = { text: string; kind: TokenKind; hit?: 'match' | 'current' }
 
 const KEYWORDS = new Set(
   'const let var function return if else for while class import export from async await new typeof true false null undefined def elif lambda None True False pass fi then do done echo'.split(' '),
