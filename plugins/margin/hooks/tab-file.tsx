@@ -161,8 +161,9 @@ function typeFind($: EngineInterface, text: string): void {
     find.pending = true
     $.clock.after(FIND_WAIT, async () => {
       if (!finds.isLatest(n) || !state.find?.open) return
-      find.result = findIn(state.loaded?.lines ?? [], { text, ...state.toggles })
       find.pending = false
+      if (state.loaded?.path !== current(state.nav).path) return
+      find.result = findIn(state.loaded.lines, { text, ...state.toggles })
       find.current = 0
       const first = find.result.matches[0]
       state.lit = first && { from: first.line, to: first.line }
