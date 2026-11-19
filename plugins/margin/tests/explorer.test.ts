@@ -1420,7 +1420,7 @@ test('a result row shows its parent folder in faint text, and a direct child sho
   const nested = rows.find(l => l.some((x: any) => x.text === 'abc.ts'))!
   const direct = rows.find(l => l.some((x: any) => x.text === 'ab.ts'))!
   expect(nested.at(-1).text).toContain('hooks')
-  expect(nested.at(-1).color).toBeDefined()
+  expect(nested.at(-1).color).toBe('#4f5c68')
   expect(direct.at(-1).text).toBe('ab.ts')
 })
 

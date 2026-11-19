@@ -184,6 +184,11 @@ test('case is ignored', () => {
   expect(filterNames(names, 'HOOK').map(e => e.path)).toEqual(['hooks', 'b.hook.ts'])
 })
 
+test('same-kind entries sort by name, not path', () => {
+  const both = [{ path: 'a/t.ts', kind: 'file' as const }, { path: 'b.t', kind: 'file' as const }]
+  expect(filterNames(both, 't').map(e => e.path)).toEqual(['b.t', 'a/t.ts'])
+})
+
 test('empty text gives no rows', () => {
   expect(filterNames(names, '')).toEqual([])
 })
