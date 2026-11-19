@@ -20,6 +20,19 @@ import type { TabCtx, TabDraw } from './kit'
 // The open place, so a change redraws the pane; the draw applies a place whose rev it has not seen.
 const file = atom({ plugin: 'margin', key: 'file' } as const, undefined as { rev: number; path: string; line?: number; kind?: 'file' | 'folder' } | undefined)
 
+// Matches by line, each with its index in the result.
+type Spans = Map<number, { start: number; end: number; index: number }[]>
+
+const spansOf = (result: FindResult): Spans => {
+  const spans: Spans = new Map()
+  result.matches.forEach((m, index) => {
+    const list = spans.get(m.line) ?? []
+    list.push({ start: m.start, end: m.end, index })
+    spans.set(m.line, list)
+  })
+  return spans
+}
+
 type State = {
   nav: Nav
   root?: string
@@ -37,7 +50,7 @@ type State = {
   wrap: boolean
   lit?: { from: number; to: number }
   menuPinned: boolean
-  find?: { open: boolean; text: string; pending: boolean; result: FindResult; current: number }
+  find?: { open: boolean; text: string; pending: boolean; result: FindResult; spans: Spans; current: number }
   toggles: { matchCase: boolean; word: boolean; regex: boolean }
   rev: number
   // The last atom rev the module state has taken.
@@ -141,7 +154,7 @@ export async function fieldLeft($: EngineInterface, e: { element?: string }): Pr
 }
 
 async function openFind($: EngineInterface): Promise<void> {
-  state.find ??= { open: true, text: '', pending: false, result: { matches: [], bad: false, capped: false }, current: 0 }
+  state.find ??= { open: true, text: '', pending: false, result: { matches: [], bad: false, capped: false }, spans: new Map(), current: 0 }
   state.find.open = true
   await update($, file, () => placeOf())
   await $.ui.focus({ requestId: 'margin', key: FIELD }).catch(() => undefined)
@@ -154,6 +167,7 @@ async function runFind($: EngineInterface): Promise<void> {
   find.pending = false
   if (state.loaded?.path !== current(state.nav).path) return
   find.result = findIn(state.loaded.lines, { text: find.text, ...state.toggles })
+  find.spans = spansOf(find.result)
   find.current = 0
   const first = find.result.matches[0]
   state.lit = first && { from: first.line, to: first.line }
@@ -169,6 +183,7 @@ function typeFind($: EngineInterface, text: string): void {
   if (!text) {
     find.pending = false
     find.result = { matches: [], bad: false, capped: false }
+    find.spans = new Map()
     find.current = 0
     state.lit = undefined
   } else {
@@ -212,6 +227,7 @@ async function closeFind($: EngineInterface): Promise<void> {
   find.text = ''
   find.pending = false
   find.result = { matches: [], bad: false, capped: false }
+  find.spans = new Map()
   find.current = 0
   find.open = false
   state.lit = undefined
@@ -418,14 +434,6 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     const asked = state.top ?? (line === undefined ? 0 : Math.max(0, (layout.starts[Math.max(0, Math.min(line, lines.length) - 1)] ?? 0) - Math.floor(codeRows / 2)))
     const win = fileWindow(layout.rows, asked, codeRows)
     state.top = win.top
-    const spans = new Map<number, { start: number; end: number; current: boolean }[]>()
-    if (findOpen && state.find) {
-      state.find.result.matches.forEach((m, k) => {
-        const list = spans.get(m.line) ?? []
-        list.push({ start: m.start, end: m.end, current: k === state.find!.current })
-        spans.set(m.line, list)
-      })
-    }
     const drawn: { row: number; line: number; cell: string; lit: boolean }[] = []
     const code: JSX.Element[] = []
     for (let r = win.top; r < win.last; r++) {
@@ -434,8 +442,8 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       const n = i + 1
       let tokens = state.tokens.get(i)
       if (!tokens) state.tokens.set(i, (tokens = tokenize(lines[i]!)))
-      const on = spans.get(n)
-      const slice = sliceTokens(tokens, state.wrap ? seg * C : state.col, C, on && hitsOf(lines[i]!, on))
+      const on = findOpen ? state.find!.spans.get(n) : undefined
+      const slice = sliceTokens(tokens, state.wrap ? seg * C : state.col, C, on && hitsOf(lines[i]!, on.map(m => ({ ...m, current: m.index === state.find!.current }))))
       const lit = !!state.lit && n >= state.lit.from && n <= state.lit.to
       drawn.push({ row: r, line: n, cell: seg ? ' '.repeat(G) : ` ${String(n).padStart(digits)} `, lit })
       code.push(
