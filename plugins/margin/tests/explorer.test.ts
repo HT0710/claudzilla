@@ -1190,6 +1190,27 @@ test('a press elsewhere closes an empty field, not one with text', async ($, on)
   expect(await ui.find({ key: 'explorer:find' })).toBeDefined()
 })
 
+test('a press on the scroll bar closes an empty field and still jumps', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 1 }, lines(200))
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  await ui.pointer({ type: 'down', x: 0, y: 10, button: 'left', in: 'explorer:vbar' })
+  await ui.pointer({ type: 'up', x: 0, y: 10, button: 'left', in: 'explorer:vbar' })
+  await fieldGone(ui)
+  expect((await barOf(ui, 'explorer:vbar')).from).toBeGreaterThan(0)
+})
+
+test('a press on a tree row closes an empty name field and still opens the file', async ($, on) => {
+  const ui = await explorerRoot($, on, { '/repo': [{ name: 'a.ts', kind: 'file' }] })
+  disk.set('/repo/a.ts', { text: 'x\n', mtimeMs: 1 })
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  await tapTree(ui, 'a.ts')
+  await ui.drawn()
+  expect(await ui.find({ key: 'explorer:name' })).toBeUndefined()
+  expect(await pathText(ui)).toBe('repo/a.ts')
+})
+
 test('the count is one Text, so the bar stays one row tall', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
   await search(ui, 'line 1')
