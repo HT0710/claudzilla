@@ -225,6 +225,22 @@ const historyTop = atom({ plugin: 'margin', key: 'historyTop' } as const, 0)
 // the next prompt.
 const stepsTop = atom({ plugin: 'margin', key: 'stepsTop' } as const, 0)
 const stepsFollow = atom({ plugin: 'margin', key: 'stepsFollow' } as const, true)
+const stepsScrolledAt = atom({ plugin: 'margin', key: 'stepsScrolledAt' } as const, 0)
+// After the wheel moves STEPS, a new step in progress brings them back once this long has passed.
+const FOLLOW_GRACE_MS = 5000
+const doingOf = (now: Intent) => now.steps.findIndex(step => step.status === 'in_progress')
+const refollow = async ($: EngineInterface) => {
+  if (await read($, stepsFollow)) return
+  const scrolled = await read($, stepsScrolledAt)
+  const left = FOLLOW_GRACE_MS - ((await $.clock.now()) - scrolled)
+  if (left <= 0) return update($, stepsFollow, () => true)
+  // A wheel during the wait starts its own grace: this one stands down.
+  $.clock.after(left, async () => {
+    if ((await read($, stepsScrolledAt)) !== scrolled) return
+    await update($, stepsFollow, () => true)
+    $.ui.invalidate('ui.render')
+  })
+}
 
 // What this turn's tool calls read or fetched, by kind.
 const used = atom({ plugin: 'margin', key: 'used' } as const, EMPTY_USED)
@@ -1219,6 +1235,7 @@ export const register: Register = (on, options) => {
     on('tool.call', { tool: new RegExp(`^${INTENT_TOOL}$`) }, async ($, e) => {
       const report = e as unknown as Partial<Pick<Intent, 'wants' | 'steps'>> & { take?: { stance?: unknown; label?: unknown; why?: unknown } } & { agentId?: string; now?: unknown }
       if (report.agentId !== undefined) return { result: 'ok' }
+      const before = doingOf(await read($, intent))
       // A ping moves this turn's marks: done before it, in progress at it. One after an answer, every step
       // done or waiting on a new prompt, is dropped; one after an interrupt picks the report back up, as Claude carries on with pings alone.
       if (report.wants === undefined && typeof report.now === 'number') {
@@ -1243,6 +1260,8 @@ export const register: Register = (on, options) => {
         }))
         await update($, expanded, () => -1)
       }
+      const after = doingOf(await read($, intent))
+      if (after >= 0 && after !== before) await refollow($)
 
       return { result: 'ok' }
     })

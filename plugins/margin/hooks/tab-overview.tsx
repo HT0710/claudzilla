@@ -17,6 +17,7 @@ const used = atom({ plugin: 'margin', key: 'used' } as const, EMPTY_USED)
 const modal = atom({ plugin: 'margin', key: 'modal' } as const, null as Modal | null)
 const stepsTop = atom({ plugin: 'margin', key: 'stepsTop' } as const, 0)
 const stepsFollow = atom({ plugin: 'margin', key: 'stepsFollow' } as const, true)
+const stepsScrolledAt = atom({ plugin: 'margin', key: 'stepsScrolledAt' } as const, 0)
 const rowPointer = atom({ plugin: 'margin', key: 'rowPointer' } as const, { left: null, at: null } as { left: string | null; at: string | null })
 
 // The name a USED row shows for a full value.
@@ -494,6 +495,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     )
   }
   const setSteps = async (to: number) => {
+    const at = await $.clock.now()
+    await update($, stepsScrolledAt, () => at)
     await update($, stepsFollow, () => false)
     await update($, stepsTop, () => to)
   }
@@ -606,17 +609,12 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                   <Box flexDirection="column" width={width - LABEL}>
                     {((perStep: StepLine[][]) => {
                       const rows = perStep.flat()
-                      // Following, the step in progress kept in view, scrolled as little as that takes.
+                      // Following, the step in progress near the top: one row of the step before it, then the step and
+                      // what comes next. The list's end holds the last steps lower.
                       const doing = following ? shown.steps.findIndex(step => step.status === 'in_progress') : -1
                       const first = doing < 0 ? -1 : perStep.slice(0, doing).reduce((n, one) => n + one.length, 0)
-                      // Its last row too, its agents with it; a step taller than the zone keeps its first row.
-                      const at = first < 0 ? -1 : Math.min(first + perStep[doing]!.length - 1, first + Math.max(0, stepRoom - 3))
-                      let w = zoneWindow(rows.length, at < 0 ? (following ? (stepsHeld ?? storedSteps) : storedSteps) : Math.min(storedSteps, at), stepRoom)
-                      while (at >= w.top + w.shown) {
-                        const down = zoneWindow(rows.length, w.top + 1, stepRoom)
-                        if (down.top === w.top) break
-                        w = down
-                      }
+                      const at = first < 0 ? -1 : Math.max(0, first - 1)
+                      const w = zoneWindow(rows.length, at < 0 ? (following ? (stepsHeld ?? storedSteps) : storedSteps) : at, stepRoom)
                       if (!ctx.signal.aborted) stepsHeld = w.top
                       if (usedRows > 0) labelAt.USED = from + (w.above > 0 ? 1 : 0) + w.shown + (w.below > 0 ? 1 : 0) + 1
                       const stepsEnd = zoneWindow(rows.length, Infinity, stepRoom).top
@@ -624,6 +622,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                         tab: 'Overview', kind: 'list', from, to: from + Math.min(rows.length, stepRoom), offset: props.scroll.offset,
                         // From the row drawn: following may have scrolled past the offset stored.
                         wheel: async by => {
+                          const now = await $.clock.now()
+                          await update($, stepsScrolledAt, () => now)
                           await update($, stepsFollow, () => false)
                           await update($, stepsTop, () => Math.max(0, Math.min(w.top + by, stepsEnd)))
                         },
