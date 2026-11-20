@@ -108,8 +108,8 @@ function placeOf() {
   return { rev: (state.applied = ++state.rev), path: here.path, line: state.lit?.from, kind: here.kind }
 }
 
-export function showPlace(place: { path: string; line?: number }): number {
-  moveTo(nav => visit(nav, { kind: 'file', ...place }))
+export function showPlace(place: { path: string; line?: number; kind?: 'file' | 'folder' }): number {
+  moveTo(nav => visit(nav, { ...place, kind: place.kind ?? 'file' }))
   state.lastFile = place.path
   return (state.applied = ++state.rev)
 }

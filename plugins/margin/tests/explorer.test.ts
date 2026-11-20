@@ -1024,7 +1024,11 @@ test('a press on a tree file row opens it, and on a folder row toggles it', asyn
   expect(await pathText(ui)).toBe('repo/a.ts')
 })
 
-const findText = async (ui: any, text: string) => ui.input({ key: 'explorer:find', text, kind: 'change' })
+const fieldKey = async (ui: any) => {
+  for (const k of ['explorer:find', ...Array.from({ length: 9 }, (_, i) => `explorer:find:${i + 1}`)]) if (await ui.find({ key: k })) return k
+  return 'explorer:find'
+}
+const findText = async (ui: any, text: string) => ui.input({ key: await fieldKey(ui), text, kind: 'change' })
 const isLit = async (ui: any, n: number) => (await ui.find({ key: `row:${n}` }))?.props.backgroundColor === LIT
 
 test('the search button is drawn on a file', async ($, on) => {
@@ -1104,7 +1108,7 @@ const texts = (n: any, out: { text: string; color?: string; bg?: string }[] = []
 const barTexts = async (ui: any) => texts(await ui.find({ key: 'explorer:find-bar' }))
 const barText = async (ui: any) => textOf(await ui.find({ key: 'explorer:find-bar' }))
 const submit = async (ui: any, text: string) => {
-  await ui.input({ key: 'explorer:find', text, kind: 'submit' })
+  await ui.input({ key: await fieldKey(ui), text, kind: 'submit' })
   await ui.redraw()
 }
 const search = async (ui: any, text: string) => {
@@ -1530,6 +1534,14 @@ test('no match shows no match in faint text', async ($, on) => {
   const t = await ui.find({ type: 'Text', text: 'no match' })
   expect(t).toBeDefined()
   expect(t.props.color).toBe('#4f5c68')
+})
+
+test('Enter on a file hit opens the file in the code area', async ($, on) => {
+  const ui = await nameRoot($, on)
+  await nameOpen(ui, 'ab.')
+  await ui.input({ key: 'explorer:name', text: 'ab.', kind: 'submit' })
+  await ui.redraw()
+  expect(texts(await ui.drawn()).some(t => t.text.trim() === 'x')).toBe(true)
 })
 
 test('a move ends the name search', async ($, on) => {
