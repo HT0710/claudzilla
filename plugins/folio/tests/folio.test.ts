@@ -1617,6 +1617,7 @@ for (const [name, tool, input, output, want] of [
   ['a fetch', 'WebFetch', { url: 'https://example.com/a?b' }, fetched, '◼ Fetched (1 page)'],
   ['a search', 'WebSearch', { query: 'example domain' }, searched, '◼ Searched (1 query)'],
   ['a background agent', 'Agent', { description: 'Say hi', prompt: 'p' }, { status: 'async_launched', agentId: 'a1', description: 'Say hi', prompt: 'p', outputFile: '/o' }, '◇ working  agent (Say hi)'],
+  ['a named agent', 'Agent', { description: 'Say hi', name: 'sleepy-lynx', prompt: 'p' }, { status: 'async_launched', agentId: 'a1', description: 'Say hi', prompt: 'p', outputFile: '/o' }, '◇ working  sleepy-lynx (Say hi)'],
   ['a finished agent', 'Agent', { description: 'Say hi', prompt: 'p' }, agentDone, '◆ done     agent (Say hi)'],
   ['a remote agent', 'Agent', { description: 'Say hi', prompt: 'p' }, { status: 'remote_launched', taskId: 't', sessionUrl: 'u', description: 'Say hi', prompt: 'p', outputFile: '/o' }, '◇ remote   agent (Say hi)'],
   ['a skill', 'Skill', { skill: 'caveman:caveman-help' }, { success: true, commandName: 'caveman:caveman-help' }, '✦ loaded   caveman-help (caveman)'],
@@ -2825,7 +2826,7 @@ test('a finish row drawn in the same pass as its launch row, as after a reload, 
   expect(await rail(await twoReads($, 'r5', 'r6'), GAP)).toBe(1)
 })
 
-// The description in the type's colour, as margin's PLAN draws agents: a common type its own, any other hashed by name.
+// The description in the type's colour, as margin's PLAN draws agents: a common type its own, any other hashed by type.
 const label = async (ui: any, text: RegExp) => (await ui.find({ type: 'Text', text }))?.props.color
 test("a running agent's label takes its spawned type's colour", async ($, on) => {
   native(on)
@@ -2838,15 +2839,58 @@ test("a finished agent's label takes its input type's colour", async ($, on) => 
   expect(await label(await mountRow($, 'Agent', agentDone, { input: { description: 'd', subagent_type: 'general-purpose' } }, '/p/a.txt', 'a1'), /^general$/)).toBe('#e8927c')
 })
 
-for (const [name, input, want] of [
-  ['another type hashes its name', { subagent_type: 'Plan' }, '#8a8fe0'],
-  ['a named agent of another type hashes its launch name', { subagent_type: 'Plan', name: 'scout' }, '#7f9cb0'],
-] as const) {
-  test(`${name}: ${want}`, async ($, on) => {
-    native(on)
-    expect(await label(await mountRow($, 'Agent', agentDone, { input: { description: 'd', ...input } }, '/p/a.txt', 'a1'), /^Plan$/)).toBe(want)
-  })
-}
+test('another type hashes its type: #8a8fe0', async ($, on) => {
+  native(on)
+  expect(await label(await mountRow($, 'Agent', agentDone, { input: { description: 'd', subagent_type: 'Plan' } }, '/p/a.txt', 'a1'), /^Plan$/)).toBe('#8a8fe0')
+})
+
+test('agents of one type keep one colour whatever their names', async ($, on) => {
+  native(on)
+  for (const [id, name] of [['a1', 'scout'], ['a2', 'pilot']]) {
+    const ui = await mountRow($, 'Agent', { ...agentDone, agentId: id }, { input: { description: 'd', subagent_type: 'Plan', name } }, '/p/a.txt', id)
+    expect(await label(ui, new RegExp(`^${name}$`))).toBe('#8a8fe0')
+  }
+})
+
+test("a name the hook filled comes from the agent list by agent id", async ($, on) => {
+  native(on)
+  on('agent.list', () => ({ value: [{ id: 'a1', name: 'sleepy-lynx' }] }) as any)
+  expect(await drawn($, 'Agent', agentDone, { input: { description: 'Say hi', prompt: 'p' } })).toBe('◆ done     sleepy-lynx (Say hi)')
+})
+
+test("a spawn's name is the event's, with no agent list call", async ($, on) => {
+  native(on)
+  let calls = 0
+  on('agent.list', () => (calls++, { value: [] }) as any)
+  await spawnAgent($, on, 'claude-haiku-5-5', undefined, { name: 'sleepy-lynx' })
+  expect(await textOf(await mountRow($, 'Agent', undefined, { input: { description: 'Say hi' }, isRunning: true }, '/p/a.txt', 'a1'), 'a1')).toBe('◆ running  sleepy-lynx (Say hi) as haiku')
+  expect(calls).toBe(0)
+})
+
+test('a nameless agent row asks the agent list once per agent id', async ($, on) => {
+  native(on)
+  let calls = 0
+  on('agent.list', () => (calls++, { value: [] }) as any)
+  for (const id of ['r1', 'r2']) await mountRow($, 'Agent', agentDone, { input: { description: 'd' } }, '/p/a.txt', id)
+  expect(calls).toBe(1)
+})
+
+test('a name that arrives after the row drew redraws it', async ($, on) => {
+  finished(on)
+  let open!: () => void
+  const gate = new Promise<void>(r => (open = r))
+  on('agent.list', async () => (await gate, { value: [{ id: 'x1', name: 'sleepy-lynx' }] }) as any)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  await said($, 'm1')
+  const first = mountRow($, 'Agent', launched, { input: { description: 'Slow task', prompt: 'p' } }, '/p/a.txt', 'a1')
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'n1',
+    props: { text: 'n', origin: { kind: 'task-notification' }, isExpanded: false, task: { toolUseId: 'a1', status: 'completed' } }, viewport: VIEW })
+  expect(await rail(ui, /^◆ done     agent \(Slow task\)$/)).toBe(1)
+  expect(await Promise.race([first.then(() => 'drawn'), new Promise(r => setTimeout(() => r('blocked'), 50))])).toBe('drawn')
+  open()
+  await new Promise(r => setTimeout(r, 30))
+  expect(await rail(ui, /^◆ done     sleepy-lynx \(Slow task\)$/)).toBe(1)
+})
 
 test("a background agent's finish row keeps its label colour", async ($, on) => {
   finished(on)
