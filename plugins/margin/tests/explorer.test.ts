@@ -1151,7 +1151,7 @@ const fieldWidth = async (ui: any, key: string) => {
 test('the field leaves room for the cursor and the enter mark', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
   await search(ui, 'claudz')
-  expect(await fieldWidth(ui, 'explorer:find')).toBe(6 + 3)
+  expect(await fieldWidth(ui, 'explorer:find')).toBe(6 + 4)
 })
 
 test('search asks the pane for the keys', async ($, on) => {
