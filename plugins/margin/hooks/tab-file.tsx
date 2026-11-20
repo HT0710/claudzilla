@@ -198,13 +198,16 @@ export const escapeSent = { value: false }
 
 // The ring moves only while the pane holds the keys; the open asks for them first.
 async function takeKeys($: EngineInterface, key: string): Promise<void> {
-  escapeSent.value = true
-  await $.ui.open({ ...paneBase, closeOnEscape: true, focus: true }).catch(() => undefined)
+  escapeSent.value = !fieldText()
+  await $.ui.open({ ...paneBase, ...(escapeSent.value && { closeOnEscape: true as const }), focus: true }).catch(() => undefined)
   await $.ui.focus({ requestId: 'margin', key }).catch(() => undefined)
 }
 
 // Whether a find or name field is open.
 export const fieldOpen = (): boolean => !!(state.find?.open || state.names)
+
+// The text of the open field; empty when none is open.
+export const fieldText = (): string => (state.find?.open ? state.find.text : state.names?.text) ?? ''
 
 // The drawn key of the name field.
 const nameKey = (): string => (nameGen ? `${NAME}:${nameGen}` : NAME)
