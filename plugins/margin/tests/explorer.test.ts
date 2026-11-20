@@ -1163,6 +1163,33 @@ test('search asks the pane for the keys', async ($, on) => {
   expect(opens).toEqual([true])
 })
 
+test('an open field makes the pane take Escape; closing it gives that back', async ($, on) => {
+  const opens: unknown[] = []
+  on('ui.open', (_, e) => (opens.push((e as any).closeOnEscape), { value: { isPlaced: true } }) as any)
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }) as any)
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  await clock.advance(0)
+  expect(opens.at(-1)).toBe(true)
+  await ui.press({ key: 'explorer:find:close' })
+  await ui.redraw()
+  await clock.advance(0)
+  expect(opens.at(-1)).toBeUndefined()
+})
+
+test('a press elsewhere closes an empty field, not one with text', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  await ui.press({ key: 'refresh' })
+  await fieldGone(ui)
+  await search(ui, 'line 1')
+  await ui.press({ key: 'refresh' })
+  await ui.redraw()
+  expect(await ui.find({ key: 'explorer:find' })).toBeDefined()
+})
+
 test('the count is one Text, so the bar stays one row tall', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
   await search(ui, 'line 1')

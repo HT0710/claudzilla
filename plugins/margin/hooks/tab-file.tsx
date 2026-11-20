@@ -194,12 +194,16 @@ async function takeKeys($: EngineInterface, key: string): Promise<void> {
   await $.ui.focus({ requestId: 'margin', key }).catch(() => undefined)
 }
 
-// Closes the find or name field when focus leaves it with no text.
-export async function fieldLeft($: EngineInterface, e: { element?: string }): Promise<void> {
-  if (state.find?.open && !state.find.text && leavesField(e, FIELD)) state.find = undefined
-  else if (state.names && !state.names.text && leavesField(e, NAME)) endNames()
-  else return
+// Whether a find or name field is open.
+export const fieldOpen = (): boolean => !!(state.find?.open || state.names)
+
+// Closes the find or name field when it has no text; with `e`, only when focus left it.
+export async function closeEmptyField($: EngineInterface, e?: { element?: string }): Promise<boolean> {
+  if (state.find?.open && !state.find.text && (!e || leavesField(e, FIELD))) state.find = undefined
+  else if (state.names && !state.names.text && (!e || leavesField(e, NAME))) endNames()
+  else return false
   await update($, file, () => placeOf())
+  return true
 }
 
 async function openNames($: EngineInterface): Promise<void> {
