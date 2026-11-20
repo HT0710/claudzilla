@@ -6,7 +6,7 @@ export type Step = { text: string; status: 'pending' | 'in_progress' | 'complete
 // An agent the main loop started: the step in progress then, and the turn (user prompt) it came in.
 // `effort`: the level its first model request ran at.
 export type Spawn = { id: string; description: string; step: string; turn: number; status: AgentStatus; name?: string; type?: string; model?: string; effort?: string }
-export type AgentRow = { id?: string; description: string; status: AgentStatus | 'planned' }
+export type AgentRow = { id?: string; name?: string; description: string; status: AgentStatus | 'planned' }
 export type Take = { stance: 'fine' | 'concern' | 'against' | 'unsure'; label: string; why?: string }
 export type Intent = { wants: string; take?: Take; steps: Step[]; at: number; ended: boolean; waiting?: boolean; agents?: number; turn?: number }
 export type Overview = { topics: string[]; summary?: string; running: boolean; failed?: string }

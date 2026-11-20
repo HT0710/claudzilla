@@ -260,7 +260,7 @@ const INTENT_RULE = [
   'Then ping it as {"now": n}, n the 1-based step, as the first block of the message that starts a new step, and only then, as a ping splits the chat\'s tool rows;',
   'send wants, take and steps again only when your reading or steps change. Never call it alone just to mark the last step done:',
   'your answer closes it. Do not mention the tool in your reply. Write wants, take (label and why included) and steps in the language the user writes in; the English examples below only illustrate meaning.',
-  "When a step spawns agents, list each Agent call's name in that step's agents when you passed one, else its description, exactly as passed, and keep listing them when you redraft. Give each Agent call a short kebab-case `name`, unless agent teams are on.",
+  "When a step spawns agents, list each Agent call's name in that step's agents when you passed one, else its description, exactly as passed, and keep listing them when you redraft. Pass a `name` parameter on each Agent call, unless agent teams are on: the tool accepts it though its schema does not list it. Make it a playful kebab-case character name, not a job label, and switch styles from one agent to the next, like `sleepy-lynx`, `captain-pickle` or `nova-7`. Never reuse one this session.",
   'take is your reaction to the ask, given before any work; never the answer. On a work ask: your stance on doing it as asked. On a question with no work: how sure you are and what you will check, or a premise you doubt; never your expected answer, even when context already holds it: name the source, not what it says.',
   'Bad: "fairly sure, wording invites a mini-answer". Good: "fairly sure, will read the take rule".',
   "stance: fine = you would do it as asked; concern = you would do it but see a real risk or a better way; against = you'd want the user to reconsider before you act: the ask as stated is irreversible, bypasses a safeguard (review, CI, backup, confirmation), or breaks a stated rule. Pick against over concern whenever one of these holds, even if you would still do it after confirming; unsure = you cannot judge yet.",
@@ -1260,7 +1260,7 @@ export const register: Register = (on, options) => {
         const step = shown.steps.find(one => one.status === 'in_progress')?.text ?? ''
         await update($, spawns, now => [...now, { id, description: e.description, step, turn, status: 'pending', name: e.name, type: e.subagentType, model: result.model }])
         // Whether Claude listed it: how often it does is the later consistency check.
-        t.event('agent.spawn', { listed: shown.steps.some(one => one.agents?.some(listed => same(listed, e.description))) })
+        t.event('agent.spawn', { listed: shown.steps.some(one => one.agents?.some(listed => (e.name && same(listed, e.name)) || same(listed, e.description))) })
       }
       await refreshSpawns($)
 
