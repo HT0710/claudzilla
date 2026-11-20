@@ -1182,6 +1182,25 @@ test('an open field makes the pane take Escape; closing it gives that back', asy
   expect(opens.at(-1)).toBeUndefined()
 })
 
+test('Escape is asked only while the field is empty', async ($, on) => {
+  const opens: unknown[] = []
+  on('ui.open', (_, e) => (opens.push((e as any).closeOnEscape), { value: { isPlaced: true } }) as any)
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }) as any)
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  await clock.advance(0)
+  expect(opens.at(-1)).toBe(true)
+  await findText(ui, 'line 1')
+  await ui.redraw()
+  await clock.advance(0)
+  expect(opens.at(-1)).toBeUndefined()
+  await findText(ui, '')
+  await ui.redraw()
+  await clock.advance(0)
+  expect(opens.at(-1)).toBe(true)
+})
+
 test('Enter with no name match keeps the typed text drawn', async ($, on) => {
   const ui = await nameRoot($, on)
   await nameOpen(ui, 'zzz')
