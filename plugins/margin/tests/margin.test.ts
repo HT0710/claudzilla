@@ -96,8 +96,9 @@ const git = (repo: Record<string, string>) => (argv: readonly string[]) => {
   return command === 'log' && argv.some(arg => arg.includes('%x1f')) ? asLog(answer) : answer
 }
 // An empty History.
-const noHistory = (on: Parameters<TestBody>[1], now = () => 0) => {
-  on('clock.now', () => ({ value: now() }))
+// `now` null: the test's own mock clock answers.
+const noHistory = (on: Parameters<TestBody>[1], now: (() => number) | null = () => 0) => {
+  if (now) on('clock.now', () => ({ value: now() }))
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('fs.read', () => ({ value: '' }))
@@ -3821,8 +3822,8 @@ test('USED hides when STEPS would keep fewer than 3 rows', async ($, on) => {
 
 // 14 body rows: STEPS gets 6, from row 6, under ASK, TAKE's rule, TAKE and STEPS' rule,
 // over the footer's rule and status row.
-const stepsPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], doing: number) => {
-  noHistory(on)
+const stepsPane = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], doing: number, ownClock = false) => {
+  noHistory(on, ownClock ? null : undefined)
   on('session.end', (_, e) => ({ sessionId: e.sessionId }) as any)
   on('prompt.submit', (_, e) => ({ text: e.text }) as any)
   on('ui.scroll', () => ({}) as any)
@@ -3850,16 +3851,64 @@ test('USED takes rows from STEPS: the wheel hits the shorter zone, not the USED 
   expect(await shown(9)).toBe(false)
 })
 
-test('STEPS follow the step in progress; the wheel over them stops that until the next prompt', async ($, on) => {
-  const { ui, wheel, shown } = await stepsPane($, on, 9)
-  // Scrolled just enough to show step 9 last: ↑, steps 6 to 9, ↓.
+test('STEPS follow the step in progress near the top, one row of the step before it above', async ($, on) => {
+  const { ui, shown } = await stepsPane($, on, 9)
+  // ↑, steps 8 to 12: the list's end, so no ↓.
+  expect(await shown(7)).toBe(false)
+  expect(await shown(8)).toBe(true)
   expect(await shown(9)).toBe(true)
-  expect(await shown(5)).toBe(false)
-  expect(await shown(10)).toBe(false)
-  expect(await ui.find({ type: 'Text', text: ' 5 more' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: ' 3 more' })).toBeDefined()
+  expect(await shown(12)).toBe(true)
+  expect(await ui.find({ type: 'Text', text: ' 7 more' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'steps:down' })).toBeUndefined()
+})
 
-  await wheel(-2)
+test('STEPS follow a step mid-list with one row above and a cue below', async ($, on) => {
+  const { ui, shown } = await stepsPane($, on, 4)
+  // ↑, steps 3 to 6, ↓.
+  expect(await shown(2)).toBe(false)
+  expect(await shown(3)).toBe(true)
+  expect(await shown(4)).toBe(true)
+  expect(await shown(6)).toBe(true)
+  expect(await shown(7)).toBe(false)
+  expect(await ui.find({ type: 'Text', text: ' 6 more' })).toBeDefined()
+})
+
+test('a step change inside 5 s of the wheel waits for them to pass, then STEPS follow again', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000_000 })
+  const { ui, wheel, shown } = await stepsPane($, on, 9, true)
+  await wheel(-4)
+  expect(await shown(4)).toBe(true)
+  await clock.advance(2000)
+  await $.tool.call({ tool: INTENT, now: 6 } as any)
+  await ui.drawn()
+  expect(await shown(4)).toBe(true)
+  await clock.advance(2999)
+  await ui.drawn()
+  expect(await shown(4)).toBe(true)
+  await clock.advance(1)
+  await ui.drawn()
+  // ↑, steps 5 to 8, ↓.
+  expect(await shown(4)).toBe(false)
+  expect(await shown(5)).toBe(true)
+  expect(await shown(6)).toBe(true)
+})
+
+test('a step change 5 s after the wheel follows at once; the wheel alone never moves STEPS back', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000_000 })
+  const { ui, wheel, shown } = await stepsPane($, on, 9, true)
+  await wheel(-4)
+  await clock.advance(60_000)
+  await ui.drawn()
+  expect(await shown(4)).toBe(true)
+  await $.tool.call({ tool: INTENT, now: 6 } as any)
+  await ui.drawn()
+  expect(await shown(4)).toBe(false)
+  expect(await shown(5)).toBe(true)
+})
+
+test('the wheel over STEPS stops following until the step changes or the next prompt', async ($, on) => {
+  const { ui, wheel, shown } = await stepsPane($, on, 9)
+  await wheel(-4)
   expect(await shown(4)).toBe(true)
   expect(await shown(9)).toBe(false)
   await $.tool.call({ tool: INTENT, now: 11 } as any)
