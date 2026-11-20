@@ -1036,12 +1036,13 @@ test('the search button is drawn on a file', async ($, on) => {
   expect(await ui.find({ key: 'explorer:search' })).toBeDefined()
 })
 
-test('search opens the field with its placeholder, no label and autofocus', async ($, on) => {
+test('search opens the field with its hint drawn before it, no label and autofocus', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
   await ui.press({ key: 'explorer:search' })
   await ui.redraw()
   const field = await ui.find({ key: 'explorer:find' })
-  expect(field?.props.placeholder).toBe('type text to find')
+  expect(field?.props.placeholder).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'type text to find ' })).toBeDefined()
   expect(field?.props.submitLabel).toBe('')
   expect(field?.props.autoFocus).toBe(true)
   expect(field?.props.label).toBeUndefined()
@@ -1540,7 +1541,8 @@ test('search on a folder page opens the name field, and the tree hides while tex
   await ui.press({ key: 'explorer:search' })
   await ui.redraw()
   const field = await ui.find({ key: 'explorer:name' })
-  expect(field?.props.placeholder).toBe('type a name')
+  expect(field?.props.placeholder).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'type a name ' })).toBeDefined()
   expect(field?.props.autoFocus).toBe(true)
   expect(await treeRow(ui, 'hooks')).toBeDefined()
   await nameType(ui, 'ab')
