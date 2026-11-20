@@ -65,7 +65,10 @@ hud_compact() {
 import json, os, sys
 path, on = sys.argv[1], sys.argv[2] == "true"
 conf = json.load(open(path)) if os.path.exists(path) else {}
-conf.setdefault("hud", {})["compact"] = on
+hud = conf.setdefault("hud", {})
+hud.pop("compact", None)
+if on: hud["layout"] = "compact"
+else: hud.pop("layout", None)
 json.dump(conf, open(path, "w"), indent=2)
 PY
 }

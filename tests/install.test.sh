@@ -913,6 +913,10 @@ H=$(new_home); seedbase "$H"; echo '{"install":{"only":["core","panel"]}}' > "$H
 check "rename: saved only mapped" bash -c "[ $rc -eq 0 ] && [ '$(q "$H/.claude/claudzilla.json" .install.only)' = '[\"core\",\"margin\"]' ]"
 H=$(new_home); inst "$H" --remove panel
 check "rename: --remove old part name" [ "$(q "$H/.claude/claudzilla.json" .install)" = '{"skip":["margin"]}' ]
+H=$(new_home); seedbase "$H"; echo '{"hud":{"compact":true}}' > "$H/.claude/claudzilla.json"; inst "$H"
+check "migrate: hud.compact true -> layout compact" [ "$(q "$H/.claude/claudzilla.json" .hud)" = '{"layout":"compact"}' ]
+H=$(new_home); seedbase "$H"; echo '{"hud":{"compact":false}}' > "$H/.claude/claudzilla.json"; inst "$H"
+check "migrate: hud.compact false dropped" [ "$(q "$H/.claude/claudzilla.json" .hud)" = '{}' ]
 H=$(new_home); seedbase "$H"; echo '{bad' | tee "$H/c0" > "$H/.claude/claudzilla.json"; inst "$H"; rc=$?
 check "rename: bad claudzilla.json untouched" bash -c "[ $rc -eq 0 ] && cmp -s '$H/c0' '$H/.claude/claudzilla.json'"
 H=$(new_home); seedbase "$H"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+h":"command:panel"}}]}' > "$H/.claude/keybindings.json"; inst "$H"
