@@ -1250,6 +1250,20 @@ test('Enter steps to the next match and wraps', async ($, on) => {
   expect(await barText(ui)).toContain('1 of 2')
 })
 
+test('Enter re-keys the find field so the engine redraws its text', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, AB)
+  await search(ui, 'a')
+  expect(await ui.find({ key: 'explorer:find' })).toBeDefined()
+  await submit(ui, 'a')
+  expect(await ui.find({ key: 'explorer:find' })).toBeUndefined()
+  expect((await ui.find({ key: 'explorer:find:1' }))?.props.value).toBe('a')
+  await ui.press({ key: 'explorer:find:close' })
+  await ui.redraw()
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  expect(await ui.find({ key: 'explorer:find' })).toBeDefined()
+})
+
 test('Enter on a pending run flushes it and stays on match 1', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, AB)
   await ui.press({ key: 'explorer:search' })
