@@ -3095,6 +3095,7 @@ test('the intent tool and its rule are in place by default', async ($, on) => {
   const { tools, rule } = await registered($, on)
   expect(tools).toEqual(['intent'])
   expect(rule).toContain(`Call the \`${INTENT}\` tool`)
+  expect(rule).toContain('kebab-case')
 })
 
 test('intent off: no tool, no rule', { options: { intent: false } }, async ($, on) => {
