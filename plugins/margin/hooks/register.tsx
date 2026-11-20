@@ -7,7 +7,7 @@ import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, PAD, WHEEL_HOLD, applyPalette
 import type { Prompt, Readers, TabCtx, TabDraw, UseEntry, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
-import { changedOnDisk, checkOpenFile, draw as drawFile, explorerPost, fieldLeft, showPlace } from './tab-file'
+import { changedOnDisk, checkOpenFile, draw as drawFile, explorerPost, fieldLeft, paneBase, showPlace } from './tab-file'
 import { autoFetch, draw as drawGit, resetGitReads } from './tab-git'
 import { draw as drawHistory } from './tab-history'
 import { draw as drawOverview, resetStepsHeld, same } from './tab-overview'
@@ -936,7 +936,7 @@ const isPlaced = async ($: EngineInterface) => (await $.ui.panes()).some(pane =>
 const closePane = ($: EngineInterface) => $.ui.close({ id: PANE })
 // The pane's open arguments. While a Git modal is open the pane takes Escape as a close, which ui.close turns
 // into closing the modal: the engine reports Escape and the pane's close mark alike.
-const paneArgs = async ($: EngineInterface) => ({ id: PANE, title: 'Margin', columns: 40, ...((await read($, modal)) && { closeOnEscape: true as const }) })
+const paneArgs = async ($: EngineInterface) => ({ ...paneBase, ...((await read($, modal)) && { closeOnEscape: true as const }) })
 // Every open and close of a Git modal goes here, so Escape follows it; an open pane gets the new arguments.
 const setModal = async ($: EngineInterface, change: (m: Modal | null) => Modal | null) => {
   const was = !!(await read($, modal))

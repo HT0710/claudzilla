@@ -185,6 +185,15 @@ const PLACEHOLDER = 'type text to find'
 const NAME = 'explorer:name'
 const NAME_PLACEHOLDER = 'type a name'
 
+// The pane's base open arguments; register adds Escape handling.
+export const paneBase = { id: 'margin', title: 'Margin', columns: 40 } as const
+
+// The ring moves only while the pane holds the keys; the open asks for them first.
+async function takeKeys($: EngineInterface, key: string): Promise<void> {
+  await $.ui.open({ ...paneBase, closeOnEscape: true, focus: true }).catch(() => undefined)
+  await $.ui.focus({ requestId: 'margin', key }).catch(() => undefined)
+}
+
 // Closes the find or name field when focus leaves it with no text.
 export async function fieldLeft($: EngineInterface, e: { element?: string }): Promise<void> {
   if (state.find?.open && !state.find.text && leavesField(e, FIELD)) state.find = undefined
@@ -200,7 +209,7 @@ async function openNames($: EngineInterface): Promise<void> {
   const text = state.names?.text ?? ''
   state.names = { text, entries, rows: filterNames(entries, text) }
   await update($, file, () => placeOf())
-  await $.ui.focus({ requestId: 'margin', key: NAME }).catch(() => undefined)
+  await takeKeys($, NAME)
 }
 
 function typeName($: EngineInterface, text: string): void {
@@ -221,7 +230,7 @@ async function openFind($: EngineInterface): Promise<void> {
   state.find ??= { open: true, text: '', pending: false, result: { matches: [], bad: false, capped: false }, spans: new Map(), current: 0 }
   state.find.open = true
   await update($, file, () => placeOf())
-  await $.ui.focus({ requestId: 'margin', key: FIELD }).catch(() => undefined)
+  await takeKeys($, FIELD)
 }
 
 // Runs the find on the loaded lines and lights the first match.

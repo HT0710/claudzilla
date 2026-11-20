@@ -1154,6 +1154,15 @@ test('the field leaves room for the cursor and the enter mark', async ($, on) =>
   expect(await fieldWidth(ui, 'explorer:find')).toBe(6 + 3)
 })
 
+test('search asks the pane for the keys', async ($, on) => {
+  const opens: unknown[] = []
+  on('ui.open', (_, e) => (opens.push((e as any).focus), { value: { isPlaced: true } }) as any)
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await ui.press({ key: 'explorer:search' })
+  await waitFor(() => opens.length > 0)
+  expect(opens).toEqual([true])
+})
+
 test('the count is one Text, so the bar stays one row tall', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
   await search(ui, 'line 1')
