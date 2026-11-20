@@ -87,6 +87,7 @@ function endFind(): void {
 // Closes the name field and drops its text and listing.
 function endNames(): void {
   state.names = undefined
+  nameGen = 0
 }
 
 // Remembers the spot, moves through `change`, and restores the spot of an entry it landed on.
@@ -184,6 +185,7 @@ export async function changedOnDisk($: EngineInterface, call: { tool: string } &
 const FIELD = 'explorer:find'
 // Bumped on each submit: the engine drops a redrawn value equal to the last one it had, so a new key remounts the field.
 let gen = 0
+let nameGen = 0
 const PLACEHOLDER = 'type text to find'
 const NAME = 'explorer:name'
 const NAME_PLACEHOLDER = 'type a name'
@@ -204,12 +206,15 @@ async function takeKeys($: EngineInterface, key: string): Promise<void> {
 // Whether a find or name field is open.
 export const fieldOpen = (): boolean => !!(state.find?.open || state.names)
 
+// The drawn key of the name field.
+const nameKey = (): string => (nameGen ? `${NAME}:${nameGen}` : NAME)
+
 // Closes the find or name field when it has no text; with `e`, only when focus left it.
 export async function closeEmptyField($: EngineInterface, e?: { element?: string }): Promise<boolean> {
   if (state.find?.open && !state.find.text && (!e || leavesField(e, FIELD))) {
     state.find = undefined
     gen = 0
-  } else if (state.names && !state.names.text && (!e || leavesField(e, NAME))) endNames()
+  } else if (state.names && !state.names.text && (!e || leavesField(e, nameKey()))) endNames()
   else return false
   await update($, file, () => placeOf())
   return true
@@ -235,6 +240,7 @@ function typeName($: EngineInterface, text: string): void {
 
 // Opens the top result, which ends the name search through the move.
 async function submitName($: EngineInterface): Promise<void> {
+  nameGen++
   const top = state.names?.rows[0]
   if (top) await openPlace($, { path: `${current(state.nav).path.replace(/\/$/, '')}/${top.path}`, kind: top.kind === 'dir' ? 'folder' : undefined })
 }
@@ -814,7 +820,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
               <Box key="names" flexShrink={0}>
                 {state.names.text && <Text color={HUD.faint}>named </Text>}
                 <Box width={Math.min(cellsOf(state.names.text || NAME_PLACEHOLDER) + 4, W - 8 - (state.names.text ? 6 : 0))} flexShrink={0}>
-                  <Input key={NAME} value={state.names.text} placeholder={NAME_PLACEHOLDER} submitLabel="" autoFocus onInput={v => typeName($, v)} onSubmit={() => submitName($)} />
+                  <Input key={nameKey()} value={state.names.text} placeholder={NAME_PLACEHOLDER} submitLabel="" autoFocus onInput={v => typeName($, v)} onSubmit={() => submitName($)} />
                 </Box>
               </Box>
             ) : state.notice ? (

@@ -1182,6 +1182,15 @@ test('an open field makes the pane take Escape; closing it gives that back', asy
   expect(opens.at(-1)).toBeUndefined()
 })
 
+test('Enter with no name match keeps the typed text drawn', async ($, on) => {
+  const ui = await nameRoot($, on)
+  await nameOpen(ui, 'zzz')
+  await ui.input({ key: 'explorer:name', text: 'zzz', kind: 'submit' })
+  await ui.redraw()
+  expect(await ui.find({ key: 'explorer:name' })).toBeUndefined()
+  expect((await ui.find({ key: 'explorer:name:1' }))?.props.value).toBe('zzz')
+})
+
 test('a press elsewhere closes an empty field, not one with text', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
   await ui.press({ key: 'explorer:search' })
