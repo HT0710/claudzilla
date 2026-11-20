@@ -1356,6 +1356,10 @@ export const register: Register = (on, options) => {
 
   // A divider, dragged or clicked: the render clamps a divider to keep 1 row on either side.
   on('ui.message', async ($, e, next) => {
+    // A press in a Client or scroll bar is a press in the pane: an empty field closes, the act still runs.
+    if (e.requestId === PANE && typeof e.element === 'string' && (e.element === 'explorer:gutter' || e.element === 'explorer:vbar' || e.element === 'explorer:hbar' || (e.element.startsWith('row:') && (e.data as { press?: boolean } | undefined)?.press))) {
+      await closeEmptyField($, e).catch(() => undefined)
+    }
     if (e.requestId === PANE && typeof e.element === 'string' && e.element.startsWith('explorer:')) {
       await explorerPost($, e)
       return {}
