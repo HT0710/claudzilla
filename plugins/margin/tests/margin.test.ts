@@ -4477,15 +4477,15 @@ test('a listed agent shows planned, then live under its step', async ($, on) => 
   const ui = await agentsPane($, on, status)
   await $.tool.call({ tool: INTENT, ...AGENTS_REPORT } as any)
   await ui.drawn()
-  expect(await agentRow(ui, 0, 0)).toEqual({ text: '└ ○ Read code', glyph: '#4f5c68', color: '#4f5c68' })
-  expect((await agentRow(ui, 1, 0))?.text).toBe('└ ○ Check API')
+  expect(await agentRow(ui, 0, 0)).toEqual({ text: '  └ ○ Read code', glyph: '#4f5c68', color: '#4f5c68' })
+  expect((await agentRow(ui, 1, 0))?.text).toBe('  └ ○ Check API')
   await spawn($, 'Read code')
   await ui.drawn()
-  expect(await agentRow(ui, 0, 0)).toEqual({ text: '└ ◌ Read code', glyph: 'claude', color: AGENT_TONE })
+  expect(await agentRow(ui, 0, 0)).toEqual({ text: '  └ ◌ Read code', glyph: 'claude', color: AGENT_TONE })
   status.a1 = 'failed'
   await turnEnd($, 'a1')
   await ui.drawn()
-  expect((await agentRow(ui, 0, 0))?.text).toBe('└ ✗ Read code')
+  expect((await agentRow(ui, 0, 0))?.text).toBe('  └ ✗ Read code')
 })
 
 test('a named row shows its name, an unnamed row its description', async ($, on) => {
@@ -4494,8 +4494,39 @@ test('a named row shows its name, an unnamed row its description', async ($, on)
   await spawn($, 'Read code', { name: 'sleepy-lynx' })
   await spawn($, 'Check API')
   await ui.drawn()
-  expect((await agentRow(ui, 0, 0))?.text).toBe('├ ◌ sleepy-lynx')
-  expect((await agentRow(ui, 0, 1))?.text).toBe('└ ◌ Check API')
+  expect((await agentRow(ui, 0, 0))?.text).toBe('  ├ ◌ sleepy-lynx  Read code')
+  expect((await agentRow(ui, 0, 1))?.text).toBe('  └ ◌ Check API')
+  expect((await pieces(ui, 'o:agent:0:0'))?.[3]?.color).toBe('#4f5c68')
+})
+
+test("a named row's description starts 2 columns past the longest name shown, and goes first on a narrow pane", async ($, on) => {
+  const ui = await agentsPane($, on, { a1: 'running', a2: 'running' })
+  await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'in_progress', agents: ['ab', 'longer-name'] }] } as any)
+  await spawn($, 'Read code', { name: 'ab' })
+  await spawn($, 'Check API', { name: 'longer-name' })
+  await ui.drawn()
+  expect((await agentRow(ui, 0, 0))?.text).toBe(`  ├ ◌ ab${' '.repeat(11)}Read code`)
+  expect((await agentRow(ui, 0, 1))?.text).toBe('  └ ◌ longer-name  Check API')
+})
+
+test("an unnamed row's text does not push the description column", async ($, on) => {
+  const ui = await agentsPane($, on, { a1: 'running' })
+  await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'in_progress', agents: ['ab', 'a very long listed entry'] }] } as any)
+  await spawn($, 'Read code', { name: 'ab' })
+  await ui.drawn()
+  expect((await agentRow(ui, 0, 0))?.text).toBe('  ├ ◌ ab  Read code')
+})
+
+test('a description is cut to the room left, and dropped when under 4 columns remain', async ($, on) => {
+  const ui = await agentsPane($, on, { a1: 'running', a2: 'running' })
+  await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'in_progress', agents: ['mid-name'] }] } as any)
+  await spawn($, 'Count every hook file', { name: 'mid-name' })
+  await ui.drawn()
+  // 31 columns past LABEL: tree and mark 6, name 8, gap 2, so 15 left for the description.
+  expect((await agentRow(ui, 0, 0))?.text).toBe('  └ ◌ mid-name  Count every ho…')
+  await spawn($, 'Check API', { name: 'twenty-char-name-xyz' })
+  await ui.drawn()
+  expect((await agentRow(ui, 0, 1))?.text).toBe('  └ ◌ twenty-char-name-xyz')
 })
 
 test('agents of one type keep one colour whatever their names', async ($, on) => {
@@ -4517,11 +4548,11 @@ test('each agent status draws its glyph and color, in the order Claude listed th
   await ui.drawn()
   const rows = await Promise.all([0, 1, 2, 3, 4].map(n => agentRow(ui, 0, n)))
   expect(rows).toEqual([
-    { text: '├ ✓ c', glyph: 'success', color: AGENT_TONE },
-    { text: '├ ◌ p', glyph: '#4f5c68', color: AGENT_TONE },
-    { text: '├ ■ k', glyph: 'inactive', color: AGENT_TONE },
-    { text: '├ ✗ f', glyph: '#e06c75', color: AGENT_TONE },
-    { text: '├ ◌ r', glyph: 'claude', color: AGENT_TONE },
+    { text: '  ├ ✓ c', glyph: 'success', color: AGENT_TONE },
+    { text: '  ├ ◌ p', glyph: '#4f5c68', color: AGENT_TONE },
+    { text: '  ├ ■ k', glyph: 'inactive', color: AGENT_TONE },
+    { text: '  ├ ✗ f', glyph: '#e06c75', color: AGENT_TONE },
+    { text: '  └ ◌ r', glyph: 'claude', color: AGENT_TONE },
   ])
 })
 
@@ -4530,14 +4561,14 @@ test('an unlisted agent hangs under the step in progress at spawn, and stays the
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await spawn($, 'extra')
   await ui.drawn()
-  expect((await agentRow(ui, 0, 0))?.text).toBe('└ ◌ extra')
+  expect((await agentRow(ui, 0, 0))?.text).toBe('  └ ◌ extra')
   await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'plan', status: 'pending' }, { text: 'spec', status: 'in_progress' }] } as any)
   await ui.drawn()
-  expect((await agentRow(ui, 1, 0))?.text).toBe('└ ◌ extra')
+  expect((await agentRow(ui, 1, 0))?.text).toBe('  └ ◌ extra')
   // Its step renamed away: the step now in progress takes it.
   await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'plan', status: 'completed' }, { text: 'spec, take 2', status: 'in_progress' }] } as any)
   await ui.drawn()
-  expect((await agentRow(ui, 1, 0))?.text).toBe('└ ◌ extra')
+  expect((await agentRow(ui, 1, 0))?.text).toBe('  └ ◌ extra')
 })
 
 test("a new turn's report drops last turn's unlisted agents; a still-running one is counted, not drawn", async ($, on) => {
@@ -4573,7 +4604,7 @@ test('an answer closes the steps but agent rows keep their own marks', async ($,
   await turnEnd($)
   await ui.drawn()
   expect(await countText(ui)).toBe('2/2 steps')
-  expect(await agentRow(ui, 0, 0)).toEqual({ text: '└ ■ Read code', glyph: 'inactive', color: AGENT_TONE })
+  expect(await agentRow(ui, 0, 0)).toEqual({ text: '  └ ■ Read code', glyph: 'inactive', color: AGENT_TONE })
 })
 
 test('a long agent description is fitted to the pane', async ($, on) => {
@@ -4581,7 +4612,7 @@ test('a long agent description is fitted to the pane', async ($, on) => {
   await $.tool.call({ tool: INTENT, ...REPORT } as any)
   await spawn($, 'x'.repeat(80))
   await ui.drawn()
-  expect((await agentRow(ui, 0, 0))?.text).toBe(`└ ◌ ${'x'.repeat(26)}…`)
+  expect((await agentRow(ui, 0, 0))?.text).toBe(`  └ ◌ ${'x'.repeat(24)}…`)
 })
 
 test("a new prompt hides last turn's agent rows", async ($, on) => {
@@ -4605,21 +4636,21 @@ const crowded = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]) 
 }
 const textOf = async (ui: { find: (q: any) => Promise<any> }, key: string) => (await pieces(ui, key))?.map(x => x.text).join('')
 
-test('a step with 5 agents shows the first 3 in order, then a count of the rest', async ($, on) => {
+test('a step with 5 agents shows a count of the earlier ones under it, then the 2 newest', async ($, on) => {
   const ui = await crowded($, on)
-  expect(await Promise.all([0, 1, 2, 3].map(n => agentRow(ui, 0, n).then(row => row?.text)))).toEqual(['├ ✓ b1', '├ ✓ b2', '├ ◌ b3', undefined])
-  expect(await textOf(ui, 'o:more:0')).toBe('└ … 2 more  1 ✗ 1 ○')
-  expect(await textOf(ui, 'o:more:1')).toBe('└ … 1 more  1 ○')
+  expect(await Promise.all([0, 1, 2, 3, 4].map(n => agentRow(ui, 0, n).then(row => row?.text)))).toEqual([undefined, undefined, undefined, '  ├ ✗ b4', '  └ ○ b5'])
+  expect(await textOf(ui, 'o:more:0')).toBe('  ├ … 3 earlier  1 ◌ 2 ✓')
+  expect(await textOf(ui, 'o:more:1')).toBe('  ├ … 2 earlier  2 ○')
 })
 
 test('a fold row draws each count in claude and its glyph in the mark colour', async ($, on) => {
   const ui = await crowded($, on)
-  expect((await pieces(ui, 'o:more:0'))?.slice(2).map(x => [x.text, x.color])).toEqual([[' 1', 'claude'], [' ✗', '#e06c75'], [' 1', 'claude'], [' ○', '#4f5c68']])
+  expect((await pieces(ui, 'o:more:0'))?.slice(2).map(x => [x.text, x.color])).toEqual([[' 1', 'claude'], [' ◌', 'claude'], [' 2', 'claude'], [' ✓', 'success']])
 })
 
 test('a fold row has no card, so the row under it does not dim when it is hovered', async ($, on) => {
   const ui = await crowded($, on)
-  const scopes = ((await pieces(ui, 'o:step:1')) ?? []).map(x => (x as { hover?: { scope?: string } }).hover?.scope)
+  const scopes = ((await pieces(ui, 'o:agent:0:3')) ?? []).map(x => (x as { hover?: { scope?: string } }).hover?.scope)
   expect(scopes.length).toBeGreaterThan(0)
   expect(scopes.filter(scope => scope?.startsWith('line:'))).toEqual([])
 })
@@ -4628,12 +4659,14 @@ test('pressing more shows every agent of that step, less folds them, one step op
   const ui = await crowded($, on)
   await tapRow(ui, 'o:more:0')
   await ui.drawn()
-  expect((await agentRow(ui, 0, 4))?.text).toBe('├ ○ b5')
-  expect(await textOf(ui, 'o:less')).toBe('└ … less')
+  expect((await agentRow(ui, 0, 0))?.text).toBe('  ├ ✓ b1')
+  expect((await agentRow(ui, 0, 4))?.text).toBe('  └ ○ b5')
+  expect(await textOf(ui, 'o:less')).toBe('  ├ … less')
   await tapRow(ui, 'o:more:1')
   await ui.drawn()
   expect(await textOf(ui, 'o:more:0')).toBeDefined()
-  expect((await agentRow(ui, 1, 3))?.text).toBe('├ ○ c4')
+  expect((await agentRow(ui, 1, 0))?.text).toBe('  ├ ○ c1')
+  expect((await agentRow(ui, 1, 3))?.text).toBe('  └ ○ c4')
   await tapRow(ui, 'o:less')
   await ui.drawn()
   expect(await textOf(ui, 'o:less')).toBeUndefined()
@@ -4645,7 +4678,7 @@ test("Claude's next full report folds an open step", async ($, on) => {
   await tapRow(ui, 'o:more:0')
   await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'in_progress', agents: ['b1', 'b2', 'b3', 'b4', 'b5'] }] } as any)
   await ui.drawn()
-  expect(await textOf(ui, 'o:more:0')).toBe('└ … 2 more  1 ✗ 1 ○')
+  expect(await textOf(ui, 'o:more:0')).toBe('  ├ … 3 earlier  1 ◌ 2 ✓')
 })
 
 test('a prompt typed mid-turn keeps the turn: agents spawned after it still hang', async ($, on) => {
@@ -4655,7 +4688,7 @@ test('a prompt typed mid-turn keeps the turn: agents spawned after it still hang
   await $.prompt.submit({ text: 'also this', wait: false, turnId: 't1', origin: { kind: 'composer' } } as any)
   await spawn($, 'late')
   await ui.drawn()
-  expect((await agentRow(ui, 0, 0))?.text).toBe('└ ◌ late')
+  expect((await agentRow(ui, 0, 0))?.text).toBe('  └ ◌ late')
 })
 
 test("a workflow's agents get no row: the list never names them, so they would stick at not started", async ($, on) => {
@@ -4686,7 +4719,7 @@ test("clicking a live agent row opens its transcript, its whole row lit while in
   await tapRow(ui, 'o:agent:0:0')
   await ui.redraw({ ...props, view: { agentId: 'a1' } })
   // Lit as the shown tab is: the whole row, padded to the pane's edge.
-  expect((await pieces(ui, 'o:agent:0:0'))?.[0]).toMatchObject({ text: `└ ◌ Read code${' '.repeat(40 - 2 - 7 - 13)}`, bold: true, inverse: true, color: 'claude' })
+  expect((await pieces(ui, 'o:agent:0:0'))?.[0]).toMatchObject({ text: `  └ ◌ Read code${' '.repeat(40 - 2 - 7 - 13 - 2)}`, bold: true, inverse: true, color: 'claude' })
   await tapRow(ui, 'o:agent:0:0')
   expect(views).toEqual(['a1', undefined])
 })
@@ -5548,7 +5581,7 @@ test('tree glyphs take the border color', async ($, on) => {
   await $.tool.call({ tool: INTENT, ...AGENTS_REPORT } as any)
   await spawn($, 'Read code')
   await ui.drawn()
-  expect((await pieces(ui, 'o:agent:0:0'))?.[0]).toMatchObject({ text: '└ ', color: 'promptBorder' })
+  expect((await pieces(ui, 'o:agent:0:0'))?.[0]).toMatchObject({ text: '  └ ', color: 'promptBorder' })
 })
 
 test("STEPS' top cue is a blank row; a Git modal keeps its ruled cue", async ($, on) => {

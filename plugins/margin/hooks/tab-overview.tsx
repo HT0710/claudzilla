@@ -657,10 +657,13 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                       return [w.above > 0 && stepCues.up, ...shownRows, w.below > 0 && stepCues.down]
                     })(shown.steps.map((step, i) => {
                       const all = agentRows[i] ?? []
-                      // Past 3, the rest fold into a count, so a fan-out does not push later steps out of view.
+                      // Past 3, the earlier ones fold into a count under the step and the 2 newest show, so a fan-out
+                      // does not push later steps out of view.
                       const folds = all.length > 3
-                      const rows = folds && open !== i ? all.slice(0, 3) : all
-                      const hidden = all.slice(rows.length)
+                      const rows = folds && open !== i ? all.slice(-2) : all
+                      const hidden = all.slice(0, all.length - rows.length)
+                      // A named row's description starts 2 columns past the longest name shown; an unnamed row draws none.
+                      const nameCol = Math.max(0, ...rows.flatMap(row => (row.name ? [row.name.length] : [])))
                       // Each count in claude, its glyph in the mark colour; ◌ is lit when any of them runs, faint when none has started.
                       const counts = ['◌', '✗', '■', '○', '✓'].flatMap(glyph => {
                         const of = hidden.filter(row => AGENT_MARK[row.status][0] === glyph)
@@ -677,17 +680,20 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                       // A spawned agent's row opens its transcript; the one in view is lit across the row, as the shown tab is.
                       const agentLine = (row: AgentRow, tree: string, j: number): StepLine => {
                         const [glyph, color] = AGENT_MARK[row.status]
-                        const text = fit(row.name || row.description, width - LABEL - 4)
+                        const text = fit(row.name || row.description, width - LABEL - tree.length - 2)
+                        const room = width - LABEL - tree.length - 2 - nameCol - 2
+                        const desc = row.name && row.description && room >= 4 ? `${' '.repeat(nameCol - text.length + 2)}${fit(row.description, room)}` : ''
                         const key = `o:agent:${i}:${j}`
                         if (row.id) acts[key] = () => view(row.id)
                         const left =
                           row.id && row.id === ctx.viewing()
-                            ? [<Text bold inverse color={shade('claude')}>{`${tree}${glyph} ${text}`.padEnd(width - LABEL)}</Text>]
-                            : (marks => (row.id ? padded(marks, tree.length + 2 + text.length) : marks))([
+                            ? [<Text bold inverse color={shade('claude')}>{`${tree}${glyph} ${text}${desc}`.padEnd(width - LABEL)}</Text>]
+                            : (marks => (row.id ? padded(marks, tree.length + 2 + text.length + desc.length) : marks))([
                                 <Text key="tree" color={shade('promptBorder')}>{tree}</Text>,
                                 <Text key="mark" color={shade(color)}>{`${glyph} `}</Text>,
                                 // The mark keeps the status colour; the text takes the agent's own once it runs.
                                 <Text key="text" color={shade((one => (one ? agentTone(one) : agentText(row.status)))(row.id ? sparks.find(s => s.id === row.id) : undefined))}>{text}</Text>,
+                                ...(desc ? [<Text key="desc" color={shade(HUD.faint)}>{desc}</Text>] : []),
                               ])
                         const one = row.id ? sparks.find(s => s.id === row.id) : undefined
                         const type = one?.type?.replace(/^[^:]+:/, '')
@@ -701,13 +707,13 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                       }
                       const toggle = (key: string, label: string, to: number, tail: JSX.Element[] = []): StepLine => {
                         acts[key] = () => update($, expanded, () => to)
-                        return { key, fold: true, left: [<Text key="tree" color={shade('promptBorder')}>└ </Text>, <Text key="label" color={shade(HUD.faint)}>{label}</Text>, ...tail] }
+                        return { key, fold: true, left: [<Text key="tree" color={shade('promptBorder')}>{'  ├ '}</Text>, <Text key="label" color={shade(HUD.faint)}>{label}</Text>, ...tail] }
                       }
                       const stepKey = `o:step:${i}`
                       return [
                         { key: stepKey, left: stepLine, word: STEP_WORD[step.status], mark: shade(MARK_SHADE[step.status]) },
-                        ...rows.map((row, j) => agentLine(row, j === rows.length - 1 && !folds ? '└ ' : '├ ', j)),
-                        folds && (hidden.length ? toggle(`o:more:${i}`, `… ${hidden.length} more `, i, counts) : toggle('o:less', '… less', -1)),
+                        folds && (hidden.length ? toggle(`o:more:${i}`, `… ${hidden.length} earlier `, i, counts) : toggle('o:less', '… less', -1)),
+                        ...rows.map((row, j) => agentLine(row, j === rows.length - 1 ? '  └ ' : '  ├ ', hidden.length + j)),
                       ].filter(Boolean) as StepLine[]
                     }))}
                   </Box>
