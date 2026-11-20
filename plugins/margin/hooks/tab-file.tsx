@@ -81,6 +81,7 @@ function endFind(): void {
   find.spans = new Map()
   find.current = 0
   find.open = false
+  gen = 0
 }
 
 // Closes the name field and drops its text and listing.
@@ -181,6 +182,8 @@ export async function changedOnDisk($: EngineInterface, call: { tool: string } &
 }
 
 const FIELD = 'explorer:find'
+// Bumped on each submit: the engine drops a redrawn value equal to the last one it had, so a new key remounts the field.
+let gen = 0
 const PLACEHOLDER = 'type text to find'
 const NAME = 'explorer:name'
 const NAME_PLACEHOLDER = 'type a name'
@@ -203,8 +206,10 @@ export const fieldOpen = (): boolean => !!(state.find?.open || state.names)
 
 // Closes the find or name field when it has no text; with `e`, only when focus left it.
 export async function closeEmptyField($: EngineInterface, e?: { element?: string }): Promise<boolean> {
-  if (state.find?.open && !state.find.text && (!e || leavesField(e, FIELD))) state.find = undefined
-  else if (state.names && !state.names.text && (!e || leavesField(e, NAME))) endNames()
+  if (state.find?.open && !state.find.text && (!e || leavesField(e, FIELD))) {
+    state.find = undefined
+    gen = 0
+  } else if (state.names && !state.names.text && (!e || leavesField(e, NAME))) endNames()
   else return false
   await update($, file, () => placeOf())
   return true
@@ -802,7 +807,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
                 {state.find.text && <Text color={HUD.faint}>lines with </Text>}
                 {/* A focused Input needs the text cells plus 4: cursor, gap, enter mark and a space (measured live). */}
                 <Box width={Math.min(cellsOf(state.find.text || PLACEHOLDER) + 4, W - 8 - (state.find.text ? 11 : 0))} flexShrink={0}>
-                  <Input key={FIELD} value={state.find.text} placeholder={PLACEHOLDER} submitLabel="" autoFocus onInput={v => typeFind($, v)} onSubmit={() => stepFind($, 1)} />
+                  <Input key={gen ? `${FIELD}:${gen}` : FIELD} value={state.find.text} placeholder={PLACEHOLDER} submitLabel="" autoFocus onInput={v => typeFind($, v)} onSubmit={() => (gen++, stepFind($, 1))} />
                 </Box>
               </Box>
             ) : state.names && place.kind === 'folder' ? (
