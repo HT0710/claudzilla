@@ -4198,12 +4198,28 @@ test('hang: an unlisted agent falls back to its step by text, else the step in p
 test("hang: an earlier turn's finished agent never fills a listed entry; a working one does", () => {
   const steps = [S('a', 'in_progress', ['Review bugs'])]
   expect(hang(steps, [sp('1', 'Review bugs', 'a', 1, 'completed')], 2)[0]).toEqual([{ description: 'Review bugs', status: 'planned' }])
+  expect(hang(steps, [sp('1', 'Review bugs', 'a', 1, 'idle')], 2)[0]).toEqual([{ description: 'Review bugs', status: 'planned' }])
   expect(hang(steps, [sp('1', 'Review bugs', 'a', 1)], 2)[0][0].status).toBe('running')
   expect(hang([S('a', 'in_progress')], [sp('1', 'old', 'a', 1)], 2)[0]).toEqual([])
 })
 
 test("hang: an agent spawned before this turn's report hangs under its in-progress step", () => {
   expect(hang([S('b', 'in_progress')], [sp('1', 'x', 'old step', 3)], 3)[0]).toHaveLength(1)
+})
+
+test("hang: a listed name matches the spawn's name before its description", () => {
+  const spawns = [{ ...sp('1', 'Read code', 'a', 1), name: 'sleepy-lynx' }]
+  expect(hang([S('a', 'in_progress', ['sleepy-lynx'])], spawns, 1)[0]).toEqual([{ id: '1', name: 'sleepy-lynx', description: 'Read code', status: 'running' }])
+})
+
+test('hang: a name match beats an earlier spawn\'s description match', () => {
+  const spawns = [sp('1', 'Read code', 'a', 1), { ...sp('2', 'Other', 'a', 1), name: 'Read code' }]
+  expect(hang([S('a', 'in_progress', ['Read code'])], spawns, 1)[0][0].id).toBe('2')
+})
+
+test('hang: a listed description still matches a named spawn', () => {
+  const spawns = [{ ...sp('1', 'Read code', 'a', 1), name: 'sleepy-lynx' }]
+  expect(hang([S('a', 'in_progress', ['Read code'])], spawns, 1)[0]).toEqual([{ id: '1', name: 'sleepy-lynx', description: 'Read code', status: 'running' }])
 })
 
 // An agent row's text takes its agent's colour: a test spawn has no type, so it shows `agent`, which hashes to indigo.
@@ -4266,12 +4282,13 @@ test('a step card names its status in its mark color', async ($, on) => {
 })
 
 test('an agent card names its status in its mark color', async ($, on) => {
-  const ui = await agentsPane($, on, { a1: 'completed', a2: 'pending', a3: 'killed', a4: 'failed', a5: 'running' })
-  await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'in_progress', agents: ['c', 'p', 'k', 'f', 'r', 'x'] }] } as any)
-  for (const one of ['c', 'p', 'k', 'f', 'r']) await spawn($, one)
+  const ui = await agentsPane($, on, { a1: 'completed', a2: 'pending', a3: 'killed', a4: 'failed', a5: 'running', a6: 'idle' })
+  await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'in_progress', agents: ['c', 'p', 'k', 'f', 'r', 'i', 'x'] }] } as any)
+  for (const one of ['c', 'p', 'k', 'f', 'r', 'i']) await spawn($, one)
   await tapRow(ui, 'o:more:0')
   await ui.drawn()
-  const words = [['done', 'success'], ['not started', '#4f5c68'], ['stopped', 'inactive'], ['failed', '#e06c75'], ['running', 'claude'], ['not started', '#4f5c68']]
+  // A named agent idles once done, waiting on a SendMessage that may never come.
+  const words = [['done', 'success'], ['not started', '#4f5c68'], ['stopped', 'inactive'], ['failed', '#e06c75'], ['running', 'claude'], ['done', 'success'], ['not started', '#4f5c68']]
   for (const [n, [word, color]] of words.entries()) expect((await cardTexts(ui, `o:agent:0:${n}`))[1]).toEqual([word, color])
 })
 
@@ -4288,12 +4305,13 @@ test('an agent card adds its type in its colour, model as name and version, and 
   await stepAs($, 'a1', 'low')
   await ui.drawn()
   expect(await cardTexts(ui, 'o:agent:0:0')).toEqual([
-    ['status  ', '#4f5c68'], ['running', 'claude'],
-    ['type    ', '#4f5c68'], ['cavecrew-investigator', '#b3c46a'],
-    ['model   ', '#4f5c68'], ['haiku 5.5', undefined],
-    ['effort  ', '#4f5c68'], ['low', undefined],
+    ['status       ', '#4f5c68'], ['running', 'claude'],
+    ['description  ', '#4f5c68'], ['r', undefined],
+    ['type         ', '#4f5c68'], ['cavecrew-investigator', '#b3c46a'],
+    ['model        ', '#4f5c68'], ['haiku 5.5', undefined],
+    ['effort       ', '#4f5c68'], ['low', undefined],
   ])
-  expect((await cardTexts(ui, 'o:agent:0:1')).map(([t]) => t.trim())).toEqual(['status', 'running', 'model', 'opus'])
+  expect((await cardTexts(ui, 'o:agent:0:1')).map(([t]) => t.trim())).toEqual(['status', 'running', 'description', 'g', 'model', 'opus'])
 })
 
 test('modelName: a full id reads as name and version; anything else as given', () => {
@@ -4468,6 +4486,27 @@ test('a listed agent shows planned, then live under its step', async ($, on) => 
   await turnEnd($, 'a1')
   await ui.drawn()
   expect((await agentRow(ui, 0, 0))?.text).toBe('└ ✗ Read code')
+})
+
+test('a named row shows its name, an unnamed row its description', async ($, on) => {
+  const ui = await agentsPane($, on, { a1: 'running', a2: 'running' })
+  await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'in_progress', agents: ['Read code', 'Check API'] }] } as any)
+  await spawn($, 'Read code', { name: 'sleepy-lynx' })
+  await spawn($, 'Check API')
+  await ui.drawn()
+  expect((await agentRow(ui, 0, 0))?.text).toBe('├ ◌ sleepy-lynx')
+  expect((await agentRow(ui, 0, 1))?.text).toBe('└ ◌ Check API')
+})
+
+test('agents of one type keep one colour whatever their names', async ($, on) => {
+  const ui = await agentsPane($, on, { a1: 'running', a2: 'running' })
+  await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'in_progress', agents: ['x', 'y'] }] } as any)
+  await spawn($, 'x', { name: 'a', subagentType: 'Explore' })
+  await spawn($, 'y', { name: 'b', subagentType: 'Explore' })
+  await ui.drawn()
+  const [one, two] = await Promise.all([0, 1].map(n => agentRow(ui, 0, n)))
+  expect(one?.color).toBeDefined()
+  expect(one?.color).toBe(two?.color)
 })
 
 test('each agent status draws its glyph and color, in the order Claude listed them', async ($, on) => {

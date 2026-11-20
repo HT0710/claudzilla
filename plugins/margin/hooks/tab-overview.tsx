@@ -41,11 +41,12 @@ export function resetStepsHeld() {
 }
 
 const STEP_WORD: Record<Step['status'], string> = { completed: 'done', in_progress: 'working', pending: 'not started' }
-const AGENT_WORD: Record<AgentRow['status'], string> = { completed: 'done', pending: 'not started', planned: 'not started', running: 'running', waiting: 'waiting', idle: 'idle', failed: 'failed', killed: 'stopped' }
+const AGENT_WORD: Record<AgentRow['status'], string> = { completed: 'done', pending: 'not started', planned: 'not started', running: 'running', waiting: 'waiting', idle: 'done', failed: 'failed', killed: 'stopped' }
 // A STEPS row: a step or agent with its card, or a fold toggle.
 type StepLine = { key: string; left: JSX.Element[]; word?: string; mark?: string; more?: JSX.Element[]; fold?: boolean }
 
-const WORKING = ['running', 'waiting', 'idle']
+// A named agent idles once done, waiting on a SendMessage that may never come.
+const WORKING = ['running', 'waiting']
 export const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 // Agents under each step: by the description Claude listed, never by position, as a redraft reorders steps.
 // An earlier turn's agent fills a listed entry only while it works: a finished one would show old work as new.
@@ -53,16 +54,17 @@ export const hang = (steps: Step[], spawns: Spawn[], turn: number): AgentRow[][]
   const left = spawns.filter(one => one.turn === turn || (one.turn < turn && WORKING.includes(one.status)))
   const rows = steps.map(step =>
     (step.agents ?? []).map(description => {
-      const i = left.findIndex(one => same(one.description, description))
+      const byName = left.findIndex(one => one.name && same(one.name, description))
+      const i = byName >= 0 ? byName : left.findIndex(one => same(one.description, description))
       if (i < 0) return { description, status: 'planned' as const }
       const [one] = left.splice(i, 1)
-      return { id: one.id, description: one.description, status: one.status }
+      return { id: one.id, name: one.name, description: one.description, status: one.status }
     }),
   )
   const current = steps.findIndex(step => step.status === 'in_progress')
   for (const one of left.filter(one => one.turn === turn)) {
     const at = steps.findIndex(step => step.text === one.step)
-    rows[at >= 0 ? at : current >= 0 ? current : steps.length - 1]?.push({ id: one.id, description: one.description, status: one.status })
+    rows[at >= 0 ? at : current >= 0 ? current : steps.length - 1]?.push({ id: one.id, name: one.name, description: one.description, status: one.status })
   }
   return rows
 }
@@ -103,14 +105,14 @@ const AGENT_HASHED = ['#7f9cb0', '#8a8fe0']
 const agentShown = (one?: Spawn) => (one && printable(one.name ?? (one.type ?? '').replace(/^[^:]+:/, ''))) || 'agent'
 // A model id as name and version (`claude-haiku-5-5` reads `haiku 5.5`); an alias or other id as given.
 export const modelName = (id: string) => id.replace(/^claude-([a-z]+)-(\d+)-(\d+)\b.*$/, '$1 $2.$3')
-// An agent's colour in PLAN and every USED modal: a common type its own, a launch name included; any other by its
-// shown name's hash; one no longer listed faint.
+// An agent's colour in PLAN and every USED modal: a common type its own; any other by its type's hash, so the
+// colour means the type and a name tells agents of one type apart; one no longer listed faint.
 const agentTone = (one?: Spawn) => {
   if (!one) return HUD.faint
   const fixed = AGENT_FIXED[(one.type ?? '').replace(/^[^:]+:/, '')]
   if (fixed) return fixed
-  const name = agentShown(one)
-  return AGENT_HASHED[[...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 0) % AGENT_HASHED.length]
+  const type = printable((one.type ?? '').replace(/^[^:]+:/, '')) || 'agent'
+  return AGENT_HASHED[[...type].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 0) % AGENT_HASHED.length]
 }
 
 export type OverviewCtx = TabCtx & {
@@ -158,7 +160,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
   const TEXT_SHADE = { completed: SCOPE, in_progress: 'claude', pending: undefined }
   // An agent marks as its step would: working lit, not started faint, ended its outcome; ended text a step back.
   const AGENT_MARK: Record<AgentRow['status'], [string, string]> = {
-    planned: ['○', HUD.faint], pending: ['◌', HUD.faint], running: ['◌', 'claude'], waiting: ['◌', 'claude'], idle: ['◌', 'claude'],
+    planned: ['○', HUD.faint], pending: ['◌', HUD.faint], running: ['◌', 'claude'], waiting: ['◌', 'claude'], idle: ['✓', 'success'],
     completed: ['✓', 'success'], failed: ['✗', TYPES.fix], killed: ['■', 'inactive'],
   }
   // fine is done's green, concern the warning amber, against failed's red, unsure the faint of pending.
@@ -675,7 +677,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                       // A spawned agent's row opens its transcript; the one in view is lit across the row, as the shown tab is.
                       const agentLine = (row: AgentRow, tree: string, j: number): StepLine => {
                         const [glyph, color] = AGENT_MARK[row.status]
-                        const text = fit(row.description, width - LABEL - 4)
+                        const text = fit(row.name || row.description, width - LABEL - 4)
                         const key = `o:agent:${i}:${j}`
                         if (row.id) acts[key] = () => view(row.id)
                         const left =
@@ -690,6 +692,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                         const one = row.id ? sparks.find(s => s.id === row.id) : undefined
                         const type = one?.type?.replace(/^[^:]+:/, '')
                         const more = [
+                          ...(one?.description ? [kitKv(rc, 'description', printable(one.description))] : []),
                           ...(type ? [kitKv(rc, 'type', <Text color={agentTone(one)}>{printable(type)}</Text>)] : []),
                           ...(one?.model ? [kitKv(rc, 'model', printable(modelName(one.model)))] : []),
                           ...(one?.effort ? [kitKv(rc, 'effort', one.effort)] : []),
