@@ -858,6 +858,13 @@ test('/claudzilla handoff writes the note, then clears and sends the note as the
   expect(seen.fills).toEqual([])
 })
 
+test('/claudzilla handoff follows a symlinked projects folder', async ($, on) => {
+  const { seen } = handoffHost(on)
+  await $.session.start(start)
+  await handoff($)
+  expect(seen.argvs).toContain('find -H /cfg/projects -maxdepth 2 -name s1.jsonl')
+})
+
 test('/claudzilla handoff fills @note when the send fails', async ($, on) => {
   const { seen, clock } = handoffHost(on, { submitFails: true })
   await $.session.start(start)

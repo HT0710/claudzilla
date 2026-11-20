@@ -336,7 +336,7 @@ async function writeHandoff($: EngineInterface, ask: string): Promise<{ text: st
   const home = await $.env.get('HOME').catch(() => undefined)
   const dir = (await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined)) || `${home}/.claude`
   const sessionId = await $.session.id()
-  const found = await $.process.run(['find', `${dir}/projects`, '-maxdepth', '2', '-name', `${sessionId}.jsonl`]).catch(() => undefined)
+  const found = await $.process.run(['find', '-H', `${dir}/projects`, '-maxdepth', '2', '-name', `${sessionId}.jsonl`]).catch(() => undefined)
   const path = found?.stdout.split('\n')[0]
   if (!path) {
     handing = false
