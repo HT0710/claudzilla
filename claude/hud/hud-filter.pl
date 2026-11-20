@@ -1,6 +1,7 @@
 #!/usr/bin/perl -0777
 # hud-data.mjs key/value lines -> E2 layout: identity row, rule, meters in two columns (ctx over cch | 5h over wk), rule, activity row.
-# hud.compact in claudzilla.json: no rules, and all meters on one row when the width allows.
+# hud.layout in claudzilla.json: "compact" drops the rules and puts all meters on one row when the width allows;
+# "minimal" draws one row: place and model left, meters right.
 use strict; use warnings;
 # stdin, stdout, files and `git` output are UTF-8: decode on read, so non-ASCII paths aren't encoded twice.
 # Invalid bytes (a branch name git allows) become U+FFFD, quietly: a statusline has no stderr reader.
@@ -33,6 +34,7 @@ my %PAL = map { $f{$_} =~ /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i ? (subst
 sub pal { $PAL{$_[0]} // [128,128,128] }
 sub fg { "\e[38;2;" . join(';', @{ pal($_[0]) }) . "m" }
 my ($id, $META_CWD, $EFFORT, $SID) = @f{qw(id cwd effort sid)};
+my ($COMPACT, $MIN) = map { ($f{layout} // '') eq $_ } qw(compact minimal);
 # session name (/rename, or derived like "maxis-24") - the handle peers message us by.
 # Not in the statusline JSON, so look it up in the per-pid session registry.
 my $sname;
@@ -118,20 +120,30 @@ sub meter_line {
     my $wait = !defined $pct; $pct //= 0;
     my $f = int($pct / 100 * $n + 0.5); $f = $n if $f > $n;
     # cache is a clock, not a fill: a solid full bar in one ramp colour, dim blue when fresh to orange when cold
-    my $cc = $label eq 'cch' ? [map { int($_+0.5) } @{ ramp(0.1 + 0.9 * ($pct/100) ** 0.85) }] : undef;
+    my $cc = $label eq 'cch' ? cch_colour($pct) : undef;
     $f = $n if $cc;
     my @cell;
     push @cell, [$_, pal('shared_label')] for split //, sprintf('%-*s ', $lw, $label); # title
-    for my $i (0 .. $n-1) {                                                   # bar
-        my $on = $i < $f;
-        push @cell, [$cc ? $G_CACHE : $on ? $G_ON : $G_OFF,
-                     $on ? $cc // [map { int($_+0.5) } @{ ramp(($n > 1 ? $i/($n-1) : 1) ** 0.85) }] : pal('hud_track'),
-                     $on ? 0.65 : 0.30];
-    }
-    my $x = ($pct/100) ** 0.85; $x = 0.4 if $x < 0.4;                         # figure
-    my $fc = $wait ? pal('hud_note') : $cc // [map { int($_+0.5) } @{ ramp($x) }];
-    push @cell, [$_, $fc] for split //, sprintf(' %*s%%  ', $pw, $wait ? '--' : $pct);
+    push @cell, bar_cells($n, $f, $cc);                                       # bar
+    push @cell, [$_, fig_colour($pct, $wait, $cc)] for split //, sprintf(' %*s%%  ', $pw, $wait ? '--' : $pct);   # figure
     push @cell, [$_, pal('hud_note')] for split //, sprintf("%*s", $tw, $note);    # note
+    return shine(\@cell, @hs);
+}
+sub bar_cells {                 # $n cells, $f lit; $cc: one solid colour (the cache clock)
+    my ($n,$f,$cc) = @_;
+    return map { my $on = $_ < $f;
+                 [$cc ? $G_CACHE : $on ? $G_ON : $G_OFF,
+                  $on ? $cc // [map { int($_+0.5) } @{ ramp(($n > 1 ? $_/($n-1) : 1) ** 0.85) }] : pal('hud_track'),
+                  $on ? 0.65 : 0.30] } 0 .. $n-1;
+}
+sub fig_colour {
+    my ($pct,$wait,$cc) = @_;
+    my $x = ($pct/100) ** 0.85; $x = 0.4 if $x < 0.4;
+    return $wait ? pal('hud_note') : $cc // [map { int($_+0.5) } @{ ramp($x) }];
+}
+sub cch_colour { [map { int($_+0.5) } @{ ramp(0.1 + 0.9 * ($_[0]/100) ** 0.85) }] }
+sub shine {                     # cells -> string, with the sweep highlight at heads @hs
+    my ($cell,@hs) = @_; my @cell = @$cell;
     my @px;
     for my $i (0 .. $#cell) {
         my ($ch,$c,$w) = @{$cell[$i]};
@@ -180,16 +192,19 @@ sub cwd_str {
     }
     return $s . "\e[0m";
 }
-{   # narrow panes: shed the least important pieces, then trim the path itself
+# ⎇ draws 2 cells wide in 1, so a second space keeps the gap; the name as margin's Git tab draws it
+# (chore in shared.label, as margin's TYPES adds it)
+my $branch_str = sub { my ($t, $type, $rest) = $_[0] =~ m{^(([^/]+)/)?(.*)\z}s;
+                       my $c = !defined $t ? undef : $type eq 'chore' ? 'shared_label' : $PAL{"types_$type"} ? "types_$type" : 'shared_faint';
+                       $dim->('  ') . fg('shared_action') . $G_BRANCH . ($G_BRANCH eq "\x{2387}" ? '  ' : ' ') . "\e[0m"
+                       . (defined $c ? fg($c) . "$t\e[0m" : '') . $rest };
+my $dirty_str = sub { $dim->(' ') . join '', map { fg(/^\?/ ? 'shared_faint' : 'shared_dirty') . " $_\e[0m" } split / /, $_[0] };
+# path trimmed from the left until it takes at most $room cells
+sub trim_path { my ($path, $room) = @_; $path = substr($path, 1) while vis($path) > $room - 1; return "\x{2026}$path" }
+unless ($MIN) {   # narrow panes: shed the least important pieces, then trim the path itself
     my $path = $cwd // '~';
     my $p    = $profile // '';
-    # ⎇ draws 2 cells wide in 1, so a second space keeps the gap; the name as margin's Git tab draws it
-    # (chore in shared.label, as margin's TYPES adds it)
-    my @opt = ( [$branch, sub { my ($t, $type, $rest) = $_[0] =~ m{^(([^/]+)/)?(.*)\z}s;
-                                my $c = !defined $t ? undef : $type eq 'chore' ? 'shared_label' : $PAL{"types_$type"} ? "types_$type" : 'shared_faint';
-                                $dim->('  ') . fg('shared_action') . $G_BRANCH . ($G_BRANCH eq "\x{2387}" ? '  ' : ' ') . "\e[0m"
-                                . (defined $c ? fg($c) . "$t\e[0m" : '') . $rest }],
-                [$dirty,  sub { $dim->(' ') . join '', map { fg(/^\?/ ? 'shared_faint' : 'shared_dirty') . " $_\e[0m" } split / /, $_[0] }] );
+    my @opt = ( [$branch, $branch_str], [$dirty, $dirty_str] );
     my $build = sub {
         my $l = cwd_str($path);
         for my $o (@opt) { $l .= $o->[1]->($o->[0]) if defined $o->[0] }
@@ -204,7 +219,7 @@ sub cwd_str {
     for my $i (1,0) { last if $fits->(); $opt[$i][0] = undef }     # dirty, branch
     if (!$fits->() && length($path) > 4) {                    # finally trim the path from the left
         my $room = $W - 1;
-        if ($room > 2) { $path = substr($path, 1) while vis($path) > $room - 1; $path = "\x{2026}$path" }
+        $path = trim_path($path, $room) if $room > 2;
     }
     my ($l,$r) = $build->();
     push @out, pad($l, $r);
@@ -216,12 +231,12 @@ my $tw = $note_w->(qw(ctx cch 5h wk));
 # Each column right-aligns its own notes.
 my @one = grep { defined } @mv{qw(ctx cch 5h wk)};
 # a fixed note width of 5, not $tw: the row count must not flip as a reset countdown changes length
-my $ONE = $f{compact} && @one && int(($W - 3 * $#one) / @one) - 11 - 5 >= 8;
+my $ONE = $COMPACT && @one && int(($W - 3 * $#one) / @one) - 11 - 5 >= 8;
 my $CL = int(($W - 3) / 2); my $CRW = $W - 3 - $CL;
 my $TWO = !$ONE && ($mv{'5h'} || $mv{wk}) && $CL - 11 - $tw >= 8;
 my ($twl, $twr) = $TWO ? ($note_w->(qw(ctx cch)), $note_w->(qw(5h wk))) : ($tw, $tw);
 # empty on one row: the sweep's fill-edge pulse then starts mid-row, so it reaches both ends
-my @m = $ONE ? () : $TWO ? grep { defined } @mv{qw(ctx cch)} : @one;
+my @m = $ONE || $MIN ? () : $TWO ? grep { defined } @mv{qw(ctx cch)} : @one;
 my $n  = ($TWO ? $CL : $W) - 4 - 5 - 2 - $twl;
 
 # --- sweep -----------------------------------------------------------------
@@ -304,10 +319,59 @@ sub rule {
     return paint(@px);
 }
 my @lt = localtime;
-push @out, rule(-1, sprintf(' %02d:%02d ', @lt[2,1])) unless $f{compact};
+push @out, rule(-1, sprintf(' %02d:%02d ', @lt[2,1])) unless $f{layout};
 
 my $DIV = " " . fg('hud_divider') . "\x{2503}\e[0m ";
-if ($ONE) {
+if ($MIN) {
+    # place + model left, meters right; shed pieces until both fit, in the order the guide lists
+    my $path = $cwd // '~';
+    my ($br, $dt, $mo, $notes) = ($branch, $dirty, $model, 1);
+    my @ms = grep { defined } @mv{qw(cch ctx 5h wk)};
+    my $bar = 12;
+    my @hs = heads(1);
+    my $left = sub {
+        my $l = cwd_str($path) . (defined $br ? $branch_str->($br) : '') . (defined $dt && $dt ne '' ? $dirty_str->($dt) : '');
+        $l .= '  ' . fg('hud_model') . $mo . "\e[0m" . ($EFFORT ? "\e[2m  $EFFORT\e[0m" : '') if defined $mo;
+        return $l;
+    };
+    my $right = sub {           # $x: the row column it starts at, for the sweep; undef measures only
+        my $x = shift; my @parts;
+        for my $m (@ms) {
+            my ($label, $pct, $note) = @$m;
+            my $wait = !defined $pct;
+            ($note //= '') =~ s/^ +//;
+            my @cell = map { [$_, pal('shared_label')] } split //, "$label ";
+            if ($label eq 'cch') {          # minutes left, in its bar's ramp colour; 3 wide so the row holds still
+                my $t = $note =~ /^\d+m$/ ? $note : $note eq 'cold' ? '0m' : '--';
+                push @cell, map { [$_, $t eq '--' ? pal('hud_note') : cch_colour($pct)] } split //, sprintf('%3s', $t);
+            } else {
+                my $f = int(($pct // 0) / 100 * $bar + 0.5); $f = $bar if $f > $bar;
+                push @cell, bar_cells($bar, $f), ($bar ? [' ', pal('hud_note')] : ());
+                # fixed widths, as compact: a digit more must not move the meters or flip what fits
+                push @cell, map { [$_, fig_colour($pct // 0, $wait)] } split //, sprintf('%3s%%', $wait ? '--' : $pct);
+                push @cell, map { [$_, pal('hud_note')] } split //, sprintf(' %5s', $note) if $notes && $note ne '';
+            }
+            push @parts, defined $x ? shine(\@cell, map { $_ - $x } @hs) : join '', map { $_->[0] } @cell;
+            $x += @cell + 3 if defined $x;
+        }
+        return join $DIV, @parts;
+    };
+    my $fits = sub { fits($left->(), $right->()) };
+    for (8, 5, 3, 0) { last if $fits->(); $bar = $_ }                      # bars shrink, then go
+    $mo =~ s/\s+[\d.]+$// if defined $mo && !$fits->();                    # model version
+    @ms = grep { $_->[0] ne 'wk' } @ms unless $fits->();                     # weekly meter
+    $dt = undef unless $fits->();                                            # changes
+    $notes = 0 unless $fits->();                                             # reset times, token count
+    $mo = undef unless $fits->();                                            # model and effort
+    $br = undef unless $fits->();                                            # branch
+    for my $l (qw(5h cch)) { last if $fits->(); @ms = grep { $_->[0] ne $l } @ms }   # ctx stays
+    if (!$fits->() && length($path) > 4) {                                   # finally trim the path from the left
+        my $room = $W - vis($right->()) - 2;
+        $path = trim_path($path, $room) if $room > 2;
+    }
+    my $r = $right->();
+    push @out, pad($left->(), $right->($W - vis($r)));
+} elsif ($ONE) {
     @one = grep { defined } @mv{qw(cch ctx 5h wk)};     # the three usage fills sit together, the cache clock apart
     my $room = $W - 3 * $#one;
     my $x = 0;
@@ -340,16 +404,16 @@ if ($ONE) {
     }
 }
 
-push @out, rule(3, sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]])) unless $f{compact};
+push @out, rule(3, sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]])) unless $f{layout};
 
 # activity: model, skill, thinking; uptime flush right
-{   # same treatment as the identity row, measured on the rendered strings
+unless ($MIN) {   # same treatment as the identity row, measured on the rendered strings
     my $mo = $model;
     $mo .= "\e[0m\e[2m  $EFFORT\e[0m" if defined $mo && $EFFORT;   # reset drops hud_model, which wraps $mo below
     my @L = ( [$mo,       sub { fg('hud_model') . "$_[0]\e[0m" }],
               [$skill,    sub { fg('hud_skill') . "$G_SKILL $_[0]\e[0m" }],
               [$thinking, sub { fg('hud_thinking') . "\x{25C7} thinking\e[0m" }] );
-    my $clock = $f{compact} ? sprintf('%02d:%02d %s %02d %s', @lt[2,1], $DAY[$lt[6]], $lt[3], $MON[$lt[4]]) : undef;
+    my $clock = $COMPACT ? sprintf('%02d:%02d %s %02d %s', @lt[2,1], $DAY[$lt[6]], $lt[3], $MON[$lt[4]]) : undef;
     my @R = ( [$clock,    sub { fg('hud_clock') . "$_[0]\e[0m" }],
               [$sname,    sub { (exists $PAL{hud_session} ? fg('hud_session') : "\e[38;5;109m") . "$_[0]\e[0m" }],
               [$id,       sub { fg('shared_faint') . "$_[0]\e[0m" }],

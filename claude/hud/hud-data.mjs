@@ -132,7 +132,7 @@ try {
   const dir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
   cfg = JSON.parse(readFileSync(join(dir, "claudzilla.json"), "utf8")) ?? {};
 } catch { /* no config: the default layout and colours */ }
-if (cfg.hud?.compact === true) out.compact = 1;
+if (["compact", "minimal"].includes(cfg.hud?.layout)) out.layout = cfg.hud.layout;
 
 // shared, hud and margin.types tables of plugins/margin/hooks/palette.ts DEFAULTS, kept equal by tests/hud.test.sh
 const PALETTE = {

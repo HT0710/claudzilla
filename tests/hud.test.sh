@@ -168,13 +168,15 @@ strip() { data <<<"$2" | COLUMNS=$1 perl "$HUD/hud-filter.pl" | perl -pe 's/\e\[
 widest() { perl -CS -ne 'chomp; $m = length if length > $m; END { print $m }'; }
 check "render: default -> no clock on bottom row" bash -c "! tail -1 <<<\"\$1\" | grep -q ':'" _ "$(strip 170 "$full")"
 check "render: default -> 6 rows, 2 rules" [ "$(strip 170 "$full" | grep -c '━')/$(strip 170 "$full" | wc -l | tr -d ' ')" = 2/6 ]
-check "data: compact off by default" [ -z "$(key compact "$(data <<<"$full")")" ]
+check "data: layout full by default" [ -z "$(key layout "$(data <<<"$full")")" ]
 printf '{bad' > "$C/claudzilla.json"
-check "data: bad config -> not compact" [ -z "$(key compact "$(data <<<"$full")")" ]
-echo '{"hud":{"compact":false}}' > "$C/claudzilla.json"
-check "data: compact false -> not compact" [ -z "$(key compact "$(data <<<"$full")")" ]
+check "data: bad config -> full" [ -z "$(key layout "$(data <<<"$full")")" ]
+echo '{"hud":{"layout":"tiny"}}' > "$C/claudzilla.json"
+check "data: unknown layout -> full" [ -z "$(key layout "$(data <<<"$full")")" ]
 echo '{"hud":{"compact":true}}' > "$C/claudzilla.json"
-check "data: compact true" [ "$(key compact "$(data <<<"$full")")" = 1 ]
+check "data: old compact key ignored" [ -z "$(key layout "$(data <<<"$full")")" ]
+echo '{"hud":{"layout":"compact"}}' > "$C/claudzilla.json"
+check "data: layout compact" [ "$(key layout "$(data <<<"$full")")" = compact ]
 out=$(strip 170 "$full")
 check "compact: 3 rows" [ "$(wc -l <<<"$out")" -eq 3 ]
 check "compact: no rules" bash -c "! grep -q '━' <<<'$out'"
@@ -202,6 +204,30 @@ base=$(strip 170 "$full" | dividers)
 check "compact: 100% keeps dividers" [ "$(strip 170 "${full//\"used_percentage\":30/\"used_percentage\":100}" | dividers)" = "$base" ]
 check "compact: waiting limits keep dividers" [ "$(strip 170 '{"session_id":"w1"}' | dividers)" = "$base" ]
 check "compact: 40 cols -> meters stack, no rules" [ "$(strip 40 '{"session_id":"w1"}' | wc -l)" -eq 6 ]
+echo '{"hud":{"layout":"minimal"}}' > "$C/claudzilla.json"
+check "data: layout minimal" [ "$(key layout "$(data <<<"$full")")" = minimal ]
+out=$(strip 170 "$full")
+check "minimal: 1 row" [ "$(wc -l <<<"$out")" -eq 1 ]
+check "minimal: place and model left, meters right" grep -q '^/.*  Opus  high  .*  cch 40m ┃ ctx [▰▱]\{12\}  42% ┃ 5h [▰▱]\{12\}  30%  2h0m ┃ wk [▰▱]\{12\}  12%  2d7h$' <<<"$out"
+check "minimal: fills 166 cols" [ "$(widest <<<"$out")" -eq 166 ]
+# right of the model only: the folder is a random temp path
+check "minimal: no email, version, clock, id, uptime, skill, thinking" bash -c "! grep -qE 'a…h|v[0-9]|[0-9]{2}:[0-9]{2}|abcdef12|up |pr|thinking' <<<'${out#*Opus  high}'"
+# a digit more must not change what fits: same left part at every width for 9% and 10%
+flip=0; for w in $(seq 60 2 130); do
+  a=$(strip $w "${full//\"used_percentage\":42.4/\"used_percentage\":9}" | sed 's/ cch .*//')
+  b=$(strip $w "${full//\"used_percentage\":42.4/\"used_percentage\":10}" | sed 's/ cch .*//')
+  [ "$a" = "$b" ] || flip=$w
+done
+check "minimal: 9% vs 10% keeps the left part" [ "$flip" = 0 ]
+for w in 120 90 70 50 30; do
+  o=$(strip $w "$full")
+  check "minimal: $w cols -> 1 row within $((w - 4))" [ "$(wc -l <<<"$o")/$(widest <<<"$o" | awk -v w=$((w - 4)) '{ print ($1 <= w) }')" = 1/1 ]
+done
+check "minimal: 120 cols keeps every meter" grep -q 'cch .* ┃ ctx .* ┃ 5h .* ┃ wk ' <<<"$(strip 120 "$full")"
+check "minimal: 50 cols drops wk, keeps ctx" bash -c "o=\$(cat); grep -q 'ctx' <<<\"\$o\" && ! grep -q 'wk' <<<\"\$o\"" <<<"$(strip 50 "$full")"
+check "minimal: no reply yet -> cch --" grep -q ' cch  -- ┃ ctx ' <<<"$(strip 120 '{"session_id":"w1"}')"
+check "minimal: cold -> cch 0m" grep -q ' cch  0m ┃ ctx ' <<<"$(data <<<"$full" | perl -pe 's/^cch\t.*/cch\t100/; s/^cch_note\t.*/cch_note\tcold/' | COLUMNS=170 perl "$HUD/hud-filter.pl" | perl -pe 's/\e\[[0-9;]*m//g')"
+check "minimal: limits waiting -> placeholders" grep -q '5h .*--% *-- ┃ wk .*--% *--$' <<<"$(strip 90 '{"session_id":"w1"}')"
 rm "$C/claudzilla.json"
 
 check "render: not a repo -> no branch" bash -c "! head -1 <<<'$(render "$full")' | grep -q '⎇'"
@@ -268,7 +294,7 @@ KV=$(printf 'id\tabcdef12\nsid\tabcdef1234567890\ncwd\t%s\nmodel\tOpus\neffort\t
 # frame <offset s> <cols> [extra kv line]: the payload plus hud-data's pal_ lines, as the pipe sends them
 frame() { { printf '%s\n' "$KV" ${3:+"$3"}; CLAUDE_CONFIG_DIR="$GC" node "$HUD/hud-data.mjs" </dev/null | grep '^pal_'; } |
   FROZEN_TIME=$((1790000000 + $1)) TZ=UTC HOME="$GH" CLAUDE_CONFIG_DIR="$GC" COLUMNS=$2 PERL5LIB="$PL" perl -MFrozen "$G/claude/hud/hud-filter.pl"; }
-golden() { for t in 0 40 50 72; do echo "== $t 120"; frame "$t" 120; done; echo "== 45 170 compact"; frame 45 170 $'compact\t1'; echo "== 0 60"; frame 0 60; }
+golden() { for t in 0 40 50 72; do echo "== $t 120"; frame "$t" 120; done; echo "== 45 170 compact"; frame 45 170 $'layout\tcompact'; echo "== 45 170 minimal"; frame 45 170 $'layout\tminimal'; echo "== 0 60"; frame 0 60; }
 golden > "$TMP/golden.out"
 [ -n "${HUD_GOLDEN_WRITE:-}" ] && cp "$TMP/golden.out" "$REPO/tests/fixtures/hud-golden.txt"
 check "palette: no palette -> byte-identical to tests/fixtures/hud-golden.txt" cmp -s "$TMP/golden.out" "$REPO/tests/fixtures/hud-golden.txt"

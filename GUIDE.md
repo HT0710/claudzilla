@@ -319,7 +319,11 @@ The meters sit in two columns, `ctx` over `cch` on the left and `5h` over `wk` o
 
 On a narrow terminal, the top row drops the version first, then drops the email's domain, then the rest of the email, then the changes and the branch, and finally cuts the folder from the left. The bottom row drops thinking, then the skill, the compact time and date, the session id, the session name, and the model last.
 
-To use fewer rows, set `{"hud":{"compact":true}}` in `~/.claude/claudzilla.json`. The two thin lines go, the time and date move to the right side of the bottom row, and all four meters sit on one row with `cch` first, for 3 rows in total. Under about 109 columns the meters keep their two columns or stack as usual. The change shows within a second.
+To use fewer rows, set `hud.layout` in `~/.claude/claudzilla.json`. With `{"hud":{"layout":"compact"}}`, the two thin lines go, the time and date move to the right side of the bottom row, and all four meters sit on one row with `cch` first, for 3 rows in total. Under about 109 columns the meters keep their two columns or stack as usual.
+
+With `{"hud":{"layout":"minimal"}}`, the status line is one row: the folder, branch, changes, model and effort on the left, and the meters on the right. `cch` comes first and counts down the minutes the cache stays warm, such as `40m`, in the same colours as its bar: `0m` once cold, `--` before the first reply. The email, version, time, date, session, skill and thinking do not show. On a narrow terminal the bars shrink and then go, then the row drops the model version, the `wk` meter, the changes, the reset times and token count, the model, the branch, and the `5h` and `cch` meters, and finally cuts the folder from the left.
+
+`full`, the default, is the 6-row layout. The change shows within a second. Before v1.9 the compact layout was `{"hud":{"compact":true}}`; the installer changes it to `"layout":"compact"` on update.
 
 To change the status line colours, see *Customize claudzilla* (`/claudzilla customize`).
 
@@ -729,7 +733,7 @@ Headline features of recent versions. Restart Claude after an update to use them
 - **Git tab:** the margin's Git tab shows the branch with a mark only when it needs you, a rebase or merge in progress with continue, skip and abort, the branch's pull request with its checks and description, and a tree of every branch with a `worktrees` view. Hover a row for a card, and click it for the details.
 - **Changes and commits:** CHANGES lists each changed file with its status and line counts, and COMMITS each recent commit. Click a commit for its message and files, and, once pushed, a link to its page.
 - **Short edit rows:** an Edit or Write call draws one row with its line counts, and a run of edits folds into one row. Click the row for a tree of the edited files and each diff. `{"folio": {"hideEditDiff": false}}` keeps the diffs in the chat.
-- **Compact status line:** `{"hud":{"compact":true}}` in `~/.claude/claudzilla.json` draws the status line in 3 rows.
+- **Compact status line:** `{"hud":{"layout":"compact"}}` in `~/.claude/claudzilla.json` draws the status line in 3 rows.
 - **Brainstorm on the ballot card:** when `brainstorming` has options for you, each question comes as a Decision, so one key answers it.
 
 #### v1.6.0
