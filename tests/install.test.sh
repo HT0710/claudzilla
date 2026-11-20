@@ -71,14 +71,14 @@ check "content: no omc" bash -c "! grep -rqi omc '$REPO/claude' '$REPO/settings.
 
 # --- parts ---
 check "parts: every base key/hook/plugin claimed exactly once" node "$REPO/tests/parts-check.mjs" "$REPO"
-check "parts: links == old LINKS set" [ "$(node -p 'Object.values(require(process.argv[1])).flatMap(p=>p.links||[]).sort().join(" ")' "$REPO/parts.json")" = "CLAUDE.md RTK.md hooks/claudzilla-update.sh hooks/cost-trace.mjs hooks/delegate-nudge.mjs hooks/experimental.mjs hooks/md-display.pl hooks/rules-guard.mjs hooks/trace.mjs hooks/trace.pl hud rules skills/claudzilla-compact skills/claudzilla-report skills/pr skills/rule-review themes" ]
+check "parts: links == old LINKS set" [ "$(node -p 'Object.values(require(process.argv[1])).flatMap(p=>p.links||[]).sort().join(" ")' "$REPO/parts.json")" = "CLAUDE.md RTK.md hooks/agent-name.mjs hooks/claudzilla-update.sh hooks/cost-trace.mjs hooks/delegate-nudge.mjs hooks/experimental.mjs hooks/md-display.pl hooks/rules-guard.mjs hooks/trace.mjs hooks/trace.pl hud rules skills/claudzilla-compact skills/claudzilla-report skills/pr skills/rule-review themes" ]
 H=$(new_home); run_install "$H"; cp -a "$H/.claude" "$H/before"; run_install "$H"
 check "existing: re-run byte-identical" diff -r --exclude=.claudzilla-backup "$H/before" "$H/.claude"
 
 # --- fresh machine ---
 H=$(new_home); run_install "$H"; rc=$?
 check "fresh: exit 0" [ "$rc" -eq 0 ]
-for f in CLAUDE.md RTK.md rules themes hud hooks/claudzilla-update.sh hooks/cost-trace.mjs hooks/rules-guard.mjs hooks/experimental.mjs hooks/delegate-nudge.mjs hooks/trace.mjs hooks/trace.pl hooks/md-display.pl skills/pr skills/rule-review skills/claudzilla-report skills/claudzilla-compact; do
+for f in CLAUDE.md RTK.md rules themes hud hooks/claudzilla-update.sh hooks/cost-trace.mjs hooks/rules-guard.mjs hooks/experimental.mjs hooks/delegate-nudge.mjs hooks/agent-name.mjs hooks/trace.mjs hooks/trace.pl hooks/md-display.pl skills/pr skills/rule-review skills/claudzilla-report skills/claudzilla-compact; do
   check "fresh: $f linked" [ "$(readlink "$H/.claude/$f")" = "$REPO/claude/$f" ]
 done
 H2=$(new_home); mkdir -p "$H2/.claude/skills/mine"; echo x > "$H2/.claude/skills/mine/SKILL.md"; run_install "$H2"
@@ -112,6 +112,10 @@ check "stamp fail: install finishes" grep -q 'claudzilla installed' "$H3/install
 check "fresh: rules-guard hook in settings" grep -q 'rules-guard.mjs' "$H/.claude/settings.json"
 check "fresh: delegate hook in settings" grep -q 'delegate-nudge.mjs' "$H/.claude/settings.json"
 check "fresh: experimental hook in settings" grep -q 'experimental.mjs' "$H/.claude/settings.json"
+check "fresh: agent-name hook in settings" grep -q 'agent-name.mjs' "$H/.claude/settings.json"
+check "fresh: agent teams 0 from base" [ "$(q "$H/.claude/settings.json" .env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS)" = '"0"' ]
+HT=$(new_home); mkdir -p "$HT/.claude"; echo '{"env":{"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS":"1"}}' > "$HT/.claude/settings.overrides.json"; run_install "$HT"
+check "overrides: a user's 1 wins over base 0" [ "$(q "$HT/.claude/settings.json" .env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS)" = '"1"' ]
 echo '{"experimental":{"agentRouting":true}}' > "$H/.claude/claudzilla.json"
 check "fresh: experimental hook finds features via link" bash -c "CLAUDE_CONFIG_DIR='$H/.claude' node '$H/.claude/hooks/experimental.mjs' </dev/null | grep -q 'Agent routing'"
 check "fresh: md-display hook in settings" grep -q 'md-display.pl' "$H/.claude/settings.json"
