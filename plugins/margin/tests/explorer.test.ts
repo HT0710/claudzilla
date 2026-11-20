@@ -1134,6 +1134,12 @@ test('the bar counts matches, with the current number in warning', async ($, on)
   expect(await barText(ui)).toContain('1 of 111')
 })
 
+test('the count is one Text, so the bar stays one row tall', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await search(ui, 'line 1')
+  expect((await barTexts(ui)).some(x => x.text === '1 of 111')).toBe(true)
+})
+
 test('no matches shows no matches in warning and greys the steps', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
   await search(ui, 'zzz')
