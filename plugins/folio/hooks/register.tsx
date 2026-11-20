@@ -67,11 +67,11 @@ const size = (bytes: number) => (bytes < 1024 ? `${bytes} B` : bytes < 1024 ** 2
 // Margin's agent colours (`plugins/margin/hooks/tab-overview.tsx`), so an agent reads the same in chat and in PLAN.
 const AGENT_FIXED: Record<string, string> = { 'general-purpose': '#e8927c', 'cavecrew-reviewer': '#d17fcf', 'cavecrew-investigator': '#b3c46a', 'cavecrew-builder': '#c8b08a' }
 const AGENT_HASHED = ['#7f9cb0', '#8a8fe0']
-const agentTone = ({ name, type }: { name?: string; type?: string }) => {
-  const fixed = AGENT_FIXED[(type ?? '').replace(/^[^:]+:/, '')]
+const agentTone = ({ type }: { type?: string }) => {
+  const shown = (type ?? '').replace(/^[^:]+:/, '')
+  const fixed = AGENT_FIXED[shown]
   if (fixed) return fixed
-  const shown = (name ?? (type ?? '').replace(/^[^:]+:/, '')) || 'agent'
-  return AGENT_HASHED[[...shown].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 0) % AGENT_HASHED.length]
+  return AGENT_HASHED[[...(shown || 'agent')].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 0) % AGENT_HASHED.length]
 }
 const AGENT_TAIL: Record<string, string> = { completed: 'done', async_launched: 'working', remote_launched: 'remote' }
 
@@ -732,6 +732,8 @@ export const register: Register = on => {
   const agents = new Map<string, AgentRow>()
   // Agent calls' tool_use_id by agentId, which their requests carry.
   const spawned = new Map<string, string>()
+  // Agent ids already looked up in the agent list: a miss is not asked again.
+  const asked = new Set<string>()
   // Background Skill calls' skill by tool_use_id, for its finish notification.
   const skills = new Map<string, string>()
   // Bash commands' first line by tool_use_id, for a background command's finish notification.
@@ -808,7 +810,7 @@ export const register: Register = on => {
       <Text wrap="truncate-end">
         <Text color={color}>{state === 'running' && !isLit ? ' ' : skill !== undefined ? '✦' : state === 'working' || state === 'remote' ? '◇' : '◆'}</Text> <Text color={color}>{state.padEnd(7)}</Text>{'  '}
         {skill !== undefined ? skillLabel(elements, skill) : <Text>
-          <Text bold color={agentTone(agent ?? {})}>{agentLabel(agent?.type)}</Text>
+          <Text bold color={agentTone(agent ?? {})}>{agent?.name || agentLabel(agent?.type)}</Text>
           <Text color="promptBorder"> (</Text>{desc}<Text color="promptBorder">)</Text>
         </Text>}
         {isLive && (model || effort) && <Text>{' '}<Text color={FAINT}>as</Text>{model && ' '}{model && <Text>{model}</Text>}{effort && ' '}{effort && <Text color={FAINT}>{effort}</Text>}</Text>}
@@ -1239,6 +1241,21 @@ export const register: Register = on => {
       skills.set(e.requestId, String(e.props.input?.skill ?? ''))
     }
     place(() => $.ui.invalidate('ui.render'), e)
+    const agent = e.component === 'ToolUse' && e.props.tool === 'Agent' ? agents.get(e.requestId) : undefined
+    const agentId = e.props.output?.agentId
+    if (agent && !agent.name && agentId && !asked.has(agentId)) {
+      if (asked.size > 500) asked.clear()
+      asked.add(agentId)
+      // The spawn hook fills a name Claude left out; the row's own input still lacks it.
+      $.agent.list().catch(() => []).then((list: { id: string; name?: string }[]) => {
+        const name = list.find(a => a.id === agentId)?.name
+        // The entry is replaced on each render, so write to the current one.
+        if (name) {
+          agents.set(e.requestId, { ...agents.get(e.requestId), name })
+          $.ui.invalidate('ui.render')
+        }
+      })
+    }
     return next(e)
   })
 
