@@ -7,7 +7,7 @@ import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, PAD, WHEEL_HOLD, applyPalette
 import type { Prompt, Readers, TabCtx, TabDraw, UseEntry, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
-import { changedOnDisk, checkOpenFile, draw as drawFile, explorerPost, fieldLeft, paneBase, showPlace } from './tab-file'
+import { changedOnDisk, checkOpenFile, draw as drawFile, closeEmptyField, explorerPost, fieldOpen, paneBase, showPlace } from './tab-file'
 import { autoFetch, draw as drawGit, resetGitReads } from './tab-git'
 import { draw as drawHistory } from './tab-history'
 import { draw as drawOverview, resetStepsHeld, same } from './tab-overview'
@@ -936,7 +936,20 @@ const isPlaced = async ($: EngineInterface) => (await $.ui.panes()).some(pane =>
 const closePane = ($: EngineInterface) => $.ui.close({ id: PANE })
 // The pane's open arguments. While a Git modal is open the pane takes Escape as a close, which ui.close turns
 // into closing the modal: the engine reports Escape and the pane's close mark alike.
-const paneArgs = async ($: EngineInterface) => ({ ...paneBase, ...((await read($, modal)) && { closeOnEscape: true as const }) })
+// A find or name field takes Escape the same way: an empty one closes, a full one stays.
+const fieldShown = async ($: EngineInterface) => fieldOpen() && (await read($, tab)) === 'Explorer'
+const wantsEscape = async ($: EngineInterface) => !!(await read($, modal)) || (await fieldShown($))
+let escapeSent = false
+let fieldDrawn = false
+const paneArgs = async ($: EngineInterface) => {
+  escapeSent = await wantsEscape($)
+  return { ...paneBase, ...(escapeSent && { closeOnEscape: true as const }) }
+}
+// Reopens an open pane when a field opening or closing changed whether it takes Escape.
+const syncEscape = async ($: EngineInterface) => {
+  if ((await wantsEscape($)) === escapeSent || !(await $.ui.panes().catch(() => [])).some(pane => pane.id === PANE)) return
+  await $.ui.open(await paneArgs($)).catch(() => undefined)
+}
 // Every open and close of a Git modal goes here, so Escape follows it; an open pane gets the new arguments.
 const setModal = async ($: EngineInterface, change: (m: Modal | null) => Modal | null) => {
   const was = !!(await read($, modal))
@@ -1126,6 +1139,11 @@ export const register: Register = (on, options) => {
       // Answered without next: the pane stays open.
       return { deny: 'closed the Git modal' } as never
     }
+    // Escape with a find or name field open: an empty one closes, one with text stays; the pane stays either way.
+    if (e.origin.kind === 'person' && (await fieldShown($))) {
+      const closed = await closeEmptyField($)
+      return { deny: closed ? 'closed the empty field' : 'the field has text' } as never
+    }
     if (e.origin.kind !== 'unload') await $.store.set('open', false).catch(() => undefined)
 
     return next(e)
@@ -1303,13 +1321,15 @@ export const register: Register = (on, options) => {
   }
 
   on('ui.focus', { requestId: PANE }, async ($, e, next) => {
-    await fieldLeft($, e).catch(() => undefined)
+    await closeEmptyField($, e).catch(() => undefined)
     return next(e)
   })
 
   // Tabs switch here, not in their onPress: mid-turn, a click landing as a redraw swaps the tree
   // reached this hook but lost its onPress.
   on('ui.press', { requestId: PANE }, async ($, e, next) => {
+    // A press off the field leaves it, which the ring alone does not report when the prompt takes the keys.
+    await closeEmptyField($, e).catch(() => undefined)
     // An open modal takes every press: its own act; any other closes the top layer and does nothing else.
     // A tab press closes it whole and switches.
     // The open row's own Button (`open:`) closes the whole modal through its onPress.
@@ -1566,6 +1586,11 @@ export const register: Register = (on, options) => {
     keepZones(current)
     const inner = Math.max(0, e.props.scroll.bodyRows - RULE)
     const ctx: TabCtx = { props: { ...e.props, bodyColumns: e.props.bodyColumns - RAIL_COLUMNS, scroll: { ...e.props.scroll, bodyRows: inner } }, signal: next.signal, el: elements, pick: tab => pick($, tab), setModal: change => setModal($, change) }
+    const field = fieldOpen() && current === 'Explorer'
+    if (field !== fieldDrawn) {
+      fieldDrawn = field
+      $.clock.after(0, () => syncEscape($))
+    }
     let out: TabDraw
     if (current === 'Explorer') {
       out = await drawFile($, ctx)
