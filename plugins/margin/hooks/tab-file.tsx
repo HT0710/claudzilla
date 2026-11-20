@@ -823,6 +823,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
                 <Box width={capWidth(state.find.text, W - 8 - (state.find.text ? 11 : 0))} flexShrink={0}>
                   <Input key={gen ? `${FIELD}:${gen}` : FIELD} value={state.find.text} submitLabel="" autoFocus onInput={v => typeFind($, v)} onSubmit={() => (gen++, stepFind($, 1))} />
                 </Box>
+                {!state.find.text && <Text>{' '.repeat(PLACEHOLDER.length - 1)}</Text>}
               </Box>
             ) : state.names && place.kind === 'folder' ? (
               <Box key="names" flexShrink={0}>
@@ -830,6 +831,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
                 <Box width={capWidth(state.names.text, W - 8 - (state.names.text ? 6 : 0))} flexShrink={0}>
                   <Input key={nameKey()} value={state.names.text} submitLabel="" autoFocus onInput={v => typeName($, v)} onSubmit={() => submitName($)} />
                 </Box>
+                {!state.names.text && <Text>{' '.repeat(NAME_PLACEHOLDER.length - 1)}</Text>}
               </Box>
             ) : state.notice ? (
               <Text>
