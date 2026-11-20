@@ -188,8 +188,12 @@ const NAME_PLACEHOLDER = 'type a name'
 // The pane's base open arguments; register adds Escape handling.
 export const paneBase = { id: 'margin', title: 'Margin', columns: 40 } as const
 
+// Whether the open pane was last sent closeOnEscape; register owns the rule, a field open here sends it.
+export const escapeSent = { value: false }
+
 // The ring moves only while the pane holds the keys; the open asks for them first.
 async function takeKeys($: EngineInterface, key: string): Promise<void> {
+  escapeSent.value = true
   await $.ui.open({ ...paneBase, closeOnEscape: true, focus: true }).catch(() => undefined)
   await $.ui.focus({ requestId: 'margin', key }).catch(() => undefined)
 }

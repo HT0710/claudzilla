@@ -7,7 +7,7 @@ import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, PAD, WHEEL_HOLD, applyPalette
 import type { Prompt, Readers, TabCtx, TabDraw, UseEntry, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
-import { changedOnDisk, checkOpenFile, draw as drawFile, closeEmptyField, explorerPost, fieldOpen, paneBase, showPlace } from './tab-file'
+import { changedOnDisk, checkOpenFile, draw as drawFile, closeEmptyField, explorerPost, escapeSent, fieldOpen, paneBase, showPlace } from './tab-file'
 import { autoFetch, draw as drawGit, resetGitReads } from './tab-git'
 import { draw as drawHistory } from './tab-history'
 import { draw as drawOverview, resetStepsHeld, same } from './tab-overview'
@@ -939,15 +939,14 @@ const closePane = ($: EngineInterface) => $.ui.close({ id: PANE })
 // A find or name field takes Escape the same way: an empty one closes, a full one stays.
 const fieldShown = async ($: EngineInterface) => fieldOpen() && (await read($, tab)) === 'Explorer'
 const wantsEscape = async ($: EngineInterface) => !!(await read($, modal)) || (await fieldShown($))
-let escapeSent = false
 let fieldDrawn = false
 const paneArgs = async ($: EngineInterface) => {
-  escapeSent = await wantsEscape($)
-  return { ...paneBase, ...(escapeSent && { closeOnEscape: true as const }) }
+  escapeSent.value = await wantsEscape($)
+  return { ...paneBase, ...(escapeSent.value && { closeOnEscape: true as const }) }
 }
 // Reopens an open pane when a field opening or closing changed whether it takes Escape.
 const syncEscape = async ($: EngineInterface) => {
-  if ((await wantsEscape($)) === escapeSent || !(await $.ui.panes().catch(() => [])).some(pane => pane.id === PANE)) return
+  if ((await wantsEscape($)) === escapeSent.value || !(await $.ui.panes().catch(() => [])).some(pane => pane.id === PANE)) return
   await $.ui.open(await paneArgs($)).catch(() => undefined)
 }
 // Every open and close of a Git modal goes here, so Escape follows it; an open pane gets the new arguments.
