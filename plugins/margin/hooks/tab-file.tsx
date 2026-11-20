@@ -186,6 +186,9 @@ const FIELD = 'explorer:find'
 // Bumped on each submit: the engine drops a redrawn value equal to the last one it had, so a new key remounts the field.
 let gen = 0
 let nameGen = 0
+// A focused Input needs the text cells plus 4 (cursor, gap, enter mark, space; measured live). Under the cap it sizes
+// itself, so a key the engine draws before the redraw stays centred; past it a fixed width keeps it inside the header.
+const capWidth = (text: string, cap: number) => (cellsOf(text) + 4 > cap ? cap : undefined)
 const PLACEHOLDER = 'type text to find'
 const NAME = 'explorer:name'
 const NAME_PLACEHOLDER = 'type a name'
@@ -816,15 +819,14 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
             {state.find?.open && place.kind === 'file' ? (
               <Box key="find" flexShrink={0}>
                 {state.find.text && <Text color={HUD.faint}>lines with </Text>}
-                {/* A focused Input needs the text cells plus 4: cursor, gap, enter mark and a space (measured live). */}
-                <Box width={Math.min(cellsOf(state.find.text || PLACEHOLDER) + 4, W - 8 - (state.find.text ? 11 : 0))} flexShrink={0}>
+                <Box width={capWidth(state.find.text || PLACEHOLDER, W - 8 - (state.find.text ? 11 : 0))} flexShrink={0}>
                   <Input key={gen ? `${FIELD}:${gen}` : FIELD} value={state.find.text} placeholder={PLACEHOLDER} submitLabel="" autoFocus onInput={v => typeFind($, v)} onSubmit={() => (gen++, stepFind($, 1))} />
                 </Box>
               </Box>
             ) : state.names && place.kind === 'folder' ? (
               <Box key="names" flexShrink={0}>
                 {state.names.text && <Text color={HUD.faint}>named </Text>}
-                <Box width={Math.min(cellsOf(state.names.text || NAME_PLACEHOLDER) + 4, W - 8 - (state.names.text ? 6 : 0))} flexShrink={0}>
+                <Box width={capWidth(state.names.text || NAME_PLACEHOLDER, W - 8 - (state.names.text ? 6 : 0))} flexShrink={0}>
                   <Input key={nameKey()} value={state.names.text} placeholder={NAME_PLACEHOLDER} submitLabel="" autoFocus onInput={v => typeName($, v)} onSubmit={() => submitName($)} />
                 </Box>
               </Box>

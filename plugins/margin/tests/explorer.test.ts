@@ -1152,10 +1152,16 @@ const fieldWidth = async (ui: any, key: string) => {
   return width
 }
 
-test('the field leaves room for the cursor and the enter mark', async ($, on) => {
+test('a short field takes its own width, so the first key draws centred', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
   await search(ui, 'claudz')
-  expect(await fieldWidth(ui, 'explorer:find')).toBe(6 + 4)
+  expect(await fieldWidth(ui, 'explorer:find')).toBeUndefined()
+})
+
+test('a field past the header width is capped', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await search(ui, 'x'.repeat(200))
+  expect(typeof (await fieldWidth(ui, 'explorer:find'))).toBe('number')
 })
 
 test('search asks the pane for the keys', async ($, on) => {
