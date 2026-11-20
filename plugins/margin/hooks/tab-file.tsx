@@ -246,6 +246,8 @@ async function submitName($: EngineInterface): Promise<void> {
   nameGen++
   const top = state.names?.rows[0]
   if (top) await openPlace($, { path: `${current(state.nav).path.replace(/\/$/, '')}/${top.path}`, kind: top.kind === 'dir' ? 'folder' : undefined })
+  // No match: only a redraw puts the new key, and so the text, on screen.
+  else $.ui.invalidate('ui.render')
 }
 
 async function openFind($: EngineInterface): Promise<void> {
