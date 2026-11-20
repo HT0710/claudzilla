@@ -816,22 +816,20 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
             {glyph('forward', '›', 0xea9c, () => goForward($))}
             {glyph('refresh', '↻', 0xeb37, () => reloadPlace($))}
           </Box>
-          <Box key="path" flexGrow={1} justifyContent="center">
+          <Box key="path" flexGrow={1} justifyContent={(state.find?.open && place.kind === 'file') || (state.names && place.kind === 'folder') ? 'flex-start' : 'center'}>
             {state.find?.open && place.kind === 'file' ? (
               <Box key="find" flexShrink={0}>
-                <Text color={HUD.faint}>{state.find.text ? 'lines with ' : `${PLACEHOLDER} `}</Text>
-                <Box width={capWidth(state.find.text, W - 8 - (state.find.text ? 11 : 0))} flexShrink={0}>
-                  <Input key={gen ? `${FIELD}:${gen}` : FIELD} value={state.find.text} submitLabel="" autoFocus onInput={v => typeFind($, v)} onSubmit={() => (gen++, stepFind($, 1))} />
+                {state.find.text && <Text color={HUD.faint}>lines with </Text>}
+                <Box width={capWidth(state.find.text || PLACEHOLDER, W - 8 - (state.find.text ? 11 : 0))} flexShrink={0}>
+                  <Input key={gen ? `${FIELD}:${gen}` : FIELD} value={state.find.text} placeholder={PLACEHOLDER} submitLabel="" autoFocus onInput={v => typeFind($, v)} onSubmit={() => (gen++, stepFind($, 1))} />
                 </Box>
-                <Text>{' '.repeat(Math.max(0, (state.find.text ? 11 : PLACEHOLDER.length + 1) - cellsOf(state.find.text) - 2))}</Text>
               </Box>
             ) : state.names && place.kind === 'folder' ? (
               <Box key="names" flexShrink={0}>
-                <Text color={HUD.faint}>{state.names.text ? 'named ' : `${NAME_PLACEHOLDER} `}</Text>
-                <Box width={capWidth(state.names.text, W - 8 - (state.names.text ? 6 : 0))} flexShrink={0}>
-                  <Input key={nameKey()} value={state.names.text} submitLabel="" autoFocus onInput={v => typeName($, v)} onSubmit={() => submitName($)} />
+                {state.names.text && <Text color={HUD.faint}>named </Text>}
+                <Box width={capWidth(state.names.text || NAME_PLACEHOLDER, W - 8 - (state.names.text ? 6 : 0))} flexShrink={0}>
+                  <Input key={nameKey()} value={state.names.text} placeholder={NAME_PLACEHOLDER} submitLabel="" autoFocus onInput={v => typeName($, v)} onSubmit={() => submitName($)} />
                 </Box>
-                <Text>{' '.repeat(Math.max(0, (state.names.text ? 6 : NAME_PLACEHOLDER.length + 1) - cellsOf(state.names.text) - 2))}</Text>
               </Box>
             ) : state.notice ? (
               <Text>
