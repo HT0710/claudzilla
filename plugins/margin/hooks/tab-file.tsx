@@ -305,7 +305,8 @@ async function stepFind($: EngineInterface, by: 1 | -1): Promise<void> {
     return runFind($)
   }
   const total = find.result.matches.length
-  if (!total) return
+  // No match: only a redraw puts a field re-keyed by Enter, and so its text, on screen.
+  if (!total) return $.ui.invalidate('ui.render')
   find.current = (find.current + by + total) % total
   const at = find.result.matches[find.current]!
   state.lit = { from: at.line, to: at.line }
