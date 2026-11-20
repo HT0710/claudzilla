@@ -186,9 +186,15 @@ const FIELD = 'explorer:find'
 // Bumped on each submit: the engine drops a redrawn value equal to the last one it had, so a new key remounts the field.
 let gen = 0
 let nameGen = 0
-// A focused Input needs the text cells plus 4 (cursor, gap, enter mark, space; measured live). Under the cap it sizes
-// itself, so a key the engine draws before the redraw stays centred; past it a fixed width keeps it inside the header.
-const capWidth = (text: string, cap: number) => (cellsOf(text) + 4 > cap ? cap : undefined)
+// A focused Input needs the text cells plus cursor, gap, enter mark, space and its submit word (measured live). Under the
+// cap it sizes itself, so a key the engine draws before the redraw stays centred; past it a fixed width keeps it inside the header.
+const capWidth = (text: string, submit: string, cap: number) => (cellsOf(text) + 5 + submit.length > cap ? cap : undefined)
+// Blank cells [before, after] the field so the caret, or the first letter, sits mid-header until the field fills the room.
+export const fieldPads = (label: string, text: string, submit: string, room: number): string[] => {
+  const d = cellsOf(text) + submit.length + 3 - cellsOf(label)
+  const free = Math.max(0, room - cellsOf(label) - cellsOf(text) - submit.length - 4)
+  return [' '.repeat(Math.min(free, Math.max(0, d))), ' '.repeat(Math.min(free, Math.max(0, -d)))]
+}
 const PLACEHOLDER = 'type text to find'
 const NAME = 'explorer:name'
 const NAME_PLACEHOLDER = 'type a name'
@@ -807,6 +813,11 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       </Button>
     </Box>
   )
+  const editing = (state.find?.open && place.kind === 'file') || (state.names && place.kind === 'folder')
+  const findLabel = state.find?.text ? 'lines with ' : `${PLACEHOLDER} `
+  const nameLabel = state.names?.text ? 'named ' : `${NAME_PLACEHOLDER} `
+  const [findL, findR] = fieldPads(findLabel, state.find?.text ?? '', 'next', W - 8)
+  const [nameL, nameR] = fieldPads(nameLabel, state.names?.text ?? '', 'open', W - 8)
   return {
     body: (
       <Box flexDirection="column" height={rows} flexShrink={0}>
@@ -819,19 +830,21 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
           <Box key="path" flexGrow={1} justifyContent="center">
             {state.find?.open && place.kind === 'file' ? (
               <Box key="find" flexShrink={0}>
-                <Text color={HUD.faint}>{state.find.text ? 'lines with ' : `${PLACEHOLDER} `}</Text>
-                <Box width={capWidth(state.find.text, W - 8 - (state.find.text ? 11 : 0))} flexShrink={0}>
-                  <Input key={gen ? `${FIELD}:${gen}` : FIELD} value={state.find.text} submitLabel="" autoFocus onInput={v => typeFind($, v)} onSubmit={() => (gen++, stepFind($, 1))} />
+                <Text>{findL}</Text>
+                <Text color={HUD.faint}>{findLabel}</Text>
+                <Box width={capWidth(state.find.text, 'next', W - 8 - (state.find.text ? 11 : 0))} flexShrink={0}>
+                  <Input key={gen ? `${FIELD}:${gen}` : FIELD} value={state.find.text} submitLabel="next" autoFocus onInput={v => typeFind($, v)} onSubmit={() => (gen++, stepFind($, 1))} />
                 </Box>
-                <Text>{' '.repeat(Math.max(0, (state.find.text ? 11 : PLACEHOLDER.length + 1) - cellsOf(state.find.text) - 2))}</Text>
+                <Text>{findR}</Text>
               </Box>
             ) : state.names && place.kind === 'folder' ? (
               <Box key="names" flexShrink={0}>
-                <Text color={HUD.faint}>{state.names.text ? 'named ' : `${NAME_PLACEHOLDER} `}</Text>
-                <Box width={capWidth(state.names.text, W - 8 - (state.names.text ? 6 : 0))} flexShrink={0}>
-                  <Input key={nameKey()} value={state.names.text} submitLabel="" autoFocus onInput={v => typeName($, v)} onSubmit={() => submitName($)} />
+                <Text>{nameL}</Text>
+                <Text color={HUD.faint}>{nameLabel}</Text>
+                <Box width={capWidth(state.names.text, 'open', W - 8 - (state.names.text ? 6 : 0))} flexShrink={0}>
+                  <Input key={nameKey()} value={state.names.text} submitLabel="open" autoFocus onInput={v => typeName($, v)} onSubmit={() => submitName($)} />
                 </Box>
-                <Text>{' '.repeat(Math.max(0, (state.names.text ? 6 : NAME_PLACEHOLDER.length + 1) - cellsOf(state.names.text) - 2))}</Text>
+                <Text>{nameR}</Text>
               </Box>
             ) : state.notice ? (
               <Text>
@@ -845,13 +858,13 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
             )}
           </Box>
           <Box width={3} flexShrink={0} gap={1} justifyContent="flex-end">
-            {glyph('explorer:search', '/', 0xea6d, () => (place.kind === 'file' ? openFind($) : openNames($)))}
-            <Button key="menu" plain hover={{ scope: 'explorer:menu' }} onPress={() => {
+            {!editing && glyph('explorer:search', '/', 0xea6d, () => (place.kind === 'file' ? openFind($) : openNames($)))}
+            {!editing && <Button key="menu" plain hover={{ scope: 'explorer:menu' }} onPress={() => {
               state.menuPinned = !state.menuPinned
               return update($, file, () => placeOf())
             }}>
               <Text color="claude" inverse={state.menuPinned}>{basic ? '≡' : String.fromCharCode(0xeb94)}</Text>
-            </Button>
+            </Button>}
           </Box>
         </Box>
         <Box marginX={-PAD}>

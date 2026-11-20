@@ -7,7 +7,7 @@ import { cellsOf, expandTabs, fileWindow, layoutFor, layoutOf, lineAt, sliceToke
 import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '../hooks/explorer-nav'
 import { tokenize } from '../hooks/explorer-tokens'
 import { iconOf, sortListing, treeRows } from '../hooks/explorer-tree'
-import { refOf } from '../hooks/tab-file'
+import { fieldPads, refOf } from '../hooks/tab-file'
 import { fileKey } from '../hooks/git-data'
 import { LIT } from '../hooks/kit'
 import { clock, disk, props, chevron, tapTree, treeRow, explorer, explorerRoot, failList, hold, lists, mountPane, launch, open, pathText, ran, reads, runs, lines, listed, setup, sets, store, textOf, tree, waitFor } from './explorer-helpers'
@@ -1031,6 +1031,14 @@ const fieldKey = async (ui: any) => {
 const findText = async (ui: any, text: string) => ui.input({ key: await fieldKey(ui), text, kind: 'change' })
 const isLit = async (ui: any, n: number) => (await ui.find({ key: `row:${n}` }))?.props.backgroundColor === LIT
 
+test('field pads put the caret or the first letter mid-header', () => {
+  const widths = (p: string[]) => p.map(x => x.length)
+  expect(widths(fieldPads('type a name ', '', 'open', 47))).toEqual([0, 5])
+  expect(widths(fieldPads('named ', 'a', 'open', 47))).toEqual([2, 0])
+  expect(widths(fieldPads('named ', 'abcdefghij', 'open', 47))).toEqual([11, 0])
+  expect(widths(fieldPads('named ', 'a', 'open', 15))).toEqual([0, 0])
+})
+
 test('the search button is drawn on a file', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
   expect(await ui.find({ key: 'explorer:search' })).toBeDefined()
@@ -1043,7 +1051,9 @@ test('search opens the field with its hint drawn before it, no label and autofoc
   const field = await ui.find({ key: 'explorer:find' })
   expect(field?.props.placeholder).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: 'type text to find ' })).toBeDefined()
-  expect(field?.props.submitLabel).toBe('')
+  expect(field?.props.submitLabel).toBe('next')
+  expect(await ui.find({ key: 'explorer:search' })).toBeUndefined()
+  expect(await ui.find({ key: 'menu' })).toBeUndefined()
   expect(field?.props.autoFocus).toBe(true)
   expect(field?.props.label).toBeUndefined()
 })
@@ -1543,6 +1553,7 @@ test('search on a folder page opens the name field, and the tree hides while tex
   const field = await ui.find({ key: 'explorer:name' })
   expect(field?.props.placeholder).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: 'type a name ' })).toBeDefined()
+  expect(field?.props.submitLabel).toBe('open')
   expect(field?.props.autoFocus).toBe(true)
   expect(await treeRow(ui, 'hooks')).toBeDefined()
   await nameType(ui, 'ab')
