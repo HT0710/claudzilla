@@ -205,29 +205,32 @@ check "compact: 100% keeps dividers" [ "$(strip 170 "${full//\"used_percentage\"
 check "compact: waiting limits keep dividers" [ "$(strip 170 '{"session_id":"w1"}' | dividers)" = "$base" ]
 check "compact: 40 cols -> meters stack, no rules" [ "$(strip 40 '{"session_id":"w1"}' | wc -l)" -eq 6 ]
 echo '{"hud":{"layout":"minimal"}}' > "$C/claudzilla.json"
+# HOME at the cwd: the folder draws as ~, so what fits does not hang on the temp path's length (long on macOS)
+mstrip() { HOME="$TMP" strip "$@"; }
 check "data: layout minimal" [ "$(key layout "$(data <<<"$full")")" = minimal ]
-out=$(strip 170 "$full")
+out=$(mstrip 170 "$full")
 check "minimal: 1 row" [ "$(wc -l <<<"$out")" -eq 1 ]
-check "minimal: place and model left, meters right" grep -q '^/.*  Opus  high  .*  cch 40m ┃ ctx [▰▱]\{12\}  42% ┃ 5h [▰▱]\{12\}  30%  2h0m ┃ wk [▰▱]\{12\}  12%  2d7h$' <<<"$out"
+check "minimal: place and model left, meters right" grep -q '^~  Opus  high  .*  cch 40m ┃ ctx [^ ]*  42% ┃ 5h [^ ]*  30%  2h0m ┃ wk [^ ]*  12%  2d7h$' <<<"$out"
+check "minimal: 12-cell bars" [ "$(perl -Mutf8 -CS -ne 'print scalar(() = /[▰▱]/g)' <<<"$out")" -eq 36 ]
 check "minimal: fills 166 cols" [ "$(widest <<<"$out")" -eq 166 ]
 # right of the model only: the folder is a random temp path
 check "minimal: no email, version, clock, id, uptime, skill, thinking" bash -c "! grep -qE 'a…h|v[0-9]|[0-9]{2}:[0-9]{2}|abcdef12|up |pr|thinking' <<<'${out#*Opus  high}'"
 # a digit more must not change what fits: same left part at every width for 9% and 10%
 flip=0; for w in $(seq 60 2 130); do
-  a=$(strip $w "${full//\"used_percentage\":42.4/\"used_percentage\":9}" | sed 's/ cch .*//')
-  b=$(strip $w "${full//\"used_percentage\":42.4/\"used_percentage\":10}" | sed 's/ cch .*//')
+  a=$(mstrip $w "${full//\"used_percentage\":42.4/\"used_percentage\":9}" | perl -pe 's/ (cch|ctx) .*//')
+  b=$(mstrip $w "${full//\"used_percentage\":42.4/\"used_percentage\":10}" | perl -pe 's/ (cch|ctx) .*//')
   [ "$a" = "$b" ] || flip=$w
 done
 check "minimal: 9% vs 10% keeps the left part" [ "$flip" = 0 ]
 for w in 120 90 70 50 30; do
-  o=$(strip $w "$full")
-  check "minimal: $w cols -> 1 row within $((w - 4))" [ "$(wc -l <<<"$o")/$(widest <<<"$o" | awk -v w=$((w - 4)) '{ print ($1 <= w) }')" = 1/1 ]
+  o=$(mstrip $w "$full")
+  check "minimal: $w cols -> 1 row within $((w - 4))" [ "$(wc -l <<<"$o" | tr -d ' ')/$(widest <<<"$o" | awk -v w=$((w - 4)) '{ print ($1 <= w) }')" = 1/1 ]
 done
-check "minimal: 120 cols keeps every meter" grep -q 'cch .* ┃ ctx .* ┃ 5h .* ┃ wk ' <<<"$(strip 120 "$full")"
-check "minimal: 50 cols drops wk, keeps ctx" bash -c "o=\$(cat); grep -q 'ctx' <<<\"\$o\" && ! grep -q 'wk' <<<\"\$o\"" <<<"$(strip 50 "$full")"
-check "minimal: no reply yet -> cch --" grep -q ' cch  -- ┃ ctx ' <<<"$(strip 120 '{"session_id":"w1"}')"
-check "minimal: cold -> cch 0m" grep -q ' cch  0m ┃ ctx ' <<<"$(data <<<"$full" | perl -pe 's/^cch\t.*/cch\t100/; s/^cch_note\t.*/cch_note\tcold/' | COLUMNS=170 perl "$HUD/hud-filter.pl" | perl -pe 's/\e\[[0-9;]*m//g')"
-check "minimal: limits waiting -> placeholders" grep -q '5h .*--% *-- ┃ wk .*--% *--$' <<<"$(strip 90 '{"session_id":"w1"}')"
+check "minimal: 120 cols keeps every meter" grep -q 'cch .* ┃ ctx .* ┃ 5h .* ┃ wk ' <<<"$(mstrip 120 "$full")"
+check "minimal: 50 cols drops wk, keeps ctx" bash -c "o=\$(cat); grep -q 'ctx' <<<\"\$o\" && ! grep -q 'wk' <<<\"\$o\"" <<<"$(mstrip 50 "$full")"
+check "minimal: no reply yet -> cch --" grep -q ' cch  -- ┃ ctx ' <<<"$(mstrip 120 '{"session_id":"w1"}')"
+check "minimal: cold -> cch 0m" grep -q ' cch  0m ┃ ctx ' <<<"$(data <<<"$full" | perl -pe 's/^cch\t.*/cch\t100/; s/^cch_note\t.*/cch_note\tcold/' | HOME="$TMP" COLUMNS=170 perl "$HUD/hud-filter.pl" | perl -pe 's/\e\[[0-9;]*m//g')"
+check "minimal: limits waiting -> placeholders" grep -q '5h .*--% *-- ┃ wk .*--% *--$' <<<"$(mstrip 90 '{"session_id":"w1"}')"
 rm "$C/claudzilla.json"
 
 check "render: not a repo -> no branch" bash -c "! head -1 <<<'$(render "$full")' | grep -q '⎇'"
