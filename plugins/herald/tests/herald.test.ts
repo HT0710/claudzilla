@@ -396,15 +396,15 @@ test('ttlOf: the TTL of the newest main-chat cache write', () => {
 })
 
 // A session idle after a reply: its transcript, prompt box, and what the mod filled.
-function idle(on: On, { transcript = reply(H1), box = '', cfg = '' } = {}) {
+function idle(on: On, { transcript = reply(H1), box = '', cfg = '', hold = Promise.resolve() } = {}) {
   const seen = clocked(on)
   const fills: string[] = []
   const prompt = { text: box }
   on('session.id', () => ({ value: 's1' }) as any)
   on('env.get', (_, e: any) => ({ value: e.name === 'CLAUDE_CONFIG_DIR' ? '/cfg' : undefined }) as any)
   on('fs.read', (_, e: any) => (cfg && e.path === '/cfg/claudzilla.json' ? { value: cfg } : { deny: 'ENOENT' }) as any)
-  on('process.run', (_, e: any) =>
-    (e.argv[0] === 'find' && e.argv[1] === '/cfg/projects' ? ran(0, '/cfg/projects/p/s1.jsonl\n') : e.argv[0] === 'tail' && e.argv.at(-1) === '/cfg/projects/p/s1.jsonl' ? ran(0, transcript + '\n') : ran(1, '')) as any)
+  on('process.run', async (_, e: any) =>
+    (e.argv[0] === 'find' && e.argv[1] === '/cfg/projects' ? ran(0, '/cfg/projects/p/s1.jsonl\n') : e.argv[0] === 'tail' && e.argv.at(-1) === '/cfg/projects/p/s1.jsonl' ? (await hold, ran(0, transcript + '\n')) : ran(1, '')) as any)
   on('prompt.read', () => ({ value: { text: prompt.text, cursor: 0 } }) as any)
   on('prompt.fill', (_, e: any) => { fills.push(e.text); return { isFilled: true } as any })
   return { ...seen, fills, box: prompt }
@@ -744,6 +744,58 @@ for (const [name, opts, tokens, wait] of [
     await $.session.start(start)
     await ctxMeasure($, tokens)
     await clock.advance(wait)
+    await key($)
+    await tick()
+    expect(cs(status)).toEqual([])
+  })
+}
+
+// A resumed session: no measure yet, only the transcript's last reply.
+const last = (tokens: number, ago: number) =>
+  [reply(H1), JSON.stringify({ type: 'assistant', timestamp: new Date(NOW - ago).toISOString(), message: { usage: { input_tokens: 1, cache_read_input_tokens: tokens - 1, cache_creation_input_tokens: 0 } } })].join('\n')
+
+test('after a resume, the first key shows the cold status from the transcript', async ($, on) => {
+  const { status } = idle(on, { transcript: last(L1, HOUR) })
+  keyed(on)
+  await $.session.start(start)
+  await key($)
+  await until(() => cs(status).length > 0)
+  expect(cs(status)).toEqual([coldText(1, L1)])
+})
+
+const SYNTHETIC = JSON.stringify({ type: 'assistant', timestamp: new Date(NOW - 60_000).toISOString(), message: { usage: { input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } })
+
+test('after a resume, an API error line after the last reply still shows the cold status', async ($, on) => {
+  const { status } = idle(on, { transcript: [last(L1, HOUR), SYNTHETIC].join('\n') })
+  keyed(on)
+  await $.session.start(start)
+  await key($)
+  await until(() => cs(status).length > 0)
+  expect(cs(status)).toEqual([coldText(1, L1)])
+})
+
+test('a prompt sent while the transcript is read drops what it read', async ($, on) => {
+  let release = () => {}
+  const { status } = idle(on, { transcript: last(L1, HOUR), hold: new Promise<void>(r => (release = r)) })
+  keyed(on)
+  await $.session.start(start)
+  await key($)
+  await $.prompt.submit({ text: 'back', wait: false, origin: { kind: 'composer' } } as any)
+  release()
+  await tick()
+  await tick()
+  expect(cs(status)).toEqual([])
+})
+
+for (const [name, transcript] of [
+  ['a reply under an hour ago', last(L1, HOUR - 1)],
+  ['context under 1x', last(L1 - 1, HOUR)],
+  ['a compact after the last reply', [last(L1, HOUR), JSON.stringify({ type: 'system', subtype: 'compact_boundary' })].join('\n')],
+] as const) {
+  test(`after a resume with ${name}, a key shows nothing`, async ($, on) => {
+    const { status } = idle(on, { transcript })
+    keyed(on)
+    await $.session.start(start)
     await key($)
     await tick()
     expect(cs(status)).toEqual([])

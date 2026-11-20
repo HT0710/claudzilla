@@ -161,32 +161,41 @@ export function ttlOf(tail: string): number | undefined {
   return undefined
 }
 
-// When the newest main-chat reply landed: any reply, a cache read too, restarts the cache's hour.
-export function replyAt(tail: string): number | undefined {
+// The newest main-chat reply: when it landed (any reply, a cache read too, restarts the cache's hour) and the context it read.
+// None past a compact, whose summary replaced that context.
+export function lastReply(tail: string): { at: number; tokens: number } | undefined {
   for (const line of tail.split('\n').reverse()) {
-    if (!line.includes('"assistant"')) continue
+    if (!line.includes('"assistant"') && !line.includes('compact_boundary')) continue
     let e: any
     try {
       e = JSON.parse(line)
     } catch {
       continue
     }
-    // A synthetic line (an API error) never reached the cache.
-    if (e?.type !== 'assistant' || e.isSidechain || !e.message?.usage) continue
+    if (e?.subtype === 'compact_boundary') return undefined
+    const u = e?.message?.usage
+    if (e?.type !== 'assistant' || e.isSidechain || !u) continue
+    const tokens = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0)
+    // A synthetic line (an API error, a usage limit) carries all-zero usage: it never reached the cache.
+    if (!tokens) continue
     const at = Date.parse(e.timestamp)
-    return Number.isNaN(at) ? undefined : at
+    return Number.isNaN(at) ? undefined : { at, tokens }
   }
   return undefined
 }
 
-// Why a stage skips: not a 1h cache, or already cold (a timer that slept with the machine fires late).
-async function skip($: EngineInterface, dir: string, late = true): Promise<string | undefined> {
+async function tailOf($: EngineInterface, dir: string): Promise<string> {
   const found = await $.process.run(['find', `${dir}/projects`, '-maxdepth', '2', '-name', `${await $.session.id()}.jsonl`])
   const path = found.stdout.split('\n')[0]
   // shortcut: the last 1 MB only; a newer main-chat line past that (one huge tool result) reads as no TTL, so no stage runs.
-  const tail = path ? (await $.process.run(['tail', '-c', '1000000', path])).stdout : ''
+  return path ? (await $.process.run(['tail', '-c', '1000000', path])).stdout : ''
+}
+
+// Why a stage skips: not a 1h cache, or already cold (a timer that slept with the machine fires late).
+async function skip($: EngineInterface, dir: string, late = true, tail?: string): Promise<string | undefined> {
+  tail ??= await tailOf($, dir)
   if (ttlOf(tail) !== HOUR) return 'ttl'
-  const at = replyAt(tail)
+  const at = lastReply(tail)?.at
   if (late && at !== undefined && (await $.clock.now()) - at >= HOUR) return 'cold'
   return undefined
 }
@@ -229,12 +238,21 @@ async function coldHandoff($: EngineInterface, dir: string) {
 // The first key back after an hour away: the cache is cold, so say what a send costs and the way around it.
 async function coldStatus($: EngineInterface, live: Live, cfg: Promise<Config>) {
   const { dir, base } = await cfg
+  let tail: string | undefined
+  // A resumed session has had no measure yet: its transcript tells the context and when the cache was last read.
+  if (!live.seeded) {
+    live.seeded = true
+    const turns = live.turns
+    tail = await tailOf($, dir)
+    const last = lastReply(tail)
+    if (last && live.turns === turns && !live.tokens) Object.assign(live, { tokens: last.tokens, endAt: last.at })
+  }
   const now = await $.clock.now()
   const tokens = live.tokens
   // Re-checked after the awaits: a second key may have run the same check meanwhile.
   if (live.coldShown || base <= 0 || tokens < base || now - live.endAt < HOUR) return
   live.coldShown = true
-  const why = await skip($, dir, false)
+  const why = await skip($, dir, false, tail)
   if (why) return t.event('cold.status', { skip: why }, 'debug')
   // A prompt sent meanwhile has cleared the line already.
   if (live.tokens !== tokens) return
@@ -255,7 +273,8 @@ async function clearFill($: EngineInterface) {
 }
 
 type Timer = { cancel: () => void }
-type Live = { ctx: Ctx; idle?: Timer; cold: Timer[]; pinned: boolean; coldLine?: boolean; endAt: number; tokens: number; coldShown: boolean }
+// seeded: the transcript was read, or a turn or reset made it stale; turns: prompts sent, so a read that a send overtook is dropped.
+type Live = { ctx: Ctx; idle?: Timer; cold: Timer[]; pinned: boolean; coldLine?: boolean; endAt: number; tokens: number; coldShown: boolean; seeded: boolean; turns: number }
 
 // A turn is no idle time; a compact or /clear drops the context the levels were counted on.
 function stopIdle($: EngineInterface, live: Live, reset: boolean) {
@@ -268,6 +287,7 @@ function stopIdle($: EngineInterface, live: Live, reset: boolean) {
   if (reset) {
     live.ctx = { level: 0, at: 0 }
     live.tokens = 0
+    live.seeded = true
   }
 }
 
@@ -276,7 +296,7 @@ export const register: Register = on => {
   let interactive = false
   let cfg: Promise<Config> = Promise.resolve({ dir: '', base: 0, cold: 0 })
   // Module memory, not $.store: the store is shared by every open session, and context is this session's own.
-  const live: Live = { ctx: { level: 0, at: 0 }, cold: [], pinned: false, endAt: 0, tokens: 0, coldShown: false }
+  const live: Live = { ctx: { level: 0, at: 0 }, cold: [], pinned: false, endAt: 0, tokens: 0, coldShown: false, seeded: false, turns: 0 }
 
   on('session.start', async ($, e, next) => {
     await t.start(traceIo($))
@@ -298,6 +318,8 @@ export const register: Register = on => {
     stopIdle($, live, false)
     live.tokens = 0
     live.coldShown = false
+    live.seeded = true
+    live.turns++
     t.turn()
     void t.flush(traceIo($))
     if (note === undefined) return next(e)
@@ -324,6 +346,7 @@ export const register: Register = on => {
       live.ctx = shown.ctx
       live.endAt = await $.clock.now()
       live.tokens = tokens
+      live.seeded = true
       if (shown.text) {
         t.event('context.toast', { level: live.ctx.level, idle: false })
         $.ui.toast(shown.text, { timeoutMs: 10000 })
@@ -358,7 +381,7 @@ export const register: Register = on => {
 
   on('prompt.edit', ($, e, next) => {
     // No await before this check: a key never waits on a read.
-    if (interactive && !live.coldShown && live.tokens > 0) void coldStatus($, live, cfg).catch(err => t.error('cold.status.failed', err))
+    if (interactive && !live.coldShown && (live.tokens > 0 || !live.seeded)) void coldStatus($, live, cfg).catch(err => t.error('cold.status.failed', err))
     const box = next(e)
     // Cold line still up and the box emptied: offer the handoff again, dim, Tab to take.
     if (live.coldLine)
