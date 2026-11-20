@@ -74,10 +74,10 @@ if ($META_CWD) {
     $branch = `git -C '$d' branch --show-current 2>/dev/null` // ''; $branch =~ s/\s+\z//; $branch = clean($branch);
     $branch = undef unless length $branch;
     if ($branch) {
-        my @st = split /\n/, (`git -C '$d' status --porcelain 2>/dev/null` // '');
+        my @st = split /\n/, (`git --no-optional-locks -C '$d' status --porcelain 2>/dev/null` // '');
         my $m = grep { !/^\?\?/ } @st; my $u = @st - $m;
         $dirty = join ' ', ($m ? "!$m" : ()), ($u ? "?$u" : ());
-        my $st = `git -C '$d' diff --shortstat 2>/dev/null` // '';
+        my $st = `git --no-optional-locks -C '$d' diff --shortstat 2>/dev/null` // '';
         my ($ins) = $st =~ /(\d+) insertion/; my ($del) = $st =~ /(\d+) deletion/;
         $churn = join ' ', ($ins ? "+$ins" : ()), ($del ? "-$del" : ());
     }

@@ -218,6 +218,11 @@ check "render basic: skill uses ▸" grep -q '^Opus  high  ▸ pr ' <<<"$basic"
 check "render basic: cache bar uses ■" grep -q $'cch \e\\[[0-9;]*m■' <<<"$(CLAUDE_CONFIG_DIR="$C" raw)"
 check "render basic: branch uses ›" bash -c "grep -q '› nhánh' <<<'$(row1 "$U" HOME="$UH")'"
 rm "$C/.claudzilla-basic-glyphs"
+# git status refreshes and rewrites a stale index unless --no-optional-locks: that holds index.lock against the user's git
+IX="$TMP/ix"; mkdir -p "$IX"; echo a > "$IX/f"; git -C "$IX" init -q -b main; git -C "$IX" add f
+git -C "$IX" -c user.name=t -c user.email=t@t commit -qm i; touch -d '1 hour ago' "$IX/.git/index"; touch "$IX/f"
+ixs=$(stat -c %Y "$IX/.git/index"); row1 "$IX" >/dev/null
+check "render: git status never writes the index" [ "$(stat -c %Y "$IX/.git/index")" = "$ixs" ]
 CJK="$TMP/项目文件夹中文路径很长很长很长很长很长"; mkdir -p "$CJK"
 check "render: wide chars fit 56 cells" [ "$(row1 "$CJK" | cells)" -le 56 ]
 BAD="$TMP/bad"; mkdir -p "$BAD"; git -C "$BAD" init -q; git -C "$BAD" checkout -q -b $'bad\xff\xfeX'
