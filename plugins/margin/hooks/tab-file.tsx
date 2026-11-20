@@ -783,14 +783,14 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
             {state.find?.open && place.kind === 'file' ? (
               <Box key="find" flexShrink={0}>
                 {state.find.text && <Text color={HUD.faint}>lines with </Text>}
-                <Box width={Math.min(cellsOf(state.find.text || PLACEHOLDER) + 1, W - 8 - (state.find.text ? 11 : 0))} flexShrink={0}>
+                <Box width={Math.min(cellsOf(state.find.text || PLACEHOLDER) + 3, W - 8 - (state.find.text ? 11 : 0))} flexShrink={0}>
                   <Input key={FIELD} value={state.find.text} placeholder={PLACEHOLDER} submitLabel="" autoFocus onInput={v => typeFind($, v)} onSubmit={() => stepFind($, 1)} />
                 </Box>
               </Box>
             ) : state.names && place.kind === 'folder' ? (
               <Box key="names" flexShrink={0}>
                 {state.names.text && <Text color={HUD.faint}>named </Text>}
-                <Box width={Math.min(cellsOf(state.names.text || NAME_PLACEHOLDER) + 1, W - 8 - (state.names.text ? 6 : 0))} flexShrink={0}>
+                <Box width={Math.min(cellsOf(state.names.text || NAME_PLACEHOLDER) + 3, W - 8 - (state.names.text ? 6 : 0))} flexShrink={0}>
                   <Input key={NAME} value={state.names.text} placeholder={NAME_PLACEHOLDER} submitLabel="" autoFocus onInput={v => typeName($, v)} onSubmit={() => submitName($)} />
                 </Box>
               </Box>

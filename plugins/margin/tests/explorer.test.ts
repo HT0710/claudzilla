@@ -1134,6 +1134,26 @@ test('the bar counts matches, with the current number in warning', async ($, on)
   expect(await barText(ui)).toContain('1 of 111')
 })
 
+// The width of the Box that holds the field keyed `key`.
+const fieldWidth = async (ui: any, key: string) => {
+  let width: number | undefined
+  const walk = (n: any) => {
+    if (!n || typeof n !== 'object') return
+    if (Array.isArray(n)) return n.forEach(walk)
+    const kids = [n.children, n.props?.children].flat(5).filter(Boolean)
+    if (typeof n.props?.width === 'number' && kids.some((k: any) => k?.props?.key === key)) width = n.props.width
+    walk(kids)
+  }
+  walk(await ui.drawn())
+  return width
+}
+
+test('the field leaves room for the cursor and the enter mark', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await search(ui, 'claudz')
+  expect(await fieldWidth(ui, 'explorer:find')).toBe(6 + 3)
+})
+
 test('the count is one Text, so the bar stays one row tall', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
   await search(ui, 'line 1')
