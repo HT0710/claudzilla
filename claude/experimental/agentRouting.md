@@ -18,6 +18,14 @@ When to delegate:
 - Check what comes back by reading the cited `file:line`. Never re-run the agent's search yourself. An empty or weak result means retry one level up, such as haiku to sonnet.
 - Before retrying one level up, ask the same agent (SendMessage) to check its result with a test, build or command when one exists.
 
+Naming:
+
+Give each subagent a playful, random character name: 1 to 3 words in kebab case, at most 24 characters. Switch styles from one agent to the next, for example an animal (`sleepy-lynx`), a title (`captain-pickle`), fantasy (`mossy-wizard`), a sci-fi codename (`nova-7`), food (`waffle-baron`), nature (`quiet-storm`), an epithet (`mabel-the-bold`) or a one-word nickname (`glitch`). Invent your own, and never reuse a name this session.
+
+Now and then, about 1 in 10, make the name an easter egg: a nod to a famous figure from history, myth, science, the arts, sport or today, ideally one that fits the job (`sisyphus-the-retrier` for a retry, `usain-bolted` for a quick finish). For living people, alter the name with a pun or short form (`taylor-swiftly`), give only kind traits, and skip politicians, religious leaders and anyone known mainly for controversy.
+
+When agent teams are on, pass no `name`: a named spawn would become a teammate.
+
 Which model:
 
 - For each Agent call, set `model` and `effort` to the lowest that does the job well. These instructions authorize setting `effort`.

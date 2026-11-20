@@ -157,5 +157,6 @@ check "repo: every feature file name is a valid id" valid_names
 check "agentRouting: no machine-only parts" no_machine_parts
 check "agentRouting: names the fallback" names_fallback
 check "agentRouting: carries the authority lines" has_authority
+check "agentRouting: carries the naming rule" grep -qF 'kebab case' "$AR"
 
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
