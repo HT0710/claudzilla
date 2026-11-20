@@ -17,6 +17,7 @@ export function findIn(lines: readonly string[], query: FindQuery): FindResult {
   } catch {
     return { ...none, bad: true }
   }
+  // shortcut: a pathological regex can backtrack and stall the draw, run the find off the draw path or under a time budget
   const matches: FindMatch[] = []
   for (let i = 0; i < lines.length; i++) {
     re.lastIndex = 0
