@@ -680,13 +680,13 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     )
     const count = !text ? '' : result.bad ? 'bad pattern' : !total ? 'no matches' : `${result.capped ? `${total}+` : total}`
     const shownCount = !text ? undefined : result.bad ? <Text color="error">bad pattern</Text> : !total ? <Text color="warning">no matches</Text> : (
-      <>
+      <Text>
         <Text color="warning">{String(state.find.current + 1)}</Text>
         <Text> </Text>
         <Text color={HUD.faint}>of</Text>
         <Text> </Text>
         <Text>{result.capped ? `${total}+` : String(total)}</Text>
-      </>
+      </Text>
     )
     const toggles = basic ? 'Aa'.length + 1 + 'W'.length + 1 + '.*'.length : 5
     const countCells = !text ? 0 : result.bad || !total ? count.length : `${state.find.current + 1} of ${count}`.length
