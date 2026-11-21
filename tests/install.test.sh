@@ -168,25 +168,11 @@ echo '{"hooks":{"Stop":[null,{"hooks":[{"type":"command","command":"sh ~/.claude
 run_install "$M2"
 check "moved: hook on a file behind a moved symlink named" bash -c "grep -F 'sh ~/.claude/hud/busy.sh' '$M2/install.log' | grep -qF .claudzilla-backup/"
 
-# --- hud.animation false: statusLine refreshes every 30 s ---
-animhome() { local h; h=$(new_home); mkdir -p "$h/.claude"; echo "$1" > "$h/.claude/claudzilla.json"; echo "$h"; }
-N=$(animhome '{"hud":{"animation":false}}'); inst "$N"
-check "animation: hud.animation false -> refreshInterval 30" [ "$(q "$N/.claude/settings.json" .statusLine.refreshInterval)" = 30 ]
-check "animation: record holds the edited base" [ "$(q "$N/.claude/.claudzilla-base.json" .statusLine.refreshInterval)" = 30 ]
-check "animation: repo base untouched" [ "$(q "$REPO/settings.base.json" .statusLine.refreshInterval)" = 1 ]
-N2=$(new_home); inst "$N2"
-check "animation: default keeps refreshInterval 1" [ "$(q "$N2/.claude/settings.json" .statusLine.refreshInterval)" = 1 ]
-N3=$(animhome '{"hud":{"animation":false}}'); echo '{"statusLine":{"refreshInterval":5}}' > "$N3/.claude/settings.overrides.json"; inst "$N3"
-check "animation: settings.overrides.json still wins" [ "$(q "$N3/.claude/settings.json" .statusLine.refreshInterval)" = 5 ]
-echo '{}' > "$N/.claude/claudzilla.json"; inst "$N"
-check "animation: flip back restores refreshInterval 1" [ "$(q "$N/.claude/settings.json" .statusLine.refreshInterval)" = 1 ]
-echo '{"hud":{"animation":false}}' > "$N/.claude/claudzilla.json"; inst "$N"
-inst "$N" --remove hud
-check "animation: hud.animation false then --remove hud -> no statusLine left" [ "$(q "$N/.claude/settings.json" .statusLine)" = undefined ]
-N4=$(animhome '{"hud":{"animation":false}}'); echo '{"statusLine":{"type":"command","command":"mine","refreshInterval":7}}' > "$N4/.claude/settings.json"; inst "$N4" --remove hud
-check "animation: hud part off and own statusLine -> untouched" [ "$(q "$N4/.claude/settings.json" .statusLine.refreshInterval)" = 7 ]
-N5=$(animhome '{bad'); seedbase "$N5"; inst "$N5"; rc=$?
-check "animation: broken claudzilla.json -> install exits 0" [ $rc -eq 0 ]
+# --- statusLine redraws every 30 s ---
+N=$(new_home); inst "$N"
+check "refresh: fresh install -> refreshInterval 30" [ "$(q "$N/.claude/settings.json" .statusLine.refreshInterval)" = 30 ]
+N3=$(new_home); mkdir -p "$N3/.claude"; echo '{"statusLine":{"refreshInterval":5}}' > "$N3/.claude/settings.overrides.json"; inst "$N3"
+check "refresh: settings.overrides.json still wins" [ "$(q "$N3/.claude/settings.json" .statusLine.refreshInterval)" = 5 ]
 
 # --- re-run is a no-op ---
 nb=$(ls "$H/.claude/.claudzilla-backup" | wc -l); cp "$S" "$H/s1"; sleep 1
