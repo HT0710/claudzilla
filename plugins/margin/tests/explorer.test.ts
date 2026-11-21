@@ -1456,6 +1456,21 @@ test('the current match and the other matches take their colours', async ($, on)
   expect(t[1]).toMatchObject({ color: '#e5c07b', bg: '#3a3220' })
 })
 
+test('a reload keeps the current match, not the first on its line', async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, 'a a a\nb\na\n')
+  await search(ui, 'a')
+  await ui.press({ key: 'explorer:find:next' })
+  await ui.press({ key: 'explorer:find:next' })
+  await ui.redraw()
+  const current = async () => texts(await ui.find({ key: 'explorer:find-bar' })).find(x => x.color === 'warning')?.text
+  expect(await current()).toBe('3')
+  disk.set('/repo/a.ts', { text: 'a a a\nb\na\n', mtimeMs: 2 })
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts' } as any)
+  await ui.redraw()
+  expect(await current()).toBe('3')
+})
+
 test('a find with no match keeps a lit line it did not set', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts', line: 5 }, lines(20))
   expect(await isLit(ui, 5)).toBe(true)
