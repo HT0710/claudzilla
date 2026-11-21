@@ -130,6 +130,13 @@ test('a line jump in the file shown adds a step, and back returns to the line be
   expect(current(back(nav))).toEqual({ kind: 'file', path: '/r/a.ts', line: 5, top: 3 })
 })
 
+test('a file opened again from another place starts where it was left', () => {
+  let nav = visit(navStart('/r'), file('/r/a.ts'))
+  nav = back(remember(nav, 200))
+  nav = visit(nav, file('/r/a.ts'))
+  expect(current(nav)).toEqual({ kind: 'file', path: '/r/a.ts', top: 200 })
+})
+
 test('a folder shown again adds no step', () => {
   const nav = navStart('/r')
   expect(visit(nav, { kind: 'folder', path: '/r' })).toBe(nav)

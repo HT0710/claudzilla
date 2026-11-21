@@ -18,7 +18,9 @@ export function visit(nav: Nav, next: Place): Nav {
   const here = current(nav)
   const same = here.kind === next.kind && here.path === next.path
   if (same && (next.kind === 'folder' || next.line === undefined)) return nav
-  const entries = [...nav.entries.slice(0, nav.at + 1), next]
+  // A file opened with no line starts where its latest entry was left.
+  const left = next.kind === 'file' && next.line === undefined ? nav.entries.filter(p => p.kind === 'file' && p.path === next.path).at(-1) : undefined
+  const entries = [...nav.entries.slice(0, nav.at + 1), left?.top === undefined ? next : { ...next, top: left.top }]
   while (entries.length > MAX_HISTORY) entries.shift()
   return { entries, at: entries.length - 1 }
 }
