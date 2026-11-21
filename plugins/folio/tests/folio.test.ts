@@ -1747,6 +1747,17 @@ for (const [name, task, extra] of [
   })
 }
 
+test("an agent's later notification, sent with its agent id only, still draws its finish row on the rail", async ($, on) => {
+  finished(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'g1' }) as any)
+  await $.agent.spawn({ prompt: 'p', description: 'Slow task', tool_use_id: 'a1' } as any)
+  await said($, 'm1')
+  const ui = await notice($, { status: 'completed', toolUseId: undefined, id: 'g1', durationMs: 12_000 })
+  expect(await rail(ui, /^◆ done     agent \(Slow task\) in 12s$/)).toBe(1)
+  expect(await rail(ui, /^╰─$/)).toBe(1)
+})
+
 // A background shell's finish row, after its Bash call ran as s1; a grouped call draws no ToolUse row.
 const shellNotice = async ($: any, on: any, input: object, task: object) => {
   on('tool.call', () => ({ result: { stdout: '', stderr: '' } }) as any)
