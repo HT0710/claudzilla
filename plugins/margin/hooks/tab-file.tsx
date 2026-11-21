@@ -51,7 +51,7 @@ type State = {
   lit?: { from: number; to: number }
   menuPinned: boolean
   find?: { open: boolean; text: string; pending: boolean; result: FindResult; spans: Spans; current: number }
-  names?: { text: string; entries: NameEntry[]; rows: NameEntry[] }
+  names?: { text: string; entries: NameEntry[]; rows: NameEntry[]; loading?: boolean }
   toggles: { matchCase: boolean; word: boolean; regex: boolean }
   rev: number
   // The last atom rev the module state has taken.
@@ -266,12 +266,14 @@ async function openNames($: EngineInterface): Promise<void> {
   const listing = listNames($, folder)
   // Drawn and focused before the listing returns, so keys typed meanwhile reach the field, not the prompt.
   const names = (state.names ??= { text: '', entries: [], rows: [] })
+  names.loading = true
   await update($, file, () => placeOf())
   await takeKeys($, nameKey())
   const entries = await listing
   if (state.names !== names || current(state.nav).path !== folder) return
   names.entries = entries
   names.rows = filterNames(entries, names.text)
+  names.loading = false
   await update($, file, () => placeOf())
 }
 
@@ -285,6 +287,8 @@ function typeName($: EngineInterface, text: string): void {
 
 // Opens the top result, which ends the name search through the move.
 async function submitName($: EngineInterface): Promise<void> {
+  // Still listing: Enter would find nothing, so it waits for a press once rows are in.
+  if (state.names?.loading) return
   nameGen++
   const top = state.names?.rows[0]
   if (top) await openPlace($, { path: `${current(state.nav).path.replace(/\/$/, '')}/${top.path}`, kind: top.kind === 'dir' ? 'folder' : undefined })
@@ -546,7 +550,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     const total = hits ? hits.length : all.length
     state.top = Math.max(0, Math.min(state.top ?? 0, total - codeRows))
     const top = state.top
-    if (!total) body = [<Text key="empty" color={HUD.faint}>{hits ? 'no match' : 'empty'}</Text>]
+    if (!total) body = [<Text key="empty" color={HUD.faint}>{hits ? (state.names?.loading ? 'listing…' : 'no match') : 'empty'}</Text>]
     rowHover.acts = {}
     const Client = 'Client' in ctx.el ? ctx.el.Client : undefined
     const put = (path: string, left: JSX.Element[], press: () => unknown) => {

@@ -1786,6 +1786,26 @@ test('the name field asks for the keys before the name listing returns', async (
   expect(early).toEqual([true])
 })
 
+test('while the name listing loads, typed text shows listing…, not no match, and Enter keeps the field', async ($, on) => {
+  const ui = await nameRoot($, on)
+  hold.names = []
+  const pressed = ui.press({ key: 'explorer:search' })
+  await waitFor(() => hold.names!.length > 0)
+  await ui.redraw()
+  await nameType(ui, 'ab')
+  expect(await ui.find({ type: 'Text', text: 'listing…' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'no match' })).toBeUndefined()
+  await ui.input({ key: 'explorer:name', text: 'ab', kind: 'submit' })
+  await ui.redraw()
+  expect(await ui.find({ key: 'explorer:name' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'listing…' })).toBeDefined()
+  hold.names.forEach(go => go())
+  await pressed
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: 'listing…' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'no match' })).toBeUndefined()
+})
+
 test('a field with text keeps its text drawn after a tab switch and back', async ($, on) => {
   on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }) as any)
   on('ui.open', () => ({ value: { isPlaced: true } }) as any)
