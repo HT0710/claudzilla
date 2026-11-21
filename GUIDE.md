@@ -207,7 +207,7 @@ For bigger steps, Claude suggests a skill and waits. The reply names it on the *
 
 When `brainstorming` has options for you, each reply asks one question as a Decision, so the ballot card lets you answer with a number.
 
-Some skills hand tasks to *subagents*: helpers that each work in their own context and return a summary. They keep your context small, but their requests count toward the same usage limits. Every subagent gets a short name. Claude picks one, and a hook (`claude/hooks/agent-name.mjs`) fills one in when the name is missing or already used this session.
+Some skills hand tasks to *subagents*: helpers that each work in their own context and return a summary. They keep your context small, but their requests count toward the same usage limits. Every subagent gets a short name. Claude picks one, and a hook (`claude/hooks/agent-name.mjs`) fills one in when the name is missing or already used this session. The same hook hands Claude random start letters for the next names, so the same task doesn't get the same name every session.
 
 claudzilla adds four skills of its own:
 
