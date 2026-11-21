@@ -289,7 +289,7 @@ By default, the guard blocks these and tells Claude what to do instead:
 
 When Claude edited files and its reply says "done", "fixed" or "passing" with no command run after the last edit, the guard sends the reply back: Claude must run a check, such as the tests, and report the output.
 
-Claude also never pushes, opens a PR or tags unless you ask. Before a push, it regroups its commits into one logical change each. If you installed the byline plugin, it removes session links from the commit trailer and PR footer that Claude Code asks Claude to write.
+Claude also never pushes, opens a PR or tags unless you ask. Before a push, it regroups its commits into one logical change each. If you installed the byline plugin, it removes session links and the "Generated with Claude Code" line from the commit trailer and PR footer that Claude Code asks Claude to write.
 
 If you installed the ledger plugin and two sessions work in one folder, Claude pauses before it edits a file that the other session edited in the last 30 minutes. The other session gets a message, Claude re-reads the file, and it waits or asks you only when both changes touch the same lines.
 

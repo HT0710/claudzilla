@@ -54,7 +54,7 @@ Rules:
 - `Verify:` names a real command run. Not run → say `not run`.
 - Breaking change → `BREAKING:` line with migration in one line.
 - No emoji, no marketing words, no "comprehensive/robust/seamless".
-- Never add a Claude session link: no `Claude-Session:` trailer, no `claude.ai/code/session_…` URL, in commit messages or PR descriptions. `Co-Authored-By` and the "Generated with Claude Code" line stay.
+- Never add a Claude session link: no `Claude-Session:` trailer, no `claude.ai/code/session_…` URL, in commit messages or PR descriptions. No "Generated with Claude Code" line in PR descriptions. `Co-Authored-By` stays.
 
 ## PR
 

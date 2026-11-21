@@ -9,9 +9,8 @@ test('commit trailer loses the Claude-Session line', async ($, on) => {
   expect((await $.attribution.text({ kind: 'commit', text: '' })).text).toBe(coAuthor)
 })
 
-test('PR footer keeps its line, loses the inline session URL', () => {
-  expect(strip('🤖 Generated with [Claude Code](https://claude.com/claude-code) https://claude.ai/code/session_01AbC'))
-    .toBe('🤖 Generated with [Claude Code](https://claude.com/claude-code)')
+test('PR footer loses its Generated with Claude Code line', () => {
+  expect(strip('🤖 Generated with [Claude Code](https://claude.com/claude-code) https://claude.ai/code/session_01AbC')).toBe('')
 })
 
 test('a session URL in parentheses keeps the closing paren', () => {
@@ -25,6 +24,11 @@ test('text without a session link is unchanged', () => {
 
 test('blank lines left by a removed line collapse', () => {
   expect(strip(`body\n\nClaude-Session: https://claude.ai/code/session_x\n\n${coAuthor}`)).toBe(`body\n\n${coAuthor}`)
+})
+
+test('a sentence naming the Generated line without its link is kept', () => {
+  const text = 'No "Generated with Claude Code" line in PR descriptions.'
+  expect(strip(text)).toBe(text)
 })
 
 test('a sentence naming the trailer mid-line is kept', () => {

@@ -5,13 +5,13 @@ import { traceIo } from './trace-io'
 
 const t = tracer('byline')
 
-// git.md: no Claude session link in commits or PRs; rules-guard's sessionLink deny stays as the backstop.
+// git.md: no Claude session link in commits or PRs, no Generated with Claude Code line in PRs. Backstops: rules-guard's sessionLink deny for links, the git.md rule for the Generated line.
 const URL = /\s*https?:\/\/claude\.ai\/code\/session_[\w-]+/g
 
 export function strip(text: string): string {
   const out = text
     .split('\n')
-    .filter(line => !/^\s*Claude-Session:/.test(line))
+    .filter(line => !/^\s*Claude-Session:/.test(line) && !/Generated with \[Claude Code\]\(/.test(line))
     .map(line => line.replace(URL, ''))
     .join('\n')
   return out === text ? text : out.replace(/\n{3,}/g, '\n\n').trimEnd()
