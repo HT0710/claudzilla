@@ -432,7 +432,7 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
     // The stacked list is drawn after the modal, not in it, so the modal's border never paints over it.
     // Stacked over the modal's full width, then narrowed to its own rows: the modal's narrowing would cut its names.
     const subTotal = totalOf(subReader[1])
-    const subHead = heading(ctx.el, branchOf(subReader[0]), <Text color={HUD.faint}>{subTotal}</Text>)
+    const subHead = heading(ctx.el, branchOf(subReader[0]), <Text color={HUD.faint}>{subTotal}</Text>, toneOf(subReader[0]))
     const subWidest = Math.max(branchOf(subReader[0]).length + subTotal.length + 2, ...subItems.map(widthOf))
     const sf = contentFrame(stackFrame(props.bodyColumns, tabRows, { ...f, left: full.left, width: full.width }, 5 + subItems.length), subWidest)
     return [head, drawLayer($, lc, 's', sf, { top: sf.top, left: sf.left - PAD }, [], [subHead], rowsOf(subItems, 's', sf.width - 4), modalNow!.sub!.top)]
