@@ -1627,7 +1627,18 @@ test('inside a repo the listing runs ls-files in the folder and reads its paths'
     { path: 'hooks/a.ts', kind: 'file' },
     { path: 'b.ts', kind: 'file' },
   ])
-  expect(argvs[0]).toEqual(gitArgs('-C', '/r', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'))
+  expect(argvs[0]).toEqual(gitArgs('-C', '/r', 'ls-files', '--cached', '--others', '--exclude-standard', '-z', '-s'))
+})
+
+test('a submodule in the listing is a folder, and a conflicted file is listed once', async () => {
+  const { $, on } = engine()
+  on('process.run', () => ran(0, ['160000 98dc 0\tlib/sub', '100644 aa 1\tc.ts', '100644 bb 2\tc.ts', 'new.ts', ''].join('\0')))
+  expect(await listNames($, '/r')).toEqual([
+    { path: 'lib', kind: 'dir' },
+    { path: 'lib/sub', kind: 'dir' },
+    { path: 'c.ts', kind: 'file' },
+    { path: 'new.ts', kind: 'file' },
+  ])
 })
 
 test('outside a repo the listing falls back to the walk', async () => {
