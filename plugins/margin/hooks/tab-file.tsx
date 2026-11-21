@@ -831,29 +831,34 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     const words = toggles + 2 + group(true) + 2 + 1 <= W
     findBar = (
       <Box key="explorer:find-bar" flexShrink={0}>
-        {toggle('matchCase', 'case', 'Aa', 0xeab1)}
-        <Text> </Text>
-        {toggle('word', 'word', 'W', 0xeb7e)}
-        <Text> </Text>
-        {toggle('regex', 'regex', '.*', 0xeb38)}
-        <Text>  </Text>
-        <Button key="explorer:find:prev" plain onPress={() => stepFind($, -1)}>
-          {dim('‹')}
-          {words && dim(' ')}
-          {words && dim('prev')}
-        </Button>
-        <Text>  </Text>
-        {shownCount}
-        {shownCount && <Text>  </Text>}
-        <Button key="explorer:find:next" plain onPress={() => stepFind($, 1)}>
-          {words && dim('next')}
-          {words && dim(' ')}
-          {dim('›')}
-        </Button>
-        <Text>  </Text>
-        <Button key="explorer:find:close" plain onPress={() => closeFind($)}>
-          <Text color="claude">✕</Text>
-        </Button>
+        <Box key="explorer:find:left" width={toggles} flexShrink={0}>
+          {toggle('matchCase', 'case', 'Aa', 0xeab1)}
+          <Text> </Text>
+          {toggle('word', 'word', 'W', 0xeb7e)}
+          <Text> </Text>
+          {toggle('regex', 'regex', '.*', 0xeb38)}
+        </Box>
+        <Box key="explorer:find:mid" flexGrow={1} justifyContent="center">
+          <Button key="explorer:find:prev" plain onPress={() => stepFind($, -1)}>
+            {dim('‹')}
+            {words && dim(' ')}
+            {words && dim('prev')}
+          </Button>
+          <Text>  </Text>
+          {shownCount}
+          {shownCount && <Text>  </Text>}
+          <Button key="explorer:find:next" plain onPress={() => stepFind($, 1)}>
+            {words && dim('next')}
+            {words && dim(' ')}
+            {dim('›')}
+          </Button>
+        </Box>
+        {/* As wide as the toggles, so the middle centres on the pane. */}
+        <Box key="explorer:find:right" width={toggles} flexShrink={0} justifyContent="flex-end">
+          <Button key="explorer:find:close" plain onPress={() => closeFind($)}>
+            <Text color="claude">✕</Text>
+          </Button>
+        </Box>
       </Box>
     )
   }
