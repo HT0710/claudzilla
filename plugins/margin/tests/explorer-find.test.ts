@@ -97,6 +97,14 @@ test('a match after a wide glyph counts 2 cells', () => {
   expect(hitsOf('中foo', [{ start: 1, end: 4, current: true }])).toEqual([{ from: 2, to: 5, current: true }])
 })
 
+test('several matches on one line each land on their own columns, an end past the line included', () => {
+  expect(hitsOf('\tfoo中x', [{ start: 1, end: 4, current: false }, { start: 4, end: 6, current: true }, { start: 6, end: 9, current: false }])).toEqual([
+    { from: 4, to: 7, current: false },
+    { from: 7, to: 10, current: true },
+    { from: 10, to: 10, current: false },
+  ])
+})
+
 test('a literal emoji takes its 2 cells', () => {
   expect(hitsOf('😀x', [{ start: 0, end: 2, current: false }])).toEqual([{ from: 0, to: 2, current: false }])
 })
