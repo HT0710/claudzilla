@@ -1568,12 +1568,14 @@ test('summary modal: two rows per PR, dividers between, capped, github action', 
   withPr(on, repoOn('main'), many(5, () => ({ headRefName: 'feat/t', baseRefName: 'main' })))
   const ui = await mount($)
   await tap(ui, 'prs')
-  expect((await ui.findAll({ type: 'Button', text: /#18\d/ })).length).toBe(3)
+  // Capped at 3: #180 to #182 drawn, as row Clients.
+  for (const n of [180, 181, 182]) expect(String((await ui.find({ key: `row:mpr:${n}` }))?.props.module)).toMatch(/row\.tsx$/)
+  expect(await ui.find({ key: 'row:mpr:183' })).toBeUndefined()
   expect((await ui.find({ type: 'Text', text: /^ {2}HT0710$/ }))?.props.color).toBeUndefined()
   expect((await ui.find({ type: 'Text', text: /^ from $/ }))?.props.color).toBe('#4f5c68')
   expect((await ui.find({ type: 'Link' }))?.props.href).toBe('https://github.com/o/r/pulls')
   await ui.press({ key: 'm:all:5 PRs' })
-  expect((await ui.findAll({ type: 'Button', text: /#18\d/ })).length).toBeGreaterThan(3)
+  expect(await ui.find({ key: 'row:spr:183' })).toBeDefined()
 })
 
 test('a PR in the summary modal opens its stacked modal: title, meta, CHECKS, rerun when failed', async ($, on) => {
@@ -1581,7 +1583,7 @@ test('a PR in the summary modal opens its stacked modal: title, meta, CHECKS, re
   withPr(on, repoOn('main'), many(2, i => ({ headRefName: 'feat/t', baseRefName: 'main', statusCheckRollup: i ? [] : [failedRun] })))
   const ui = await mount($)
   await tap(ui, 'prs')
-  await ui.press({ key: 'm:pr:180' })
+  await tap(ui, 'mpr:180')
   expect(await ui.find({ type: 'Box', key: 'stack' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^ by $/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^opened 2h ago$/ })).toBeDefined()
@@ -1589,22 +1591,14 @@ test('a PR in the summary modal opens its stacked modal: title, meta, CHECKS, re
   expect(await ui.find({ type: 'Button', key: 's:rerun' })).toBeDefined()
 })
 
-test("behind a stacked modal a row's words stay together: a dropped Button leaves one Text", async ($, on) => {
+test('behind a stacked modal a PR row fades and neither lights nor posts', async ($, on) => {
   quiet(on)
   withPr(on, repoOn('main'), many(2, () => ({ headRefName: 'feat/t', baseRefName: 'main' })))
   const ui = await mount($)
   await tap(ui, 'prs')
-  await ui.press({ key: 'm:pr:180' })
-  const kids = (node: any) => [node?.props?.children, node?.children].flat(Infinity).filter(Boolean)
-  const find = (node: any, hit: (n: any) => boolean): any =>
-    !node || typeof node !== 'object' ? undefined
-    : Array.isArray(node) ? node.map(n => find(n, hit)).find(Boolean)
-    : hit(node) ? node : find(kids(node), hit)
-  const modal = find(await ui.drawn(), n => (n.props?.key ?? n.key) === 'modal')
-  // The faded summary modal's #180 row: its Button's several Texts held in one Text.
-  const row = find(modal, n => n.props?.justifyContent === 'space-between' && JSON.stringify(n).includes('" #180 "'))
-  expect(kids(row).filter((c: any) => c?.type === 'Text')).toHaveLength(1)
-  expect(await ui.find({ type: 'Button', key: 'm:pr:180' })).toBeUndefined()
+  await tap(ui, 'mpr:180')
+  expect(await ui.find({ type: 'Box', key: 'stack' })).toBeDefined()
+  expect(((await ui.find({ key: 'row:mpr:180' }))?.props.props as { faded?: boolean }).faded).toBe(true)
 })
 
 test('in a linked worktree the fetch age is the newer FETCH_HEAD of its own and the shared git dir', async ($, on) => {
