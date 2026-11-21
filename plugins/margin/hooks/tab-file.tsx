@@ -52,7 +52,7 @@ type State = {
   menuPinned: boolean
   // `lit`: the lit line find set, so a lit line from elsewhere outlives a find that leaves it.
   find?: { open: boolean; text: string; pending: boolean; result: FindResult; spans: Spans; current: number; lit?: { from: number; to: number } }
-  names?: { text: string; entries: NameEntry[]; rows: NameEntry[]; loading?: boolean }
+  names?: { text: string; entries: NameEntry[]; rows: NameEntry[]; loading?: boolean; tree?: number }
   toggles: { matchCase: boolean; word: boolean; regex: boolean }
   rev: number
   // The last atom rev the module state has taken.
@@ -87,13 +87,15 @@ function endFind(): void {
 
 // Closes the name field and drops its text and listing.
 function endNames(): void {
+  // While text is typed, state.top scrolls the results; the tree's own scroll waits in names.tree.
+  if (state.names?.text) state.top = state.names.tree
   state.names = undefined
   nameGen++
 }
 
 // Remembers the spot, moves through `change`, and restores the spot of an entry it landed on.
 function moveTo(change: (nav: Nav) => Nav): boolean {
-  const remembered = remember(state.nav, state.top ?? 0, state.lit?.from)
+  const remembered = remember(state.nav, (state.names?.text ? state.names.tree : state.top) ?? 0, state.lit?.from)
   state.nav = change(remembered)
   const entry = current(state.nav)
   if (entry === current(remembered)) return false
@@ -289,9 +291,11 @@ async function openNames($: EngineInterface): Promise<void> {
 
 function typeName($: EngineInterface, text: string): void {
   if (!state.names) return
+  if (text && !state.names.text) state.names.tree = state.top
+  else if (!text && state.names.text) state.top = state.names.tree
   state.names.text = text
   state.names.rows = filterNames(state.names.entries, text)
-  state.top = 0
+  if (text) state.top = 0
   $.ui.invalidate('ui.render')
 }
 

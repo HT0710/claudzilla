@@ -1738,6 +1738,28 @@ test('Enter on a file hit opens the file in the code area', async ($, on) => {
   expect(texts(await ui.drawn()).some(t => t.text.trim() === 'x')).toBe(true)
 })
 
+test('the name search leaves the tree scroll where it was, after clearing the text or opening a result', async ($, on) => {
+  const files = Array.from({ length: 40 }, (_, i) => ({ name: `f${String(i).padStart(2, '0')}.ts`, kind: 'file' as const }))
+  const ui = await explorerRoot($, on, { '/repo': files })
+  listed.out = files.map(f => f.name).join('\0')
+  await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 10, bodyRows: 19, contentRows: 19, origin: { kind: 'person' }, pointer: { column: 0, row: 6 } })
+  await ui.redraw()
+  const scrolled = async () => [!!(await treeRow(ui, 'f00.ts')), !!(await treeRow(ui, 'f10.ts'))]
+  const seen = [await scrolled()]
+  await nameOpen(ui, 'f1')
+  await nameType(ui, '')
+  seen.push(await scrolled())
+  // Opening a result and going back returns to the tree's scroll, not the results'.
+  disk.set('/repo/f10.ts', { text: 'x', mtimeMs: 1 })
+  await nameType(ui, 'f1')
+  await ui.input({ key: 'explorer:name', text: 'f1', kind: 'submit' })
+  await ui.redraw()
+  await ui.press({ key: 'back' })
+  await ui.redraw()
+  seen.push(await scrolled())
+  expect(seen).toEqual([[false, true], [false, true], [false, true]])
+})
+
 test('a move ends the name search', async ($, on) => {
   const ui = await nameRoot($, on)
   await nameOpen(ui, 'ab')
