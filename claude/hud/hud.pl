@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# hud.pl key/value lines -> E2 layout: identity row, rule, meters in two columns (ctx over cch | 5h over wk), rule, activity row.
+# statusline JSON -> E2 layout: identity row, rule, meters in two columns (ctx over cch | 5h over wk), rule, activity row.
 # hud.layout in claudzilla.json: "compact" drops the rules and puts all meters on one row when the width allows;
 # "minimal" draws one row: place and model left, meters right.
 use strict; use warnings;
