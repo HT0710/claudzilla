@@ -1357,6 +1357,18 @@ test('a press on a tree row closes an empty name field and still opens the file'
   expect(await pathText(ui)).toBe('repo/a.ts')
 })
 
+test('the find bar keeps toggles left and ✕ right, with prev, count and next centred on the pane', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await search(ui, 'line 1')
+  const [left, mid, right] = await Promise.all(['left', 'mid', 'right'].map(k => ui.find({ key: `explorer:find:${k}` })))
+  expect([mid?.props.flexGrow, mid?.props.justifyContent]).toEqual([1, 'center'])
+  expect(right?.props.justifyContent).toBe('flex-end')
+  // Equal sides, so the middle centres on the pane, not on the room left over.
+  expect(right?.props.width).toBe(left?.props.width)
+  expect(textOf(left)).not.toContain('✕')
+  expect(textOf(right)).toContain('✕')
+})
+
 test('the count is one Text, so the bar stays one row tall', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
   await search(ui, 'line 1')
