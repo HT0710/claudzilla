@@ -52,10 +52,20 @@ export function latestOf(): { begin(): number; isLatest(n: number): boolean } {
 
 /** Every file and folder under `folder`, as paths relative to it. */
 export async function listNames($: EngineInterface, folder: string): Promise<NameEntry[]> {
-  const run = await $.process.run(gitArgs('-C', folder, 'ls-files', '--cached', '--others', '--exclude-standard', '-z')).catch(() => undefined)
+  const run = await $.process.run(gitArgs('-C', folder, 'ls-files', '--cached', '--others', '--exclude-standard', '-z', '-s')).catch(() => undefined)
   if (run?.exitCode !== 0 || !run.stdout) return walkNames(dir => $.fs.list(dir).catch(() => []), folder)
+  // -s prefixes tracked paths with `mode hash stage<TAB>`; untracked paths come bare. Mode 160000 is a submodule.
+  const files = new Set<string>()
+  const subs: string[] = []
+  for (const row of run.stdout.split('\0')) {
+    if (!row) continue
+    const m = /^(\d{6}) [0-9a-f]+ \d\t/.exec(row)
+    const path = m ? row.slice(m[0].length) : row
+    if (m?.[1] === '160000') subs.push(path)
+    else files.add(path)
+  }
   const dirs = new Set<string>()
-  const files = run.stdout.split('\0').filter(Boolean)
-  for (const f of files) for (let i = f.indexOf('/'); i >= 0; i = f.indexOf('/', i + 1)) dirs.add(f.slice(0, i))
-  return [...dirs].map((path): NameEntry => ({ path, kind: 'dir' })).concat(files.map((path): NameEntry => ({ path, kind: 'file' })))
+  for (const f of [...files, ...subs]) for (let i = f.indexOf('/'); i >= 0; i = f.indexOf('/', i + 1)) dirs.add(f.slice(0, i))
+  for (const s of subs) dirs.add(s)
+  return [...dirs].map((path): NameEntry => ({ path, kind: 'dir' })).concat([...files].map((path): NameEntry => ({ path, kind: 'file' })))
 }
