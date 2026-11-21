@@ -46,7 +46,7 @@ link() {  # $DEST/$1 -> $REPO/claude/$1
 merge_settings() {  # $1: base to apply
   local base="$1" dst="$DEST/settings.json" tmp="$DEST/.settings.json.claudzilla" rec="$DEST/.claudzilla-base.json"
   node -e '
-const fs=require("fs"),[base,dst,out,over,rec,ids,cfg]=process.argv.slice(1);
+const fs=require("fs"),[base,dst,out,over,rec,ids]=process.argv.slice(1);
 const read=p=>fs.existsSync(p)?JSON.parse(fs.readFileSync(p,"utf8")):{};
 const isObj=v=>v&&typeof v=="object"&&!Array.isArray(v);
 const canon=v=>JSON.stringify(v,(k,x)=>isObj(x)?Object.fromEntries(Object.keys(x).sort().map(k=>[k,x[k]])):x);
@@ -67,15 +67,13 @@ const prune=(mine,old,repo)=>{
   return mine};
 let old=null;try{old=JSON.parse(fs.readFileSync(rec,"utf8"))}catch{}
 const b=read(base),d=read(dst);
-// hud.animation false: the status line redraws every 30 s; the record gets the same edit so prune still matches
-let slow=false;if(b.statusLine)try{slow=read(cfg).hud?.animation===false;if(slow)b.statusLine.refreshInterval=30}catch{}
 // v1.5 plugin ids: Claude Code moves their settings only while the old id is enabled, and the prune below drops it first
 // in the record too, or prune would keep the renamed keys as set by hand
 for(const o of [d.enabledPlugins,d.pluginConfigs,old?.enabledPlugins,old?.pluginConfigs])if(isObj(o))for(const r of ids.split(" ")){const[a,n]=r.split(":").map(x=>x+"@claudzilla");
   if(a in o){if(!(n in o))o[n]=o[a];delete o[a]}}
 fs.writeFileSync(out,JSON.stringify(merge(merge(old?prune(d,old,b):d,b),read(over)),null,2)+"\n");
-if(slow)fs.writeFileSync(rec+".claudzilla",JSON.stringify(b,null,2)+"\n");else fs.copyFileSync(base,rec+".claudzilla")' \
-    "$base" "$dst" "$tmp" "$DEST/settings.overrides.json" "$rec" "$OLD_IDS" "$DEST/claudzilla.json"
+fs.copyFileSync(base,rec+".claudzilla")' \
+    "$base" "$dst" "$tmp" "$DEST/settings.overrides.json" "$rec" "$OLD_IDS"
   if [ -f "$dst" ] && cmp -s "$tmp" "$dst"; then rm -f "$tmp"
   else
     [ -f "$dst" ] && save settings.json

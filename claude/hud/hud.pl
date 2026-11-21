@@ -170,7 +170,6 @@ sub cache_file {
     (my $sid = $_[0] // '') =~ s/[^\w-]//g;
     return "$dir/hud-" . (length $sid ? $sid : 'nosession') . '.cache';
 }
-sub reduce_motion_path { return ($ENV{CLAUDE_CONFIG_DIR} // "$ENV{HOME}/.claude") . '/settings.json' }
 sub gather {
     my $raw = do { local $/; <STDIN> } // '';
     my $d = json_parse(dec($raw));
@@ -302,9 +301,6 @@ sub gather {
     my $cfg = json_parse(slurp((defined $cdir ? $cdir : "$ENV{HOME}/.claude") . '/claudzilla.json'));
     my $layout = dig($cfg, 'hud', 'layout');
     $out{layout} = $layout if defined $layout && !ref $layout && ($layout eq 'compact' || $layout eq 'minimal');
-    my $anim = dig($cfg, 'hud', 'animation');
-    my $rm = dig(json_parse(slurp(reduce_motion_path())), 'prefersReducedMotion');
-    $out{still} = 1 if (ref $anim eq 'SCALAR' && !$$anim) || (ref $rm eq 'SCALAR' && $$rm);
     for my $table (keys %PALETTE) {
         for my $key (keys %{ $PALETTE{$table} }) {
             my $set = $table eq 'types' ? dig($cfg, 'palette', 'margin', 'types', $key) : dig($cfg, 'palette', $table, $key);
@@ -439,7 +435,6 @@ sub paint {                     # [char, r, g, b] cells -> string, colour code o
     }
     return $out . "\e[0m";
 }
-my $WID = 10;   # highlight half-width in cells
 my @A = @{ pal('hud_rampLow') }; my @B = @{ pal('hud_rampHigh') };  # blue ramp, dark -> bright
 my @O = @{ pal('hud_rampHot') };                                     # ...then warm over the last 30% of the track
 sub ramp {
@@ -447,10 +442,9 @@ sub ramp {
     return $x < 0.7 ? [ map { $A[$_] + ($B[$_]-$A[$_]) * ($x/0.7) } 0..2 ]
                     : [ map { $B[$_] + ($O[$_]-$B[$_]) * (($x-0.7)/0.3) } 0..2 ];
 }
-# builds a whole meter row as cells, then runs the highlight across all of it -
-# title, bar, figure and note alike. $head is the sweep centre, undef while resting.
+# builds a whole meter row: title, bar, figure and note
 sub meter_line {
-    my ($label,$pct,$note,$n,$tw,$lw,$pw,@hs) = @_;
+    my ($label,$pct,$note,$n,$tw,$lw,$pw) = @_;
     my $wait = !defined $pct; $pct //= 0;
     my $f = int($pct / 100 * $n + 0.5); $f = $n if $f > $n;
     # cache is a clock, not a fill: a solid full bar in one ramp colour, dim blue when fresh to orange when cold
@@ -461,14 +455,13 @@ sub meter_line {
     push @cell, bar_cells($n, $f, $cc);                                       # bar
     push @cell, [$_, fig_colour($pct, $wait, $cc)] for split //, sprintf(' %*s%%  ', $pw, $wait ? '--' : $pct);   # figure
     push @cell, [$_, pal('hud_note')] for split //, sprintf("%*s", $tw, $note);    # note
-    return shine(\@cell, @hs);
+    return cells_str(@cell);
 }
 sub bar_cells {                 # $n cells, $f lit; $cc: one solid colour (the cache clock)
     my ($n,$f,$cc) = @_;
     return map { my $on = $_ < $f;
                  [$cc ? $G_CACHE : $on ? $G_ON : $G_OFF,
-                  $on ? $cc // [map { int($_+0.5) } @{ ramp(($n > 1 ? $_/($n-1) : 1) ** 0.85) }] : pal('hud_track'),
-                  $on ? 0.65 : 0.30] } 0 .. $n-1;
+                  $on ? $cc // [map { int($_+0.5) } @{ ramp(($n > 1 ? $_/($n-1) : 1) ** 0.85) }] : pal('hud_track')] } 0 .. $n-1;
 }
 sub fig_colour {
     my ($pct,$wait,$cc) = @_;
@@ -476,54 +469,23 @@ sub fig_colour {
     return $wait ? pal('hud_note') : $cc // [map { int($_+0.5) } @{ ramp($x) }];
 }
 sub cch_colour { [map { int($_+0.5) } @{ ramp(0.1 + 0.9 * ($_[0]/100) ** 0.85) }] }
-sub shine {                     # cells -> string, with the sweep highlight at heads @hs
-    my ($cell,@hs) = @_; my @cell = @$cell;
-    my @px;
-    for my $i (0 .. $#cell) {
-        my ($ch,$c,$w) = @{$cell[$i]};
-        $w //= 0.55;                                                          # text glows a touch less than fill
-        my @c = @$c;
-        my $g = 0;
-        for my $h (@hs) { my $v = glow($i - $h, $WID, 1.6); $g = $v if $v > $g }
-        @c = map { $c[$_] + (255 - $c[$_]) * ($g * $w) } 0..2 if $g > 0;
-        push @px, [$ch, @c];
-    }
-    return paint(@px);
-}
+sub cells_str { return paint(map { [$_->[0], @{$_->[1]}] } @_) }   # [char, colour] cells -> string
 my $dim = sub { "\e[2m$_[0]\e[0m" };
 # meter titles: muted lilac - clear of the teal profile and the blue->orange ramp
-
-# per-session phase offset so concurrent sessions animate out of step
-my $OFF = 0; $OFF = ($OFF * 31 + ord) % 3600 for split //, ($id // '');
-
-my $row = 0;
 
 my @out;
 
 # identity: path + branch + session id, profile flush right
-my $STILL = $f{still} ? 1 : 0;
-# bar sweep timing, here because the cwd pulse plays inside the sweep's rest
-my $SWEEP = 30; my $REST = 60; my $LAG = 2;
-my $CYC   = $SWEEP + $REST;
-# cwd: one pulse crosses the path $GAP seconds after each bar sweep, 1 char/s or faster to last at most $DUR seconds
-my $GAP = 5; my $DUR = 20; my $BASE = 0.5; my $PEAK = 1.25;   # $DUR must stay under $REST - $GAP; PEAK > 1 lifts the tip past hud_cwdHigh
 sub cwd_str {
     my $text = shift;
     # by default hud_cwdLow equals the theme's promptBorder, so ~/ and / take the border colour
     my $sep = fg('hud_cwdLow');
     my $s = $text =~ s{^(~(?:/|\z))}{} ? "$sep$1" : "";
-    my @ch = split //, $text;
-    my $wid = @ch * 0.3 < 6 ? 6 : @ch * 0.3;
-    my $dist = @ch + $wid;                                  # head enters and leaves fully off-screen
-    my $speed = $dist > $DUR ? $dist / $DUR : 1;
-    my $head = $STILL ? -1e9 : (($T + $OFF) % $CYC - $SWEEP - $GAP) * $speed - $wid / 2;
     my ($lo, $hi) = (pal('hud_cwdLow'), pal('hud_cwdHigh'));
-    for my $i (0 .. $#ch) {
-        if ($ch[$i] eq '/') { $s .= "$sep/"; next }
-        my $d = abs($i - $head);
-        my $t = $BASE + ($PEAK - $BASE) * ($d < $wid / 2 ? (1 + cos(6.283185307 * $d / $wid)) / 2 : 0);
-        my @c = map { my $v = int($lo->[$_] + ($hi->[$_]-$lo->[$_])*$t + 0.5); $v < 0 ? 0 : $v > 255 ? 255 : $v } 0..2;   # PEAK overshoots below 0 when cwdHigh is darker
-        $s .= "\e[38;2;$c[0];$c[1];$c[2]m$ch[$i]";
+    my @c = map { int($lo->[$_] + ($hi->[$_]-$lo->[$_])*0.5 + 0.5) } 0..2;   # halfway between low and high
+    for my $ch (split //, $text) {
+        if ($ch eq '/') { $s .= "$sep/"; next }
+        $s .= "\e[38;2;$c[0];$c[1];$c[2]m$ch";
     }
     return $s . "\e[0m";
 }
@@ -570,91 +532,27 @@ my $ONE = $COMPACT && @one && int(($W - 3 * $#one) / @one) - 11 - 5 >= 8;
 my $CL = int(($W - 3) / 2); my $CRW = $W - 3 - $CL;
 my $TWO = !$ONE && ($mv{'5h'} || $mv{wk}) && $CL - 11 - $tw >= 8;
 my ($twl, $twr) = $TWO ? ($note_w->(qw(ctx cch)), $note_w->(qw(5h wk))) : ($tw, $tw);
-# empty on one row: the sweep's fill-edge pulse then starts mid-row, so it reaches both ends
 my @m = $ONE || $MIN ? () : $TWO ? grep { defined } @mv{qw(ctx cch)} : @one;
 my $n  = ($TWO ? $CL : $W) - 4 - 5 - 2 - $twl;
 
-# --- sweep -----------------------------------------------------------------
-# One highlight pass every $SWEEP+$REST seconds, wall-clock driven so the timing
-# holds however often the HUD renders. Each pass picks one of ten motions at
-# random - the pick is a hash of the cycle number, so every render inside a
-# given pass agrees on it without any stored state.
-my $NOW   = $T + $OFF;
-my $VAR   = ((int($NOW / $CYC) * 1103515245 + 12345) >> 7) % 10;
-my $TAIL  = ($VAR == 6);        # trailing comet: asymmetric, needs a different shape
-
-# distance from a head -> 0..1 brightness. $d is signed so the tail can drag behind.
-sub glow {
-    my ($d,$wid,$pw) = @_;
-    if ($TAIL) {
-        my ($head,$tail) = (0.5*$wid, 2.2*$wid);
-        return $d > 0 ? ($d < $head ? (1 - $d/$head) ** 2.2 : 0)
-                      : (-$d < $tail ? (1 + $d/$tail) ** 2.6 * 0.8 : 0);
-    }
-    $d = abs $d;
-    return $d < $wid ? (1 - $d/$wid) ** $pw : 0;
-}
-
-# head positions on row $r (-1 = top rule, 0..2 = meters, 3 = bottom rule).
-# empty while resting, or while a row is waiting its turn.
-sub heads {
-    my ($r) = @_;
-    return () if $STILL;
-    my $t = $NOW % $CYC;
-    return () if $t >= $SWEEP;
-    my $p    = $t / $SWEEP;
-    my $full = $W + 2*$WID;                 # just clears both edges
-    my $span = $W + 2*$WID + 12*$LAG;       # ...even for the last lagging row
-    return (-$WID - $LAG + $p*$span - $r*$LAG)                    if $VAR == 0;  # diagonal comet
-    return (-$WID + $p*$full)                                     if $VAR == 1;  # vertical wipe
-    if ($VAR == 2) {                                                             # relay
-        my $q = ($p - ($r+1)/5) * 5;
-        return () if $q < 0 || $q > 1;
-        return (-$WID + $q*$full);
-    }
-    return (-$WID + $p*$span - (8 - abs($r-1)*4))                 if $VAR == 3;  # chevron
-    return (-$WID + $p*$span + sin($r*1.3 - $p*6)*10)             if $VAR == 4;  # ripple
-    return (-$WID + $p*$full, $W + $WID - $p*$full)               if $VAR == 5;  # two heads
-    return (-$WID + $p*($full+24) - $r*$LAG)                      if $VAR == 6;  # trailing comet
-    if ($VAR == 7) {                                                             # ping-pong
-        my $u = $p < 0.5 ? 2*$p : 2 - 2*$p;
-        return (-$WID + $u*$full - $r*$LAG);
-    }
-    if ($VAR == 8) {                                                             # pulse from the fill edge
-        my $edge  = ($r >= 0 && $r <= 2 && $m[$r]) ? 4 + int(($m[$r][1] // 0)/100*$n + 0.5) : $W/2;
-        my $reach = $p * ($W/2 + $WID);
-        return ($edge - $reach, $edge + $reach);
-    }
-    my $th = $p * 6.283185307;                                                   # spin
-    return ($W/2 + ($W/2 + $WID) * cos($th) * (1 + ($r-1)*0.28));
-}
-
-# rule comet: the same highlight running the hairline rules, in step with the bars
-# (top rule rides one row ahead of ctx, lower rule one row behind wk)
-my $CWID = 6;   # comet reach, as in the original: soft ^2 falloff, no hard core
 my @DAY = qw(Sun Mon Tue Wed Thu Fri Sat);
 my @MON = qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec);
 sub rule {
-    my ($r,$label) = @_;
-    $label //= '';
-    my @hs = map { int($_ + 0.5) } heads($r);    # snap so exactly one cell is the head
+    my $label = shift // '';
     my $start = int(($W - length($label)) / 2);
     my @px;
     for my $i (0 .. $W-1) {
-        my $g = 0;
-        for my $h (@hs) { my $v = glow($i - $h, $CWID, 2); $g = $v if $v > $g }
         my $ch = "\x{2501}";
-        my @b  = @{ pal('hud_divider') }; my $w = 0.75;      # hairline
+        my @b  = @{ pal('hud_divider') };      # hairline
         if (length $label && $i >= $start && $i < $start + length $label) {
             $ch = substr($label, $i - $start, 1);
             @b  = $ch eq ' ' ? (13,18,24) : @{ pal('hud_clock') };  # inset clock / date
-            $w  = $ch eq ' ' ? 0 : 0.9;
         }
-        push @px, [$ch, $g > 0 ? (map { $b[$_] + (pal('hud_sweep')->[$_] - $b[$_]) * ($g*$w) } 0..2) : @b];
+        push @px, [$ch, @b];
     }
     return paint(@px);
 }
-push @out, rule(-1, sprintf(' %02d:%02d ', @lt[2,1])) unless $f{layout};
+push @out, rule(sprintf(' %02d:%02d ', @lt[2,1])) unless $f{layout};
 
 my $DIV = " " . fg('hud_divider') . "\x{2503}\e[0m ";
 if ($MIN) {
@@ -663,14 +561,13 @@ if ($MIN) {
     my ($br, $dt, $mo, $notes) = ($branch, $dirty, $model, 1);
     my @ms = grep { defined } @mv{qw(cch ctx 5h wk)};
     my $bar = 12;
-    my @hs = heads(1);
     my $left = sub {
         my $l = cwd_str($path) . (defined $br ? $branch_str->($br) : '') . (defined $dt && $dt ne '' ? $dirty_str->($dt) : '');
         $l .= '  ' . fg('hud_model') . $mo . "\e[0m" . ($EFFORT ? "\e[2m  $EFFORT\e[0m" : '') if defined $mo;
         return $l;
     };
-    my $right = sub {           # $x: the row column it starts at, for the sweep; undef measures only
-        my $x = shift; my @parts;
+    my $right = sub {
+        my @parts;
         for my $m (@ms) {
             my ($label, $pct, $note) = @$m;
             my $wait = !defined $pct;
@@ -686,8 +583,7 @@ if ($MIN) {
                 push @cell, map { [$_, fig_colour($pct // 0, $wait)] } split //, sprintf('%3s%%', $wait ? '--' : $pct);
                 push @cell, map { [$_, pal('hud_note')] } split //, sprintf(' %5s', $note) if $notes && $note ne '';
             }
-            push @parts, defined $x ? shine(\@cell, map { $_ - $x } @hs) : join '', map { $_->[0] } @cell;
-            $x += @cell + 3 if defined $x;
+            push @parts, cells_str(@cell);
         }
         return join $DIV, @parts;
     };
@@ -704,13 +600,10 @@ if ($MIN) {
         my $room = $W - vis($right->()) - 2;
         $path = trim_path($path, $room) if $room > 2;
     }
-    my $r = $right->();
-    push @out, pad($left->(), $right->($W - vis($r)));
+    push @out, pad($left->(), $right->());
 } elsif ($ONE) {
     @one = grep { defined } @mv{qw(cch ctx 5h wk)};     # the three usage fills sit together, the cache clock apart
     my $room = $W - 3 * $#one;
-    my $x = 0;
-    my @hs = heads(1);      # middle row: the spin's row scale is 1, so it reaches both ends
     my @cols;
     for my $i (0 .. $#one) {
         my $col = int($room * ($i + 1) / @one) - int($room * $i / @one);
@@ -718,8 +611,7 @@ if ($MIN) {
         $note =~ s/^ +//;
         # 2 spaces around the bar; it takes what short text leaves, so no uneven gaps
         my ($lw, $pw, $nw) = (1 + length $label, 1 + length($pct // '--'), length $note);
-        push @cols, meter_line($label, $pct, $note, $col - 5 - $lw - $pw - $nw, $nw, $lw, $pw, map { $_ - $x } @hs);
-        $x += $col + 3;
+        push @cols, meter_line($label, $pct, $note, $col - 5 - $lw - $pw - $nw, $nw, $lw, $pw);
     }
     push @out, join($DIV, @cols);
 } elsif ($TWO) {
@@ -727,19 +619,18 @@ if ($MIN) {
     my $nr = $CRW - 4 - 5 - 2 - $twr;
     for my $i (0, 1) {
         my ($l, $r) = ($mv{(qw(ctx cch))[$i]}, $mv{(qw(5h wk))[$i]});
-        my @hs = heads($row++);
-        push @out, ($l ? meter_line(@$l, $n, $twl, 3, 3, @hs) : ' ' x $CL)
+        push @out, ($l ? meter_line(@$l, $n, $twl, 3, 3) : ' ' x $CL)
                  . $DIV
-                 . ($r ? meter_line(@$r, $nr, $twr, 3, 3, map { $_ - $CL - 3 } @hs) : ' ' x $CRW);
+                 . ($r ? meter_line(@$r, $nr, $twr, 3, 3) : ' ' x $CRW);
     }
 } else {
     for my $r (@m) {
         my ($label,$pct,$note) = @$r;
-        push @out, meter_line($label, $pct, $note, $n, $tw, 3, 3, heads($row++));
+        push @out, meter_line($label, $pct, $note, $n, $tw, 3, 3);
     }
 }
 
-push @out, rule(3, sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]])) unless $f{layout};
+push @out, rule(sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]])) unless $f{layout};
 
 # activity: model, skill, thinking; uptime flush right
 unless ($MIN) {   # same treatment as the identity row, measured on the rendered strings

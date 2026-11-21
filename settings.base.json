@@ -148,7 +148,7 @@
   "statusLine": {
     "type": "command",
     "command": "perl \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hud/hud.pl\"",
-    "refreshInterval": 1
+    "refreshInterval": 30
   },
   "enabledPlugins": {
     "caveman@caveman": true,
