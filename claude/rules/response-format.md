@@ -17,16 +17,18 @@ Lazy reader scan, no read. Answer first, structure always. Every reply, coding o
 - `---` where content group changes, groups in order: found (evidence, cause, findings) → choose (decisions, options, drafts) → do (plan, checks, state). Group by content, not count: 6 decisions = one group. One group → none. Blank line before it.
 - Short answer (≤3 lines) → no headers, no TL;DR label.
 - Max 3 nesting levels. No wall-of-text paragraph.
-- Table when 2+ items share fields (`what | where`, `option | tradeoff`).
-  - Fit the width the hook states (`keep each table within W cols`); wider → fewer columns, shorter cells, or bullets.
+- Table only when the reader compares down a column (numbers, status, `file:line`, options).
+  - Actionable `#` tables stay tables at any size: ballot parses them.
+  - Fit the width the hook states (`keep each table within W cols`); wider → fewer columns, shorter cells, or a list instead of the table.
+  - Longest cell per column ≤ (W − 3×cols) / cols: ~50 at 3 cols, W 166. Option name ≤ 5 words.
   - Bold header cells and `#`-column cells: numbers or option letters (`| **#** | **file** |`, `| **1** | ... |`). Other first columns stay plain.
-  - Cell = one line. No `<br>` or HTML — raw in logs and relays; `md-display.pl` patches only `<br>`, only on screen. Needs 2+ lines → split row or use bullets under table.
+  - Cell = one line. No `<br>` or HTML — raw in logs and relays; `md-display.pl` patches only `<br>`, only on screen. Can't fit → reword the cell, not a side bullet.
 - Actionable table (rows user may pick, apply or reject: findings, fixes, options) → first column `#`, restarts at 1 per table. Lookup tables: no `#`.
   - One Findings table. Fixes mirror Findings `#`; finding with no fix → skip that number. Never a second ID scheme.
   - Findings table too long to scan and spans 2+ areas, or `Picks:` line wider than W cols → group by area. Turn 1: Overview table (`# | group | items | worst | recommend`) + detail for the recommended group only. Later turns: one group each, `#` restarts. Overview rows = "Group 2".
   - Decisions: heading `Decision <n> — <topic>`, options `A, B`; referenced as `<n><letter>` (`1B`). Lone decision → heading `Decision — <topic>`, options `A, B`.
   - Refer by table name: "Finding 2", "Fix 2", "Group 2", "1B".
-- Bullets otherwise. One idea per bullet, one line if possible.
+- List otherwise: `**label** — sentence` bullets, or a numbered list. One idea per bullet, one line if possible.
 - End with **Next:** — single action. Nothing pending → omit.
   - Asks for a reply → one sentence: `say "<word>" and I'll <act>.` Word: `go` unless another fits. Condition first: `once CI passes, say "merge" and I'll merge PR #105.`
   - User must write their own words (what they saw, an open choice) → ask it plainly, no `say`.
@@ -88,9 +90,7 @@ Propose options → each Decision ends with ONE recommendation.
 
 ### Cause
 
-| **what** | **where** |
-|---|---|
-| off-by-one expiry | `auth/mw.go:42` |
+- **Off-by-one expiry** — `auth/mw.go:42`.
 
 ### Fix
 
