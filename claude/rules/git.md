@@ -38,20 +38,26 @@ Body sections, in order, **only those that apply**:
 ```
 <type>(<scope>)?: <subject, imperative, <=50 chars>
 
-Why: <1 line — trigger or root cause. Skip if subject says it.>
+Why: <1–2 sentences — trigger or root cause. Skip if subject says it.>
 
-Impact: <who/what is affected — callers, config, data, behaviour. 1-2 lines.>
+Impact: <who/what is affected — callers, config, data, behaviour; non-obvious cost. 1-2 lines.>
 
-Verify: <command run, or how checked>
-Refs: <#issue / ticket / commit sha>; Depends on: <PR> when merge order matters
+Verify: <command run + result, or how checked>
+Depends on: <PR> when merge order matters
+
+Fixes: <12-char sha> ("<subject>")
+Closes: #<issue>
+Co-Authored-By: ...
 ```
 
 Rules:
 - High level: what + why. Not how — diff shows how.
 - No file list in commits — one logical change per commit, `git show --stat` has the files.
 - `Why:` = cause, not narration. No paragraph.
-- `Impact:` = blast radius, not benefit. Names what changes for a user/caller. None → omit line.
-- `Verify:` names a real command run. Not run → say `not run`.
+- Wrap body at 72 cols. Trailer lines exempt.
+- `Impact:` = blast radius, not benefit. Names what changes for a user/caller, plus any non-obvious cost (slower path, new dep). Perf claim → number. None → omit line.
+- `Verify:` names a real command run and its result (`777 pass`, `rc 0`). `fix:` with a new test → add that it fails without the change. Not run → say `not run`.
+- Trailers go in the last block, with `Co-Authored-By`, so `git log --format='%(trailers)'` parses them. `Fixes:` only when fixing a known commit; `Closes:` only for an issue.
 - Breaking change → `BREAKING:` line with migration in one line.
 - No emoji, no marketing words, no "comprehensive/robust/seamless".
 - Never add a Claude session link: no `Claude-Session:` trailer, no `claude.ai/code/session_…` URL, in commit messages or PR descriptions. No "Generated with Claude Code" line in PR descriptions. `Co-Authored-By` stays.
