@@ -155,12 +155,13 @@ export async function reloadPlace($: EngineInterface): Promise<void> {
 function rerunFind(): void {
   const find = state.find
   if (!find?.open || !find.text || !state.loaded) return
-  const line = find.result.matches[find.current]?.line
+  const was = find.result.matches[find.current]
   finds.begin()
   find.pending = false
   find.result = findIn(state.loaded.lines, { text: find.text, ...state.toggles })
   find.spans = spansOf(find.result)
-  const at = line === undefined ? -1 : find.result.matches.findIndex(m => m.line >= line)
+  const same = was ? find.result.matches.findIndex(m => m.line === was.line && m.start === was.start) : -1
+  const at = same >= 0 || !was ? same : find.result.matches.findIndex(m => m.line >= was.line)
   find.current = Math.max(at, 0)
   litFind(find, find.result.matches[find.current])
 }
