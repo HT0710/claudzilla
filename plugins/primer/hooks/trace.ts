@@ -45,7 +45,7 @@ export function tracer(part: string, now: () => number = Date.now): Tracer {
   const ring: { s: string; n: number }[] = []
   let bytes = 0
   let home = '', session = '', dir = '', off = false, turns = 0, dirty = false, timer = false, last = 0, due = 0
-  let loaded = false, dirMade = false, modeSet = ''
+  let loaded = false, dirMade = false, modeSet = '', unsaved = 0
   let handle: EngineInterface | undefined
   let chain: Promise<void> = Promise.resolve()
 
@@ -58,6 +58,7 @@ export function tracer(part: string, now: () => number = Date.now): Tracer {
     const n = new TextEncoder().encode(s).length + 64
     ring.push({ s, n })
     bytes += n
+    unsaved++
     while (ring.length > RING || (bytes > BUDGET && ring.length > 1)) drop()
     dirty = true
     last = now()
@@ -126,6 +127,7 @@ export function tracer(part: string, now: () => number = Date.now): Tracer {
       const tag = `{"session":${JSON.stringify(session)},`
       const text = ring.map(x => tag + (home && x.s.includes(home) ? x.s.split(home).join('~') : x.s).slice(1)).join('\n') + '\n'
       await $.fs.write(file, text)
+      unsaved = 0
       // fs.write keeps an existing file's mode, so once per file.
       if (modeSet !== file) {
         const r: any = await $.process.run(['chmod', '600', file])
@@ -136,6 +138,15 @@ export function tracer(part: string, now: () => number = Date.now): Tracer {
   const flush = ($: EngineInterface): Promise<void> => chain = chain.then(async () => {
     try {
       if (!loaded) await load($)
+      else if (safe(await $.session.id(), 'nosession') !== session) {
+        // A /clear changes the id with no session.start; lines since the last write came after it.
+        const tail = ring.slice(ring.length - Math.min(unsaved, ring.length))
+        ring.length = 0; bytes = 0; dirty = false
+        await load($)
+        if (!off) for (const x of tail) { ring.push(x); bytes += x.n }
+        while (ring.length > RING || (bytes > BUDGET && ring.length > 1)) drop()
+        dirty = !off && tail.length > 0
+      }
       await write($)
     } catch { /* never throws */ }
   })

@@ -157,6 +157,21 @@ test('a new session starts a clean file, the old one is flushed first', async ()
   expect(lines(f.files.get(`${DIR}/B.p.jsonl`)!).map(r => r.event)).toEqual(['b1'])
 })
 
+test('a /clear moves the next flush to the new session without a start', async () => {
+  const f = fake()
+  let sid = 'A'
+  f.$.session.id = async () => sid
+  const t = tracer('p')
+  await t.start(f.$)
+  t.event('a1')
+  await t.flush(f.$)
+  sid = 'B'
+  t.event('b1')
+  await t.flush(f.$)
+  expect(lines(f.files.get(`${DIR}/A.p.jsonl`)!).map(r => r.event)).toEqual(['a1'])
+  expect(lines(f.files.get(`${DIR}/B.p.jsonl`)!).map(r => r.event)).toEqual(['b1'])
+})
+
 test('failed mkdir: no write, retried on the next flush', async () => {
   const f = fake()
   let code = 1
