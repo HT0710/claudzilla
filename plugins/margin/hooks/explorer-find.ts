@@ -50,11 +50,11 @@ export const NAME_CAP = 5000
 export function filterNames(entries: readonly NameEntry[], text: string): NameEntry[] {
   const low = text.toLowerCase()
   if (!low) return []
-  const nameOf = (e: NameEntry) => e.path.slice(e.path.lastIndexOf('/') + 1)
-  const depth = (e: NameEntry) => e.path.split('/').length
   return entries
-    .filter(e => nameOf(e).toLowerCase().includes(low))
-    .sort((a, b) => (a.kind === b.kind ? (nameOf(a) < nameOf(b) ? -1 : nameOf(a) > nameOf(b) ? 1 : depth(a) - depth(b) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)) : a.kind === 'dir' ? -1 : 1))
+    .map(e => ({ e, name: e.path.slice(e.path.lastIndexOf('/') + 1), depth: e.path.split('/').length }))
+    .filter(x => x.name.toLowerCase().includes(low))
+    .sort((a, b) => (a.e.kind === b.e.kind ? (a.name < b.name ? -1 : a.name > b.name ? 1 : a.depth - b.depth || (a.e.path < b.e.path ? -1 : a.e.path > b.e.path ? 1 : 0)) : a.e.kind === 'dir' ? -1 : 1))
+    .map(x => x.e)
 }
 
 export async function walkNames(
