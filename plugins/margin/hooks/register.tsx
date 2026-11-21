@@ -7,7 +7,7 @@ import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, PAD, WHEEL_HOLD, applyPalette
 import type { Prompt, Readers, TabCtx, TabDraw, UseEntry, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
-import { changedOnDisk, checkOpenFile, draw as drawFile, closeEmptyField, closeOnEscape, resetSeeds, explorerPost, escapeSent, fieldOpen, fieldTakesEscape, fieldText, menuPinned, paneBase, showPlace, unpinMenu } from './tab-file'
+import { blankOnce, changedOnDisk, checkOpenFile, draw as drawFile, closeEmptyField, closeOnEscape, resetSeeds, explorerPost, escapeSent, fieldOpen, fieldTakesEscape, fieldText, menuPinned, paneBase, showPlace, unpinMenu } from './tab-file'
 import { autoFetch, draw as drawGit, resetGitReads } from './tab-git'
 import { draw as drawHistory } from './tab-history'
 import { draw as drawOverview, resetStepsHeld, same } from './tab-overview'
@@ -1555,6 +1555,12 @@ export const register: Register = (on, options) => {
     const draw = t.span('pane.draw')
     const elements = $.ui.resolve(e)
     const { Box, Button, Text } = elements
+    if (blankOnce.next) {
+      blankOnce.next = false
+      $.clock.after(0, async () => $.ui.invalidate('ui.render'))
+      draw.end({ blank: true })
+      return <Box />
+    }
     // A tab saved before it was hidden falls back to the first shown.
     const saved = await read($, tab)
     const current = TABS.find(one => one === saved) ?? TABS[0]!

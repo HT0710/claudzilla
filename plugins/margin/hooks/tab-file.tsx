@@ -71,6 +71,10 @@ const finds = latestOf()
 // A row icon's colour name (explorer-tree.ts) to the colour the Git tab draws that name in.
 const ICON_COLORS = (): Record<string, string> => ({ claude: 'claude', faint: HUD.faint, refactor: TYPES.refactor!, docs: TYPES.docs!, test: TYPES.test!, feat: TYPES.feat! })
 
+// A closed field leaves the engine's focus ring on the button drawn in its place, with no ui.focus to catch
+// (engine 2.1.330, repro in a minimal mod). One pane draw with no buttons drops it, so the pane draws blank once.
+export const blankOnce = { next: false }
+
 // Closes find and drops its matches and any pending run; the toggles stay.
 function endFind(): void {
   finds.begin()
@@ -81,6 +85,7 @@ function endFind(): void {
   find.result = { matches: [], bad: false, capped: false }
   find.spans = new Map()
   find.current = 0
+  if (find.open) blankOnce.next = true
   find.open = false
   gen++
 }
@@ -89,6 +94,7 @@ function endFind(): void {
 function endNames(): void {
   // While text is typed, state.top scrolls the results; the tree's own scroll waits in names.tree.
   if (state.names?.text) state.top = state.names.tree
+  if (state.names) blankOnce.next = true
   state.names = undefined
   nameGen++
 }
@@ -255,6 +261,7 @@ const findKey = (): string => (gen ? `${FIELD}:${gen}` : FIELD)
 export async function closeEmptyField($: EngineInterface, e?: { element?: string }): Promise<boolean> {
   if (state.find?.open && !state.find.text && (!e || leavesField(e, findKey()))) {
     state.find = undefined
+    blankOnce.next = true
     gen++
   } else if (state.names && !state.names.text && (!e || leavesField(e, nameKey()))) endNames()
   else return false
