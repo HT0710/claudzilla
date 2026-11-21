@@ -143,7 +143,7 @@ const FILL = '/claudzilla compact'
 export const HANDOFF = '/claudzilla handoff'
 type Config = { dir: string; base: number; cold: number }
 
-// The TTL the newest main-chat cache write chose, as hud-data.mjs reads it; a pure cache read keeps it.
+// The TTL the newest main-chat cache write chose, as hud.pl reads it; a pure cache read keeps it.
 export function ttlOf(tail: string): number | undefined {
   for (const line of tail.split('\n').reverse()) {
     if (!line.includes('"assistant"')) continue

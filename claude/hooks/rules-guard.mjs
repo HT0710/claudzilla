@@ -133,7 +133,7 @@ const TDD_ASK = /\b(?:write|add|writing|adding)[ \t]+(?:(?:the|a|some|new)[ \t]+
 const triggerText = (text) => unquote(text).replace(TDD_ASK, "");
 const fresh = () => ({ skills: [], checked: false, debug: false, debugNudged: false, edited: false, ended: false, flags: [], judged: "", panel: false, reportFrom: -1 });
 // Per user and private, because tmpdir is shared on Linux: another user's planted dir or symlink would get our writes or plant state.
-// md-display.pl, hud-filter.pl and folio use the same dir and check.
+// md-display.pl, hud.pl and folio use the same dir and check.
 function stateDir() {
   const uid = process.getuid?.();
   const dir = join(tmpdir(), `claudzilla-rules-${uid ?? "u"}`);

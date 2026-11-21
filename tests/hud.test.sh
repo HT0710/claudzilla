@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Offline HUD tests: fixture payload + transcript through hud-data.mjs and hud-filter.pl.
+# Offline HUD tests: fixture payload + transcript through hud.pl.
 #   bash tests/hud.test.sh
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -40,7 +40,7 @@ JSON
 data() { CLAUDE_CONFIG_DIR="$C" HUD_DUMP=1 perl "$HUD/hud.pl"; }
 key() { awk -F'\t' -v k="$1" '$1==k{print $2}' <<<"$2"; }
 
-# --- hud-data.mjs ---
+# --- hud.pl ---
 kv=$(data <<<"$full")
 check "data: id"        [ "$(key id "$kv")" = abcdef12 ]
 check "data: sid"       [ "$(key sid "$kv")" = abcdef1234567890 ]
@@ -161,7 +161,7 @@ check "data: control chars dropped" [ "$(key model "$kv")" = "a ]52;c;aGk= b" ]
 kv=$(data <<<'{"model":{"display_name":"a\u009d52;c;aGk=\u009cb"}}')
 check "data: C1 control chars dropped" [ "$(key model "$kv")" = "a 52;c;aGk= b" ]
 
-# --- hud-filter.pl ---
+# --- hud.pl ---
 render() { data <<<"$1" | COLUMNS=120 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
 out=$(render "$full")
 # meters in two columns: ctx over cache | 5h over wk; no reply yet shows the cache hot
@@ -175,7 +175,7 @@ out=$(render "$full")
 check "render: cch | wk row" grep -q '^cch .* 33%  40m ┃ wk  .* 12%  2d7h$' <<<"$out"
 check "render: two meter rows" [ "$(grep -cE '(^|┃ )(ctx|cch|5h|wk) ' <<<"$out")" -eq 2 ]
 check "render: cache not in bottom row" bash -c "! tail -1 <<<'$out' | grep -q cch"
-# colours: pick a session id whose highlight sweep is resting now (hud-filter.pl \$OFF, 30 s sweep in 90)
+# colours: pick a session id whose highlight sweep is resting now (hud.pl \$OFF, 30 s sweep in 90)
 rest=$(perl -e 'for my $i (0..999) { my $id = "r$i"; my $o = 0; $o = ($o * 31 + ord) % 3600 for split //, $id; my $t = (time() + $o) % 90; if ($t >= 35 && $t <= 80) { print $id; last } }')
 raw() { data <<<"{\"session_id\":\"$rest\",\"transcript_path\":\"$TMP/c.jsonl\",\"rate_limits\":{\"five_hour\":{\"used_percentage\":30}}}" | COLUMNS=120 HUD_KV=1 perl "$HUD/hud.pl"; }
 cache "$(reply 0 0 500)" >/dev/null
@@ -393,7 +393,7 @@ gg() { git -C "$G" -c user.name=t -c user.email=t@t "$@"; }
 gg init -q -b main; gg add -A; gg commit -qm init; gg tag v9.9.9; printf 'a\nc\n' > "$G/f"; touch "$G/u"
 echo '{"sessionId":"abcdef1234567890","name":"maxis-24"}' > "$GC/sessions/1.json"
 KV=$(printf 'id\tabcdef12\nsid\tabcdef1234567890\ncwd\t%s\nmodel\tOpus\neffort\thigh\nctx\t42\ncch\t50\ncch_note\t30m\n5h\t30\n5h_note\t2h0m\nwk\t12\nwk_note\t2d7h\nprofile\ta…h@example.test\nup\t90m\nskill\tpr\nthinking\t1' "$G")
-# frame <offset s> <cols> [extra kv line]: the payload plus hud-data's pal_ lines, as the pipe sends them
+# frame <offset s> <cols> [extra kv line]: the payload plus hud.pl's pal_ lines, as the pipe sends them
 frame() { { printf '%s\n' "$KV" ${3:+"$3"}; CLAUDE_CONFIG_DIR="$GC" HUD_DUMP=1 perl "$HUD/hud.pl" </dev/null | grep '^pal_'; } |
   FROZEN_TIME=$((1790000000 + $1)) TZ=UTC HOME="$GH" CLAUDE_CONFIG_DIR="$GC" COLUMNS=$2 PERL5LIB="$PL" HUD_KV=1 perl -MFrozen "$G/claude/hud/hud.pl"; }
 golden() { for t in 0 40 50 72; do echo "== $t 120"; frame "$t" 120; done; echo "== 45 170 compact"; frame 45 170 $'layout\tcompact'; echo "== 45 170 minimal"; frame 45 170 $'layout\tminimal'; echo "== 0 60"; frame 0 60; echo "== 40 120 still"; frame 40 120 $'still\t1'; }
@@ -404,7 +404,7 @@ check "still: golden still block differs from the animated 40 block" bash -c '[ 
 check "still: still frame has no sweep" bash -c '[ "$1" = "$2" ] && [ "$3" != "$4" ]' _ "$(frame 40 120 $'still\t1')" "$(frame 45 120 $'still\t1')" "$(frame 40 120)" "$(frame 45 120)"
 want=$(node --experimental-strip-types --no-warnings -e "import {DEFAULTS} from '$REPO/plugins/margin/hooks/palette.ts'; for (const t of ['shared','hud']) for (const [k,v] of Object.entries(DEFAULTS[t])) if (v !== null) console.log('pal_'+t+'_'+k+'\t'+v); for (const [k,v] of Object.entries(DEFAULTS.margin.types)) console.log('pal_types_'+k+'\t'+v)" | sort)
 got=$(CLAUDE_CONFIG_DIR="$GC" HUD_DUMP=1 perl "$HUD/hud.pl" </dev/null | grep '^pal_' | sort)
-check "palette: hud-data shared, hud and margin.types defaults equal palette.ts" bash -c '[ -n "$1" ] && [ "$1" = "$2" ]' _ "$want" "$got"
+check "palette: hud.pl shared, hud and margin.types defaults equal palette.ts" bash -c '[ -n "$1" ] && [ "$1" = "$2" ]' _ "$want" "$got"
 check "palette: no session colour sent by default" bash -c '! grep -q "^pal_hud_session" <<<"$1"' _ "$got"
 for p in folio primer ballot; do
   check "palette.ts copy in $p identical to margin" cmp -s "$REPO/plugins/margin/hooks/palette.ts" "$REPO/plugins/$p/hooks/palette.ts"
@@ -452,7 +452,7 @@ check "trace hud: branch change -> second entry" [ "$(grep -c '"event":"hud.chan
 check "trace hud: entry names the new branch" bash -c "tail -1 '$TRF' | grep -q 'feat/x'"
 check "trace hud: part is hud" grep -q '"part":"hud"' "$TRF"
 rm -rf "$TRC/claudzilla-trace" "$TRT"; a=$(trun); ac=$?; rm -rf "$TRC/claudzilla-trace" "$TRT"; : > "$TRC/claudzilla-trace"; b=$(trun); bc=$?
-# cwd colours pulse with the clock (hud-filter.pl cwd_str): compare text only
+# cwd colours pulse with the clock (hud.pl cwd_str): compare text only
 check "trace hud: output unchanged with unwritable trace" [ "$(perl -pe 's/\e\[[0-9;]*m//g' <<<"$a")" = "$(perl -pe 's/\e\[[0-9;]*m//g' <<<"$b")" ]
 check "trace hud: exit code unchanged with unwritable trace" [ "$ac" = "$bc" ]
 

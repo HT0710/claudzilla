@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# hud-data.mjs key/value lines -> E2 layout: identity row, rule, meters in two columns (ctx over cch | 5h over wk), rule, activity row.
+# hud.pl key/value lines -> E2 layout: identity row, rule, meters in two columns (ctx over cch | 5h over wk), rule, activity row.
 # hud.layout in claudzilla.json: "compact" drops the rules and puts all meters on one row when the width allows;
 # "minimal" draws one row: place and model left, meters right.
 use strict; use warnings;
@@ -335,7 +335,7 @@ my ($G_ON, $G_OFF, $G_BRANCH, $G_SKILL, $G_CACHE) =
     : ("\x{25B0}", "\x{25B1}", "\x{2387}", "\x{2691}", "\x{25AC}");
 
 my %f = %{ $ENV{HUD_KV} ? read_kv() : gather() };
-# hud-data.mjs pal_<table>_<key> lines: "<table>_<key>" -> [r, g, b]
+# hud.pl pal_<table>_<key> lines: "<table>_<key>" -> [r, g, b]
 my %PAL = map { $f{$_} =~ /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i ? (substr($_, 4) => [map { hex } $1, $2, $3]) : () } grep { /^pal_/ } keys %f;
 sub pal { $PAL{$_[0]} // [128,128,128] }
 sub fg { "\e[38;2;" . join(';', @{ pal($_[0]) }) . "m" }
