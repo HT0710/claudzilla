@@ -189,6 +189,11 @@ test('same-kind entries sort by name, not path', () => {
   expect(filterNames(both, 't').map(e => e.path)).toEqual(['b.t', 'a/t.ts'])
 })
 
+test('equal names list the shallower path first, then by path', () => {
+  const dirs = ['plugins/margin/tests', 'plugins/ballot/tests', 'tests'].map(path => ({ path, kind: 'dir' as const }))
+  expect(filterNames(dirs, 'tests').map(e => e.path)).toEqual(['tests', 'plugins/ballot/tests', 'plugins/margin/tests'])
+})
+
 test('empty text gives no rows', () => {
   expect(filterNames(names, '')).toEqual([])
 })
