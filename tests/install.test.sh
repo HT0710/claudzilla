@@ -71,19 +71,22 @@ check "content: no omc" bash -c "! grep -rqi omc '$REPO/claude' '$REPO/settings.
 
 # --- parts ---
 check "parts: every base key/hook/plugin claimed exactly once" node "$REPO/tests/parts-check.mjs" "$REPO"
-check "parts: links == old LINKS set" [ "$(node -p 'Object.values(require(process.argv[1])).flatMap(p=>p.links||[]).sort().join(" ")' "$REPO/parts.json")" = "CLAUDE.md RTK.md hooks/agent-name.mjs hooks/claudzilla-update.sh hooks/cost-trace.mjs hooks/delegate-nudge.mjs hooks/experimental.mjs hooks/md-display.pl hooks/rules-guard.mjs hooks/trace.mjs hooks/trace.pl hud rules skills/claudzilla-compact skills/claudzilla-report skills/pr skills/rule-review themes" ]
+check "parts: links == old LINKS set" [ "$(node -p 'Object.values(require(process.argv[1])).flatMap(p=>p.links||[]).sort().join(" ")' "$REPO/parts.json")" = "CLAUDE.md RTK.md agents/atlas.md hooks/agent-name.mjs hooks/claudzilla-update.sh hooks/cost-trace.mjs hooks/delegate-nudge.mjs hooks/experimental.mjs hooks/md-display.pl hooks/rules-guard.mjs hooks/trace.mjs hooks/trace.pl hud rules skills/claudzilla-compact skills/claudzilla-report skills/pr skills/rule-review themes" ]
 H=$(new_home); run_install "$H"; cp -a "$H/.claude" "$H/before"; run_install "$H"
 check "existing: re-run byte-identical" diff -r --exclude=.claudzilla-backup "$H/before" "$H/.claude"
 
 # --- fresh machine ---
 H=$(new_home); run_install "$H"; rc=$?
 check "fresh: exit 0" [ "$rc" -eq 0 ]
-for f in CLAUDE.md RTK.md rules themes hud hooks/claudzilla-update.sh hooks/cost-trace.mjs hooks/rules-guard.mjs hooks/experimental.mjs hooks/delegate-nudge.mjs hooks/agent-name.mjs hooks/trace.mjs hooks/trace.pl hooks/md-display.pl skills/pr skills/rule-review skills/claudzilla-report skills/claudzilla-compact; do
+for f in CLAUDE.md RTK.md rules themes hud agents/atlas.md hooks/claudzilla-update.sh hooks/cost-trace.mjs hooks/rules-guard.mjs hooks/experimental.mjs hooks/delegate-nudge.mjs hooks/agent-name.mjs hooks/trace.mjs hooks/trace.pl hooks/md-display.pl skills/pr skills/rule-review skills/claudzilla-report skills/claudzilla-compact; do
   check "fresh: $f linked" [ "$(readlink "$H/.claude/$f")" = "$REPO/claude/$f" ]
 done
 H2=$(new_home); mkdir -p "$H2/.claude/skills/mine"; echo x > "$H2/.claude/skills/mine/SKILL.md"; run_install "$H2"
 check "skills: own skill kept" [ "$(cat "$H2/.claude/skills/mine/SKILL.md")" = x ]
 check "skills: pr linked beside own" [ "$(readlink "$H2/.claude/skills/pr")" = "$REPO/claude/skills/pr" ]
+HA=$(new_home); mkdir -p "$HA/.claude/agents"; echo x > "$HA/.claude/agents/mine.md"; run_install "$HA"
+check "agents: own agent kept" [ "$(cat "$HA/.claude/agents/mine.md")" = x ]
+check "agents: atlas linked beside own" [ "$(readlink "$HA/.claude/agents/atlas.md")" = "$REPO/claude/agents/atlas.md" ]
 check "fresh: CLAUDE.local.md created" [ -f "$H/.claude/CLAUDE.local.md" ]
 check "fresh: settings == base + ponytail seed" [ "$(node -p 'const j=require(process.argv[1]);delete j.pluginConfigs["ponytail@ponytail"];if(!Object.keys(j.pluginConfigs).length)delete j.pluginConfigs;JSON.stringify(j)' "$H/.claude/settings.json")" = "$(q "$REPO/settings.base.json" '')" ]
 check "fresh: permissions ask by default" [ "$(q "$H/.claude/settings.json" .permissions.defaultMode)" = '"default"' ]
