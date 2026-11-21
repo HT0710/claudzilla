@@ -677,6 +677,46 @@ test('an action unpins the card, so its display is none', async ($, on) => {
   expect((await ui.find({ key: 'explorer:menu-card' }))?.props.display).toBe('none')
 })
 
+const card = async (ui: any) => (await ui.find({ key: 'explorer:menu-card' }))?.props.display
+
+test('a pinned card makes the pane take Escape; unpinning gives it back', async ($, on) => {
+  const opens: unknown[] = []
+  on('ui.open', (_, e) => (opens.push((e as any).closeOnEscape), { value: { isPlaced: true } }) as any)
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }) as any)
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
+  await ui.press({ key: 'menu' })
+  await ui.redraw()
+  await clock.advance(0)
+  expect(opens.at(-1)).toBe(true)
+  await ui.press({ key: 'code:0' })
+  await ui.redraw()
+  await clock.advance(0)
+  expect(await card(ui)).toBe('none')
+  expect(opens.at(-1)).toBeUndefined()
+})
+
+test('a press outside the pinned card unpins it; Wrap lines keeps it pinned', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'wrap' })
+  await ui.redraw()
+  expect(await card(ui)).toBe('flex')
+  await ui.press({ key: 'code:0' })
+  await ui.redraw()
+  expect(await card(ui)).toBe('none')
+})
+
+test('a gutter press unpins the card', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(30))
+  await ui.press({ key: 'menu' })
+  await ui.redraw()
+  await ui.pointer({ type: 'down', x: 0, y: 1, button: 'left', in: 'explorer:gutter' })
+  await ui.pointer({ type: 'up', x: 0, y: 1, button: 'left', in: 'explorer:gutter' })
+  await waitFor(() => false)
+  await ui.redraw()
+  expect(await card(ui)).toBe('none')
+})
+
 test('Copy absolute path copies the full path', async ($, on) => {
   const copied: string[] = []
   on('ui.copy', (_, e) => (copied.push(e.text), { value: { isCopied: true } }) as any)

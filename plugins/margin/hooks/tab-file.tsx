@@ -224,6 +224,17 @@ export const fieldText = (): string => (state.find?.open ? state.find.text : sta
 // Whether Escape closes the open field: the name field always, the find field only while empty.
 export const fieldTakesEscape = (): boolean => (state.find?.open ? !state.find.text : !!state.names)
 
+// Whether the menu card is pinned.
+export const menuPinned = (): boolean => state.menuPinned
+
+// Unpins the menu card; false when it was not pinned.
+export async function unpinMenu($: EngineInterface): Promise<boolean> {
+  if (!state.menuPinned) return false
+  state.menuPinned = false
+  await update($, file, () => placeOf())
+  return true
+}
+
 // The drawn key of the name field.
 const nameKey = (): string => (nameGen ? `${NAME}:${nameGen}` : NAME)
 const findKey = (): string => (gen ? `${FIELD}:${gen}` : FIELD)
