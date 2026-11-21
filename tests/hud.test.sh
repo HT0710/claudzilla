@@ -96,6 +96,13 @@ echo "{\"timestamp\":\"$(iso 120)\",\"message\":{\"content\":[{\"type\":\"thinki
 check "data: thinking stale" [ -z "$(key thinking "$(data <<<"$full")")" ]
 
 check "data: garbage stdin exit 0" bash -c "echo nope | HUD_DUMP=1 perl '$HUD/hud.pl' >/dev/null"
+# still: claudzilla.json hud.animation false, or Reduce motion in settings.json
+stl() { local cj=$1 st=$2; rm -f "$C/claudzilla.json" "$C/settings.json"; [ -n "$cj" ] && echo "$cj" > "$C/claudzilla.json"; [ -n "$st" ] && echo "$st" > "$C/settings.json"; key still "$(data <<<"$full")"; rm -f "$C/claudzilla.json" "$C/settings.json"; }
+check "still: hud.animation false -> still" [ "$(stl '{"hud":{"animation":false}}' '')" = 1 ]
+check 'still: hud.animation "no" -> animated' [ -z "$(stl '{"hud":{"animation":"no"}}' '')" ]
+check "still: prefersReducedMotion true in settings.json -> still" [ "$(stl '' '{"prefersReducedMotion":true}')" = 1 ]
+check "still: nested prefersReducedMotion ignored" [ -z "$(stl '' '{"env":{"prefersReducedMotion":true}}')" ]
+check "still: broken settings.json -> animated" [ -z "$(stl '' '{"prefersReducedMotion":tru')" ]
 check "data: missing transcript" bash -c "echo '{\"session_id\":\"x\",\"transcript_path\":\"/nope\"}' | HUD_DUMP=1 perl '$HUD/hud.pl' | grep -q '^id	x$'"
 
 check "data: no context_window -> ctx 0" [ "$(key ctx "$(data <<<'{"cwd":"/x"}')")" = 0 ]
@@ -371,6 +378,12 @@ FT=$(date +%s)
 fr() { frz() { FROZEN_TIME=$FT TZ=UTC PERL5LIB="$PL" "$@"; }; frz env HUD_DUMP=1 perl -MFrozen "$HUD/hud.pl" <<<"$(cfull "$CT" csid6)" | frz env COLUMNS=120 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
 rm -f "$CD"/hud-csid6.cache; a=$(fr); echo garbage > "$CD/hud-csid6.cache"; b=$(fr)
 check "cache: corrupt cache file is a miss" [ "$a" = "$b" ]
+fc() { frz() { FROZEN_TIME=$FT TZ=UTC PERL5LIB="$PL" "$@"; }; frz env HUD_DUMP=1 perl -MFrozen "$HUD/hud.pl" <<<"$(cfull "$CT" csid6)" | frz env COLUMNS=120 HUD_KV=1 perl -MFrozen "$HUD/hud.pl"; }
+# 1790000000: the sweep or the path pulse is on screen for session csid6
+FT=1790000000; rm -f "$C/claudzilla.json" "$C/settings.json" "$CD"/hud-csid6.cache; n=$(fc)
+echo '{"prefersReducedMotion":true}' > "$C/settings.json"; rm -f "$CD"/hud-csid6.cache; r=$(fc); rm -f "$C/settings.json"
+echo '{"hud":{"animation":false}}' > "$C/claudzilla.json"; rm -f "$CD"/hud-csid6.cache; h=$(fc); rm -f "$C/claudzilla.json"
+check "render: prefersReducedMotion true gives the still frame" [ "$r" = "$h" -a "$r" != "$n" ]
 
 # --- palette: today's look, byte for byte ---
 # a tagged clone copy (fixed version) that is also the dirty cwd (branch, dirty), under a fake HOME (~/gold)
@@ -383,10 +396,12 @@ KV=$(printf 'id\tabcdef12\nsid\tabcdef1234567890\ncwd\t%s\nmodel\tOpus\neffort\t
 # frame <offset s> <cols> [extra kv line]: the payload plus hud-data's pal_ lines, as the pipe sends them
 frame() { { printf '%s\n' "$KV" ${3:+"$3"}; CLAUDE_CONFIG_DIR="$GC" HUD_DUMP=1 perl "$HUD/hud.pl" </dev/null | grep '^pal_'; } |
   FROZEN_TIME=$((1790000000 + $1)) TZ=UTC HOME="$GH" CLAUDE_CONFIG_DIR="$GC" COLUMNS=$2 PERL5LIB="$PL" HUD_KV=1 perl -MFrozen "$G/claude/hud/hud.pl"; }
-golden() { for t in 0 40 50 72; do echo "== $t 120"; frame "$t" 120; done; echo "== 45 170 compact"; frame 45 170 $'layout\tcompact'; echo "== 45 170 minimal"; frame 45 170 $'layout\tminimal'; echo "== 0 60"; frame 0 60; }
+golden() { for t in 0 40 50 72; do echo "== $t 120"; frame "$t" 120; done; echo "== 45 170 compact"; frame 45 170 $'layout\tcompact'; echo "== 45 170 minimal"; frame 45 170 $'layout\tminimal'; echo "== 0 60"; frame 0 60; echo "== 40 120 still"; frame 40 120 $'still\t1'; }
 golden > "$TMP/golden.out"
 [ -n "${HUD_GOLDEN_WRITE:-}" ] && cp "$TMP/golden.out" "$REPO/tests/fixtures/hud-golden.txt"
 check "palette: no palette -> byte-identical to tests/fixtures/hud-golden.txt" cmp -s "$TMP/golden.out" "$REPO/tests/fixtures/hud-golden.txt"
+check "still: golden still block differs from the animated 40 block" bash -c '[ "$(sed -n "/^== 40 120 still/,\$p" "$1" | sed 1d | sed "/^== /,\$d")" != "$(sed -n "/^== 40 120\$/,/^== 50/p" "$1" | sed 1d | sed "/^== /,\$d")" ]' _ "$TMP/golden.out"
+check "still: still frame has no sweep" bash -c '[ "$1" = "$2" ] && [ "$3" != "$4" ]' _ "$(frame 40 120 $'still\t1')" "$(frame 45 120 $'still\t1')" "$(frame 40 120)" "$(frame 45 120)"
 want=$(node --experimental-strip-types --no-warnings -e "import {DEFAULTS} from '$REPO/plugins/margin/hooks/palette.ts'; for (const t of ['shared','hud']) for (const [k,v] of Object.entries(DEFAULTS[t])) if (v !== null) console.log('pal_'+t+'_'+k+'\t'+v); for (const [k,v] of Object.entries(DEFAULTS.margin.types)) console.log('pal_types_'+k+'\t'+v)" | sort)
 got=$(CLAUDE_CONFIG_DIR="$GC" HUD_DUMP=1 perl "$HUD/hud.pl" </dev/null | grep '^pal_' | sort)
 check "palette: hud-data shared, hud and margin.types defaults equal palette.ts" bash -c '[ -n "$1" ] && [ "$1" = "$2" ]' _ "$want" "$got"
