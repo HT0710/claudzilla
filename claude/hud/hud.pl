@@ -170,6 +170,7 @@ sub cache_file {
     (my $sid = $_[0] // '') =~ s/[^\w-]//g;
     return "$dir/hud-" . (length $sid ? $sid : 'nosession') . '.cache';
 }
+sub reduce_motion_path { return ($ENV{CLAUDE_CONFIG_DIR} // "$ENV{HOME}/.claude") . '/settings.json' }
 sub gather {
     my $raw = do { local $/; <STDIN> } // '';
     my $d = json_parse(dec($raw));
@@ -301,6 +302,9 @@ sub gather {
     my $cfg = json_parse(slurp((defined $cdir ? $cdir : "$ENV{HOME}/.claude") . '/claudzilla.json'));
     my $layout = dig($cfg, 'hud', 'layout');
     $out{layout} = $layout if defined $layout && !ref $layout && ($layout eq 'compact' || $layout eq 'minimal');
+    my $anim = dig($cfg, 'hud', 'animation');
+    my $rm = dig(json_parse(slurp(reduce_motion_path())), 'prefersReducedMotion');
+    $out{still} = 1 if (ref $anim eq 'SCALAR' && !$$anim) || (ref $rm eq 'SCALAR' && $$rm);
     for my $table (keys %PALETTE) {
         for my $key (keys %{ $PALETTE{$table} }) {
             my $set = $table eq 'types' ? dig($cfg, 'palette', 'margin', 'types', $key) : dig($cfg, 'palette', $table, $key);
@@ -497,6 +501,7 @@ my $row = 0;
 my @out;
 
 # identity: path + branch + session id, profile flush right
+my $STILL = $f{still} ? 1 : 0;
 # bar sweep timing, here because the cwd pulse plays inside the sweep's rest
 my $SWEEP = 30; my $REST = 60; my $LAG = 2;
 my $CYC   = $SWEEP + $REST;
@@ -511,7 +516,7 @@ sub cwd_str {
     my $wid = @ch * 0.3 < 6 ? 6 : @ch * 0.3;
     my $dist = @ch + $wid;                                  # head enters and leaves fully off-screen
     my $speed = $dist > $DUR ? $dist / $DUR : 1;
-    my $head = (($T + $OFF) % $CYC - $SWEEP - $GAP) * $speed - $wid / 2;
+    my $head = $STILL ? -1e9 : (($T + $OFF) % $CYC - $SWEEP - $GAP) * $speed - $wid / 2;
     my ($lo, $hi) = (pal('hud_cwdLow'), pal('hud_cwdHigh'));
     for my $i (0 .. $#ch) {
         if ($ch[$i] eq '/') { $s .= "$sep/"; next }
@@ -594,6 +599,7 @@ sub glow {
 # empty while resting, or while a row is waiting its turn.
 sub heads {
     my ($r) = @_;
+    return () if $STILL;
     my $t = $NOW % $CYC;
     return () if $t >= $SWEEP;
     my $p    = $t / $SWEEP;
