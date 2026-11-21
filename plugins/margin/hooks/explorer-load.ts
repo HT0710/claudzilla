@@ -53,7 +53,7 @@ export function latestOf(): { begin(): number; isLatest(n: number): boolean } {
 /** Every file and folder under `folder`, as paths relative to it. */
 export async function listNames($: EngineInterface, folder: string): Promise<NameEntry[]> {
   const run = await $.process.run(gitArgs('-C', folder, 'ls-files', '--cached', '--others', '--exclude-standard', '-z')).catch(() => undefined)
-  if (run?.exitCode !== 0) return walkNames(dir => $.fs.list(dir).catch(() => []), folder)
+  if (run?.exitCode !== 0 || !run.stdout) return walkNames(dir => $.fs.list(dir).catch(() => []), folder)
   const dirs = new Set<string>()
   const files = run.stdout.split('\0').filter(Boolean)
   for (const f of files) for (let i = f.indexOf('/'); i >= 0; i = f.indexOf('/', i + 1)) dirs.add(f.slice(0, i))
