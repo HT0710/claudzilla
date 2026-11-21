@@ -848,12 +848,14 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     )
   }
   const target = () => relOf(place.path)
+  // The card is 8 rows at top 2; a shorter body lifts it beside the menu button and drops the divider.
+  const short = rows < 10
   const card = (
     <Box
       key="explorer:menu-card"
       position="absolute"
-      top={2}
-      right={0}
+      top={short ? 0 : 2}
+      right={short ? 3 : 0}
       flexDirection="column"
       borderStyle="round"
       borderColor="promptBorder"
@@ -879,9 +881,11 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
         const launched = await $.process.run(['sh', '-c', 'setsid -f "$0" "$1" </dev/null >/dev/null 2>&1', has?.exitCode === 0 ? 'code' : 'xdg-open', place.path]).catch(() => undefined)
         if (launched?.exitCode === 0) notify($, 'opened', target())
       })}
-      <Box marginX={-1}>
-        <Text color="promptBorder">{'─'.repeat(LABEL + 1 + 2)}</Text>
-      </Box>
+      {!short && (
+        <Box marginX={-1}>
+          <Text color="promptBorder">{'─'.repeat(LABEL + 1 + 2)}</Text>
+        </Box>
+      )}
       <Button
         key="wrap"
         plain

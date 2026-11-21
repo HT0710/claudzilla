@@ -679,6 +679,29 @@ test('an action unpins the card, so its display is none', async ($, on) => {
 
 const card = async (ui: any) => (await ui.find({ key: 'explorer:menu-card' }))?.props.display
 
+test('a tab body too short for the card opens it at the top, left of the menu button, with no divider', async ($, on) => {
+  await setup($, on)
+  disk.set('/repo/src/a.ts', { text: lines(3), mtimeMs: 1 })
+  open({ path: '/repo/src/a.ts' })
+  // 8 pane rows less the rule leave the tab 7, one short of the card's 8 at top 2.
+  const short = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll: { offset: 0, bodyRows: 8 } }, requestId: 'margin' })
+  await short.press({ key: 'menu' })
+  await short.redraw()
+  const box = await short.find({ key: 'explorer:menu-card' })
+  expect([box?.props.top, box?.props.right]).toEqual([0, 3])
+  expect(textOf(box)).not.toContain('─')
+  expect(textOf(box)).toContain('Wrap lines')
+})
+
+test('a tall tab body keeps the card below the header, with its divider', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
+  await ui.press({ key: 'menu' })
+  await ui.redraw()
+  const box = await ui.find({ key: 'explorer:menu-card' })
+  expect([box?.props.top, box?.props.right]).toEqual([2, 0])
+  expect(textOf(box)).toContain('─')
+})
+
 test('a pinned card makes the pane take Escape; unpinning gives it back', async ($, on) => {
   const opens: unknown[] = []
   on('ui.open', (_, e) => (opens.push((e as any).closeOnEscape), { value: { isPlaced: true } }) as any)
