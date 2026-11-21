@@ -27,6 +27,10 @@ empty() { [ -z "$1" ]; }
 nonempty() { [ -n "$1" ]; }
 kebab24() { [[ "$1" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] && [ "${#1}" -le 24 ]; }
 reset() { rm -rf "$ST"; }
+SEED_RE='^Start the next subagent names with these letters, in order: ([bcdfghjklmnprstw]), ([bcdfghjklmnprstw]), ([bcdfghjklmnprstw]), ([bcdfghjklmnprstw])\.$'
+# A seed line: 4 distinct letters from the easy-start set.
+seed() { [[ "$1" =~ $SEED_RE ]] && [ "$(printf '%s\n' "${BASH_REMATCH[@]:1}" | sort -u | wc -l | tr -d ' ')" = 4 ]; }
+ctx() { printf '%s' "$1" | field hookSpecificOutput.additionalContext; }
 
 reset; out=$(CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 call); rc=$?
 check "teams 1: no output" empty "$out"
@@ -41,14 +45,16 @@ check "subagent call: no output" empty "$out"
 check "subagent call: rc 0, no record" eq "$rc$(count)" 00
 
 reset; out=$(call '{"tool_input":{"name":"brave-otter"}}')
-check "named and unused: no output" empty "$out"
+check "named and unused: no updatedInput" eq "$(printf '%s' "$out" | field hookSpecificOutput.updatedInput)" undefined
+check "named and unused: seed line" seed "$(ctx "$out")"
 check "named and unused: file created" [ -e "$ST/s1/brave-otter" ]
 
 reset; out=$(call)
 name=$(printf '%s' "$out" | field hookSpecificOutput.updatedInput.name)
 check "missing name: input kept" eq "$(printf '%s' "$out" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const u=JSON.parse(s).hookSpecificOutput.updatedInput;delete u.name;console.log(JSON.stringify(u))})')" '{"description":"d","prompt":"p","subagent_type":"t"}'
 check "missing name: kebab, <= 24" kebab24 "$name"
-check "missing name: reminder" eq "$(printf '%s' "$out" | field hookSpecificOutput.additionalContext)" "This Agent call had no \`name\`, so the hook picked \`$name\`. Next time, give each subagent a playful character name of your own, 1 to 3 words in kebab case, like \`brave-otter\`."
+check "missing name: reminder" eq "$(ctx "$out" | head -1)" "This Agent call had no \`name\`, so the hook picked \`$name\`. Next time, give each subagent a playful character name of your own, 1 to 3 words in kebab case, like \`brave-otter\`."
+check "missing name: seed line after reminder" seed "$(ctx "$out" | sed -n 2p)"
 check "missing name: event name" eq "$(printf '%s' "$out" | field hookSpecificOutput.hookEventName)" PreToolUse
 check "no permissionDecision (fill)" eq "$(printf '%s' "$out" | field hookSpecificOutput.permissionDecision)" undefined
 
@@ -56,7 +62,7 @@ reset; call '{"tool_input":{"name":"brave-otter"}}' >/dev/null; out=$(call '{"to
 name=$(printf '%s' "$out" | field hookSpecificOutput.updatedInput.name)
 check "taken name: replaced" test "$name" != brave-otter
 check "taken name: replacement is kebab" kebab24 "$name"
-check "taken name: reminder" eq "$(printf '%s' "$out" | field hookSpecificOutput.additionalContext)" "The name \`brave-otter\` was already used this session, so the hook picked \`$name\`. Next time, give each subagent a new playful character name of your own, 1 to 3 words in kebab case, like \`brave-otter\`."
+check "taken name: reminder" eq "$(ctx "$out" | head -1)" "The name \`brave-otter\` was already used this session, so the hook picked \`$name\`. Next time, give each subagent a new playful character name of your own, 1 to 3 words in kebab case, like \`brave-otter\`."
 check "no permissionDecision (taken)" eq "$(printf '%s' "$out" | field hookSpecificOutput.permissionDecision)" undefined
 
 for n in '""' 7; do
@@ -65,7 +71,7 @@ for n in '""' 7; do
 done
 
 reset; out=$(call '{"tool_input":{"name":"Bad Name!"}}')
-check "malformed name passes through" empty "$out"
+check "malformed name passes through" eq "$(printf '%s' "$out" | field hookSpecificOutput.updatedInput)" undefined
 
 reset; call '{"tool_input":{"name":"../escape"}}' >/dev/null
 check "slash name stays in the dir" bash -c "[ ! -e '$TMP/escape' ] && [ \$(ls -A '$ST/s1' | grep -vc '^%s') -eq 1 ]"
@@ -88,7 +94,17 @@ reset; call '{"tool_input":{"name":"brave-otter"}}' >/dev/null
 out=$(ev UserPromptSubmit)
 check "other event: no output" empty "$out"
 out=$(call '{"tool_input":{"name":"brave-otter"}}')
-check "other event: state kept" nonempty "$(printf '%s' "$out" | field hookSpecificOutput.additionalContext)"
+check "other event: state kept" nonempty "$(printf '%s' "$out" | field hookSpecificOutput.updatedInput.name)"
+
+reset; out=$(ev SessionStart)
+check "session start: event name" eq "$(printf '%s' "$out" | field hookSpecificOutput.hookEventName)" SessionStart
+check "session start: seed line" seed "$(ctx "$out")"
+check "session start: no updatedInput" eq "$(printf '%s' "$out" | field hookSpecificOutput.updatedInput)" undefined
+out=$(CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 ev SessionStart)
+check "session start, teams 1: no output" empty "$out"
+lines=$(for i in 1 2 3 4 5 6; do ev SessionStart | field hookSpecificOutput.additionalContext; done | sort -u | wc -l | tr -d ' ')
+check "seed letters vary between calls" test "$lines" -gt 1
+check "settings: agent-name on SessionStart" node -e 'process.exit(require(process.argv[1]).hooks.SessionStart.some(e=>e.hooks.some(h=>h.command.includes("agent-name.mjs")))?0:1)' "$REPO/settings.base.json"
 
 check "word lists: longest name fits 24" env HOOK="$H" node --input-type=module -e '
 const { STYLES, nameFrom } = await import(process.env.HOOK);

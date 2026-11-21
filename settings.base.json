@@ -89,6 +89,11 @@
     "SessionStart": [
       {
         "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/agent-name.mjs\"", "timeout": 5 }
+        ]
+      },
+      {
+        "hooks": [
           {
             "type": "command",
             "command": "node \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/trace.mjs\" --session-start",

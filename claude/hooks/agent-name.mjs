@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Fills a missing or taken Agent name so every subagent has one; names used this session live in a per-session dir.
+// Fills a missing or taken Agent name so every subagent has one, and hands Claude random start letters for the next names; names used this session live in a per-session dir.
 import { lstatSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,6 +30,13 @@ export function nameFrom(style, pick) {
 
 const rand = (l) => l[Math.floor(Math.random() * l.length)];
 const KINDS = Object.keys(STYLES);
+// A random start letter per name breaks Claude's habit of giving the same task the same name; easy-start letters only.
+const seedLine = () => {
+  const l = [..."bcdfghjklmnprstw"];
+  for (let i = l.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [l[i], l[j]] = [l[j], l[i]]; }
+  return `Start the next subagent names with these letters, in order: ${l.slice(0, 4).join(", ")}.`;
+};
+const say = (hookEventName, extra) => process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName, ...extra } }));
 // codename's pick is called once, so its number comes from nameFrom itself.
 const randomName = (style) => nameFrom(style, rand);
 
@@ -41,7 +48,8 @@ async function main() {
     const d = JSON.parse(raw);
     const teams = process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS;
     // With teams on, a named spawn becomes a teammate; touching the input could change that.
-    if (d.hook_event_name !== "PreToolUse" || (teams && teams !== "0") || d.agent_id || !d.session_id) process.exit(0);
+    if (!["PreToolUse", "SessionStart"].includes(d.hook_event_name) || (teams && teams !== "0") || d.agent_id || !d.session_id) process.exit(0);
+    if (d.hook_event_name === "SessionStart") return say("SessionStart", { additionalContext: seedLine() });
     // Per user and private, because tmpdir is shared on Linux: another user's planted dir or symlink would get our writes.
     const uid = process.getuid?.();
     const root = join(tmpdir(), `agent-name-${uid ?? "u"}`);
@@ -58,7 +66,7 @@ async function main() {
     const claim = (n) => claimFile(encodeURIComponent(n));
     const given = d.tool_input?.name;
     const had = typeof given === "string" && given !== "";
-    if (had && (claim(given) || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(given))) process.exit(0);
+    if (had && (claim(given) || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(given))) return say("PreToolUse", { additionalContext: seedLine() });
     // Slot files %s0, %s1, ... never collide with names (encodeURIComponent escapes %); a distinct slot per spawn rotates the style.
     let slot = -1;
     for (let i = 0; i < 100 && slot < 0; i++) if (claimFile(`%s${i}`)) slot = i;
@@ -71,7 +79,7 @@ async function main() {
     const additionalContext = had
       ? `The name \`${given}\` was already used this session, so the hook picked \`${name}\`. Next time, give each subagent a new ${tail}`
       : `This Agent call had no \`name\`, so the hook picked \`${name}\`. Next time, give each subagent a ${tail}`;
-    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { ...d.tool_input, name }, additionalContext } }));
+    say("PreToolUse", { updatedInput: { ...d.tool_input, name }, additionalContext: `${additionalContext}\n${seedLine()}` });
   } catch { /* a naming bug must never block a spawn */ }
 }
 
