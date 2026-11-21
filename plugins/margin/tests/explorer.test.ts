@@ -1031,11 +1031,12 @@ const fieldKey = async (ui: any) => {
 const findText = async (ui: any, text: string) => ui.input({ key: await fieldKey(ui), text, kind: 'change' })
 const isLit = async (ui: any, n: number) => (await ui.find({ key: `row:${n}` }))?.props.backgroundColor === LIT
 
-test('field pads put the caret or the first letter mid-header', () => {
+test('field pads put the caret or the typed text mid-header', () => {
   const widths = (p: string[]) => p.map(x => x.length)
   expect(widths(fieldPads('type a name ', '', 'open', 47))).toEqual([0, 5])
-  expect(widths(fieldPads('named ', 'a', 'open', 47))).toEqual([2, 0])
-  expect(widths(fieldPads('named ', 'abcdefghij', 'open', 47))).toEqual([11, 0])
+  expect(widths(fieldPads('named ', 'a', 'open', 47))).toEqual([1, 0])
+  expect(widths(fieldPads('named ', 'abcdefghij', 'open', 47))).toEqual([1, 0])
+  expect(widths(fieldPads('lines with ', 'abcdefghij', 'next', 47))).toEqual([0, 4])
   expect(widths(fieldPads('named ', 'a', 'open', 15))).toEqual([0, 0])
 })
 
