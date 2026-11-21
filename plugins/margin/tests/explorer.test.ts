@@ -327,6 +327,21 @@ test('a file shows its lines numbered, the clicked line lit', async ($, on) => {
   expect((await ui.find({ key: 'row:65' }))?.props.backgroundColor).toBe('#0f1c28')
 })
 
+test('a lit line paints its code text and the rest of the row, not only its number', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/src/a.ts', line: 65 }, lines(200))
+  const texts: any[] = []
+  const walk = (n: any) => {
+    if (!n || typeof n !== 'object') return
+    if (Array.isArray(n)) return n.forEach(walk)
+    if (n.type === 'Text') texts.push(n)
+    walk([n.children, n.props?.children])
+  }
+  walk(await ui.find({ key: 'row:65' }))
+  expect(texts.length).toBeGreaterThan(1)
+  expect(texts.every(t => t.props?.backgroundColor === LIT)).toBe(true)
+  expect(texts.map(textOf).join('')).toMatch(/^line 65 +$/)
+})
+
 test('the header starts at the project root name', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
   expect(await pathText(ui)).toBe('repo/src/a.ts')
@@ -1389,7 +1404,7 @@ test('a bad pattern shows bad pattern in error and greys the steps', async ($, o
 test('the current match and the other matches take their colours', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, 'a a')
   await search(ui, 'a')
-  const t = texts(await ui.find({ key: 'row:1' })).filter(x => x.bg)
+  const t = texts(await ui.find({ key: 'row:1' })).filter(x => x.bg && x.bg !== LIT)
   expect(t[0]).toMatchObject({ color: 'inverseText', bg: 'warning' })
   expect(t[1]).toMatchObject({ color: '#e5c07b', bg: '#3a3220' })
 })
