@@ -149,7 +149,7 @@ titled() { local f n=0; for f in "$RF"/*.md; do [ -f "$f" ] || return 1; [[ "$(h
 valid_names() { [ -d "$RF" ] && [ -n "$(ls "$RF")" ] && [ -z "$(ls "$RF" | grep -Ev '^[a-z][A-Za-z0-9]*\.md$')" ]; }
 AR="$RF/agentRouting.md"
 no_machine_parts() { [ -f "$AR" ] && ! grep -Eq 'effort-eval-results|\$[0-9]|20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]|nested|1 or 2 searches' "$AR"; }
-names_fallback() { grep -qF 'caveman:cavecrew-investigator' "$AR" && grep -qF 'Explore' "$AR"; }
+names_fallback() { grep -qF '`atlas`' "$AR" && grep -qF 'Explore' "$AR"; }
 has_authority() { grep -qF 'counts as the user asking' "$AR" && grep -qF 'authorize setting `effort`' "$AR"; }
 check "repo: all features together under the size limit" all_under_limit
 check "repo: every feature starts with a title line" titled

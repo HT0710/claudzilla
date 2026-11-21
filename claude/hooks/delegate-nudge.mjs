@@ -9,7 +9,7 @@ const SEARCH_START = /^(\s*(do|then|else|!|\{|xargs(\s+-\S+)*|\w+=\S*)\s)*\s*(\S
 const RECURSIVE = /\s-\w*[rR]|\s--(dereference-)?recursive/;
 // Delegating a 1-2 search lookup cost the same and took twice as long (routing eval, 2026-11-10).
 const FREE = 2;
-const MSG = "Third search this turn with no Agent call. Delegate the lookup: Agent(subagent_type: caveman:cavecrew-investigator, model: haiku, effort: low) with the question and file:line quotes asked. Read of a known path, and grep inside one known file, stay allowed. When it answers, check hits by reading the cited file:line; never re-run its search. Empty or weak result: retry the agent on sonnet. When caveman:cavecrew-investigator is not in the agent list, use Explore instead.";
+const MSG = "Third search this turn with no Agent call. Delegate the lookup: Agent(subagent_type: atlas, model: haiku, effort: low) with the question and file:line quotes asked. Read of a known path, and grep inside one known file, stay allowed. When it answers, check hits by reading the cited file:line; never re-run its search. Empty or weak result: retry the agent on sonnet. When atlas is not in the agent list, use Explore instead.";
 
 // Same-length blanking keeps every index in `bare` pointing at the same character in `cmd`.
 const blank = (m) => m.replace(/[^\n]/g, "_");

@@ -50,7 +50,7 @@ Shape:
 - Ad-hoc subagent prompt (`dispatching-parallel-agents`, own briefs) → ask for a terse return: `file:line` per claim, status first, no prose summary. Skill prompt templates (SDD implementer, reviewers) keep their own report format, plus the Complexity section below.
 - `code-reviewer.md` reviews (`requesting-code-review`, SDD final review) → fill its template prompt, dispatch to `caveman:cavecrew-reviewer` on opus; template Output Format wins, wording terse. `cavecrew-reviewer` not in agent list → `general-purpose` on opus.
   - Add a `### Complexity` section before Assessment: over-engineering only, one line each with `ponytail-review` tags (`delete:` `stdlib:` `native:` `yagni:` `shrink:`), ending `net: -<N> lines possible` or `Lean already.` User types `/ponytail-review` → run that skill as-is.
-- Code search with an unknown location → up to 2 searches inline; still not found → `caveman:cavecrew-investigator` (haiku, low), not `Explore` or inline grep/Read loops. Call paths or uses across modules → investigator from the first call; a file the trace reaches is a trace step, not a known file. Known file → inline. Repo has `.codegraph/` → CodeGraph first. Not in agent list → `Explore`.
+- Code search with an unknown location → up to 2 searches inline; still not found → `atlas` (haiku, low), not `Explore` or inline grep/Read loops. Call paths or uses across modules → `atlas` from the first call; a file the trace reaches is a trace step, not a known file. Known file → inline. Repo has `.codegraph/` → CodeGraph first. Not in agent list → `Explore`.
 
 ## Order — sequence, not trigger
 
