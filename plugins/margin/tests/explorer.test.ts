@@ -7,7 +7,7 @@ import { cellsOf, expandTabs, fileWindow, layoutFor, layoutOf, lineAt, sliceToke
 import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '../hooks/explorer-nav'
 import { tokenize } from '../hooks/explorer-tokens'
 import { iconOf, sortListing, treeRows } from '../hooks/explorer-tree'
-import { fieldPads, refOf } from '../hooks/tab-file'
+import { fieldPad, refOf } from '../hooks/tab-file'
 import { fileKey } from '../hooks/git-data'
 import { LIT } from '../hooks/kit'
 import { clock, disk, props, chevron, tapTree, treeRow, explorer, explorerRoot, failList, hold, lists, mountPane, launch, open, pathText, ran, reads, runs, lines, listed, setup, sets, store, textOf, tree, waitFor } from './explorer-helpers'
@@ -1124,13 +1124,16 @@ const fieldKey = async (ui: any) => (await keyMatching(ui, /^explorer:find(:\d+)
 const findText = async (ui: any, text: string) => ui.input({ key: await fieldKey(ui), text, kind: 'change' })
 const isLit = async (ui: any, n: number) => (await ui.find({ key: `row:${n}` }))?.props.backgroundColor === LIT
 
-test('field pads put the caret or the typed text mid-header', () => {
-  const widths = (p: string[]) => p.map(x => x.length)
-  expect(widths(fieldPads('type a name ', '', 'open', 47))).toEqual([0, 5])
-  expect(widths(fieldPads('named ', 'a', 'open', 47))).toEqual([1, 0])
-  expect(widths(fieldPads('named ', 'abcdefghij', 'open', 47))).toEqual([1, 0])
-  expect(widths(fieldPads('lines with ', 'abcdefghij', 'next', 47))).toEqual([0, 4])
-  expect(widths(fieldPads('named ', 'a', 'open', 15))).toEqual([0, 0])
+test('the field sits centred, is held at the left gap as it grows right, then pins right once the label drops', () => {
+  // A 60-column header: the path's room is 44, the field's 47 (the hidden search and menu buttons give 3).
+  const x = (n: number) => 'x'.repeat(n)
+  // The group is label + text + 5 (cursor, gap, Enter mark, space) + the submit word.
+  expect(fieldPad('type a name ', '', 'open', 44, 47)).toBe(11)
+  expect(fieldPad('lines with ', x(6), 'next', 44, 47)).toBe(9)
+  expect(fieldPad('lines with ', x(26), 'next', 44, 47)).toBe(0)
+  expect(fieldPad('lines with ', x(27), 'next', 44, 47)).toBe(0)
+  expect(fieldPad('', x(36), 'next', 44, 47)).toBe(2)
+  expect(fieldPad('', x(38), 'next', 44, 47)).toBe(0)
 })
 
 test('the search button is drawn on a file', async ($, on) => {
@@ -1808,15 +1811,15 @@ test('a find longer than fits beside the label drops the label and keeps up to t
   expect(await ui.find({ type: 'Text', text: 'lines with ' })).toBeUndefined()
   await findText(ui, 'x'.repeat(200))
   await ui.redraw()
-  expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('x'.repeat(17))
+  expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('x'.repeat(20))
 })
 
 test('at the length limit a key typed mid-text is refused, so the text stays whole', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
-  await search(ui, 'abcdefghijklmnopq')
-  await findText(ui, 'aZbcdefghijklmnopq')
+  await search(ui, 'abcdefghijklmnopqrst')
+  await findText(ui, 'aZbcdefghijklmnopqrst')
   await ui.redraw()
-  expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('abcdefghijklmnopq')
+  expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('abcdefghijklmnopqrst')
 })
 
 test('the header centre keeps 2 cells clear of the buttons on each side, for the path and the field', async ($, on) => {
@@ -1824,8 +1827,12 @@ test('the header centre keeps 2 cells clear of the buttons on each side, for the
   expect((await ui.find({ key: 'path' }))?.props.marginX).toBe(2)
   // 44 columns less the 8 the buttons take and 2 gaps of 2.
   expect((await pathText(ui)).length).toBeLessThanOrEqual(32)
+  expect(await ui.find({ key: 'explorer:header-right' })).toBeDefined()
   await search(ui, 'x'.repeat(200))
-  expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('x'.repeat(17))
+  expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('x'.repeat(20))
+  // While typing, the field takes the hidden buttons' cells and places itself.
+  expect((await ui.find({ key: 'path' }))?.props.justifyContent).toBe('flex-start')
+  expect(await ui.find({ key: 'explorer:header-right' })).toBeUndefined()
 })
 
 test('in a wide pane the find field fills the header centre, with only the header gap beside it', async ($, on) => {
@@ -1834,8 +1841,8 @@ test('in a wide pane the find field fills the header centre, with only the heade
   open({ path: '/repo/a.ts' })
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 70 }, requestId: 'margin' })
   await search(ui, 'x'.repeat(200))
-  // 70 less the rail (4) and padding (2), the buttons (8), the gaps (4) and the cursor and Enter mark (9).
-  expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('x'.repeat(43))
+  // 70 less the rail (4) and padding (2), the left buttons (5), the gaps (4) and the cursor and Enter mark (9).
+  expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('x'.repeat(46))
 })
 
 test('a pane narrowed under the typed find keeps the text and refuses only growth', async ($, on) => {

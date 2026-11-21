@@ -209,11 +209,11 @@ let nameGen = 0
 // A focused Input needs the text cells plus cursor, gap, enter mark, space and its submit word (measured live). Under the
 // cap it sizes itself, so a key the engine draws before the redraw stays centred; past it a fixed width keeps it inside the header.
 const capWidth = (text: string, submit: string, cap: number) => (cellsOf(text) + 5 + submit.length > cap ? cap : undefined)
-// Blank cells [before, after] the field so the caret, or the typed text, sits mid-header until the field fills the room.
-export const fieldPads = (label: string, text: string, submit: string, room: number): string[] => {
-  const d = submit.length + 3 - cellsOf(label)
-  const free = Math.max(0, room - cellsOf(label) - cellsOf(text) - submit.length - 4)
-  return [' '.repeat(Math.min(free, Math.max(0, d))), ' '.repeat(Math.min(free, Math.max(0, -d)))]
+// Blank cells before the field. Label, text and Enter hint sit centred in the path's room (`mid`); once they outgrow it they
+// are held at the left gap and grow into the hidden buttons' cells (`room`); once the label has dropped they pin right.
+export const fieldPad = (label: string, text: string, submit: string, mid: number, room: number): number => {
+  const width = cellsOf(label) + cellsOf(text) + 5 + submit.length
+  return Math.max(0, label ? Math.min(Math.floor((mid - width) / 2), room - width) : room - width)
 }
 const PLACEHOLDER = 'type text to find'
 const NAME = 'explorer:name'
@@ -927,12 +927,14 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const editing = (state.find?.open && place.kind === 'file') || (state.names && place.kind === 'folder')
   // A closed field reopens under the same key, so it seeds afresh.
   if (!editing) seeds.clear()
+  // A field's room: the path's, plus the 3 cells of the search and menu buttons it hides.
+  const ROOM = MID + 3
   // The label gives way once the text no longer fits beside it.
-  const labelFor = (text: string, label: string, placeholder: string) => (!text ? `${placeholder} ` : cellsOf(text) > MID - cellsOf(label) - 9 ? '' : label)
+  const labelFor = (text: string, label: string, placeholder: string) => (!text ? `${placeholder} ` : cellsOf(text) > ROOM - cellsOf(label) - 9 ? '' : label)
   const findLabel = labelFor(state.find?.text ?? '', 'lines with ', PLACEHOLDER)
   const nameLabel = labelFor(state.names?.text ?? '', 'named ', NAME_PLACEHOLDER)
-  const [findL, findR] = fieldPads(findLabel, state.find?.text ?? '', 'next', MID)
-  const [nameL, nameR] = fieldPads(nameLabel, state.names?.text ?? '', 'open', MID)
+  const findL = ' '.repeat(fieldPad(findLabel, state.find?.text ?? '', 'next', MID, ROOM))
+  const nameL = ' '.repeat(fieldPad(nameLabel, state.names?.text ?? '', 'open', MID, ROOM))
   return {
     body: (
       <Box flexDirection="column" height={rows} flexShrink={0}>
@@ -942,24 +944,22 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
             {glyph('forward', '›', 0xea9c, () => goForward($))}
             {glyph('refresh', '↻', 0xeb37, () => reloadPlace($))}
           </Box>
-          <Box key="path" flexGrow={1} justifyContent="center" marginX={GAP}>
+          <Box key="path" flexGrow={1} justifyContent={editing ? 'flex-start' : 'center'} marginX={GAP}>
             {state.find?.open && place.kind === 'file' ? (
               <Box key="find" flexShrink={0}>
                 <Text>{findL}</Text>
                 <Text color={HUD.faint}>{findLabel}</Text>
-                <Box width={capWidth(state.find.text, 'next', MID - (state.find.text ? cellsOf(findLabel) : 0))} flexShrink={0}>
-                  <Input key={findKey()} value={seedOf(findKey(), state.find.text)} submitLabel="next" autoFocus onInput={v => typeFind($, fitField($, v, MID - 9, state.find?.text ?? '', () => gen++))} onSubmit={() => (gen++, stepFind($, 1))} />
+                <Box width={capWidth(state.find.text, 'next', ROOM - (state.find.text ? cellsOf(findLabel) : 0))} flexShrink={0}>
+                  <Input key={findKey()} value={seedOf(findKey(), state.find.text)} submitLabel="next" autoFocus onInput={v => typeFind($, fitField($, v, ROOM - 9, state.find?.text ?? '', () => gen++))} onSubmit={() => (gen++, stepFind($, 1))} />
                 </Box>
-                <Text>{findR}</Text>
               </Box>
             ) : state.names && place.kind === 'folder' ? (
               <Box key="names" flexShrink={0}>
                 <Text>{nameL}</Text>
                 <Text color={HUD.faint}>{nameLabel}</Text>
-                <Box width={capWidth(state.names.text, 'open', MID - (state.names.text ? cellsOf(nameLabel) : 0))} flexShrink={0}>
-                  <Input key={nameKey()} value={seedOf(nameKey(), state.names.text)} submitLabel="open" autoFocus onInput={v => typeName($, fitField($, v, MID - 9, state.names?.text ?? '', () => nameGen++))} onSubmit={() => submitName($)} />
+                <Box width={capWidth(state.names.text, 'open', ROOM - (state.names.text ? cellsOf(nameLabel) : 0))} flexShrink={0}>
+                  <Input key={nameKey()} value={seedOf(nameKey(), state.names.text)} submitLabel="open" autoFocus onInput={v => typeName($, fitField($, v, ROOM - 9, state.names?.text ?? '', () => nameGen++))} onSubmit={() => submitName($)} />
                 </Box>
-                <Text>{nameR}</Text>
               </Box>
             ) : state.notice ? (
               <Text>
@@ -972,15 +972,17 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
               <Box key="parts" flexShrink={0}>{path}</Box>
             )}
           </Box>
-          <Box width={3} flexShrink={0} gap={1} justifyContent="flex-end">
-            {!editing && glyph('explorer:search', '/', 0xea6d, () => (place.kind === 'file' ? openFind($) : openNames($)))}
-            {!editing && <Button key="menu" plain hover={{ scope: 'explorer:menu' }} onPress={() => {
-              state.menuPinned = !state.menuPinned
-              return update($, file, () => placeOf())
-            }}>
-              <Text color="claude" inverse={state.menuPinned}>{basic ? '≡' : String.fromCharCode(0xeb94)}</Text>
-            </Button>}
-          </Box>
+          {!editing && (
+            <Box key="explorer:header-right" width={3} flexShrink={0} gap={1} justifyContent="flex-end">
+              {glyph('explorer:search', '/', 0xea6d, () => (place.kind === 'file' ? openFind($) : openNames($)))}
+              <Button key="menu" plain hover={{ scope: 'explorer:menu' }} onPress={() => {
+                state.menuPinned = !state.menuPinned
+                return update($, file, () => placeOf())
+              }}>
+                <Text color="claude" inverse={state.menuPinned}>{basic ? '≡' : String.fromCharCode(0xeb94)}</Text>
+              </Button>
+            </Box>
+          )}
         </Box>
         <Box marginX={-PAD}>
           <Text color="promptBorder">{'─'.repeat(W + 2 * PAD)}</Text>
