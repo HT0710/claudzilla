@@ -1737,6 +1737,7 @@ for (const [name, task, extra] of [
   ['an unknown status', { status: 'paused', durationMs: 12_000 }, {}],
   ['an unknown call', { status: 'completed', toolUseId: 'b9' }, {}],
   ['no call id', { status: 'completed', toolUseId: undefined }, {}],
+  ['an unknown agent id', { status: 'completed', toolUseId: undefined, id: 'g9' }, {}],
   ['an expanded row', { status: 'completed' }, { isExpanded: true }],
   ['another origin', { status: 'completed' }, { origin: { kind: 'composer' } }],
   ['no task', { status: 'completed' }, { task: undefined }],
@@ -1756,6 +1757,12 @@ test("an agent's later notification, sent with its agent id only, still draws it
   const ui = await notice($, { status: 'completed', toolUseId: undefined, id: 'g1', durationMs: 12_000 })
   expect(await rail(ui, /^◆ done     agent \(Slow task\) in 12s$/)).toBe(1)
   expect(await rail(ui, /^╰─$/)).toBe(1)
+})
+
+test("after a reload, an agent's later notification finds its launch row through the row's agent id", async ($, on) => {
+  finished(on)
+  const ui = await notice($, { status: 'completed', toolUseId: undefined, id: 'x1', durationMs: 12_000 })
+  expect(await rail(ui, /^◆ done     agent \(Slow task\) in 12s$/)).toBe(1)
 })
 
 // A background shell's finish row, after its Bash call ran as s1; a grouped call draws no ToolUse row.
