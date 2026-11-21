@@ -82,7 +82,7 @@ frames() {
 }
 
 # masks: private strings to blank in every frame; fails with no account email to mask.
-# The status line reads the email from the same file (claude/hud/hud-data.mjs).
+# The status line reads the email from the same file (claude/hud/hud.pl).
 masks() {
   local e
   e=$(python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1])).get("oauthAccount",{}).get("emailAddress",""))' \

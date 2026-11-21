@@ -49,7 +49,7 @@ export const setZones = (tab: Tab, drawn: Zone[]) => {
 export const modalOpen = () => zones.some(z => z.kind === 'modal')
 
 export const PAD = 1
-// HUD colors (claudzilla/claude/hud/hud-filter.pl) the theme has no key for; latest, a lighter
+// HUD colors (claudzilla/claude/hud/hud.pl) the theme has no key for; latest, a lighter
 // dirty yellow, is the panel's own.
 export const HUD = {} as Record<'label' | 'faint' | 'idle' | 'action' | 'compacted' | 'dirty' | 'churn' | 'latest' | 'clock', string>
 // Divider lines: their word's HUD color at 60%.

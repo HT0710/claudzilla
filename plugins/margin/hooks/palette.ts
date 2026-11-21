@@ -1,7 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 
 // Fixed accent colours; claudzilla.json's palette key overrides them. Copied byte for byte into margin, folio,
-// primer and ballot (each plugin is cached on its own); claude/hud/hud-data.mjs keeps shared, hud and margin.types (tests/hud.test.sh).
+// primer and ballot (each plugin is cached on its own); claude/hud/hud.pl keeps shared, hud and margin.types (tests/hud.test.sh).
 export const DEFAULTS = {
   shared: { label: '#a396d2', faint: '#4f5c68', idle: '#456186', action: '#5d9678', dirty: '#8c7850', churn: '#6e8c6e', muted: '#808286', lit: '#0f1c28' },
   hud: {
