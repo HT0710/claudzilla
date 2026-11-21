@@ -241,7 +241,7 @@ const findKey = (): string => (gen ? `${FIELD}:${gen}` : FIELD)
 
 // Closes the find or name field when it has no text; with `e`, only when focus left it.
 export async function closeEmptyField($: EngineInterface, e?: { element?: string }): Promise<boolean> {
-  if (state.find?.open && !state.find.text && (!e || leavesField(e, FIELD))) {
+  if (state.find?.open && !state.find.text && (!e || leavesField(e, findKey()))) {
     state.find = undefined
     gen++
   } else if (state.names && !state.names.text && (!e || leavesField(e, nameKey()))) endNames()
