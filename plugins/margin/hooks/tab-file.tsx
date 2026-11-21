@@ -637,11 +637,13 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
                 return update($, file, () => placeOf())
               }}
             >
-              {slice.length ? slice.map((t, k) => (
-                <Text key={k} backgroundColor={t.hit === 'current' ? 'warning' : t.hit ? PILL_BG.yellow : undefined} color={t.hit === 'current' ? 'inverseText' : t.hit ? STATUS.M : t.kind === 'keyword' ? HUD.label : t.kind === 'string' ? TYPES.feat : t.kind === 'number' ? TYPES.perf : t.kind === 'comment' ? HUD.faint : undefined}>
+              {slice.length || lit ? slice.map((t, k) => (
+                <Text key={k} backgroundColor={t.hit === 'current' ? 'warning' : t.hit ? PILL_BG.yellow : lit ? LIT : undefined} color={t.hit === 'current' ? 'inverseText' : t.hit ? STATUS.M : t.kind === 'keyword' ? HUD.label : t.kind === 'string' ? TYPES.feat : t.kind === 'number' ? TYPES.perf : t.kind === 'comment' ? HUD.faint : undefined}>
                   {t.text}
                 </Text>
               )) : <Text> </Text>}
+              {/* The row Box's background does not reach under its Texts, so a lit row paints its own cells. */}
+              {lit && <Text backgroundColor={LIT}>{' '.repeat(Math.max(0, C - cellsOf(slice.map(t => t.text).join(''))))}</Text>}
             </Button>
           </Box>
           {!Client && <Text color={HUD.faint}>│</Text>}
