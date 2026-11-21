@@ -7,7 +7,7 @@ import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, PAD, WHEEL_HOLD, applyPalette
 import type { Prompt, Readers, TabCtx, TabDraw, UseEntry, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
-import { changedOnDisk, checkOpenFile, draw as drawFile, closeEmptyField, closeOnEscape, explorerPost, escapeSent, fieldOpen, fieldTakesEscape, fieldText, paneBase, showPlace } from './tab-file'
+import { changedOnDisk, checkOpenFile, draw as drawFile, closeEmptyField, closeOnEscape, resetSeeds, explorerPost, escapeSent, fieldOpen, fieldTakesEscape, fieldText, paneBase, showPlace } from './tab-file'
 import { autoFetch, draw as drawGit, resetGitReads } from './tab-git'
 import { draw as drawHistory } from './tab-history'
 import { draw as drawOverview, resetStepsHeld, same } from './tab-overview'
@@ -919,6 +919,7 @@ const pick = async ($: EngineInterface, next: Tab) => {
   if (next !== (await read($, tab)) && (await read($, modal))) await setModal($, () => null)
   // Picking Git reads the repo afresh: it may have changed outside this chat.
   if (next === 'Git') resetGitReads()
+  if (next !== 'Explorer') resetSeeds()
   await update($, tab, () => next)
   if (next === 'Overview' && overviewStale && (await isPlaced($))) $.clock.after(0, () => readOverview($))
   // Each write draws the pane; a second draw could land before the first, and the terminal
@@ -1143,6 +1144,7 @@ export const register: Register = (on, options) => {
       await closeOnEscape($)
       return { deny: 'closed the field' } as never
     }
+    resetSeeds()
     if (e.origin.kind !== 'unload') await $.store.set('open', false).catch(() => undefined)
 
     return next(e)

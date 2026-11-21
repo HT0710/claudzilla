@@ -1649,3 +1649,18 @@ test('the name field asks the pane for Escape even with text', async ($, on) => 
   await clock.advance(0)
   expect(opens.at(-1)).toBe(true)
 })
+
+test('a field with text keeps its text drawn after a tab switch and back', async ($, on) => {
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }) as any)
+  on('ui.open', () => ({ value: { isPlaced: true } }) as any)
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  await findText(ui, 'foo')
+  await ui.redraw()
+  await ui.press({ key: 'Overview' })
+  await ui.redraw()
+  await ui.press({ key: 'Explorer' })
+  await ui.redraw()
+  expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('foo')
+})

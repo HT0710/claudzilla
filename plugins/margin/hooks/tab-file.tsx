@@ -394,6 +394,8 @@ function fitStart(text: string, room: number): string {
 
 // The text a field is drawn with, fixed per key: a redraw lands after later keys, and a changed value would replace them.
 const seeds = new Map<string, string>()
+// A field remounts under its old key after another tab drew or the pane closed, so the seed is dropped then.
+export const resetSeeds = (): void => seeds.clear()
 function seedOf(key: string, text: string): string {
   if (!seeds.has(key)) {
     seeds.clear()
