@@ -726,11 +726,11 @@ export const register: Register = on => {
     isLit = !isLit
     redraw()
   }
-  // Agent calls by tool_use_id: a finish notification names only the call. Model and effort as the spawn and the
+  // Agent calls by tool_use_id: a finish notification names the call, or only the agent id after the first. Model and effort as the spawn and the
   // agent's own requests report them, which an agent definition or a fork may set apart from the call's input.
   type AgentRow = { description?: string; model?: string; effort?: string; name?: string; type?: string }
   const agents = new Map<string, AgentRow>()
-  // Agent calls' tool_use_id by agentId, which their requests carry.
+  // Agent calls' tool_use_id by agentId, which their requests and later notifications carry.
   const spawned = new Map<string, string>()
   // Agent ids already looked up in the agent list: a miss is not asked again.
   const asked = new Set<string>()
@@ -1238,6 +1238,12 @@ export const register: Register = on => {
       const known = agents.get(e.requestId)
       const resolved = (output as { resolvedModel?: string } | undefined)?.resolvedModel
       agents.set(e.requestId, { description: args.description ?? known?.description, model: resolved ?? known?.model ?? args.model, effort: known?.effort ?? args.effort, name: known?.name ?? args.name, type: known?.type ?? args.subagent_type })
+      // After a reload no spawn hook ran: the launch row's output is what maps a later notification's agent id back.
+      const spawnedId = (output as { agentId?: string } | undefined)?.agentId
+      if (spawnedId) {
+        if (spawned.size > 500) spawned.clear()
+        spawned.set(spawnedId, e.requestId)
+      }
     }
     if (e.component === 'ToolUse' && e.props.tool === 'Skill' && e.props.output?.status === 'forked' && e.props.output.background) {
       if (skills.size > 500) skills.clear()
