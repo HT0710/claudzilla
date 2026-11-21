@@ -1711,6 +1711,19 @@ test('the name field asks the pane for Escape even with text', async ($, on) => 
   expect(opens.at(-1)).toBe(true)
 })
 
+test('the name field asks for the keys before the name listing returns', async ($, on) => {
+  const opens: unknown[] = []
+  on('ui.open', (_, e) => (opens.push((e as any).focus), { value: { isPlaced: true } }) as any)
+  const ui = await nameRoot($, on)
+  hold.names = []
+  const pressed = ui.press({ key: 'explorer:search' })
+  await waitFor(() => hold.names!.length > 0 && opens.length > 0)
+  const early = [...opens]
+  hold.names.forEach(go => go())
+  await pressed
+  expect(early).toEqual([true])
+})
+
 test('a field with text keeps its text drawn after a tab switch and back', async ($, on) => {
   on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }) as any)
   on('ui.open', () => ({ value: { isPlaced: true } }) as any)

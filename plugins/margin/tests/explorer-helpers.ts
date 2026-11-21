@@ -10,7 +10,7 @@ export const props = { title: 'Panel', isFocused: false, bodyColumns: 44, placem
 export const disk = new Map<string, { text: string; mtimeMs: number }>()
 export const tree = new Map<string, Entry[]>()
 // A held read answers only when the test releases it (set by the stale-result test).
-export const hold: { reads?: Array<() => void> } = {}
+export const hold: { reads?: Array<() => void>; names?: Array<() => void> } = {}
 // Every process.run argv, in order, for tests that check a command.
 export const runs: string[][] = []
 // A test sets exit to make the detached editor launch fail.
@@ -44,6 +44,7 @@ export const setup = async ($: Body[0], on: Body[1]) => {
   disk.clear()
   tree.clear()
   hold.reads = undefined
+  hold.names = undefined
   launch.exit = 0
   listed.out = ''
   lists.length = 0
@@ -60,7 +61,7 @@ export const setup = async ($: Body[0], on: Body[1]) => {
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('session.cwd', () => ({ value: '/repo' }))
-  on('process.run', (_, e) => (runs.push([...e.argv]), e.argv.includes('rev-parse') ? ran(0, '/repo\n') : e.argv.includes('ls-files') ? ran(0, listed.out) : ran(e.argv.some(x => x.includes('setsid -f')) ? launch.exit : 0)) as any)
+  on('process.run', (_, e) => (runs.push([...e.argv]), e.argv.includes('rev-parse') ? ran(0, '/repo\n') : e.argv.includes('ls-files') ? (hold.names ? new Promise(done => hold.names!.push(() => done(ran(0, listed.out)))) : ran(0, listed.out)) : ran(e.argv.some(x => x.includes('setsid -f')) ? launch.exit : 0)) as any)
   on('fs.stat', (_, e) => (tree.has(e.path) ? { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } : disk.has(e.path) ? { value: { kind: 'file', size: disk.get(e.path)!.text.length, mtimeMs: disk.get(e.path)!.mtimeMs, isLink: false } } : { deny: 'ENOENT' }) as any)
   on('fs.read', (_, e) => {
     reads.push(e.path)

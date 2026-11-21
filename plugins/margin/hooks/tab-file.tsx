@@ -226,6 +226,7 @@ export const fieldTakesEscape = (): boolean => (state.find?.open ? !state.find.t
 
 // The drawn key of the name field.
 const nameKey = (): string => (nameGen ? `${NAME}:${nameGen}` : NAME)
+const findKey = (): string => (gen ? `${FIELD}:${gen}` : FIELD)
 
 // Closes the find or name field when it has no text; with `e`, only when focus left it.
 export async function closeEmptyField($: EngineInterface, e?: { element?: string }): Promise<boolean> {
@@ -251,12 +252,16 @@ export async function closeOnEscape($: EngineInterface): Promise<boolean> {
 async function openNames($: EngineInterface): Promise<void> {
   state.menuPinned = false
   const folder = current(state.nav).path
-  const entries = await listNames($, folder)
-  if (current(state.nav).path !== folder) return
-  const text = state.names?.text ?? ''
-  state.names = { text, entries, rows: filterNames(entries, text) }
+  const listing = listNames($, folder)
+  // Drawn and focused before the listing returns, so keys typed meanwhile reach the field, not the prompt.
+  const names = (state.names ??= { text: '', entries: [], rows: [] })
   await update($, file, () => placeOf())
-  await takeKeys($, NAME)
+  await takeKeys($, nameKey())
+  const entries = await listing
+  if (state.names !== names || current(state.nav).path !== folder) return
+  names.entries = entries
+  names.rows = filterNames(entries, names.text)
+  await update($, file, () => placeOf())
 }
 
 function typeName($: EngineInterface, text: string): void {
@@ -281,7 +286,7 @@ async function openFind($: EngineInterface): Promise<void> {
   state.find.open = true
   state.menuPinned = false
   await update($, file, () => placeOf())
-  await takeKeys($, FIELD)
+  await takeKeys($, findKey())
 }
 
 // Runs the find on the loaded lines and lights the first match.
@@ -890,7 +895,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
                 <Text>{findL}</Text>
                 <Text color={HUD.faint}>{findLabel}</Text>
                 <Box width={capWidth(state.find.text, 'next', W - 8 - (state.find.text ? cellsOf(findLabel) : 0))} flexShrink={0}>
-                  <Input key={gen ? `${FIELD}:${gen}` : FIELD} value={seedOf(gen ? `${FIELD}:${gen}` : FIELD, state.find.text)} submitLabel="next" autoFocus onInput={v => typeFind($, fitField($, v, fieldRoom(W - 17), state.find?.text ?? '', () => gen++))} onSubmit={() => (gen++, stepFind($, 1))} />
+                  <Input key={findKey()} value={seedOf(findKey(), state.find.text)} submitLabel="next" autoFocus onInput={v => typeFind($, fitField($, v, fieldRoom(W - 17), state.find?.text ?? '', () => gen++))} onSubmit={() => (gen++, stepFind($, 1))} />
                 </Box>
                 <Text>{findR}</Text>
               </Box>
