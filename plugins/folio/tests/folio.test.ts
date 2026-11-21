@@ -1612,10 +1612,12 @@ for (const [name, tool, output, want] of [
 
 const fetched = { bytes: 577, code: 200, codeText: 'OK', result: 'x', durationMs: 5, url: 'https://example.com/' }
 const searched = { query: 'example domain', results: [], durationSeconds: 5, searchCount: 1 }
+const stopped = { message: 'Successfully stopped task: b1 (sleep 9)', task_id: 'b1', task_type: 'local_bash', command: 'sleep 9\necho hi' }
 const agentDone = { status: 'completed', agentId: 'a1', content: [], totalToolUseCount: 3, totalDurationMs: 9, totalTokens: 9, prompt: 'p' }
 for (const [name, tool, input, output, want] of [
   ['a fetch', 'WebFetch', { url: 'https://example.com/a?b' }, fetched, '◼ Fetched (1 page)'],
   ['a search', 'WebSearch', { query: 'example domain' }, searched, '◼ Searched (1 query)'],
+  ['a stopped task', 'TaskStop', { task_id: 'b1' }, stopped, '◼ Stopped (1 task)'],
   ['a background agent', 'Agent', { description: 'Say hi', prompt: 'p' }, { status: 'async_launched', agentId: 'a1', description: 'Say hi', prompt: 'p', outputFile: '/o' }, '◇ working  agent (Say hi)'],
   ['a named agent', 'Agent', { description: 'Say hi', name: 'sleepy-lynx', prompt: 'p' }, { status: 'async_launched', agentId: 'a1', description: 'Say hi', prompt: 'p', outputFile: '/o' }, '◇ working  sleepy-lynx (Say hi)'],
   ['a finished agent', 'Agent', { description: 'Say hi', prompt: 'p' }, agentDone, '◆ done     agent (Say hi)'],
@@ -1683,6 +1685,7 @@ for (const [name, tool, input, want] of [
   ['a running agent', 'Agent', { description: 'Say hi' }, '◆ running  agent (Say hi)'],
   ['a running skill', 'Skill', { skill: 'caveman:caveman-help' }, '✦ loading  caveman-help (caveman)'],
   ['a running write', 'Write', { file_path: '/p/a.txt' }, '● Writing (a.txt)'],
+  ['a running stop', 'TaskStop', { task_id: 'b1' }, '● Stopping (b1)'],
 ] as const) {
   test(`${name} draws its running row, and its engine block stays`, async ($, on) => {
     native(on)
@@ -3223,6 +3226,16 @@ test('an open fold shows a failed WebFetch error text', async ($, on) => {
   await click(first, 'fold:r1')
   const texts = (await first.findAll({ type: 'Text' })).map((x: any) => x.text)
   expect(texts).toContain('    Error: refused')
+})
+
+test('an open fold shows a stopped task by its command', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  await mountRow($, 'TaskStop', stopped, { input: { task_id: 'b1' } }, '', 's1')
+  expect(await textOf(first, 'r1')).toBe('◼ Read (1 file) · Stopped (1 task)')
+  await click(first, 'fold:r1')
+  const texts = (await first.findAll({ type: 'Text' })).map((x: any) => x.text)
+  expect(texts).toContain('  └ sleep 9')
 })
 
 test('a session end closes the open section', async ($, on) => {
