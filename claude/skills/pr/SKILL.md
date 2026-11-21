@@ -20,6 +20,7 @@ description: Use before opening or editing a pull request (gh pr create / gh pr 
 
 Same sections as the commit body (`Test plan:` replaces `Verify:`), plus `Changes:`, a `Test plan:` checklist, and when they apply `Action required:` / `Not covered:`. Nothing more.
 `Changes:` = bullet per logical change, one line. `path` only if not obvious. Never per file.
+`fix:` PR → `Why:` may run 2–3 lines: symptom, then cause; the fix goes in `Changes:`. `Test plan:` shows each case before and after (`main` vs branch), as a table when 2+ cases.
 Title = commit subject shape (`<type>(<scope>)?: <subject>`, scope optional).
 
 Markdown renders in PRs → **bold every section label** (`**Why:**`, `**Changes:**`,
@@ -27,7 +28,7 @@ Markdown renders in PRs → **bold every section label** (`**Why:**`, `**Changes
 Commit messages stay plain text — `**` shows literally in `git log`.
 
 ```markdown
-**Why:** <1 line — trigger or root cause>
+**Why:** <1–2 sentences — trigger or root cause>
 
 **Changes:**
 - <logical change, 1 line> (`path` only if not obvious)
@@ -40,6 +41,6 @@ Commit messages stay plain text — `**` shows literally in `git log`.
 **Not covered:** <out of scope, side effects. Omit if none>
 
 **Test plan:**
-- [x] <command run / check done>
+- [x] <command run / check done> → <result>
 - [ ] <check still open>
 ```
