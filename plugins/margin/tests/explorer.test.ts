@@ -1808,15 +1808,24 @@ test('a find longer than fits beside the label drops the label and keeps up to t
   expect(await ui.find({ type: 'Text', text: 'lines with ' })).toBeUndefined()
   await findText(ui, 'x'.repeat(200))
   await ui.redraw()
-  expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('x'.repeat(20))
+  expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('x'.repeat(17))
 })
 
 test('at the length limit a key typed mid-text is refused, so the text stays whole', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
-  await search(ui, 'abcdefghijklmnopqrst')
-  await findText(ui, 'aZbcdefghijklmnopqrst')
+  await search(ui, 'abcdefghijklmnopq')
+  await findText(ui, 'aZbcdefghijklmnopq')
   await ui.redraw()
-  expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('abcdefghijklmnopqrst')
+  expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('abcdefghijklmnopq')
+})
+
+test('the header centre keeps 2 cells clear of the buttons on each side, for the path and the field', async ($, on) => {
+  const ui = await explorer($, on, { path: `/repo/${'deep/'.repeat(20)}a.ts` }, lines(300))
+  expect((await ui.find({ key: 'path' }))?.props.marginX).toBe(2)
+  // 44 columns less the 8 the buttons take and 2 gaps of 2.
+  expect((await pathText(ui)).length).toBeLessThanOrEqual(32)
+  await search(ui, 'x'.repeat(200))
+  expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('x'.repeat(17))
 })
 
 test('a pane narrowed under the typed find keeps the text and refuses only growth', async ($, on) => {
