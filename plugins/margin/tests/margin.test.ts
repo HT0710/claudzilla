@@ -4363,6 +4363,18 @@ test('an agent card adds its type in its colour, model as name and version, and 
   expect((await cardTexts(ui, 'o:agent:0:1')).map(([t]) => t.trim())).toEqual(['status', 'running', 'description', 'g', 'model', 'opus'])
 })
 
+test('an agent card wraps a long description under its label', async ($, on) => {
+  const long = Array.from({ length: 40 }, (_, i) => `word${i}`).join(' ')
+  const ui = await agentsPane($, on, { a1: 'running' })
+  await $.tool.call({ tool: INTENT, ...REPORT, steps: [{ text: 'spec', status: 'in_progress', agents: [long] }] } as any)
+  await spawn($, long)
+  await ui.drawn()
+  const got = (await cardTexts(ui, 'o:agent:0:0')).map(([t]) => t.trim())
+  const lines = got.slice(got.indexOf('description') + 1).filter(t => t.startsWith('word'))
+  expect(lines.length).toBeGreaterThan(1)
+  expect(lines.join(' ')).toBe(long)
+})
+
 test('modelName: a full id reads as name and version; anything else as given', () => {
   expect(modelName('claude-haiku-5-5')).toBe('haiku 5.5')
   expect(modelName('claude-opus-5-5[1m]')).toBe('opus 5.5')

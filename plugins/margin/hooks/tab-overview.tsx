@@ -698,7 +698,8 @@ export async function draw($: EngineInterface, ctx: OverviewCtx): Promise<TabDra
                         const one = row.id ? sparks.find(s => s.id === row.id) : undefined
                         const type = one?.type?.replace(/^[^:]+:/, '')
                         const more = [
-                          ...(one?.description ? [kitKv(rc, 'description', printable(one.description))] : []),
+                          // Wrapped, not cut: one kv row per line, unlabelled after the first. 13 = 'description' and its gap.
+                          ...(one?.description ? wrapLines(printable(one.description), Math.max(8, rc.cardWidth - 4 - 13)).map((line, n) => kitKv(rc, n ? '' : 'description', line)) : []),
                           ...(type ? [kitKv(rc, 'type', <Text color={agentTone(one)}>{printable(type)}</Text>)] : []),
                           ...(one?.model ? [kitKv(rc, 'model', printable(modelName(one.model)))] : []),
                           ...(one?.effort ? [kitKv(rc, 'effort', one.effort)] : []),
