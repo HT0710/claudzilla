@@ -1163,9 +1163,11 @@ export const register: Register = on => {
   const finishOf = (e: any) => {
     if (e.component !== 'UserMessage' || !hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || e.props.origin?.kind !== 'task-notification') return undefined
     const { task } = e.props
-    const agent = task?.toolUseId ? agents.get(task.toolUseId) : undefined
-    const skill = task?.toolUseId ? skills.get(task.toolUseId) : undefined
-    const arg = skill ?? agent?.description ?? (task?.toolUseId ? shells.get(task.toolUseId) : undefined)
+    // The engine sends the call id with an agent's first notification only; later ones carry its agent id.
+    const id: string | undefined = task?.toolUseId ?? (task?.id ? spawned.get(task.id) : undefined)
+    const agent = id ? agents.get(id) : undefined
+    const skill = id ? skills.get(id) : undefined
+    const arg = skill ?? agent?.description ?? (id ? shells.get(id) : undefined)
     const ended = task?.status && ENDED[task.status]
     return arg && ended ? { agent, arg, ended, skill } : undefined
   }
