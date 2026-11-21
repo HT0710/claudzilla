@@ -89,13 +89,13 @@ export function tracer(part: string, now: () => number = Date.now): Tracer {
     const id = safe(await $.session.id(), 'nosession')
     if (loaded && id !== session) {
       await write($)
-      ring.length = 0; bytes = 0; dirty = false; dirMade = false; modeSet = ''
+      ring.length = 0; bytes = 0; dirty = false; dirMade = false; modeSet = ''; unsaved = 0
     }
     const fresh = !loaded || id !== session
     session = id
     loaded = true
     off = false
-    try { await $.fs.read(`${dir}/.off`); off = true; ring.length = 0; bytes = 0 } catch { /* no marker: tracing on */ }
+    try { await $.fs.read(`${dir}/.off`); off = true; ring.length = 0; bytes = 0; unsaved = 0 } catch { /* no marker: tracing on */ }
     // A resumed session keeps its id: seed the ring so the first flush keeps the earlier process's lines.
     if (fresh && !off) {
       try {
@@ -125,9 +125,10 @@ export function tracer(part: string, now: () => number = Date.now): Tracer {
       }
       // Lines made before start() skipped the home mask.
       const tag = `{"session":${JSON.stringify(session)},`
+      const sent = unsaved
       const text = ring.map(x => tag + (home && x.s.includes(home) ? x.s.split(home).join('~') : x.s).slice(1)).join('\n') + '\n'
       await $.fs.write(file, text)
-      unsaved = 0
+      unsaved -= sent
       // fs.write keeps an existing file's mode, so once per file.
       if (modeSet !== file) {
         const r: any = await $.process.run(['chmod', '600', file])
@@ -138,13 +139,14 @@ export function tracer(part: string, now: () => number = Date.now): Tracer {
   const flush = ($: EngineInterface): Promise<void> => chain = chain.then(async () => {
     try {
       if (!loaded) await load($)
-      else if (safe(await $.session.id(), 'nosession') !== session) {
+      else if (safe(await $.session.id().catch(() => ''), session) !== session) {
         // A /clear changes the id with no session.start; lines since the last write came after it.
         const tail = ring.slice(ring.length - Math.min(unsaved, ring.length))
         ring.length = 0; bytes = 0; dirty = false
         await load($)
         if (!off) for (const x of tail) { ring.push(x); bytes += x.n }
         while (ring.length > RING || (bytes > BUDGET && ring.length > 1)) drop()
+        unsaved = Math.min(ring.length, tail.length)
         dirty = !off && tail.length > 0
       }
       await write($)
