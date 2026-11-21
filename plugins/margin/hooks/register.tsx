@@ -7,7 +7,7 @@ import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, PAD, WHEEL_HOLD, applyPalette
 import type { Prompt, Readers, TabCtx, TabDraw, UseEntry, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
-import { changedOnDisk, checkOpenFile, draw as drawFile, closeEmptyField, closeOnEscape, resetSeeds, explorerPost, escapeSent, fieldOpen, fieldTakesEscape, fieldText, paneBase, showPlace } from './tab-file'
+import { changedOnDisk, checkOpenFile, draw as drawFile, closeEmptyField, closeOnEscape, resetSeeds, explorerPost, escapeSent, fieldOpen, fieldTakesEscape, fieldText, menuPinned, paneBase, showPlace, unpinMenu } from './tab-file'
 import { autoFetch, draw as drawGit, resetGitReads } from './tab-git'
 import { draw as drawHistory } from './tab-history'
 import { draw as drawOverview, resetStepsHeld, same } from './tab-overview'
@@ -938,8 +938,10 @@ const closePane = ($: EngineInterface) => $.ui.close({ id: PANE })
 // The pane's open arguments. While a Git modal is open the pane takes Escape as a close, which ui.close turns
 // into closing the modal: the engine reports Escape and the pane's close mark alike.
 // A name field takes Escape the same way; a find field only while it is empty, because with text the pane never asks for it.
+// A pinned menu card takes it too, to unpin.
 const fieldShown = async ($: EngineInterface) => fieldOpen() && (await read($, tab)) === 'Explorer'
-const wantsEscape = async ($: EngineInterface) => !!(await read($, modal)) || ((await fieldShown($)) && fieldTakesEscape())
+const wantsEscape = async ($: EngineInterface) =>
+  !!(await read($, modal)) || ((await fieldShown($)) && fieldTakesEscape()) || (menuPinned() && (await read($, tab)) === 'Explorer')
 let fieldDrawn = ''
 const paneArgs = async ($: EngineInterface) => {
   escapeSent.value = await wantsEscape($)
@@ -1139,6 +1141,8 @@ export const register: Register = (on, options) => {
       // Answered without next: the pane stays open.
       return { deny: 'closed the Git modal' } as never
     }
+    // Escape with the menu card pinned unpins it; the pane stays.
+    if (e.origin.kind === 'person' && (await read($, tab)) === 'Explorer' && (await unpinMenu($))) return { deny: 'unpinned the menu' } as never
     // Escape with a name field, or an empty find field, open closes the field; the pane stays. A find field with text is not sent Escape, so the close mark closes the pane.
     if (e.origin.kind === 'person' && (await fieldShown($)) && fieldTakesEscape()) {
       await closeOnEscape($)
@@ -1331,6 +1335,8 @@ export const register: Register = (on, options) => {
   on('ui.press', { requestId: PANE }, async ($, e, next) => {
     // A press off the field leaves it, which the ring alone does not report when the prompt takes the keys.
     await closeEmptyField($, e).catch(() => undefined)
+    // A press off the pinned menu card unpins it; Wrap lines is a setting that keeps it.
+    if (e.element !== 'menu' && e.element !== 'wrap') await unpinMenu($).catch(() => undefined)
     // An open modal takes every press: its own act; any other closes the top layer and does nothing else.
     // A tab press closes it whole and switches.
     // The open row's own Button (`open:`) closes the whole modal through its onPress.
@@ -1361,6 +1367,7 @@ export const register: Register = (on, options) => {
     // A press in a Client or scroll bar is a press in the pane: an empty field closes, the act still runs.
     if (e.requestId === PANE && typeof e.element === 'string' && (e.element === 'explorer:gutter' || e.element === 'explorer:vbar' || e.element === 'explorer:hbar' || (e.element.startsWith('row:') && (e.data as { press?: boolean } | undefined)?.press))) {
       await closeEmptyField($, e).catch(() => undefined)
+      await unpinMenu($).catch(() => undefined)
     }
     if (e.requestId === PANE && typeof e.element === 'string' && e.element.startsWith('explorer:')) {
       await explorerPost($, e)
@@ -1592,8 +1599,10 @@ export const register: Register = (on, options) => {
     const inner = Math.max(0, e.props.scroll.bodyRows - RULE)
     const ctx: TabCtx = { props: { ...e.props, bodyColumns: e.props.bodyColumns - RAIL_COLUMNS, scroll: { ...e.props.scroll, bodyRows: inner } }, signal: next.signal, el: elements, pick: tab => pick($, tab), setModal: change => setModal($, change) }
     const field = fieldOpen() && current === 'Explorer' ? (fieldText() ? 'text' : 'empty') : ''
-    if (field !== fieldDrawn) {
-      fieldDrawn = field
+    // A pin change asks for Escape or gives it back, as a field does.
+    const pinned = menuPinned() && current === 'Explorer' ? 'pinned' : ''
+    if (field + pinned !== fieldDrawn) {
+      fieldDrawn = field + pinned
       $.clock.after(0, () => syncEscape($))
     }
     let out: TabDraw
