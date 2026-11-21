@@ -1639,3 +1639,13 @@ test('a name longer than fits beside the label drops the label', async ($, on) =
   await nameOpen(ui, 'abcdefghijklmnopqr')
   expect(await ui.find({ type: 'Text', text: 'named ' })).toBeUndefined()
 })
+
+test('the name field asks the pane for Escape even with text', async ($, on) => {
+  const opens: unknown[] = []
+  on('ui.open', (_, e) => (opens.push((e as any).closeOnEscape), { value: { isPlaced: true } }) as any)
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }) as any)
+  const ui = await nameRoot($, on)
+  await nameOpen(ui, 'abc')
+  await clock.advance(0)
+  expect(opens.at(-1)).toBe(true)
+})
