@@ -3217,6 +3217,26 @@ test('a session end closes the open section', async ($, on) => {
   expect(await rail(fold, /│/)).toBe(0)
 })
 
+test('a plugin prompt sent as the user heads a section after a clear', async ($, on) => {
+  native(on)
+  on('session.end', () => ({ sessionId: 's1' }))
+  on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['you'] }))
+  await $.session.end({ reason: 'clear' } as any)
+  await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'h1', viewport: VIEW,
+    props: { text: 'go', origin: { kind: 'plugin', name: 'primer', asUser: true }, isExpanded: false } })
+  const fold = await twoReads($)
+  expect(await rail(fold, OWN)).toBe(1)
+})
+
+test('a plugin note not sent as the user heads no section', async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['note'] }))
+  await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'h1', viewport: VIEW,
+    props: { text: 'note', origin: { kind: 'plugin', name: 'primer' }, isExpanded: false } })
+  const fold = await twoReads($)
+  expect(await rail(fold, /│/)).toBe(0)
+})
+
 test('hideEditDiff false keeps agent rows native', async ($, on) => {
   native(on)
   configured(on, { '/cfg/claudzilla.json': off })

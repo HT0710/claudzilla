@@ -1194,7 +1194,8 @@ export const register: Register = on => {
     }
     // A finished row of a call a run already holds stays in that run: as a run of its own it would cut the next live row off.
     if (e.component === 'ToolUse' && runs.has(e.requestId)) return
-    if (e.component === 'AssistantMessage' || (e.component === 'UserMessage' && e.props.origin?.kind === 'composer')) section = { open: true, n: section.n + 1 }
+    const origin = e.component === 'UserMessage' ? e.props.origin : undefined
+    if (e.component === 'AssistantMessage' || origin?.kind === 'composer' || (origin?.kind === 'plugin' && origin.asUser)) section = { open: true, n: section.n + 1 }
     const frame = e.viewport?.isFullscreen ? { ...section } : undefined
     // A tool row, or a finish row folio draws, takes its frame here.
     const take = () => {
