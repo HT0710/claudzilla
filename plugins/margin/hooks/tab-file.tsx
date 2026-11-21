@@ -68,6 +68,8 @@ const guard = latestOf()
 // Folder listings count apart from file loads, so folder work never drops a reload.
 const folders = latestOf()
 const finds = latestOf()
+// Blank cells between the header's centre (path, field, notice) and its buttons.
+const GAP = 2
 // A row icon's colour name (explorer-tree.ts) to the colour the Git tab draws that name in.
 const ICON_COLORS = (): Record<string, string> => ({ claude: 'claude', faint: HUD.faint, refactor: TYPES.refactor!, docs: TYPES.docs!, test: TYPES.test!, feat: TYPES.feat! })
 
@@ -548,6 +550,8 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const findOpen = !!state.find?.open && place.kind === 'file'
   let codeRows = Math.max(0, rows - 2 - (findOpen ? 2 : 0))
   const W = props.bodyColumns - 2 * PAD
+  // The header centre's room: the width less the buttons (5 left, 3 right) and a 2-cell gap on each side.
+  const MID = W - 8 - 2 * GAP
   const home = await $.env.get('HOME').catch(() => undefined)
   const basic = await basicGlyphs($)
   const loaded = place.kind === 'file' && state.loaded?.path === place.path ? state.loaded : undefined
@@ -762,7 +766,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       <Text color="claude">{basic ? plain : String.fromCharCode(code)}</Text>
     </Button>
   )
-  const shown = headOf(place.path, state.root, home, W - 8)
+  const shown = headOf(place.path, state.root, home, MID)
   const inRoot = state.root !== '/' && (place.path === state.root || place.path.startsWith(`${state.root}/`))
   let path: JSX.Element[] | string = shown
   if (inRoot && !shown.startsWith('…')) {
@@ -927,11 +931,11 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   // A closed field reopens under the same key, so it seeds afresh.
   if (!editing) seeds.clear()
   // The label gives way once the text no longer fits beside it.
-  const labelFor = (text: string, label: string, placeholder: string) => (!text ? `${placeholder} ` : cellsOf(text) > fieldRoom(W - 8 - cellsOf(label) - 9) ? '' : label)
+  const labelFor = (text: string, label: string, placeholder: string) => (!text ? `${placeholder} ` : cellsOf(text) > fieldRoom(MID - cellsOf(label) - 9) ? '' : label)
   const findLabel = labelFor(state.find?.text ?? '', 'lines with ', PLACEHOLDER)
   const nameLabel = labelFor(state.names?.text ?? '', 'named ', NAME_PLACEHOLDER)
-  const [findL, findR] = fieldPads(findLabel, state.find?.text ?? '', 'next', W - 8)
-  const [nameL, nameR] = fieldPads(nameLabel, state.names?.text ?? '', 'open', W - 8)
+  const [findL, findR] = fieldPads(findLabel, state.find?.text ?? '', 'next', MID)
+  const [nameL, nameR] = fieldPads(nameLabel, state.names?.text ?? '', 'open', MID)
   return {
     body: (
       <Box flexDirection="column" height={rows} flexShrink={0}>
@@ -941,13 +945,13 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
             {glyph('forward', '›', 0xea9c, () => goForward($))}
             {glyph('refresh', '↻', 0xeb37, () => reloadPlace($))}
           </Box>
-          <Box key="path" flexGrow={1} justifyContent="center">
+          <Box key="path" flexGrow={1} justifyContent="center" marginX={GAP}>
             {state.find?.open && place.kind === 'file' ? (
               <Box key="find" flexShrink={0}>
                 <Text>{findL}</Text>
                 <Text color={HUD.faint}>{findLabel}</Text>
-                <Box width={capWidth(state.find.text, 'next', W - 8 - (state.find.text ? cellsOf(findLabel) : 0))} flexShrink={0}>
-                  <Input key={findKey()} value={seedOf(findKey(), state.find.text)} submitLabel="next" autoFocus onInput={v => typeFind($, fitField($, v, fieldRoom(W - 17), state.find?.text ?? '', () => gen++))} onSubmit={() => (gen++, stepFind($, 1))} />
+                <Box width={capWidth(state.find.text, 'next', MID - (state.find.text ? cellsOf(findLabel) : 0))} flexShrink={0}>
+                  <Input key={findKey()} value={seedOf(findKey(), state.find.text)} submitLabel="next" autoFocus onInput={v => typeFind($, fitField($, v, fieldRoom(MID - 9), state.find?.text ?? '', () => gen++))} onSubmit={() => (gen++, stepFind($, 1))} />
                 </Box>
                 <Text>{findR}</Text>
               </Box>
@@ -955,15 +959,15 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
               <Box key="names" flexShrink={0}>
                 <Text>{nameL}</Text>
                 <Text color={HUD.faint}>{nameLabel}</Text>
-                <Box width={capWidth(state.names.text, 'open', W - 8 - (state.names.text ? cellsOf(nameLabel) : 0))} flexShrink={0}>
-                  <Input key={nameKey()} value={seedOf(nameKey(), state.names.text)} submitLabel="open" autoFocus onInput={v => typeName($, fitField($, v, fieldRoom(W - 17), state.names?.text ?? '', () => nameGen++))} onSubmit={() => submitName($)} />
+                <Box width={capWidth(state.names.text, 'open', MID - (state.names.text ? cellsOf(nameLabel) : 0))} flexShrink={0}>
+                  <Input key={nameKey()} value={seedOf(nameKey(), state.names.text)} submitLabel="open" autoFocus onInput={v => typeName($, fitField($, v, fieldRoom(MID - 9), state.names?.text ?? '', () => nameGen++))} onSubmit={() => submitName($)} />
                 </Box>
                 <Text>{nameR}</Text>
               </Box>
             ) : state.notice ? (
               <Text>
                 <Text color={HUD.faint}>{state.noticeVerb} </Text>
-                <Text color="claude">{cutStart(printable(state.notice), W - 8 - (state.noticeVerb?.length ?? 0) - 1)}</Text>
+                <Text color="claude">{cutStart(printable(state.notice), MID - (state.noticeVerb?.length ?? 0) - 1)}</Text>
               </Text>
             ) : typeof path === 'string' ? (
               <Text color={HUD.action}>{path}</Text>
