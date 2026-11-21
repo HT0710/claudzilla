@@ -1664,3 +1664,15 @@ test('a field with text keeps its text drawn after a tab switch and back', async
   await ui.redraw()
   expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('foo')
 })
+
+test('a find with no match keeps the view where it was', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 150 }, lines(300))
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  const from = (await barOf(ui, 'explorer:vbar')).from
+  expect(from).toBeGreaterThan(0)
+  await findText(ui, 'zzz')
+  await clock.advance(150)
+  await ui.redraw()
+  expect((await barOf(ui, 'explorer:vbar')).from).toBe(from)
+})

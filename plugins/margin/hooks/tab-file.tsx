@@ -293,7 +293,7 @@ async function runFind($: EngineInterface): Promise<void> {
   find.current = 0
   const first = find.result.matches[0]
   state.lit = first && { from: first.line, to: first.line }
-  state.top = undefined
+  if (first) state.top = undefined
   await update($, file, () => placeOf())
 }
 
