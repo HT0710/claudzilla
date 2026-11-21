@@ -1024,10 +1024,18 @@ test('a press on a tree file row opens it, and on a folder row toggles it', asyn
   expect(await pathText(ui)).toBe('repo/a.ts')
 })
 
-const fieldKey = async (ui: any) => {
-  for (const k of ['explorer:find', ...Array.from({ length: 9 }, (_, i) => `explorer:find:${i + 1}`)]) if (await ui.find({ key: k })) return k
-  return 'explorer:find'
+const keyMatching = async (ui: any, re: RegExp) => {
+  const keys: string[] = []
+  const walk = (n: any) => {
+    if (!n || typeof n !== 'object') return
+    if (Array.isArray(n)) return n.forEach(walk)
+    if (typeof n.props?.key === 'string' && re.test(n.props.key)) keys.push(n.props.key)
+    walk([n.children, n.props?.children])
+  }
+  walk(await ui.drawn())
+  return keys[0]
 }
+const fieldKey = async (ui: any) => (await keyMatching(ui, /^explorer:find(:\d+)?$/)) ?? 'explorer:find'
 const findText = async (ui: any, text: string) => ui.input({ key: await fieldKey(ui), text, kind: 'change' })
 const isLit = async (ui: any, n: number) => (await ui.find({ key: `row:${n}` }))?.props.backgroundColor === LIT
 
@@ -1240,7 +1248,7 @@ test('a press elsewhere closes an empty field, not one with text', async ($, on)
   await search(ui, 'line 1')
   await ui.press({ key: 'refresh' })
   await ui.redraw()
-  expect(await ui.find({ key: 'explorer:find' })).toBeDefined()
+  expect(await keyMatching(ui, /^explorer:find(:\d+)?$/)).toBeDefined()
 })
 
 test('a press on the scroll bar closes an empty field and still jumps', async ($, on) => {
@@ -1310,7 +1318,7 @@ test('Enter re-keys the find field so the engine redraws its text', async ($, on
   await ui.redraw()
   await ui.press({ key: 'explorer:search' })
   await ui.redraw()
-  expect(await ui.find({ key: 'explorer:find' })).toBeDefined()
+  expect(await keyMatching(ui, /^explorer:find(:\d+)?$/)).toBeDefined()
 })
 
 test('Enter on a pending run flushes it and stays on match 1', async ($, on) => {
@@ -1619,7 +1627,7 @@ test('a move ends the name search', async ($, on) => {
   await ui.redraw()
   await ui.press({ key: 'explorer:search' })
   await ui.redraw()
-  expect((await ui.find({ key: 'explorer:name' }))?.props.value).toBe('')
+  expect((await ui.find({ key: (await keyMatching(ui, /^explorer:name(:\d+)?$/))! }))?.props.value).toBe('')
 })
 
 test('a find longer than fits beside the label drops the label and keeps up to the room without it', async ($, on) => {
@@ -1632,6 +1640,36 @@ test('a find longer than fits beside the label drops the label and keeps up to t
   await findText(ui, 'x'.repeat(200))
   await ui.redraw()
   expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('x'.repeat(20))
+})
+
+test('a find field reopened after the find ended is drawn with a new key and empty', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await search(ui, 'state')
+  const before = await fieldKey(ui)
+  disk.set('/repo/b.ts', { text: 'x', mtimeMs: 1 })
+  open({ path: '/repo/b.ts' })
+  await ui.redraw()
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  const after = await fieldKey(ui)
+  expect(after).not.toBe(before)
+  expect((await ui.find({ key: after }))?.props.value).toBe('')
+})
+
+test('a name field reopened after the search ended is drawn with a new key and empty', async ($, on) => {
+  const ui = await nameRoot($, on)
+  await nameOpen(ui, 'ab')
+  const nameKey = () => keyMatching(ui, /^explorer:name(:\d+)?$/)
+  const before = await nameKey()
+  open({ path: '/repo/ab.ts' })
+  await ui.redraw()
+  open({ path: '/repo', kind: 'folder' })
+  await ui.redraw()
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  const after = await nameKey()
+  expect(after).not.toBe(before)
+  expect((await ui.find({ key: after }))?.props.value).toBe('')
 })
 
 test('a name longer than fits beside the label drops the label', async ($, on) => {
