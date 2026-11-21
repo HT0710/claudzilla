@@ -1182,22 +1182,32 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   const summaryModal = () => {
     if (!summary) return null
     const label = `${summary.list.length} PRs`
-    const block = (p: Pr) => [
-      <Box justifyContent="space-between">
-        <Button key={`m:pr:${p.n}`} plain onPress={() => update($, modal, m => m && { ...m, sub: { key: `pr:${p.n}`, top: 0 } })}>
-          <Text color="claude">{` #${p.n} `}</Text>
-          {subjectTexts(p.title, inner - 22)}
-        </Button>
-        <Box>
-          {glyph(worst(p.checks))}
-          <Text> </Text>
-          {pill(p.state)}
-        </Box>
-      </Box>,
-      line([<Text>{`  ${p.author}`}</Text>, <Text color={HUD.faint}>{' from '}</Text>, <Text color={HUD.faint}>{p.head}</Text>], <Text color={HUD.faint}>{ago(p.at, now)}</Text>),
-    ]
+    // The title line: a row Client, as a modal file row, so it lights where a Button would invert.
+    // `layer`: m in the summary modal, s in its stacked full list; each draws its own Client.
+    const block = (p: Pr, layer: 'm' | 's' = 'm') => {
+      const key = `${layer}pr:${p.n}`
+      const press = () => update($, modal, m => m && { ...m, sub: { key: `pr:${p.n}`, top: 0 } })
+      rowHover.acts[key] = press
+      const left = [<Text color="claude">{` #${p.n} `}</Text>, ...subjectTexts(p.title, inner - 22)]
+      const right = [glyph(worst(p.checks)), <Text> </Text>, ...pill(p.state)]
+      return [
+        Client ? (
+          <Box key={`${layer}:row:pr:${p.n}`} flexDirection="column" height={1} hover={{ backgroundColor: LIT }}>
+            <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left: toPieces(left), right: toPieces(right) }} />
+          </Box>
+        ) : (
+          <Box justifyContent="space-between">
+            <Button key={`${layer}:pr:${p.n}`} plain onPress={press}>
+              {left}
+            </Button>
+            <Box>{right}</Box>
+          </Box>
+        ),
+        line([<Text>{`  ${p.author}`}</Text>, <Text color={HUD.faint}>{' from '}</Text>, <Text color={HUD.faint}>{p.head}</Text>], <Text color={HUD.faint}>{ago(p.at, now)}</Text>),
+      ]
+    }
     const join = (blocks: JSX.Element[][]) => blocks.flatMap((b, i) => (i ? [rule, ...b] : b))
-    const blocks = summary.list.map(block)
+    const blocks = summary.list.map(p => block(p))
     const cap = capped(blocks)
     const rows = [...join(cap.rows), ...(cap.more ? [showAll(label)] : [])]
     const f = modalRows(4 + rows.length)
@@ -1231,7 +1241,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
           return drawLayer('s', sf, at(sf), acts, [line(subjectTexts(subPr.title, Infinity, true))], subRows, sub.top)
         })()
       : sub.key === label ? (() => {
-          const all = join(blocks)
+          const all = join(summary.list.map(p => block(p, 's')))
           const sf = stackFrame(props.bodyColumns, tabRows, f, 5 + all.length)
           return drawLayer('s', sf, at(sf), [], [heading(label.toUpperCase())], all, sub.top)
         })()
