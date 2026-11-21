@@ -151,19 +151,39 @@ check "override: beats repo theme" [ "$(q "$S" .theme)" = '"dark"' ]
 check "local: CLAUDE.local.md untouched" grep -qx 'keep me' "$H/.claude/CLAUDE.local.md"
 
 # --- hooks left pointing at files moved to the backup (#175) ---
-M=$(new_home); mkdir -p "$M/.claude/hud"; : > "$M/.claude/hud/busy.sh"; : > "$M/.claude/hud/hud-filter.pl"; : > "$M/.claude/hud/mine.mjs"
+M=$(new_home); mkdir -p "$M/.claude/hud"; : > "$M/.claude/hud/busy.sh"; : > "$M/.claude/hud/hud.pl"; : > "$M/.claude/hud/mine.mjs"
 cat > "$M/.claude/settings.json" <<'JSON'
-{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"sh ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hud/busy.sh on"},{"type":"command","command":"perl ~/.claude/hud/hud-filter.pl"}]}]}}
+{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"sh ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hud/busy.sh on"},{"type":"command","command":"perl ~/.claude/hud/hud.pl"}]}]}}
 JSON
 echo '{"statusLine":{"type":"command","command":"node ~/.claude/hud/mine.mjs"}}' > "$M/.claude/settings.overrides.json"
 run_install "$M"
 check "moved: hook on a moved file named with its backup" bash -c "grep -F 'hud/busy.sh on' '$M/install.log' | grep -qF '.claudzilla-backup/'"
 check "moved: statusLine on a moved file named" bash -c "grep -F 'node ~/.claude/hud/mine.mjs' '$M/install.log' | grep -F 'warning:' | grep -qF .claudzilla-backup/"
-check "moved: no warning for a file the new link still has" bash -c "! grep -qF 'perl ~/.claude/hud/hud-filter.pl' '$M/install.log'"
+check "moved: no warning for a file the new link still has" bash -c "! grep -qF 'perl ~/.claude/hud/hud.pl' '$M/install.log'"
 M2=$(new_home); mkdir -p "$M2/myhud" "$M2/.claude"; : > "$M2/myhud/busy.sh"; ln -s "$M2/myhud" "$M2/.claude/hud"
 echo '{"hooks":{"Stop":[null,{"hooks":[{"type":"command","command":"sh ~/.claude/hud/busy.sh"}]}]}}' > "$M2/.claude/settings.json"
 run_install "$M2"
 check "moved: hook on a file behind a moved symlink named" bash -c "grep -F 'sh ~/.claude/hud/busy.sh' '$M2/install.log' | grep -qF .claudzilla-backup/"
+
+# --- hud.animation false: statusLine refreshes every 30 s ---
+animhome() { local h; h=$(new_home); mkdir -p "$h/.claude"; echo "$1" > "$h/.claude/claudzilla.json"; echo "$h"; }
+N=$(animhome '{"hud":{"animation":false}}'); inst "$N"
+check "animation: hud.animation false -> refreshInterval 30" [ "$(q "$N/.claude/settings.json" .statusLine.refreshInterval)" = 30 ]
+check "animation: record holds the edited base" [ "$(q "$N/.claude/.claudzilla-base.json" .statusLine.refreshInterval)" = 30 ]
+check "animation: repo base untouched" [ "$(q "$REPO/settings.base.json" .statusLine.refreshInterval)" = 1 ]
+N2=$(new_home); inst "$N2"
+check "animation: default keeps refreshInterval 1" [ "$(q "$N2/.claude/settings.json" .statusLine.refreshInterval)" = 1 ]
+N3=$(animhome '{"hud":{"animation":false}}'); echo '{"statusLine":{"refreshInterval":5}}' > "$N3/.claude/settings.overrides.json"; inst "$N3"
+check "animation: settings.overrides.json still wins" [ "$(q "$N3/.claude/settings.json" .statusLine.refreshInterval)" = 5 ]
+echo '{}' > "$N/.claude/claudzilla.json"; inst "$N"
+check "animation: flip back restores refreshInterval 1" [ "$(q "$N/.claude/settings.json" .statusLine.refreshInterval)" = 1 ]
+echo '{"hud":{"animation":false}}' > "$N/.claude/claudzilla.json"; inst "$N"
+inst "$N" --remove hud
+check "animation: hud.animation false then --remove hud -> no statusLine left" [ "$(q "$N/.claude/settings.json" .statusLine)" = undefined ]
+N4=$(animhome '{"hud":{"animation":false}}'); echo '{"statusLine":{"type":"command","command":"mine","refreshInterval":7}}' > "$N4/.claude/settings.json"; inst "$N4" --remove hud
+check "animation: hud part off and own statusLine -> untouched" [ "$(q "$N4/.claude/settings.json" .statusLine.refreshInterval)" = 7 ]
+N5=$(animhome '{bad'); seedbase "$N5"; inst "$N5"; rc=$?
+check "animation: broken claudzilla.json -> install exits 0" [ $rc -eq 0 ]
 
 # --- re-run is a no-op ---
 nb=$(ls "$H/.claude/.claudzilla-backup" | wc -l); cp "$S" "$H/s1"; sleep 1
