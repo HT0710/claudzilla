@@ -621,7 +621,7 @@ let hideEditDiff = true
 // Margin's intent report: its row draws nothing, so it must not break a run of edits.
 const INTENT_TOOL = 'mcp__margin__intent'
 // Tools whose rows fold into a run; any mcp__ tool too.
-const FOLDED = new Set(['Read', 'Grep', 'Glob', 'Bash', 'Edit', 'Write', 'WebFetch', 'WebSearch'])
+const FOLDED = new Set(['Read', 'Grep', 'Glob', 'Bash', 'Edit', 'Write', 'WebFetch', 'WebSearch', 'TaskStop'])
 const isFolded = (tool: string) => FOLDED.has(tool) || tool.startsWith('mcp__')
 // A lone call that folds as a 1-call group does; a failed or interrupted one keeps its own row.
 const isLoneFold = (tool: string, isErrored?: boolean, isInterrupted?: boolean) =>
@@ -963,7 +963,7 @@ export const register: Register = on => {
   const GROUP_KINDS: Record<string, [string, string, string]> = {
     Read: ['Read', 'Reading', 'file'], Grep: ['Searched', 'Searching', 'pattern'], Glob: ['Searched', 'Searching', 'pattern'], Bash: ['Ran', 'Running', 'command'],
     Edit: ['Edited', 'Editing', 'file'], Write: ['Wrote', 'Writing', 'file'],
-    WebFetch: ['Fetched', 'Fetching', 'page'], WebSearch: ['Searched', 'Searching', 'query'],
+    WebFetch: ['Fetched', 'Fetching', 'page'], WebSearch: ['Searched', 'Searching', 'query'], TaskStop: ['Stopped', 'Stopping', 'task'],
   }
   const kindOf = (tool: string) => GROUP_KINDS[tool] ?? (tool.startsWith('mcp__') ? ['Called', 'Calling', 'tool'] as const : [tool, tool, ''] as const)
   const isGoing = (c: ToolGroupCall) => c.isRunning && !c.isInterrupted && !c.isErrored
@@ -1120,6 +1120,8 @@ export const register: Register = on => {
       // The call's main argument: its path, pattern, command or address.
       const args = (c.input ?? {}) as Record<string, unknown>
       if (c.tool === 'Bash') return [{ pieces: [{ text: clip(String(args.command ?? '').split('\n')[0]!, room) }, ...tail] }, ...err()]
+      // The stop's input holds only the task id; its output names the command.
+      if (c.tool === 'TaskStop') return [{ pieces: [{ text: clip(String((c.output as { command?: unknown } | undefined)?.command || args.task_id || '').split('\n')[0]!, room) }, ...tail] }, ...err()]
       const key = ['file_path', 'pattern', 'path', 'command', 'url', 'query'].find(k => typeof args[k] === 'string')
       const arg = !key ? '' : key === 'file_path' || key === 'path' ? name(String(args[key])) : String(args[key]).split('\n')[0]!
       return [{ pieces: [{ text: c.tool, bold: true }, ...(arg ? [{ text: ' (', color: 'promptBorder' }, { text: clip(arg, room - c.tool.length - 3) }, { text: ')', color: 'promptBorder' }] : []), ...tail] }, ...err()]
@@ -1394,7 +1396,7 @@ export const register: Register = on => {
     if (e.viewport?.isFullscreen && isRunning && !isErrored && !isInterrupted && tool !== 'Bash' && !tool.startsWith('mcp__') && !(tool in EDIT) && !(tool in RUNNING)) {
       const liveLabel = kindOf(tool)[1]
       const args = (input ?? {}) as Record<string, unknown>
-      const key = ['file_path', 'pattern', 'path', 'url', 'query'].find(k => typeof args[k] === 'string')
+      const key = ['file_path', 'pattern', 'path', 'url', 'query', 'task_id'].find(k => typeof args[k] === 'string')
       const arg = !key ? '' : key === 'file_path' || key === 'path' ? namer(await $.session.root().catch(() => ''), e.viewport?.columns)(String(args[key])) : String(args[key]).split('\n')[0]!
       blinking.add(e.requestId)
       blink ??= $.clock.every(BLINK_MS, () => toggleBlink(() => $.ui.invalidate('ui.render')))
