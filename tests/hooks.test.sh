@@ -477,6 +477,14 @@ new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'**TL;DR** — x\n
 check "stop: TL;DR present ok" [ "$(state .flags.length)" = 0 ]
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'**TL;DR:** x\n'"$long" >/dev/null
 check "stop: TL;DR with colon inside bold ok" [ "$(state .flags.length)" = 0 ]
+new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'**TL;DR: fixed x.**\n'"$long" >/dev/null
+check "stop: whole bold TL;DR line ok" [ "$(state .flags.length)" = 0 ]
+new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'\n**Yes, it is a bug.** x\n'"$long" >/dev/null
+check "stop: bold answer first line ok" [ "$(state .flags.length)" = 0 ]
+new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'Plain answer.\n**Bold later.**\n'"$long" >/dev/null
+check "stop: bold below a plain first line flagged" has "$(state .flags)" "TL;DR"
+new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'**Next:** go\n'"$long" >/dev/null
+check "stop: bold label first line flagged" has "$(state .flags)" "TL;DR"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "Shipped 🚀" >/dev/null
 check "stop: emoji flagged" has "$(state .flags)" "emoji"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop '| a | b<br>c |' >/dev/null
