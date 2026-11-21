@@ -40,7 +40,7 @@ JSON
 data() { CLAUDE_CONFIG_DIR="$C" HUD_DUMP=1 perl "$HUD/hud.pl"; }
 key() { awk -F'\t' -v k="$1" '$1==k{print $2}' <<<"$2"; }
 
-# --- hud.pl ---
+# --- hud.pl: data ---
 kv=$(data <<<"$full")
 check "data: id"        [ "$(key id "$kv")" = abcdef12 ]
 check "data: sid"       [ "$(key sid "$kv")" = abcdef1234567890 ]
@@ -161,7 +161,7 @@ check "data: control chars dropped" [ "$(key model "$kv")" = "a ]52;c;aGk= b" ]
 kv=$(data <<<'{"model":{"display_name":"a\u009d52;c;aGk=\u009cb"}}')
 check "data: C1 control chars dropped" [ "$(key model "$kv")" = "a 52;c;aGk= b" ]
 
-# --- hud.pl ---
+# --- hud.pl: render ---
 render() { data <<<"$1" | COLUMNS=120 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
 out=$(render "$full")
 # meters in two columns: ctx over cache | 5h over wk; no reply yet shows the cache hot

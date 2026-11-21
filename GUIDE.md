@@ -315,6 +315,8 @@ From top to bottom:
 
 The meters sit in two columns, `ctx` over `cch` on the left and `5h` over `wk` on the right; on a terminal too narrow for two columns they stack, one per row. Each meter bar runs from blue to orange: the cells past about two thirds of the bar are orange. The `cch` bar instead is solid and one colour. The status line redraws every second. The folder name shifts color slowly, and every 90 seconds a highlight sweeps across the meters for 30 seconds. The motion is decoration only.
 
+The animation is on by default (`hud.animation` is `true`). To turn it off, set `{"hud":{"animation":false}}` in `~/.claude/claudzilla.json`: the status line then shows a still frame and redraws every 30 seconds. Run `~/claudzilla/install.sh` again after the change, and restart open sessions if it does not apply. Claude Code's Reduce motion setting (`/config`) also stops the animation, right away and without the installer.
+
 > **Your email is masked:** only the first and last letter before `@` and the domain show, enough to tell your accounts apart. Anyone who sees your screen, a screen share or a screenshot sees that much.
 
 On a narrow terminal, the top row drops the version first, then drops the email's domain, then the rest of the email, then the changes and the branch, and finally cuts the folder from the left. The bottom row drops thinking, then the skill, the compact time and date, the session id, the session name, and the model last.

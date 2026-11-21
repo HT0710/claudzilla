@@ -33,7 +33,7 @@ settings.base.json     ──merge────▶  ~/.claude/settings.json  your
 |---|---|
 | `~/.claude/CLAUDE.local.md` | instructions for this machine only |
 | `~/.claude/settings.overrides.json` | settings for this machine only, merged last (e.g. `{"permissions":{"defaultMode":"dontAsk"}}`) |
-| `claudzilla.json` | turn guard checks on or off, see below; `{"hud":{"layout":"compact"}}` draws the status line in 3 rows on a wide terminal, `"minimal"` in 1 row (`~/.claude/claudzilla.json` only) |
+| `claudzilla.json` | turn guard checks on or off, see below; `{"hud":{"layout":"compact"}}` draws the status line in 3 rows on a wide terminal, `"minimal"` in 1 row; `{"hud":{"animation":false}}` stops the status line animation (default `true`): it draws a still frame and redraws every 30 s; re-run `~/claudzilla/install.sh` and restart open sessions if it does not apply (`~/.claude/claudzilla.json` only) |
 
 ## Guard hook config
 
