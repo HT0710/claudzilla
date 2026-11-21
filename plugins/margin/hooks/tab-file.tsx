@@ -81,13 +81,13 @@ function endFind(): void {
   find.spans = new Map()
   find.current = 0
   find.open = false
-  gen = 0
+  gen++
 }
 
 // Closes the name field and drops its text and listing.
 function endNames(): void {
   state.names = undefined
-  nameGen = 0
+  nameGen++
 }
 
 // Remembers the spot, moves through `change`, and restores the spot of an entry it landed on.
@@ -231,7 +231,7 @@ const nameKey = (): string => (nameGen ? `${NAME}:${nameGen}` : NAME)
 export async function closeEmptyField($: EngineInterface, e?: { element?: string }): Promise<boolean> {
   if (state.find?.open && !state.find.text && (!e || leavesField(e, FIELD))) {
     state.find = undefined
-    gen = 0
+    gen++
   } else if (state.names && !state.names.text && (!e || leavesField(e, nameKey()))) endNames()
   else return false
   await update($, file, () => placeOf())
