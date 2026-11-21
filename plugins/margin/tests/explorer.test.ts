@@ -1828,6 +1828,16 @@ test('the header centre keeps 2 cells clear of the buttons on each side, for the
   expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('x'.repeat(17))
 })
 
+test('in a wide pane the find field fills the header centre, with only the header gap beside it', async ($, on) => {
+  await setup($, on)
+  disk.set('/repo/a.ts', { text: lines(3), mtimeMs: 1 })
+  open({ path: '/repo/a.ts' })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: 70 }, requestId: 'margin' })
+  await search(ui, 'x'.repeat(200))
+  // 70 less the rail (4) and padding (2), the buttons (8), the gaps (4) and the cursor and Enter mark (9).
+  expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('x'.repeat(43))
+})
+
 test('a pane narrowed under the typed find keeps the text and refuses only growth', async ($, on) => {
   await setup($, on)
   disk.set('/repo/a.ts', { text: lines(300), mtimeMs: 1 })
