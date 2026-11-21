@@ -341,11 +341,11 @@ const SESSION_RE = /claude\.ai\/code\/session|Claude-Session:/;
 const HEREDOC_RE = /<<-?\s*['"]?(\w+)['"]?([^\n]*)\n([\s\S]*?)\n\s*\1\b/;
 const WHY = {
   pushVerify: "Run superpowers:verification-before-completion this turn before push/PR (superpowers.md Order). Then run its check (tests, build); only a command run after the skill counts.",
-  prSkill: "Opening or editing a PR: invoke the pr skill first (git.md:59).",
+  prSkill: "Opening or editing a PR: invoke the pr skill first (git.md:67).",
   forcePush: "Force push not allowed; use --force-with-lease only if the user asked (git.md:7).",
   discard: "Discards work. Ask the user; if approved they run `! <cmd>` (git.md:8).",
   mainCommit: "Branch first: git switch -c <type>/<slug>. Solo repo that commits to main: set \"allowMain\": true in .claude/claudzilla.local.json (git.md:6).",
-  sessionLink: "No Claude session link (git.md:55).",
+  sessionLink: "No Claude session link (git.md:63).",
   envStaged: "`.env` staged; unstage it (git.md:21).",
   worktreePath: "Worktree goes at ../<repo>-<slug> (git.md:27).",
   releaseSync: "If this merge lands on main, rebase the open release branch onto main and push it with --force-with-lease, after the user's ok.",
