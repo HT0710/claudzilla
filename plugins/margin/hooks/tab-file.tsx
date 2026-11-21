@@ -851,8 +851,10 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const editing = (state.find?.open && place.kind === 'file') || (state.names && place.kind === 'folder')
   // A closed field reopens under the same key, so it seeds afresh.
   if (!editing) seeds.clear()
-  const findLabel = state.find?.text ? 'lines with ' : `${PLACEHOLDER} `
-  const nameLabel = state.names?.text ? 'named ' : `${NAME_PLACEHOLDER} `
+  // The label gives way once the text no longer fits beside it.
+  const labelFor = (text: string, label: string, placeholder: string) => (!text ? `${placeholder} ` : cellsOf(text) > fieldRoom(W - 8 - cellsOf(label) - 9) ? '' : label)
+  const findLabel = labelFor(state.find?.text ?? '', 'lines with ', PLACEHOLDER)
+  const nameLabel = labelFor(state.names?.text ?? '', 'named ', NAME_PLACEHOLDER)
   const [findL, findR] = fieldPads(findLabel, state.find?.text ?? '', 'next', W - 8)
   const [nameL, nameR] = fieldPads(nameLabel, state.names?.text ?? '', 'open', W - 8)
   return {
@@ -869,8 +871,8 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
               <Box key="find" flexShrink={0}>
                 <Text>{findL}</Text>
                 <Text color={HUD.faint}>{findLabel}</Text>
-                <Box width={capWidth(state.find.text, 'next', W - 8 - (state.find.text ? 11 : 0))} flexShrink={0}>
-                  <Input key={gen ? `${FIELD}:${gen}` : FIELD} value={seedOf(gen ? `${FIELD}:${gen}` : FIELD, state.find.text)} submitLabel="next" autoFocus onInput={v => typeFind($, fitField($, v, fieldRoom(W - 28), () => gen++))} onSubmit={() => (gen++, stepFind($, 1))} />
+                <Box width={capWidth(state.find.text, 'next', W - 8 - (state.find.text ? cellsOf(findLabel) : 0))} flexShrink={0}>
+                  <Input key={gen ? `${FIELD}:${gen}` : FIELD} value={seedOf(gen ? `${FIELD}:${gen}` : FIELD, state.find.text)} submitLabel="next" autoFocus onInput={v => typeFind($, fitField($, v, fieldRoom(W - 17), () => gen++))} onSubmit={() => (gen++, stepFind($, 1))} />
                 </Box>
                 <Text>{findR}</Text>
               </Box>
@@ -878,8 +880,8 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
               <Box key="names" flexShrink={0}>
                 <Text>{nameL}</Text>
                 <Text color={HUD.faint}>{nameLabel}</Text>
-                <Box width={capWidth(state.names.text, 'open', W - 8 - (state.names.text ? 6 : 0))} flexShrink={0}>
-                  <Input key={nameKey()} value={seedOf(nameKey(), state.names.text)} submitLabel="open" autoFocus onInput={v => typeName($, fitField($, v, fieldRoom(W - 23), () => nameGen++))} onSubmit={() => submitName($)} />
+                <Box width={capWidth(state.names.text, 'open', W - 8 - (state.names.text ? cellsOf(nameLabel) : 0))} flexShrink={0}>
+                  <Input key={nameKey()} value={seedOf(nameKey(), state.names.text)} submitLabel="open" autoFocus onInput={v => typeName($, fitField($, v, fieldRoom(W - 17), () => nameGen++))} onSubmit={() => submitName($)} />
                 </Box>
                 <Text>{nameR}</Text>
               </Box>

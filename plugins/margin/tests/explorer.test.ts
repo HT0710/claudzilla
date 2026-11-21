@@ -1621,3 +1621,21 @@ test('a move ends the name search', async ($, on) => {
   await ui.redraw()
   expect((await ui.find({ key: 'explorer:name' }))?.props.value).toBe('')
 })
+
+test('a find longer than fits beside the label drops the label and keeps up to the room without it', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  await findText(ui, 'abcdefghijklmnopqr')
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: 'lines with ' })).toBeUndefined()
+  await findText(ui, 'x'.repeat(200))
+  await ui.redraw()
+  expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('x'.repeat(20))
+})
+
+test('a name longer than fits beside the label drops the label', async ($, on) => {
+  const ui = await nameRoot($, on)
+  await nameOpen(ui, 'abcdefghijklmnopqr')
+  expect(await ui.find({ type: 'Text', text: 'named ' })).toBeUndefined()
+})
