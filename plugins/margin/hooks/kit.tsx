@@ -299,9 +299,9 @@ export const line = (el: Els, left: JSX.Element | JSX.Element[], right?: JSX.Ele
     </Box>
   )
 }
-export const heading = (el: Els, label: string, right?: JSX.Element) => {
+export const heading = (el: Els, label: string, right?: JSX.Element, color: string = HUD.label) => {
   const { Text } = el
-  return line(el, <Text bold color={HUD.label}>{label}</Text>, right)
+  return line(el, <Text bold color={color}>{label}</Text>, right)
 }
 // The open modal's layers as last drawn, in tab-body cells: the wheel scrolls the top layer when over it.
 export type Layer = { frame: Frame; top: number; end: number }
