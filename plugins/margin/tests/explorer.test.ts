@@ -1683,3 +1683,21 @@ test('an empty ls-files answer falls back to the walk', async () => {
   on('fs.list', () => ({ value: [{ name: 'a.ts', kind: 'file', isLink: false }] }))
   expect(await listNames($, '/r')).toEqual([{ path: 'a.ts', kind: 'file' }])
 })
+
+test('opening a field unpins the menu card', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  await ui.press({ key: 'menu' })
+  await ui.redraw()
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  expect((await ui.find({ key: 'explorer:menu-card' }))?.props.display).toBe('none')
+})
+
+test('opening the name field unpins the menu card', async ($, on) => {
+  const ui = await nameRoot($, on)
+  await ui.press({ key: 'menu' })
+  await ui.redraw()
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  expect((await ui.find({ key: 'explorer:menu-card' }))?.props.display).toBe('none')
+})

@@ -249,6 +249,7 @@ export async function closeOnEscape($: EngineInterface): Promise<boolean> {
 }
 
 async function openNames($: EngineInterface): Promise<void> {
+  state.menuPinned = false
   const folder = current(state.nav).path
   const entries = await listNames($, folder)
   if (current(state.nav).path !== folder) return
@@ -278,6 +279,7 @@ async function submitName($: EngineInterface): Promise<void> {
 async function openFind($: EngineInterface): Promise<void> {
   state.find ??= { open: true, text: '', pending: false, result: { matches: [], bad: false, capped: false }, spans: new Map(), current: 0 }
   state.find.open = true
+  state.menuPinned = false
   await update($, file, () => placeOf())
   await takeKeys($, FIELD)
 }
