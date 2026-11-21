@@ -42,7 +42,7 @@ curl -fsSL https://raw.githubusercontent.com/HT0710/claudzilla/main/install.sh |
 
 | part | covers |
 |---|---|
-| `core` | rules, hooks, settings, `pr` and `rule-review` skills |
+| `core` | rules, hooks, settings, `pr` and `rule-review` skills, `atlas` agent |
 | `hud` | statusline, themes, MesloLGS NF font |
 | `rtk` | token-saving command filter |
 | `caveman` | terse replies |

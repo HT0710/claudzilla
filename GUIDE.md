@@ -600,7 +600,7 @@ You change claudzilla through a few files of your own.
 #### Two rules first
 
 - **Which file wins.** For settings, `~/.claude/settings.overrides.json` wins over claudzilla's settings and over `~/.claude/settings.json`. The installer merges it, so run `~/claudzilla/install.sh` after you edit it. For the guard, a later file wins: `~/.claude/claudzilla.json` (this machine), then `<repo>/.claude/claudzilla.json` (shared, commit it), then `<repo>/.claude/claudzilla.local.json` (yours only). The guard reads them on each prompt. It skips a bad value and tells Claude about it on your next prompt.
-- **Never edit the linked files.** `~/.claude/CLAUDE.md`, `~/.claude/rules/`, the hooks and claudzilla's skills are links into the clone at `~/claudzilla`. An edit there is an uncommitted change in the clone, so any release that changes the same part waits, and you get only a notice.
+- **Never edit the linked files.** `~/.claude/CLAUDE.md`, `~/.claude/rules/`, the hooks, claudzilla's skills and `~/.claude/agents/atlas.md` are links into the clone at `~/claudzilla`. An edit there is an uncommitted change in the clone, so any release that changes the same part waits, and you get only a notice.
 
 #### What to change
 
