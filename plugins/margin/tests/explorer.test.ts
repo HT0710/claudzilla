@@ -1676,3 +1676,10 @@ test('a find with no match keeps the view where it was', async ($, on) => {
   await ui.redraw()
   expect((await barOf(ui, 'explorer:vbar')).from).toBe(from)
 })
+
+test('an empty ls-files answer falls back to the walk', async () => {
+  const { $, on } = engine()
+  on('process.run', () => ran(0, ''))
+  on('fs.list', () => ({ value: [{ name: 'a.ts', kind: 'file', isLink: false }] }))
+  expect(await listNames($, '/r')).toEqual([{ path: 'a.ts', kind: 'file' }])
+})
