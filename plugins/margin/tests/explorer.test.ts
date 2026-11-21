@@ -1456,6 +1456,16 @@ test('the current match and the other matches take their colours', async ($, on)
   expect(t[1]).toMatchObject({ color: '#e5c07b', bg: '#3a3220' })
 })
 
+test('a find with no match keeps a lit line it did not set', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 5 }, lines(20))
+  expect(await isLit(ui, 5)).toBe(true)
+  await search(ui, 'zzz')
+  expect(await isLit(ui, 5)).toBe(true)
+  await findText(ui, '')
+  await ui.redraw()
+  expect(await isLit(ui, 5)).toBe(true)
+})
+
 test('a whitespace query highlights the spaces', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, 'a b')
   await search(ui, ' ')
