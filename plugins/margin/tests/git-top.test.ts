@@ -1576,6 +1576,11 @@ test('summary modal: two rows per PR, dividers between, capped, github action', 
   expect((await ui.find({ type: 'Link' }))?.props.href).toBe('https://github.com/o/r/pulls')
   await ui.press({ key: 'm:all:5 PRs' })
   expect(await ui.find({ key: 'row:spr:183' })).toBeDefined()
+  // A PR in the full list opens its own stacked modal in its place.
+  await tap(ui, 'spr:183')
+  expect(await ui.find({ type: 'Box', key: 'stack' })).toBeDefined()
+  expect(await ui.find({ key: 'row:spr:183' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^ #183$/ })).toBeDefined()
 })
 
 test('a PR in the summary modal opens its stacked modal: title, meta, CHECKS, rerun when failed', async ($, on) => {
@@ -1591,7 +1596,7 @@ test('a PR in the summary modal opens its stacked modal: title, meta, CHECKS, re
   expect(await ui.find({ type: 'Button', key: 's:rerun' })).toBeDefined()
 })
 
-test('behind a stacked modal a PR row fades and neither lights nor posts', async ($, on) => {
+test('behind a stacked modal a PR row fades', async ($, on) => {
   quiet(on)
   withPr(on, repoOn('main'), many(2, () => ({ headRefName: 'feat/t', baseRefName: 'main' })))
   const ui = await mount($)
