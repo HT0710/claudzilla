@@ -444,7 +444,13 @@ function seedOf(key: string, text: string): string {
 // remounts the field, because the engine drops a redrawn value equal to the last one it had.
 function fitField($: EngineInterface, text: string, room: number, prev: string, remount: () => void): string {
   // A pane narrowed under the typed text keeps that text and refuses only growth.
-  const head = fitStart(text, Math.max(room, cellsOf(prev)))
+  let head = fitStart(text, Math.max(room, cellsOf(prev)))
+  // A key typed mid-text would push the end off, so it is refused instead. A paste over the whole text still cuts.
+  if (head !== text && prev && !text.startsWith(prev)) {
+    let a = 0
+    while (a < prev.length && text[a] === prev[a]) a++
+    if (text.endsWith(prev.slice(a))) head = prev
+  }
   if (head !== text) {
     remount()
     $.ui.invalidate('ui.render')

@@ -1785,6 +1785,14 @@ test('a find longer than fits beside the label drops the label and keeps up to t
   expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('x'.repeat(20))
 })
 
+test('at the length limit a key typed mid-text is refused, so the text stays whole', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
+  await search(ui, 'abcdefghijklmnopqrst')
+  await findText(ui, 'aZbcdefghijklmnopqrst')
+  await ui.redraw()
+  expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('abcdefghijklmnopqrst')
+})
+
 test('a pane narrowed under the typed find keeps the text and refuses only growth', async ($, on) => {
   await setup($, on)
   disk.set('/repo/a.ts', { text: lines(300), mtimeMs: 1 })
