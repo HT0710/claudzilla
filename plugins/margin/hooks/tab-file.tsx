@@ -189,9 +189,9 @@ let nameGen = 0
 // A focused Input needs the text cells plus cursor, gap, enter mark, space and its submit word (measured live). Under the
 // cap it sizes itself, so a key the engine draws before the redraw stays centred; past it a fixed width keeps it inside the header.
 const capWidth = (text: string, submit: string, cap: number) => (cellsOf(text) + 5 + submit.length > cap ? cap : undefined)
-// Blank cells [before, after] the field so the caret, or the first letter, sits mid-header until the field fills the room.
+// Blank cells [before, after] the field so the caret, or the typed text, sits mid-header until the field fills the room.
 export const fieldPads = (label: string, text: string, submit: string, room: number): string[] => {
-  const d = cellsOf(text) + submit.length + 3 - cellsOf(label)
+  const d = submit.length + 3 - cellsOf(label)
   const free = Math.max(0, room - cellsOf(label) - cellsOf(text) - submit.length - 4)
   return [' '.repeat(Math.min(free, Math.max(0, d))), ' '.repeat(Math.min(free, Math.max(0, -d)))]
 }
