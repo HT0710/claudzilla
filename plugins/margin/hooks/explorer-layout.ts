@@ -175,12 +175,13 @@ export type Hit = { from: number; to: number; current: boolean }
 
 /** Display columns of UTF-16 spans in line, counted as layoutOf does. */
 export function hitsOf(line: string, spans: readonly { start: number; end: number; current: boolean }[]): Hit[] {
-  // One pass: cols[i] is the column where UTF-16 offset i starts.
+  // One pass: cols[i] is the column at UTF-16 offset i; an offset inside a surrogate pair maps past the glyph.
   const cols = [0]
   let col = 0
   for (const ch of line) {
     col += ch === '\t' ? tabStep(col) : widthOf(ch.codePointAt(0)!)
-    cols.push(...Array(ch.length - 1).fill(cols.at(-1)!), col)
+    if (ch.length > 1) cols.push(col)
+    cols.push(col)
   }
   const colAt = (offset: number) => cols[Math.min(offset, cols.length - 1)]!
   return spans.map((s) => ({ from: colAt(s.start), to: colAt(s.end), current: s.current }))

@@ -97,6 +97,13 @@ test('a match after a wide glyph counts 2 cells', () => {
   expect(hitsOf('中foo', [{ start: 1, end: 4, current: true }])).toEqual([{ from: 2, to: 5, current: true }])
 })
 
+test('a match on half of a surrogate pair takes the whole glyph, as find regexes have no u flag', () => {
+  expect(hitsOf('😀', [{ start: 0, end: 1, current: false }, { start: 1, end: 2, current: true }])).toEqual([
+    { from: 0, to: 2, current: false },
+    { from: 2, to: 2, current: true },
+  ])
+})
+
 test('several matches on one line each land on their own columns, an end past the line included', () => {
   expect(hitsOf('\tfoo中x', [{ start: 1, end: 4, current: false }, { start: 4, end: 6, current: true }, { start: 6, end: 9, current: false }])).toEqual([
     { from: 4, to: 7, current: false },
