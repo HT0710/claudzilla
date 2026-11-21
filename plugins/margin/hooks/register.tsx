@@ -7,7 +7,7 @@ import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, PAD, WHEEL_HOLD, applyPalette
 import type { Prompt, Readers, TabCtx, TabDraw, UseEntry, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
-import { changedOnDisk, checkOpenFile, draw as drawFile, closeEmptyField, explorerPost, escapeSent, fieldOpen, fieldText, paneBase, showPlace } from './tab-file'
+import { changedOnDisk, checkOpenFile, draw as drawFile, closeEmptyField, closeOnEscape, explorerPost, escapeSent, fieldOpen, fieldTakesEscape, fieldText, paneBase, showPlace } from './tab-file'
 import { autoFetch, draw as drawGit, resetGitReads } from './tab-git'
 import { draw as drawHistory } from './tab-history'
 import { draw as drawOverview, resetStepsHeld, same } from './tab-overview'
@@ -936,9 +936,9 @@ const isPlaced = async ($: EngineInterface) => (await $.ui.panes()).some(pane =>
 const closePane = ($: EngineInterface) => $.ui.close({ id: PANE })
 // The pane's open arguments. While a Git modal is open the pane takes Escape as a close, which ui.close turns
 // into closing the modal: the engine reports Escape and the pane's close mark alike.
-// A find or name field takes Escape the same way while it is empty; with text the pane never asks for it.
+// A name field takes Escape the same way; a find field only while it is empty, because with text the pane never asks for it.
 const fieldShown = async ($: EngineInterface) => fieldOpen() && (await read($, tab)) === 'Explorer'
-const wantsEscape = async ($: EngineInterface) => !!(await read($, modal)) || ((await fieldShown($)) && fieldText() === '')
+const wantsEscape = async ($: EngineInterface) => !!(await read($, modal)) || ((await fieldShown($)) && fieldTakesEscape())
 let fieldDrawn = ''
 const paneArgs = async ($: EngineInterface) => {
   escapeSent.value = await wantsEscape($)
@@ -1138,10 +1138,10 @@ export const register: Register = (on, options) => {
       // Answered without next: the pane stays open.
       return { deny: 'closed the Git modal' } as never
     }
-    // Escape with an empty find or name field open closes the field; the pane stays. With text the pane is not sent Escape, so the close mark closes the pane.
-    if (e.origin.kind === 'person' && (await fieldShown($)) && fieldText() === '') {
-      await closeEmptyField($)
-      return { deny: 'closed the empty field' } as never
+    // Escape with a name field, or an empty find field, open closes the field; the pane stays. A find field with text is not sent Escape, so the close mark closes the pane.
+    if (e.origin.kind === 'person' && (await fieldShown($)) && fieldTakesEscape()) {
+      await closeOnEscape($)
+      return { deny: 'closed the field' } as never
     }
     if (e.origin.kind !== 'unload') await $.store.set('open', false).catch(() => undefined)
 

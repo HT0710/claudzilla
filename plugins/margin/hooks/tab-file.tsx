@@ -210,7 +210,7 @@ export const escapeSent = { value: false }
 
 // The ring moves only while the pane holds the keys; the open asks for them first.
 async function takeKeys($: EngineInterface, key: string): Promise<void> {
-  escapeSent.value = !fieldText()
+  escapeSent.value = fieldTakesEscape()
   await $.ui.open({ ...paneBase, ...(escapeSent.value && { closeOnEscape: true as const }), focus: true }).catch(() => undefined)
   await $.ui.focus({ requestId: 'margin', key }).catch(() => undefined)
 }
@@ -220,6 +220,9 @@ export const fieldOpen = (): boolean => !!(state.find?.open || state.names)
 
 // The text of the open field; empty when none is open.
 export const fieldText = (): string => (state.find?.open ? state.find.text : state.names?.text) ?? ''
+
+// Whether Escape closes the open field: the name field always, the find field only while empty.
+export const fieldTakesEscape = (): boolean => (state.find?.open ? !state.find.text : !!state.names)
 
 // The drawn key of the name field.
 const nameKey = (): string => (nameGen ? `${NAME}:${nameGen}` : NAME)
@@ -233,6 +236,16 @@ export async function closeEmptyField($: EngineInterface, e?: { element?: string
   else return false
   await update($, file, () => placeOf())
   return true
+}
+
+// Escape: closes the name field with its text, or an empty find field.
+export async function closeOnEscape($: EngineInterface): Promise<boolean> {
+  if (!state.find?.open && state.names) {
+    endNames()
+    await update($, file, () => placeOf())
+    return true
+  }
+  return closeEmptyField($)
 }
 
 async function openNames($: EngineInterface): Promise<void> {
