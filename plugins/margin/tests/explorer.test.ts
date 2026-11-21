@@ -1169,10 +1169,13 @@ test('a short field takes its own width, so the first key draws centred', async 
   expect(await fieldWidth(ui, 'explorer:find')).toBeUndefined()
 })
 
-test('a field past the header width is capped', async ($, on) => {
+test('text past the header room is cut, so the field keeps its own width', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
   await search(ui, 'x'.repeat(200))
-  expect(typeof (await fieldWidth(ui, 'explorer:find'))).toBe('number')
+  const key = await fieldKey(ui)
+  expect(key).not.toBe('explorer:find')
+  expect((await ui.find({ key })).props.value.length).toBeLessThan(200)
+  expect(await fieldWidth(ui, key)).toBeUndefined()
 })
 
 test('search asks the pane for the keys', async ($, on) => {
