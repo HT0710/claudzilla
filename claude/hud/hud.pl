@@ -1,0 +1,784 @@
+#!/usr/bin/perl
+# hud-data.mjs key/value lines -> E2 layout: identity row, rule, meters in two columns (ctx over cch | 5h over wk), rule, activity row.
+# hud.layout in claudzilla.json: "compact" drops the rules and puts all meters on one row when the width allows;
+# "minimal" draws one row: place and model left, meters right.
+use strict; use warnings;
+# stdin, files and `git` output are UTF-8 bytes: dec() decodes them, so non-ASCII paths aren't encoded twice.
+# Invalid bytes (a branch name git allows) become U+FFFD, quietly: a statusline has no stderr reader.
+binmode STDOUT, ':utf8';
+no warnings 'utf8';
+my $T = time; my @lt = localtime $T;
+# C0/C1 control chars in text the filter reads itself (session name, branch) would reach the terminal.
+sub clean { my $s = shift; $s =~ tr/\x00-\x1f\x7f-\x9f/ / if defined $s; return $s }
+
+sub dec {
+    my $c = my $s = shift;
+    return $c if utf8::decode($c);
+    $s =~ s/([\x00-\x7f]|[\xc2-\xdf][\x80-\xbf]|\xe0[\xa0-\xbf][\x80-\xbf]|[\xe1-\xec\xee\xef][\x80-\xbf]{2}|\xed[\x80-\x9f][\x80-\xbf]|\xf0[\x90-\xbf][\x80-\xbf]{2}|[\xf1-\xf3][\x80-\xbf]{3}|\xf4[\x80-\x8f][\x80-\xbf]{2})|./defined $1 ? $1 : "\xEF\xBF\xBD"/gse;
+    utf8::decode($s);
+    return $s;
+}
+sub read_kv {
+    my $raw = do { local $/; <STDIN> } // '';
+    $raw =~ s/\e\[[0-9;]*m//g;
+    return { map { /^([^\t]+)\t(.*)$/ ? ($1, dec($2)) : () } split /\n/, $raw };
+}
+# git with stderr closed and no shell; output is bytes
+sub git_out {
+    my $pid = open(my $p, '-|') // return '';
+    unless ($pid) { open STDERR, '>', '/dev/null'; exec 'git', @_ or exit 127 }
+    my $o = do { local $/; <$p> } // '';
+    close $p;
+    return $o;
+}
+
+# --- gather: statusline JSON on stdin + transcript + config -> cleaned key/value hash ---
+# Recursive-descent JSON on $_: objects -> hashref, arrays -> arrayref, true/false -> \1/\0, null -> undef.
+# Any parse error or trailing garbage gives {}.
+sub json_parse {
+    local $_ = shift // ""; pos($_) = 0;
+    no warnings 'recursion';
+    my $v = eval { my $r = jval(); /\G[ \t\n\r]*\z/gc or die; $r };
+    return $@ ? {} : $v;
+}
+sub jval {
+    /\G[ \t\n\r]*/gc;
+    if (/\G\{/gc) {
+        my %h; /\G[ \t\n\r]*/gc;
+        return \%h if /\G\}/gc;
+        while (1) {
+            /\G[ \t\n\r]*"/gc or die; my $k = jstr();
+            /\G[ \t\n\r]*:/gc or die;
+            $h{$k} = jval(); /\G[ \t\n\r]*/gc;
+            next if /\G,/gc;
+            /\G\}/gc or die; return \%h;
+        }
+    }
+    if (/\G\[/gc) {
+        my @a; /\G[ \t\n\r]*/gc;
+        return \@a if /\G\]/gc;
+        while (1) {
+            push @a, jval(); /\G[ \t\n\r]*/gc;
+            next if /\G,/gc;
+            /\G\]/gc or die; return \@a;
+        }
+    }
+    return jstr() if /\G"/gc;
+    return $1 + 0 if /\G(-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][-+]?\d+)?)/gc;
+    return \1 if /\Gtrue/gc;
+    return \0 if /\Gfalse/gc;
+    return undef if /\Gnull/gc;
+    die;
+}
+sub jstr {
+    my $s = '';
+    my %esc = ('"' => '"', '\\' => '\\', '/' => '/', b => "\b", f => "\f", n => "\n", r => "\r", t => "\t");
+    while (1) {
+        if (/\G([^"\\\x00-\x1f]+)/gc) { $s .= $1 }
+        elsif (/\G\\u([0-9a-fA-F]{4})/gc) {
+            my $c = hex $1;
+            if ($c >= 0xD800 && $c <= 0xDBFF && /\G\\u([dD][c-fC-F][0-9a-fA-F]{2})/gc) { $c = 0x10000 + (($c - 0xD800) << 10) + (hex($1) - 0xDC00) }
+            elsif ($c >= 0xD800 && $c <= 0xDFFF) { $c = 0xFFFD }
+            $s .= chr $c;
+        }
+        elsif (/\G\\(["\\\/bfnrt])/gc) { $s .= $esc{$1} }
+        elsif (/\G"/gc) { return $s }
+        else { die }
+    }
+}
+# value at a key path; undef when a step is not a hash or the key is missing
+sub dig { my $v = shift; for my $k (@_) { return undef unless ref $v eq 'HASH'; $v = $v->{$k} } return $v }
+# JS Math.round: half goes up, also for negatives
+sub round_half_up {
+    my $x = shift;
+    my $f = int $x; $f-- if $x < $f;
+    return $f + ($x - $f >= 0.5 ? 1 : 0);
+}
+# a finite JSON number, not a numeric-looking string: bitwise xor of two strings is a string, of numbers 0
+# (breaks under `use v5.28`+ or feature 'bitwise', where ^ is always numeric)
+sub is_num { my $v = shift; return 0 if !defined $v || ref $v; return 0 if $v =~ /[^\x00-\xff]/; no warnings; return ($v ^ $v) eq '0' && abs($v) < 9**9**9 }
+sub truthy { my $v = shift; return 0 unless defined $v; return ${$v} ? 1 : 0 if ref $v eq 'SCALAR'; return 1 if ref $v; return is_num($v) ? $v != 0 : length($v) > 0 }
+# JS String(): only for values that go on screen
+sub str { my $v = shift; return undef unless defined $v; return ${$v} ? 'true' : 'false' if ref $v eq 'SCALAR'; return join ',', map { str($_) // '' } @$v if ref $v eq 'ARRAY'; return '[object Object]' if ref $v; return "$v" }
+sub pct { my $v = shift; return undef unless is_num($v); my $r = round_half_up($v); return $r < 0 ? 0 : $r > 100 ? 100 : $r }
+sub count { my $v = shift; return is_num($v) && $v > 0 ? $v : 0 }
+# ISO 8601 -> epoch seconds (days-from-civil, no Time::Local); fractions dropped, no offset means UTC
+sub iso_epoch {
+    my ($y, $m, $d, $H, $M, $S, $z) = ($_[0] // '') =~ /^(\d{4})-(\d\d)-(\d\d)(?:T(\d\d):(\d\d)(?::(\d\d))?(?:\.\d+)?)?(Z|[+-]\d\d:\d\d)?\z/ or return undef;
+    return undef if $m < 1 || $m > 12 || $d < 1 || $d > 31 || ($H // 0) > 23 || ($M // 0) > 59 || ($S // 0) > 59;
+    $y -= 1 if $m <= 2;
+    my $era = int($y / 400); my $yoe = $y - $era * 400;
+    my $doy = int((153 * ($m + ($m > 2 ? -3 : 9)) + 2) / 5) + $d - 1;
+    my $days = $era * 146097 + $yoe * 365 + int($yoe / 4) - int($yoe / 100) + $doy - 719468;
+    my $t = $days * 86400 + ($H // 0) * 3600 + ($M // 0) * 60 + ($S // 0);
+    if ($z && $z ne 'Z') { my ($sg, $zh, $zm) = $z =~ /^([+-])(\d\d):(\d\d)/; $t -= ($sg eq '-' ? -1 : 1) * ($zh * 3600 + $zm * 60) }
+    return $t;
+}
+# "2h5m" / "3d4h" until a reset given as seconds, milliseconds, a numeric string or a date; undef when past
+sub reset_in {
+    my $v = shift; my $sec;
+    if (is_num($v)) { $sec = abs($v) < 1e12 ? $v : $v / 1000 }
+    elsif (defined $v && !ref $v && $v =~ /^\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)\s*\z/) { my $n = $1 + 0; $sec = abs($n) < 1e12 ? $n : $n / 1000 }
+    else { $sec = iso_epoch($v) }
+    return undef unless defined $sec;
+    my $left = int(($sec - $T) / 60); $left-- if ($sec - $T) / 60 < $left;
+    return undef unless $left > 0;
+    my $h = int($left / 60);
+    return $h >= 24 ? int($h / 24) . 'd' . $h % 24 . 'h' : $h . 'h' . $left % 60 . 'm';
+}
+sub slurp { open my $fh, '<:raw', $_[0] or return undef; local $/; return dec(scalar <$fh> // '') }
+# shared, hud and margin.types tables of plugins/margin/hooks/palette.ts DEFAULTS, kept equal by tests/hud.test.sh
+my %PALETTE = (
+    shared => { label => '#a396d2', faint => '#4f5c68', idle => '#456186', action => '#5d9678', dirty => '#8c7850', churn => '#6e8c6e', muted => '#808286', lit => '#0f1c28' },
+    hud => {
+        rampLow => '#0e2042', rampHigh => '#a8d6ff', rampHot => '#ffaa5a', track => '#1e2a3a', note => '#404750', cwdLow => '#4a6b8a', cwdHigh => '#93b4e0',
+        profile => '#5f9ea8', version => '#9d6554', divider => '#263240', sweep => '#ffecc8', model => '#7fb6d9', skill => '#93b4e0', thinking => '#a98fd9',
+        clock => '#8da6c2', session => undef,
+    },
+    types => { feat => '#98c379', fix => '#e06c75', refactor => '#61afef', perf => '#d19a66', docs => '#e5c07b', test => '#56b6c2' },
+);
+# --- caches in the private state dir: $TMPDIR/claudzilla-rules-<uid>, mode 0700, owned by us alone; undef when that fails ---
+my $SD;
+sub state_dir {
+    return $SD if defined $SD;
+    my $dir = ($ENV{TMPDIR} || '/tmp') . "/claudzilla-rules-$<";
+    mkdir $dir, 0700; my @st = lstat $dir;
+    return $SD = $dir if @st && -d _ && $st[4] == $< && !($st[2] & 077);
+    return undef;
+}
+# path|size|inode|mtime|ctime in whole seconds; the list form adds racy: changed in this second, so a same-size rewrite may not move the key. Callers store no entry from a racy read.
+sub file_key { my @s = stat($_[0]) or return undef; my $k = join '|', $_[0], @s[7, 1, 9, 10]; return wantarray ? ($k, $s[9] >= $T || $s[10] >= $T) : $k }
+# hashref of key => value; undef when the file is missing or any line is not "key<TAB>value"
+sub cache_read {
+    open my $fh, '<:utf8', $_[0] or return undef;
+    my %h;
+    for (split /\n/, do { local $/; <$fh> // '' }) { /^([^\t]+)\t(.*)$/ or return undef; $h{$1} = $2 }
+    return \%h;
+}
+# merge over the current file and rename into place; an absent value is written as an empty one
+sub cache_write {
+    my ($path, $new) = @_;
+    my %h = (%{ cache_read($path) // {} }, %$new);
+    my $tmp = "$path.$$.tmp";
+    open my $fh, '>:utf8', $tmp or return;
+    print $fh map { "$_\t" . clean($h{$_}) . "\n" } sort keys %h;
+    close $fh and rename $tmp, $path or unlink $tmp;
+}
+# per-session cache file; the sid keeps [\w-] only, so no dot-named cache can collide with it
+sub cache_file {
+    my $dir = state_dir() // return undef;
+    (my $sid = $_[0] // '') =~ s/[^\w-]//g;
+    return "$dir/hud-" . (length $sid ? $sid : 'nosession') . '.cache';
+}
+sub gather {
+    my $raw = do { local $/; <STDIN> } // '';
+    my $d = json_parse(dec($raw));
+    my %out;
+    my $sid = str(dig($d, 'session_id')) // '';
+    $out{id} = substr($sid, 0, 8);
+    $out{sid} = $sid;
+    $out{cwd} = truthy(dig($d, 'workspace', 'current_dir')) ? dig($d, 'workspace', 'current_dir') : dig($d, 'cwd');
+    $out{effort} = dig($d, 'effort', 'level');
+    $out{model} = dig($d, 'model', 'display_name');
+    # null until the first API reply; keep the row so the statusline height stays put
+    $out{ctx} = pct(dig($d, 'context_window', 'used_percentage')) // 0;
+    my $u = dig($d, 'context_window', 'current_usage');
+    my $used = count(dig($u, 'input_tokens')) + count(dig($u, 'cache_creation_input_tokens')) + count(dig($u, 'cache_read_input_tokens'));
+    if ($used > 0) { $out{ctx_note} = $used >= 999_500 ? round_half_up($used / 1e6 * 10) / 10 . 'M' : round_half_up($used / 1e3) . 'k' }
+    elsif ($out{ctx} == 0) { $out{ctx_note} = '0' }
+    my $rl = dig($d, 'rate_limits');
+    for my $w (['5h', 'five_hour'], ['wk', 'seven_day']) {
+        my ($key, $src) = @$w;
+        my $lim = dig($rl, $src);
+        my $v = pct(dig($lim, 'used_percentage'));
+        # Claude Code drops a window after resets_at; dropped = fresh window, 0% used
+        $out{$key} = $v // (truthy(dig($rl, 'five_hour')) || truthy(dig($rl, 'seven_day')) ? 0 : undef);
+        $out{"${key}_note"} = reset_in(dig($lim, 'resets_at')) if defined $v;
+    }
+    my $cdir = length $ENV{CLAUDE_CONFIG_DIR} ? $ENV{CLAUDE_CONFIG_DIR} : undef;
+    my $cf = cache_file($sid);
+    my $c = $cf ? cache_read($cf) // {} : {};
+    my %cw;
+    my $ap = defined $cdir ? "$cdir/.claude.json" : "$ENV{HOME}/.claude.json";
+    my ($ak, $ar) = file_key($ap);
+    if (defined $ak && ($c->{acct_key} // '') eq $ak) { $out{profile} = $c->{profile} if length($c->{profile} // '') }
+    else {
+        # first + last char of the local part only: tells accounts apart without showing the address on screen
+        my $acct = slurp($ap);
+        # shortcut: a nested object or a brace in an earlier oauthAccount field defeats this match, parse the oauthAccount object with json_parse if Claude Code ever nests fields there
+        if (defined $acct && $acct =~ /"oauthAccount"\s*:\s*\{[^{}]*?"emailAddress"\s*:\s*"((?:[^"\\]|\\.)*)"/s) {
+            my $e = $1;
+            $e =~ s/^(.).+(.)@/$1\x{2026}$2@/; $e =~ s/^(.).?@/$1\x{2026}@/;
+            $out{profile} = $e;
+        }
+        @cw{qw(acct_key profile)} = ($ak, $out{profile} // '') if defined $ak && !$ar;
+    }
+    # no reply yet: nothing of this chat to lose, show fresh
+    $out{cch} = 0; $out{cch_note} = 'hot';
+    my $tp = str(dig($d, 'transcript_path'));
+    if (truthy(dig($d, 'transcript_path'))) {
+        my ($tk, $tr) = file_key($tp);
+        my $hit = defined $tk && ($c->{t_key} // '') eq $tk;
+        my $start = ($c->{start_path} // '') eq $tp ? $c->{start} // '' : '';
+        my ($skill, $last, $ttl, $think) = $hit ? @$c{qw(skill last ttl think_ts)} : ();
+        if ((!$hit || !length $start) && open(my $fh, '<:raw', $tp)) {
+            my $bytes = -s $fh;
+            # whole lines only: a slice cut inside a multi-byte character would send dec() down its slow per-character path
+            my $rd = sub {
+                my ($from, $len) = @_; seek $fh, $from, 0; my $buf; read $fh, $buf, $len; $buf //= '';
+                if ($from > 0) { my $i = index $buf, "\n"; $buf = $i < 0 ? '' : substr $buf, $i + 1 }
+                if ($from + $len < $bytes) { my $i = rindex $buf, "\n"; $buf = $i < 0 ? '' : substr $buf, 0, $i + 1 }
+                return dec($buf);
+            };
+            # first timestamped entry = session start
+            unless (length $start) {
+                for my $line (grep { length } split /\n/, $rd->(0, $bytes < 65536 ? $bytes : 65536)) {
+                    my $ts = iso_epoch(dig(json_parse($line), 'timestamp')) or next;
+                    $start = $ts; @cw{qw(start_path start)} = ($tp, $ts); last;
+                }
+            }
+            if (!$hit) {
+                # shortcut: last-4MB tail only; an older skill is not shown, scan further back if that bites
+                my $from = $bytes > 4194304 ? $bytes - 4194304 : 0;
+                my $buf = $rd->($from, $bytes - $from);
+                undef $skill; undef $last; undef $ttl; undef $think;
+                my $blocks = sub { my $c = dig($_[0], 'message', 'content'); return ref $c eq 'ARRAY' ? @$c : () };
+                # Prompt cache: each main-chat request restarts its TTL; a pure cache read keeps the TTL the last write chose.
+                # Subagents cache apart, and a synthetic reply (API error) sent nothing.
+                # shortcut: the reply's timestamp is its end, so a long reply overstates the time left by its length; read the request time if the transcript gains one.
+                my ($seen, $think_done);
+                # newest line first, one pass; each field stops at its first hit
+                for (my $pos = length $buf; $pos > 0 && !(defined $skill && $think_done && defined $ttl);) {
+                    my $p = rindex $buf, "\n", $pos - 1;
+                    my $line = substr $buf, $p + 1, $pos - $p - 1;
+                    $pos = $p < 0 ? 0 : $p;
+                    next unless length $line;
+                    my $e;
+                    if (!defined $skill && index($line, '"Skill"') >= 0) {
+                        $e //= json_parse($line);
+                        for my $b (reverse $blocks->($e)) {
+                            next unless (dig($b, 'type') // '') eq 'tool_use' && (dig($b, 'name') // '') eq 'Skill' && truthy(dig($b, 'input', 'skill'));
+                            $skill = dig($b, 'input', 'skill'); last;
+                        }
+                    }
+                    if (!$think_done && $line =~ /"type":"(?:thinking|reasoning)"/) {
+                        $e //= json_parse($line);
+                        if (grep { (dig($_, 'type') // '') =~ /^(?:thinking|reasoning)\z/ } $blocks->($e)) { $think = iso_epoch(dig($e, 'timestamp')); $think_done = 1 }
+                    }
+                    if (!defined $ttl && index($line, '"assistant"') >= 0) {
+                        $e //= json_parse($line);
+                        my $us = dig($e, 'message', 'usage');
+                        next unless (dig($e, 'type') // '') eq 'assistant' && !truthy(dig($e, 'isSidechain')) && truthy($us);
+                        if (!$seen && count(dig($us, 'input_tokens')) + count(dig($us, 'cache_read_input_tokens')) + count(dig($us, 'cache_creation_input_tokens')) > 0) { $seen = 1; $last = iso_epoch(dig($e, 'timestamp')) }
+                        next unless $seen;
+                        if (count(dig($us, 'cache_creation', 'ephemeral_1h_input_tokens')) > 0) { $ttl = 3600000 }
+                        elsif (count(dig($us, 'cache_creation', 'ephemeral_5m_input_tokens')) > 0) { $ttl = 300000 }
+                    }
+                }
+                @cw{qw(t_key skill last ttl think_ts)} = ($tk, map { $_ // '' } $skill, $last, $ttl, $think) if defined $tk && !$tr;
+            }
+            close $fh;
+        }
+        # derived from the saved times on every tick, so an idle transcript never freezes them
+        $out{skill} = $skill if length($skill // '');
+        $out{up} = ($T > $start ? int(($T - $start) / 60) : 0) . 'm' if length $start;
+        $out{thinking} = 1 if length($think // '') && $T - $think <= 30;
+        if (length($last // '') && length($ttl // '')) {
+            my $sec = $ttl / 1000;
+            # clamped: a clock stepped back puts the reply in the future
+            my $left = $last + $sec - $T; $left = 0 if $left < 0; $left = $sec if $left > $sec;
+            # floor: 100% only once cold
+            $out{cch} = int((1 - $left / $sec) * 100);
+            $out{cch_note} = $left > 0 ? int(($left + 59) / 60) . 'm' : 'cold';
+        } elsif (length($last // '')) {
+            # replies but no cache write (caching off): the next message pays for it all
+            $out{cch} = 100; $out{cch_note} = 'cold';
+        }
+    }
+    cache_write($cf, \%cw) if $cf && %cw;
+    # logged in, no limits yet: they arrive with the next reply (also after /login mid-session), so hold their slots
+    $out{lim_wait} = 1 if length($out{profile} // '') && !defined $out{'5h'} && !defined $out{wk};
+    my $cfg = json_parse(slurp((defined $cdir ? $cdir : "$ENV{HOME}/.claude") . '/claudzilla.json'));
+    my $layout = dig($cfg, 'hud', 'layout');
+    $out{layout} = $layout if defined $layout && !ref $layout && ($layout eq 'compact' || $layout eq 'minimal');
+    for my $table (keys %PALETTE) {
+        for my $key (keys %{ $PALETTE{$table} }) {
+            my $set = $table eq 'types' ? dig($cfg, 'palette', 'margin', 'types', $key) : dig($cfg, 'palette', $table, $key);
+            # a missing or dropped colour draws grey, so anything but #rrggbb sends the default
+            $out{"pal_${table}_$key"} = defined $set && !ref $set && !is_num($set) && $set =~ /^#[0-9a-f]{6}\z/i ? $set : $PALETTE{$table}{$key};
+        }
+    }
+    # C0/C1 control chars (tabs, newlines, terminal escapes in a skill or model name) never reach the terminal
+    my %res;
+    for my $k (keys %out) { my $v = str($out{$k}); next unless defined $v && length $v; $res{$k} = clean($v) }
+    return \%res;
+}
+if ($ENV{HUD_DUMP}) { my $o = gather(); print "$_\t$o->{$_}\n" for sort keys %$o; exit }
+
+# no terminal width in the statusline JSON: trust COLUMNS, else ask the tty, else assume 114
+my $W = 114;
+{   my $cols = $ENV{COLUMNS};
+    unless ($cols && $cols =~ /^\d+$/ && $cols > 20) {
+        ($cols) = (`stty size < /dev/tty 2>/dev/null` // '') =~ /^\d+\s+(\d+)/;
+    }
+    $W = $cols - 4 if $cols && $cols =~ /^\d+$/ && $cols > 20;
+}
+
+# install.sh leaves this marker when the user declines MesloLGS NF: fall back to symbols every mono font has
+my ($G_ON, $G_OFF, $G_BRANCH, $G_SKILL, $G_CACHE) =
+    -e (($ENV{CLAUDE_CONFIG_DIR} // "$ENV{HOME}/.claude") . '/.claudzilla-basic-glyphs')
+    ? ("\x{25A0}", "\x{25A1}", "\x{203A}", "\x{25B8}", "\x{25A0}")
+    : ("\x{25B0}", "\x{25B1}", "\x{2387}", "\x{2691}", "\x{25AC}");
+
+my %f = %{ $ENV{HUD_KV} ? read_kv() : gather() };
+# hud-data.mjs pal_<table>_<key> lines: "<table>_<key>" -> [r, g, b]
+my %PAL = map { $f{$_} =~ /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i ? (substr($_, 4) => [map { hex } $1, $2, $3]) : () } grep { /^pal_/ } keys %f;
+sub pal { $PAL{$_[0]} // [128,128,128] }
+sub fg { "\e[38;2;" . join(';', @{ pal($_[0]) }) . "m" }
+my ($id, $META_CWD, $EFFORT, $SID) = @f{qw(id cwd effort sid)};
+my ($COMPACT, $MIN) = map { ($f{layout} // '') eq $_ } qw(compact minimal);
+# session name (/rename, or derived like "maxis-24") - the handle peers message us by.
+# Not in the statusline JSON, so look it up in the per-pid session registry.
+my $sname;
+if ($SID) {
+    my $dir = ($ENV{CLAUDE_CONFIG_DIR} // "$ENV{HOME}/.claude") . '/sessions';
+    my $cf = cache_file($SID);
+    my $c = $cf ? cache_read($cf) // {} : {};
+    my $sk = $c->{s_key} // '';
+    my ($dk, $dr) = file_key($dir);
+    if (length $sk && $sk =~ /^(.*)\|[^|]*\|[^|]*\|[^|]*\|[^|]*\z/ && (file_key($1) // '') eq $sk) { $sname = $c->{name} }
+    # no-match memo also expires after 60 s: an in-place rewrite of a sessions file may not move the dir mtime
+    elsif (defined $dk && ($c->{dir_key} // '') eq $dk && ($c->{nm_at} // '') =~ /^\d+\z/ && abs($T - $c->{nm_at}) <= 60) { }
+    else {
+        my ($fk, $found);
+        for my $file (glob "$dir/*.json") {
+            my ($k, $kr) = file_key($file);
+            open my $fh, '<', $file or next;
+            my $j = dec(do { local $/; <$fh> } // '');
+            close $fh;
+            next unless index($j, $SID) >= 0;
+            ($sname) = $j =~ /"name":"([^"]*)"/;
+            $sname = clean($sname);
+            $found = 1; $fk = $k unless $kr;
+            last;
+        }
+        if ($cf) {
+            if (defined $fk) { cache_write($cf, { s_key => $fk, name => $sname // '', dir_key => '', nm_at => '' }) }
+            elsif (!$found && defined $dk && !$dr) { cache_write($cf, { dir_key => $dk, nm_at => $T, s_key => '', name => '' }) }
+        }
+    }
+    undef $sname unless length($sname // '');
+}
+my $cwd;
+if (my $e = $META_CWD) { my $h = $ENV{HOME} // ''; utf8::decode($h); $e =~ s/^\Q$h\E(?=\/|$)/~/ if $h; $cwd = $e; }
+my $profile = $f{profile};
+# claudzilla version from the clone this script links into: the last release tag, or, when the
+# clone runs ahead of it, the tag CI would cut next (same script as .github/workflows/test.yml)
+my $ver;
+{   # cached per clone, keyed by the script's dir as invoked, for 60 s: a new commit or tag shows within a minute
+    my ($hd0) = $0 =~ m{^(.*)/}; $hd0 //= '.';
+    my $h = 2166136261; for (unpack 'C*', $hd0) { $h ^= $_; $h = ($h * 16777619) & 0xffffffff }
+    my $sd = state_dir();
+    my $vf = $sd ? sprintf('%s/hud-ver-%08x', $sd, $h) : undef;
+    my $c = $vf ? cache_read($vf) // {} : {};
+    if (($c->{at} // '') =~ /^\d+\z/ && abs($T - $c->{at}) <= 60 && exists $c->{ver}) { $ver = $c->{ver} }
+    else {
+        require Cwd;
+        my ($hd) = (Cwd::abs_path($0) // '') =~ m{^(.*)/};
+        $hd =~ s/'/'\\''/g if defined $hd;
+        my $last = defined $hd ? `git -C '$hd' describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null` // '' : '';
+        $last =~ s/\s+$//;
+        if (length $last) {
+            (my $q = $last) =~ s/'/'\\''/g;
+            my $next = `git -C '$hd' log --format='%s%n%b' '$q..HEAD' 2>/dev/null | sh '$hd/../../.github/next-version.sh' '$q' 2>/dev/null` // '';
+            $next =~ s/\s+$//;
+            $ver = clean(length $next ? $next : $last);
+        }
+        cache_write($vf, { at => $T, ver => $ver // '' }) if $vf;
+    }
+    undef $ver unless length($ver // '');
+}
+# branch + dirty from the session cwd; blank when not a repo
+my ($branch, $dirty);
+if ($META_CWD) {
+    my $d = $META_CWD; utf8::encode($d);
+    my ($m, $u) = (0, 0);
+    for (split /\n/, dec(git_out('--no-optional-locks', '-C', $d, 'status', '--porcelain=v2', '--branch'))) {
+        if (/^# branch\.head (.*)$/) { $branch = $1 eq '(detached)' ? undef : clean($1); $branch = undef unless length $branch }
+        elsif (/^\?/) { $u++ }
+        elsif (/^[12u]/) { $m++ }
+    }
+    $dirty = join ' ', ($m ? "!$m" : ()), ($u ? "?$u" : ()) if $branch;
+}
+my ($model, $session, $skill, $thinking) = @f{qw(model up skill thinking)};
+
+my %mv = map { $_ => [$_, $f{$_}, $f{"${_}_note"} // ''] } grep { ($f{$_} // '') =~ /^\d+$/ } qw(ctx cch 5h wk);
+# limits not in yet: blank meters keep the layout from jumping on the first reply. Note is 5 wide, mid-range for a reset time (2h5m to 23h59m).
+if ($f{lim_wait}) { $mv{$_} //= [$_, undef, sprintf('%5s', '--')] for qw(5h wk) }
+
+# --- helpers ---------------------------------------------------------------
+# terminal cells: East Asian wide chars take two
+sub vis { my $s = shift; $s =~ s/\e\[[0-9;]*m//g; return length($s) + (() = $s =~ /[\p{EA=W}\p{EA=F}]/g) }
+sub pad {                       # left, right -> line padded to $W
+    my ($l,$r,$fill) = @_; $fill //= ' ';
+    my $gap = $W - vis($l) - vis($r); $gap = 1 if $gap < 1;
+    return $l . "\e[2m" . ($fill x $gap) . "\e[0m" . $r;
+}
+sub fits { my ($l,$r) = @_; return vis($l) + vis($r) + ($r ne '' ? 2 : 0) <= $W }
+sub paint {                     # [char, r, g, b] cells -> string, colour code only where it changes
+    my ($out,$prev) = ('','');
+    for (@_) {
+        my ($ch,@c) = @$_;
+        my $seq = "\e[38;2;" . join(';', map { int($_ + 0.5) } @c) . "m";
+        $out .= ($seq eq $prev ? '' : $seq) . $ch;
+        $prev = $seq;
+    }
+    return $out . "\e[0m";
+}
+my $WID = 10;   # highlight half-width in cells
+my @A = @{ pal('hud_rampLow') }; my @B = @{ pal('hud_rampHigh') };  # blue ramp, dark -> bright
+my @O = @{ pal('hud_rampHot') };                                     # ...then warm over the last 30% of the track
+sub ramp {
+    my $x = shift;                                    # 0..1, already eased
+    return $x < 0.7 ? [ map { $A[$_] + ($B[$_]-$A[$_]) * ($x/0.7) } 0..2 ]
+                    : [ map { $B[$_] + ($O[$_]-$B[$_]) * (($x-0.7)/0.3) } 0..2 ];
+}
+# builds a whole meter row as cells, then runs the highlight across all of it -
+# title, bar, figure and note alike. $head is the sweep centre, undef while resting.
+sub meter_line {
+    my ($label,$pct,$note,$n,$tw,$lw,$pw,@hs) = @_;
+    my $wait = !defined $pct; $pct //= 0;
+    my $f = int($pct / 100 * $n + 0.5); $f = $n if $f > $n;
+    # cache is a clock, not a fill: a solid full bar in one ramp colour, dim blue when fresh to orange when cold
+    my $cc = $label eq 'cch' ? cch_colour($pct) : undef;
+    $f = $n if $cc;
+    my @cell;
+    push @cell, [$_, pal('shared_label')] for split //, sprintf('%-*s ', $lw, $label); # title
+    push @cell, bar_cells($n, $f, $cc);                                       # bar
+    push @cell, [$_, fig_colour($pct, $wait, $cc)] for split //, sprintf(' %*s%%  ', $pw, $wait ? '--' : $pct);   # figure
+    push @cell, [$_, pal('hud_note')] for split //, sprintf("%*s", $tw, $note);    # note
+    return shine(\@cell, @hs);
+}
+sub bar_cells {                 # $n cells, $f lit; $cc: one solid colour (the cache clock)
+    my ($n,$f,$cc) = @_;
+    return map { my $on = $_ < $f;
+                 [$cc ? $G_CACHE : $on ? $G_ON : $G_OFF,
+                  $on ? $cc // [map { int($_+0.5) } @{ ramp(($n > 1 ? $_/($n-1) : 1) ** 0.85) }] : pal('hud_track'),
+                  $on ? 0.65 : 0.30] } 0 .. $n-1;
+}
+sub fig_colour {
+    my ($pct,$wait,$cc) = @_;
+    my $x = ($pct/100) ** 0.85; $x = 0.4 if $x < 0.4;
+    return $wait ? pal('hud_note') : $cc // [map { int($_+0.5) } @{ ramp($x) }];
+}
+sub cch_colour { [map { int($_+0.5) } @{ ramp(0.1 + 0.9 * ($_[0]/100) ** 0.85) }] }
+sub shine {                     # cells -> string, with the sweep highlight at heads @hs
+    my ($cell,@hs) = @_; my @cell = @$cell;
+    my @px;
+    for my $i (0 .. $#cell) {
+        my ($ch,$c,$w) = @{$cell[$i]};
+        $w //= 0.55;                                                          # text glows a touch less than fill
+        my @c = @$c;
+        my $g = 0;
+        for my $h (@hs) { my $v = glow($i - $h, $WID, 1.6); $g = $v if $v > $g }
+        @c = map { $c[$_] + (255 - $c[$_]) * ($g * $w) } 0..2 if $g > 0;
+        push @px, [$ch, @c];
+    }
+    return paint(@px);
+}
+my $dim = sub { "\e[2m$_[0]\e[0m" };
+# meter titles: muted lilac - clear of the teal profile and the blue->orange ramp
+
+# per-session phase offset so concurrent sessions animate out of step
+my $OFF = 0; $OFF = ($OFF * 31 + ord) % 3600 for split //, ($id // '');
+
+my $row = 0;
+
+my @out;
+
+# identity: path + branch + session id, profile flush right
+# bar sweep timing, here because the cwd pulse plays inside the sweep's rest
+my $SWEEP = 30; my $REST = 60; my $LAG = 2;
+my $CYC   = $SWEEP + $REST;
+# cwd: one pulse crosses the path $GAP seconds after each bar sweep, 1 char/s or faster to last at most $DUR seconds
+my $GAP = 5; my $DUR = 20; my $BASE = 0.5; my $PEAK = 1.25;   # $DUR must stay under $REST - $GAP; PEAK > 1 lifts the tip past hud_cwdHigh
+sub cwd_str {
+    my $text = shift;
+    # by default hud_cwdLow equals the theme's promptBorder, so ~/ and / take the border colour
+    my $sep = fg('hud_cwdLow');
+    my $s = $text =~ s{^(~(?:/|\z))}{} ? "$sep$1" : "";
+    my @ch = split //, $text;
+    my $wid = @ch * 0.3 < 6 ? 6 : @ch * 0.3;
+    my $dist = @ch + $wid;                                  # head enters and leaves fully off-screen
+    my $speed = $dist > $DUR ? $dist / $DUR : 1;
+    my $head = (($T + $OFF) % $CYC - $SWEEP - $GAP) * $speed - $wid / 2;
+    my ($lo, $hi) = (pal('hud_cwdLow'), pal('hud_cwdHigh'));
+    for my $i (0 .. $#ch) {
+        if ($ch[$i] eq '/') { $s .= "$sep/"; next }
+        my $d = abs($i - $head);
+        my $t = $BASE + ($PEAK - $BASE) * ($d < $wid / 2 ? (1 + cos(6.283185307 * $d / $wid)) / 2 : 0);
+        my @c = map { my $v = int($lo->[$_] + ($hi->[$_]-$lo->[$_])*$t + 0.5); $v < 0 ? 0 : $v > 255 ? 255 : $v } 0..2;   # PEAK overshoots below 0 when cwdHigh is darker
+        $s .= "\e[38;2;$c[0];$c[1];$c[2]m$ch[$i]";
+    }
+    return $s . "\e[0m";
+}
+# ⎇ draws 2 cells wide in 1, so a second space keeps the gap; the name as margin's Git tab draws it
+# (chore in shared.label, as margin's TYPES adds it)
+my $branch_str = sub { my ($t, $type, $rest) = $_[0] =~ m{^(([^/]+)/)?(.*)\z}s;
+                       my $c = !defined $t ? undef : $type eq 'chore' ? 'shared_label' : $PAL{"types_$type"} ? "types_$type" : 'shared_faint';
+                       $dim->('  ') . fg('shared_action') . $G_BRANCH . ($G_BRANCH eq "\x{2387}" ? '  ' : ' ') . "\e[0m"
+                       . (defined $c ? fg($c) . "$t\e[0m" : '') . $rest };
+my $dirty_str = sub { $dim->(' ') . join '', map { fg(/^\?/ ? 'shared_faint' : 'shared_dirty') . " $_\e[0m" } split / /, $_[0] };
+# path trimmed from the left until it takes at most $room cells
+sub trim_path { my ($path, $room) = @_; $path = substr($path, 1) while vis($path) > $room - 1; return "\x{2026}$path" }
+unless ($MIN) {   # narrow panes: shed the least important pieces, then trim the path itself
+    my $path = $cwd // '~';
+    my $p    = $profile // '';
+    my @opt = ( [$branch, $branch_str], [$dirty, $dirty_str] );
+    my $build = sub {
+        my $l = cwd_str($path);
+        for my $o (@opt) { $l .= $o->[1]->($o->[0]) if defined $o->[0] }
+        my $r = $p ne '' ? fg('hud_profile') . "$p\e[0m" : '';
+        $r .= ($r ne '' ? $dim->('  ') : '') . fg('hud_version') . "$ver\e[0m" if defined $ver;
+        return ($l, $r);
+    };
+    my $fits = sub { fits($build->()) };
+    if (!$fits->()) { $ver = undef }                         # version first
+    if (!$fits->()) { $p =~ s/\@.*// }                       # profile: local part only
+    if (!$fits->()) { $p = '' }                              # ...then drop it
+    for my $i (1,0) { last if $fits->(); $opt[$i][0] = undef }     # dirty, branch
+    if (!$fits->() && length($path) > 4) {                    # finally trim the path from the left
+        my $room = $W - 1;
+        $path = trim_path($path, $room) if $room > 2;
+    }
+    my ($l,$r) = $build->();
+    push @out, pad($l, $r);
+}
+
+my $note_w = sub { my $w = 0; for (grep { defined } @mv{@_}) { $w = length $_->[2] if length $_->[2] > $w } $w };
+my $tw = $note_w->(qw(ctx cch 5h wk));
+# two columns, ctx over cache | 5h over wk, when each half keeps a usable bar; else one meter per row.
+# Each column right-aligns its own notes.
+my @one = grep { defined } @mv{qw(ctx cch 5h wk)};
+# a fixed note width of 5, not $tw: the row count must not flip as a reset countdown changes length
+my $ONE = $COMPACT && @one && int(($W - 3 * $#one) / @one) - 11 - 5 >= 8;
+my $CL = int(($W - 3) / 2); my $CRW = $W - 3 - $CL;
+my $TWO = !$ONE && ($mv{'5h'} || $mv{wk}) && $CL - 11 - $tw >= 8;
+my ($twl, $twr) = $TWO ? ($note_w->(qw(ctx cch)), $note_w->(qw(5h wk))) : ($tw, $tw);
+# empty on one row: the sweep's fill-edge pulse then starts mid-row, so it reaches both ends
+my @m = $ONE || $MIN ? () : $TWO ? grep { defined } @mv{qw(ctx cch)} : @one;
+my $n  = ($TWO ? $CL : $W) - 4 - 5 - 2 - $twl;
+
+# --- sweep -----------------------------------------------------------------
+# One highlight pass every $SWEEP+$REST seconds, wall-clock driven so the timing
+# holds however often the HUD renders. Each pass picks one of ten motions at
+# random - the pick is a hash of the cycle number, so every render inside a
+# given pass agrees on it without any stored state.
+my $NOW   = $T + $OFF;
+my $VAR   = ((int($NOW / $CYC) * 1103515245 + 12345) >> 7) % 10;
+my $TAIL  = ($VAR == 6);        # trailing comet: asymmetric, needs a different shape
+
+# distance from a head -> 0..1 brightness. $d is signed so the tail can drag behind.
+sub glow {
+    my ($d,$wid,$pw) = @_;
+    if ($TAIL) {
+        my ($head,$tail) = (0.5*$wid, 2.2*$wid);
+        return $d > 0 ? ($d < $head ? (1 - $d/$head) ** 2.2 : 0)
+                      : (-$d < $tail ? (1 + $d/$tail) ** 2.6 * 0.8 : 0);
+    }
+    $d = abs $d;
+    return $d < $wid ? (1 - $d/$wid) ** $pw : 0;
+}
+
+# head positions on row $r (-1 = top rule, 0..2 = meters, 3 = bottom rule).
+# empty while resting, or while a row is waiting its turn.
+sub heads {
+    my ($r) = @_;
+    my $t = $NOW % $CYC;
+    return () if $t >= $SWEEP;
+    my $p    = $t / $SWEEP;
+    my $full = $W + 2*$WID;                 # just clears both edges
+    my $span = $W + 2*$WID + 12*$LAG;       # ...even for the last lagging row
+    return (-$WID - $LAG + $p*$span - $r*$LAG)                    if $VAR == 0;  # diagonal comet
+    return (-$WID + $p*$full)                                     if $VAR == 1;  # vertical wipe
+    if ($VAR == 2) {                                                             # relay
+        my $q = ($p - ($r+1)/5) * 5;
+        return () if $q < 0 || $q > 1;
+        return (-$WID + $q*$full);
+    }
+    return (-$WID + $p*$span - (8 - abs($r-1)*4))                 if $VAR == 3;  # chevron
+    return (-$WID + $p*$span + sin($r*1.3 - $p*6)*10)             if $VAR == 4;  # ripple
+    return (-$WID + $p*$full, $W + $WID - $p*$full)               if $VAR == 5;  # two heads
+    return (-$WID + $p*($full+24) - $r*$LAG)                      if $VAR == 6;  # trailing comet
+    if ($VAR == 7) {                                                             # ping-pong
+        my $u = $p < 0.5 ? 2*$p : 2 - 2*$p;
+        return (-$WID + $u*$full - $r*$LAG);
+    }
+    if ($VAR == 8) {                                                             # pulse from the fill edge
+        my $edge  = ($r >= 0 && $r <= 2 && $m[$r]) ? 4 + int(($m[$r][1] // 0)/100*$n + 0.5) : $W/2;
+        my $reach = $p * ($W/2 + $WID);
+        return ($edge - $reach, $edge + $reach);
+    }
+    my $th = $p * 6.283185307;                                                   # spin
+    return ($W/2 + ($W/2 + $WID) * cos($th) * (1 + ($r-1)*0.28));
+}
+
+# rule comet: the same highlight running the hairline rules, in step with the bars
+# (top rule rides one row ahead of ctx, lower rule one row behind wk)
+my $CWID = 6;   # comet reach, as in the original: soft ^2 falloff, no hard core
+my @DAY = qw(Sun Mon Tue Wed Thu Fri Sat);
+my @MON = qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec);
+sub rule {
+    my ($r,$label) = @_;
+    $label //= '';
+    my @hs = map { int($_ + 0.5) } heads($r);    # snap so exactly one cell is the head
+    my $start = int(($W - length($label)) / 2);
+    my @px;
+    for my $i (0 .. $W-1) {
+        my $g = 0;
+        for my $h (@hs) { my $v = glow($i - $h, $CWID, 2); $g = $v if $v > $g }
+        my $ch = "\x{2501}";
+        my @b  = @{ pal('hud_divider') }; my $w = 0.75;      # hairline
+        if (length $label && $i >= $start && $i < $start + length $label) {
+            $ch = substr($label, $i - $start, 1);
+            @b  = $ch eq ' ' ? (13,18,24) : @{ pal('hud_clock') };  # inset clock / date
+            $w  = $ch eq ' ' ? 0 : 0.9;
+        }
+        push @px, [$ch, $g > 0 ? (map { $b[$_] + (pal('hud_sweep')->[$_] - $b[$_]) * ($g*$w) } 0..2) : @b];
+    }
+    return paint(@px);
+}
+push @out, rule(-1, sprintf(' %02d:%02d ', @lt[2,1])) unless $f{layout};
+
+my $DIV = " " . fg('hud_divider') . "\x{2503}\e[0m ";
+if ($MIN) {
+    # place + model left, meters right; shed pieces until both fit, in the order the guide lists
+    my $path = $cwd // '~';
+    my ($br, $dt, $mo, $notes) = ($branch, $dirty, $model, 1);
+    my @ms = grep { defined } @mv{qw(cch ctx 5h wk)};
+    my $bar = 12;
+    my @hs = heads(1);
+    my $left = sub {
+        my $l = cwd_str($path) . (defined $br ? $branch_str->($br) : '') . (defined $dt && $dt ne '' ? $dirty_str->($dt) : '');
+        $l .= '  ' . fg('hud_model') . $mo . "\e[0m" . ($EFFORT ? "\e[2m  $EFFORT\e[0m" : '') if defined $mo;
+        return $l;
+    };
+    my $right = sub {           # $x: the row column it starts at, for the sweep; undef measures only
+        my $x = shift; my @parts;
+        for my $m (@ms) {
+            my ($label, $pct, $note) = @$m;
+            my $wait = !defined $pct;
+            ($note //= '') =~ s/^ +//;
+            my @cell = map { [$_, pal('shared_label')] } split //, "$label ";
+            if ($label eq 'cch') {          # minutes left, in its bar's ramp colour; 3 wide so the row holds still
+                my $t = $note =~ /^\d+m$/ ? $note : $note eq 'cold' ? '0m' : '--';
+                push @cell, map { [$_, $t eq '--' ? pal('hud_note') : cch_colour($pct)] } split //, sprintf('%3s', $t);
+            } else {
+                my $f = int(($pct // 0) / 100 * $bar + 0.5); $f = $bar if $f > $bar;
+                push @cell, bar_cells($bar, $f), ($bar ? [' ', pal('hud_note')] : ());
+                # fixed widths, as compact: a digit more must not move the meters or flip what fits
+                push @cell, map { [$_, fig_colour($pct // 0, $wait)] } split //, sprintf('%3s%%', $wait ? '--' : $pct);
+                push @cell, map { [$_, pal('hud_note')] } split //, sprintf(' %5s', $note) if $notes && $note ne '';
+            }
+            push @parts, defined $x ? shine(\@cell, map { $_ - $x } @hs) : join '', map { $_->[0] } @cell;
+            $x += @cell + 3 if defined $x;
+        }
+        return join $DIV, @parts;
+    };
+    my $fits = sub { fits($left->(), $right->()) };
+    for (8, 5, 3, 0) { last if $fits->(); $bar = $_ }                      # bars shrink, then go
+    $mo =~ s/\s+[\d.]+$// if defined $mo && !$fits->();                    # model version
+    @ms = grep { $_->[0] ne 'wk' } @ms unless $fits->();                     # weekly meter
+    $dt = undef unless $fits->();                                            # changes
+    $notes = 0 unless $fits->();                                             # reset times, token count
+    $mo = undef unless $fits->();                                            # model and effort
+    $br = undef unless $fits->();                                            # branch
+    for my $l (qw(5h cch)) { last if $fits->(); @ms = grep { $_->[0] ne $l } @ms }   # ctx stays
+    if (!$fits->() && length($path) > 4) {                                   # finally trim the path from the left
+        my $room = $W - vis($right->()) - 2;
+        $path = trim_path($path, $room) if $room > 2;
+    }
+    my $r = $right->();
+    push @out, pad($left->(), $right->($W - vis($r)));
+} elsif ($ONE) {
+    @one = grep { defined } @mv{qw(cch ctx 5h wk)};     # the three usage fills sit together, the cache clock apart
+    my $room = $W - 3 * $#one;
+    my $x = 0;
+    my @hs = heads(1);      # middle row: the spin's row scale is 1, so it reaches both ends
+    my @cols;
+    for my $i (0 .. $#one) {
+        my $col = int($room * ($i + 1) / @one) - int($room * $i / @one);
+        my ($label, $pct, $note) = @{$one[$i]};
+        $note =~ s/^ +//;
+        # 2 spaces around the bar; it takes what short text leaves, so no uneven gaps
+        my ($lw, $pw, $nw) = (1 + length $label, 1 + length($pct // '--'), length $note);
+        push @cols, meter_line($label, $pct, $note, $col - 5 - $lw - $pw - $nw, $nw, $lw, $pw, map { $_ - $x } @hs);
+        $x += $col + 3;
+    }
+    push @out, join($DIV, @cols);
+} elsif ($TWO) {
+    # a missing meter leaves its slot blank
+    my $nr = $CRW - 4 - 5 - 2 - $twr;
+    for my $i (0, 1) {
+        my ($l, $r) = ($mv{(qw(ctx cch))[$i]}, $mv{(qw(5h wk))[$i]});
+        my @hs = heads($row++);
+        push @out, ($l ? meter_line(@$l, $n, $twl, 3, 3, @hs) : ' ' x $CL)
+                 . $DIV
+                 . ($r ? meter_line(@$r, $nr, $twr, 3, 3, map { $_ - $CL - 3 } @hs) : ' ' x $CRW);
+    }
+} else {
+    for my $r (@m) {
+        my ($label,$pct,$note) = @$r;
+        push @out, meter_line($label, $pct, $note, $n, $tw, 3, 3, heads($row++));
+    }
+}
+
+push @out, rule(3, sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]])) unless $f{layout};
+
+# activity: model, skill, thinking; uptime flush right
+unless ($MIN) {   # same treatment as the identity row, measured on the rendered strings
+    my $mo = $model;
+    $mo .= "\e[0m\e[2m  $EFFORT\e[0m" if defined $mo && $EFFORT;   # reset drops hud_model, which wraps $mo below
+    my @L = ( [$mo,       sub { fg('hud_model') . "$_[0]\e[0m" }],
+              [$skill,    sub { fg('hud_skill') . "$G_SKILL $_[0]\e[0m" }],
+              [$thinking, sub { fg('hud_thinking') . "\x{25C7} thinking\e[0m" }] );
+    my $clock = $COMPACT ? sprintf('%02d:%02d %s %02d %s', @lt[2,1], $DAY[$lt[6]], $lt[3], $MON[$lt[4]]) : undef;
+    my @R = ( [$clock,    sub { fg('hud_clock') . "$_[0]\e[0m" }],
+              [$sname,    sub { (exists $PAL{hud_session} ? fg('hud_session') : "\e[38;5;109m") . "$_[0]\e[0m" }],
+              [$id,       sub { fg('shared_faint') . "$_[0]\e[0m" }],
+              [$session,  sub { fg('shared_idle') . "up $_[0]\e[0m" }] );
+    my $build = sub {
+        my $j = $dim->('  ');
+        return (join($j, map { $_->[1]->($_->[0]) } grep { $_->[0] } @L),
+                join($j, map { $_->[1]->($_->[0]) } grep { $_->[0] } @R));
+    };
+    my $fits = sub { fits($build->()) };
+    $R[0][0] = undef unless $fits->();                            # clock
+    for my $i (2,1) { last if $fits->(); $L[$i][0] = undef }     # thinking, skill
+    for my $i (2,1) { last if $fits->(); $R[$i][0] = undef }      # session id, then name
+    $L[0][0] = undef unless $fits->();                            # model, last resort
+    my ($ls,$rs) = $build->();
+    push @out, pad($ls, $rs);
+}
+
+print join("\n", @out), "\n";
+
+# Trace what the line shows, only when a field changed. State is compared before the writer is loaded, so an unchanged tick costs one small read.
+eval {
+    my %now = (branch => $branch, dirty => $dirty, ver => $ver, cwd => $cwd, name => $sname, skill => $skill,
+               model => $model, effort => $EFFORT, ctx => $f{ctx}, '5h' => $f{'5h'}, wk => $f{wk});
+    delete @now{grep { !defined $now{$_} || $now{$_} eq '' } keys %now};
+    # Private per-user dir, as in rules-guard.mjs: no state and no trace when it isn't ours alone.
+    my $dir = state_dir() // die;
+    (my $sid = $SID // '') =~ s/[^\w-]//g;
+    my $sf = "$dir/hud-" . (length $sid ? $sid : 'nosession');
+    my %was;
+    if (open my $fh, '<:utf8', $sf) { %was = map { /^([^\t]+)\t(.*)$/ ? ($1, $2) : () } split /\n/, do { local $/; <$fh> // '' }; close $fh; }
+    my @chg = grep { ($now{$_} // '') ne ($was{$_} // '') } keys %{{ %now, %was }};
+    if (@chg) {
+        if (open my $fh, '>:utf8', $sf) { print $fh map { "$_\t$now{$_}\n" } sort keys %now; close $fh; }
+        require(($0 =~ m{^(.*)/} ? $1 : '.') . '/../hooks/trace.pl');
+        trace_write({ session => $sid, part => 'hud', event => 'hud.change',
+                      data => { changed => { map { $_ => $now{$_} // '' } @chg }, prev => { map { $_ => $was{$_} } grep { exists $was{$_} } @chg } } });
+    }
+};
