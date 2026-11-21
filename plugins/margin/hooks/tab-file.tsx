@@ -409,8 +409,9 @@ function seedOf(key: string, text: string): string {
 // A capped Input puts the terminal cursor past its cut text, off the header (engine 2.1.330, measured live), so typing
 // stops before the cap: room is the header minus label, cursor, gap, enter mark, space and submit word. A new key
 // remounts the field, because the engine drops a redrawn value equal to the last one it had.
-function fitField($: EngineInterface, text: string, room: number, remount: () => void): string {
-  const head = fitStart(text, room)
+function fitField($: EngineInterface, text: string, room: number, prev: string, remount: () => void): string {
+  // A pane narrowed under the typed text keeps that text and refuses only growth.
+  const head = fitStart(text, Math.max(room, cellsOf(prev)))
   if (head !== text) {
     remount()
     $.ui.invalidate('ui.render')
@@ -889,7 +890,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
                 <Text>{findL}</Text>
                 <Text color={HUD.faint}>{findLabel}</Text>
                 <Box width={capWidth(state.find.text, 'next', W - 8 - (state.find.text ? cellsOf(findLabel) : 0))} flexShrink={0}>
-                  <Input key={gen ? `${FIELD}:${gen}` : FIELD} value={seedOf(gen ? `${FIELD}:${gen}` : FIELD, state.find.text)} submitLabel="next" autoFocus onInput={v => typeFind($, fitField($, v, fieldRoom(W - 17), () => gen++))} onSubmit={() => (gen++, stepFind($, 1))} />
+                  <Input key={gen ? `${FIELD}:${gen}` : FIELD} value={seedOf(gen ? `${FIELD}:${gen}` : FIELD, state.find.text)} submitLabel="next" autoFocus onInput={v => typeFind($, fitField($, v, fieldRoom(W - 17), state.find?.text ?? '', () => gen++))} onSubmit={() => (gen++, stepFind($, 1))} />
                 </Box>
                 <Text>{findR}</Text>
               </Box>
@@ -898,7 +899,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
                 <Text>{nameL}</Text>
                 <Text color={HUD.faint}>{nameLabel}</Text>
                 <Box width={capWidth(state.names.text, 'open', W - 8 - (state.names.text ? cellsOf(nameLabel) : 0))} flexShrink={0}>
-                  <Input key={nameKey()} value={seedOf(nameKey(), state.names.text)} submitLabel="open" autoFocus onInput={v => typeName($, fitField($, v, fieldRoom(W - 17), () => nameGen++))} onSubmit={() => submitName($)} />
+                  <Input key={nameKey()} value={seedOf(nameKey(), state.names.text)} submitLabel="open" autoFocus onInput={v => typeName($, fitField($, v, fieldRoom(W - 17), state.names?.text ?? '', () => nameGen++))} onSubmit={() => submitName($)} />
                 </Box>
                 <Text>{nameR}</Text>
               </Box>

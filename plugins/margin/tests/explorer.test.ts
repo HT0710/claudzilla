@@ -1642,6 +1642,29 @@ test('a find longer than fits beside the label drops the label and keeps up to t
   expect((await ui.find({ key: await fieldKey(ui) }))?.props.value).toBe('x'.repeat(20))
 })
 
+test('a pane narrowed under the typed find keeps the text and refuses only growth', async ($, on) => {
+  await setup($, on)
+  disk.set('/repo/a.ts', { text: lines(300), mtimeMs: 1 })
+  open({ path: '/repo/a.ts' })
+  const mountAt = (cols: number) => $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, bodyColumns: cols }, requestId: 'margin' })
+  const wide = await mountAt(60)
+  await wide.press({ key: 'explorer:search' })
+  await wide.redraw()
+  await findText(wide, 'x'.repeat(200))
+  await wide.redraw()
+  const full = (await wide.find({ key: await fieldKey(wide) }))?.props.value
+  expect(full.length).toBeGreaterThan(20)
+  await wide.unmount()
+  const narrow = await mountAt(36)
+  await narrow.redraw()
+  await findText(narrow, full + 'y')
+  await narrow.redraw()
+  expect((await narrow.find({ key: await fieldKey(narrow) }))?.props.value).toBe(full)
+  await findText(narrow, full.slice(1))
+  await submit(narrow, full.slice(1))
+  expect((await narrow.find({ key: await fieldKey(narrow) }))?.props.value).toBe(full.slice(1))
+})
+
 test('a find field reopened after the find ended is drawn with a new key and empty', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(300))
   await search(ui, 'state')
