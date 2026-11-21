@@ -21,6 +21,13 @@ T="$TMP/t.jsonl"
   echo "{\"timestamp\":\"$(iso 5)\",\"message\":{\"content\":[{\"type\":\"thinking\",\"thinking\":\"\"}]}}"
 } > "$T"
 C="$TMP/cfg"; mkdir -p "$C"; echo '{"oauthAccount":{"emailAddress":"alex.smith@example.test"}}' > "$C/.claude.json"
+# time and localtime frozen, so the sweep, the path pulse and the clock repeat run to run
+PL="$TMP/perl"; mkdir -p "$PL"
+cat > "$PL/Frozen.pm" <<'EOF'
+package Frozen;
+BEGIN { my $t = $ENV{FROZEN_TIME}; *CORE::GLOBAL::time = sub () { $t }; *CORE::GLOBAL::localtime = sub (;$) { CORE::localtime(@_ ? $_[0] : $t) } }
+1;
+EOF
 
 full=$(cat <<JSON
 {"session_id":"abcdef1234567890","workspace":{"current_dir":"$TMP"},"transcript_path":"$T",
@@ -30,7 +37,7 @@ full=$(cat <<JSON
                 "seven_day":{"used_percentage":12,"resets_at":$(( (now + 200000) * 1000 ))}}}
 JSON
 )
-data() { CLAUDE_CONFIG_DIR="$C" node "$HUD/hud-data.mjs"; }
+data() { CLAUDE_CONFIG_DIR="$C" HUD_DUMP=1 perl "$HUD/hud.pl"; }
 key() { awk -F'\t' -v k="$1" '$1==k{print $2}' <<<"$2"; }
 
 # --- hud-data.mjs ---
@@ -48,7 +55,7 @@ check "data: wk"        [ "$(key wk "$kv")" = 12 ]
 check "data: wk_note ms" [ "$(key wk_note "$kv")" = 2d7h ]
 check "data: profile"   [ "$(key profile "$kv")" = a…h@example.test ]
 C2="$TMP/cfg2"; mkdir -p "$C2"; echo '{"oauthAccount":{"emailAddress":"me@example.test"}}' > "$C2/.claude.json"
-check "data: short profile -> first char only" [ "$(key profile "$(CLAUDE_CONFIG_DIR="$C2" node "$HUD/hud-data.mjs" <<<"$full")")" = m…@example.test ]
+check "data: short profile -> first char only" [ "$(key profile "$(CLAUDE_CONFIG_DIR="$C2" HUD_DUMP=1 perl "$HUD/hud.pl" <<<"$full")")" = m…@example.test ]
 check "data: up"        [ "$(key up "$kv")" = 90m ]
 check "data: last skill" [ "$(key skill "$kv")" = pr ]
 check "data: thinking recent" [ "$(key thinking "$kv")" = 1 ]
@@ -59,7 +66,7 @@ check "data: no limits -> no 5h" [ -z "$(key 5h "$kv")" ]
 check "data: no limits -> no wk" [ -z "$(key wk "$kv")" ]
 check "data: logged in, no reply, no limits -> lim_wait" [ "$(key lim_wait "$kv")" = 1 ]
 check "data: limits in -> no lim_wait" [ -z "$(key lim_wait "$(data <<<"$full")")" ]
-check "data: not logged in -> no lim_wait" [ -z "$(key lim_wait "$(CLAUDE_CONFIG_DIR="$TMP/none" node "$HUD/hud-data.mjs" <<<"$nolim")")" ]
+check "data: not logged in -> no lim_wait" [ -z "$(key lim_wait "$(CLAUDE_CONFIG_DIR="$TMP/none" HUD_DUMP=1 perl "$HUD/hud.pl" <<<"$nolim")")" ]
 used=$(node -e 'const j=JSON.parse(process.argv[1]);j.context_window.current_usage={input_tokens:2,output_tokens:830,cache_creation_input_tokens:2018,cache_read_input_tokens:414892};console.log(JSON.stringify(j))' "$full")
 check "data: no reply yet -> ctx_note 0" [ "$(key ctx_note "$(data <<<'{}')")" = 0 ]
 check "data: ctx_note used" [ "$(key ctx_note "$(data <<<"$used")")" = 417k ]
@@ -88,12 +95,30 @@ perl -i -ne 'print unless eof' "$T"
 echo "{\"timestamp\":\"$(iso 120)\",\"message\":{\"content\":[{\"type\":\"thinking\",\"thinking\":\"\"}]}}" >> "$T"
 check "data: thinking stale" [ -z "$(key thinking "$(data <<<"$full")")" ]
 
-check "data: garbage stdin exit 0" bash -c "echo nope | node '$HUD/hud-data.mjs' >/dev/null"
-check "data: missing transcript" bash -c "echo '{\"session_id\":\"x\",\"transcript_path\":\"/nope\"}' | node '$HUD/hud-data.mjs' | grep -q '^id	x$'"
+check "data: garbage stdin exit 0" bash -c "echo nope | HUD_DUMP=1 perl '$HUD/hud.pl' >/dev/null"
+check "data: missing transcript" bash -c "echo '{\"session_id\":\"x\",\"transcript_path\":\"/nope\"}' | HUD_DUMP=1 perl '$HUD/hud.pl' | grep -q '^id	x$'"
 
 check "data: no context_window -> ctx 0" [ "$(key ctx "$(data <<<'{"cwd":"/x"}')")" = 0 ]
 check "data: cwd fallback" [ "$(key cwd "$(data <<<'{"cwd":"/x"}')")" = /x ]
+check "data: non-object current_usage never dies, ctx kept" bash -c 'o=$(HUD_DUMP=1 CLAUDE_CONFIG_DIR="$1" perl "$2/hud.pl" <<<"{\"context_window\":{\"current_usage\":5}}") && grep -q "^ctx	" <<<"$o"' _ "$C" "$HUD"
+echo '{"palette":{"hud":"x"}}' > "$C/claudzilla.json"
+check "data: non-object palette.hud never dies, ctx kept" bash -c 'o=$(HUD_DUMP=1 CLAUDE_CONFIG_DIR="$1" perl "$2/hud.pl" <<<"{\"cwd\":\"/x\"}") && grep -q "^ctx	" <<<"$o"' _ "$C" "$HUD"
+rm -f "$C/claudzilla.json"
 check "data: tab in value flattened" [ "$(key model "$(data <<<'{"model":{"display_name":"a\tb"}}')")" = "a b" ]
+
+check "data: surrogate pair decoded" [ "$(key model "$(data <<<'{"model":{"display_name":"\ud83d\ude00"}}')")" = "$(printf '\xf0\x9f\x98\x80')" ]
+check "data: trailing garbage -> no fields" [ -z "$(key model "$(data <<<'{"model":{"display_name":"Opus"}} x')")" ]
+check "data: numeric string resets_at" [ "$(key 5h_note "$(printf '{"rate_limits":{"five_hour":{"used_percentage":30,"resets_at":"%s"}}}' "$(( $(date +%s) + 7230 ))" | data)")" = 2h0m ]
+printf '%s' '{"palette":{"hud":{"rampHot":"#123456\n"}}}' > "$C/claudzilla.json"
+check "data: #rrggbb plus newline rejected" [ "$(key pal_hud_rampHot "$(data <<<'{}')")" = '#ffaa5a' ]
+rm "$C/claudzilla.json"
+check "data: invalid UTF-8 becomes U+FFFD" [ "$(key model "$(data <<<"$(printf '{"model":{"display_name":"a\xffb"}}')")")" = "$(printf 'a\xef\xbf\xbdb')" ]
+printf '{"timestamp":"2026-11-21T00:00:00.000Z","message":{"content":"x"}}\n' > "$TMP/iso.jsonl"
+check "data: ISO 8601 fixed value gives up 10m" [ "$(printf '{"transcript_path":"%s"}' "$TMP/iso.jsonl" | HUD_DUMP=1 CLAUDE_CONFIG_DIR="$C" FROZEN_TIME=$((1795219200 + 600)) TZ=UTC PERL5LIB="$PL" perl -MFrozen "$HUD/hud.pl" | awk -F'\t' '$1=="up"{print $2}')" = 10m ]
+rm "$TMP/iso.jsonl"
+printf '{"timestamp":"2026-11-21T25:00:00Z","message":{"content":"x"}}\n' > "$TMP/iso2.jsonl"
+check "data: out-of-range ISO time gives no up" [ -z "$(key up "$(printf '{"transcript_path":"%s"}' "$TMP/iso2.jsonl" | data)")" ]
+rm "$TMP/iso2.jsonl"
 
 # big transcript: head cut and tail cut both land mid-file
 B="$TMP/big.jsonl"
@@ -130,7 +155,7 @@ kv=$(data <<<'{"model":{"display_name":"a\u009d52;c;aGk=\u009cb"}}')
 check "data: C1 control chars dropped" [ "$(key model "$kv")" = "a 52;c;aGk= b" ]
 
 # --- hud-filter.pl ---
-render() { data <<<"$1" | COLUMNS=120 perl "$HUD/hud-filter.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
+render() { data <<<"$1" | COLUMNS=120 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
 out=$(render "$full")
 # meters in two columns: ctx over cache | 5h over wk; no reply yet shows the cache hot
 check "render: ctx | 5h row" grep -q '^ctx .* 42%  *┃ 5h  .* 30%  *2h0m$' <<<"$out"
@@ -145,7 +170,7 @@ check "render: two meter rows" [ "$(grep -cE '(^|┃ )(ctx|cch|5h|wk) ' <<<"$out
 check "render: cache not in bottom row" bash -c "! tail -1 <<<'$out' | grep -q cch"
 # colours: pick a session id whose highlight sweep is resting now (hud-filter.pl \$OFF, 30 s sweep in 90)
 rest=$(perl -e 'for my $i (0..999) { my $id = "r$i"; my $o = 0; $o = ($o * 31 + ord) % 3600 for split //, $id; my $t = (time() + $o) % 90; if ($t >= 35 && $t <= 80) { print $id; last } }')
-raw() { data <<<"{\"session_id\":\"$rest\",\"transcript_path\":\"$TMP/c.jsonl\",\"rate_limits\":{\"five_hour\":{\"used_percentage\":30}}}" | COLUMNS=120 perl "$HUD/hud-filter.pl"; }
+raw() { data <<<"{\"session_id\":\"$rest\",\"transcript_path\":\"$TMP/c.jsonl\",\"rate_limits\":{\"five_hour\":{\"used_percentage\":30}}}" | COLUMNS=120 HUD_KV=1 perl "$HUD/hud.pl"; }
 cache "$(reply 0 0 500)" >/dev/null
 check "render: fresh cache one blue bar" grep -q $'cch \e\\[38;2;36;58;93m▬[^\e ]*   0%' <<<"$(raw)"
 cache "$(reply 1800 0 500)" >/dev/null
@@ -159,12 +184,12 @@ check "render: no login, no limits -> cache below ctx, no divider" bash -c "grep
 out=$(render '{"session_id":"w1"}')
 check "render: limits pending -> 5h placeholder" grep -qE '^ctx .*┃ 5h  (▱)+  --%     --$' <<<"$out"
 check "render: limits pending -> wk placeholder" grep -qE '^cch .*┃ wk  (▱)+  --%     --$' <<<"$out"
-wn=$(data <<<'{"session_id":"w1"}' | COLUMNS=40 perl "$HUD/hud-filter.pl" 2>"$TMP/warn" | perl -pe 's/\e\[[0-9;]*m//g')
+wn=$(data <<<'{"session_id":"w1"}' | COLUMNS=40 HUD_KV=1 perl "$HUD/hud.pl" 2>"$TMP/warn" | perl -pe 's/\e\[[0-9;]*m//g')
 check "render: limits pending, narrow -> 4 meter rows" [ "$(grep -cE '^(ctx|cch|5h|wk) ' <<<"$wn")" -eq 4 ]
 check "render: limits pending -> no warnings" [ ! -s "$TMP/warn" ]
 
 # strip <cols> <payload>: rendered rows, colours removed
-strip() { data <<<"$2" | COLUMNS=$1 perl "$HUD/hud-filter.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
+strip() { data <<<"$2" | COLUMNS=$1 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
 widest() { perl -CS -ne 'chomp; $m = length if length > $m; END { print $m }'; }
 check "render: default -> no clock on bottom row" bash -c "! tail -1 <<<\"\$1\" | grep -q ':'" _ "$(strip 170 "$full")"
 check "render: default -> 6 rows, 2 rules" [ "$(strip 170 "$full" | grep -c '━')/$(strip 170 "$full" | wc -l | tr -d ' ')" = 2/6 ]
@@ -187,7 +212,7 @@ check "compact: narrow bottom row drops the clock first" bash -c "! grep -qE '[0
 # The clock goes before live state: wherever it shows, the skill shows too.
 clock_alone=0; rendered=$(data <<<"$full")
 for w in $(seq 40 170); do
-  bottom=$(COLUMNS=$w perl "$HUD/hud-filter.pl" <<<"$rendered" | perl -pe 's/\e\[[0-9;]*m//g' | tail -1)
+  bottom=$(COLUMNS=$w HUD_KV=1 perl "$HUD/hud.pl" <<<"$rendered" | perl -pe 's/\e\[[0-9;]*m//g' | tail -1)
   grep -qE '[0-9]{2}:[0-9]{2} ' <<<"$bottom" && ! grep -q 'pr' <<<"$bottom" && clock_alone=$w
 done
 check "compact: clock never outlives the skill" [ "$clock_alone" = 0 ]
@@ -229,16 +254,16 @@ done
 check "minimal: 120 cols keeps every meter" grep -q 'cch .* ┃ ctx .* ┃ 5h .* ┃ wk ' <<<"$(mstrip 120 "$full")"
 check "minimal: 50 cols drops wk, keeps ctx" bash -c "o=\$(cat); grep -q 'ctx' <<<\"\$o\" && ! grep -q 'wk' <<<\"\$o\"" <<<"$(mstrip 50 "$full")"
 check "minimal: no reply yet -> cch --" grep -q ' cch  -- ┃ ctx ' <<<"$(mstrip 120 '{"session_id":"w1"}')"
-check "minimal: cold -> cch 0m" grep -q ' cch  0m ┃ ctx ' <<<"$(data <<<"$full" | perl -pe 's/^cch\t.*/cch\t100/; s/^cch_note\t.*/cch_note\tcold/' | HOME="$TMP" COLUMNS=170 perl "$HUD/hud-filter.pl" | perl -pe 's/\e\[[0-9;]*m//g')"
+check "minimal: cold -> cch 0m" grep -q ' cch  0m ┃ ctx ' <<<"$(data <<<"$full" | perl -pe 's/^cch\t.*/cch\t100/; s/^cch_note\t.*/cch_note\tcold/' | HOME="$TMP" COLUMNS=170 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g')"
 check "minimal: limits waiting -> placeholders" grep -q '5h .*--% *-- ┃ wk .*--% *--$' <<<"$(mstrip 90 '{"session_id":"w1"}')"
 rm "$C/claudzilla.json"
 
 check "render: not a repo -> no branch" bash -c "! head -1 <<<'$(render "$full")' | grep -q '⎇'"
-narrow=$(data <<<"$full" | COLUMNS=60 perl "$HUD/hud-filter.pl" | perl -pe 's/\e\[[0-9;]*m//g')
+narrow=$(data <<<"$full" | COLUMNS=60 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g')
 check "render: narrow fits 56 cols" [ "$(perl -CS -ne 'chomp; $m = length if length > $m; END { print $m }' <<<"$narrow")" -eq 56 ]
 
 # row1 <cwd> [env...]: first rendered row, colours stripped, COLUMNS=60
-row1() { local d=$1; shift; env "$@" CLAUDE_CONFIG_DIR="$C" node "$HUD/hud-data.mjs" <<<"{\"session_id\":\"sid-u\",\"workspace\":{\"current_dir\":\"$d\"}}" | env "$@" CLAUDE_CONFIG_DIR="$C" COLUMNS=60 perl "$HUD/hud-filter.pl" | head -1 | perl -pe 's/\e\[[0-9;]*m//g'; }
+row1() { local d=$1; shift; env "$@" CLAUDE_CONFIG_DIR="$C" HUD_DUMP=1 perl "$HUD/hud.pl" <<<"{\"session_id\":\"sid-u\",\"workspace\":{\"current_dir\":\"$d\"}}" | env "$@" CLAUDE_CONFIG_DIR="$C" COLUMNS=60 HUD_KV=1 perl "$HUD/hud.pl" | head -1 | perl -pe 's/\e\[[0-9;]*m//g'; }
 cells() { perl -CS -ne 'chomp; print length($_) + (() = /[\p{EA=W}\p{EA=F}]/g)'; }
 UH="$TMP/josé"; U="$UH/tiếng-việt"; mkdir -p "$U"; git -C "$U" init -q -b "nhánh"
 check "render: non-ASCII path + branch kept" grep -q '~/tiếng-việt.*nhánh' <<<"$(row1 "$U" HOME="$UH")"
@@ -265,44 +290,105 @@ rm -rf "$C/sessions"
 
 # claudzilla version: the last release tag, or the tag CI would cut next (.github/next-version.sh) when ahead of it
 R="$TMP/zilla"; mkdir -p "$R/claude/hud" "$R/.github"
-cp "$HUD/hud-filter.pl" "$R/claude/hud/"; cp "$REPO/.github/next-version.sh" "$R/.github/"
+cp "$HUD/hud.pl" "$R/claude/hud/"; cp "$REPO/.github/next-version.sh" "$R/.github/"
 g() { git -C "$R" -c user.name=t -c user.email=t@t "$@"; }
-ver() { data <<<"$full" | COLUMNS=120 perl "$R/claude/hud/hud-filter.pl" | head -1 | perl -pe 's/\e\[[0-9;]*m//g'; }
+verfresh() { rm -f "$TMP"/claudzilla-rules-*/hud-ver-*; ver; }
+ver() { data <<<"$full" | COLUMNS=120 HUD_KV=1 perl "$R/claude/hud/hud.pl" | head -1 | perl -pe 's/\e\[[0-9;]*m//g'; }
 g init -q -b main; g commit -q --allow-empty -m a
-check "render: no tags -> no version" grep -q 'a…h@example.test$' <<<"$(ver)"
+check "render: no tags -> no version" grep -q 'a…h@example.test$' <<<"$(verfresh)"
 g tag v9.9.9
-check "render: on release tag -> tag far right" grep -q 'a…h@example.test  v9.9.9$' <<<"$(ver)"
+check "render: on release tag -> tag far right" grep -q 'a…h@example.test  v9.9.9$' <<<"$(verfresh)"
 g commit -q --allow-empty -m 'docs: x'
-check "render: no release due -> last tag" grep -q 'a…h@example.test  v9.9.9$' <<<"$(ver)"
+check "render: no release due -> last tag" grep -q 'a…h@example.test  v9.9.9$' <<<"$(verfresh)"
 g commit -q --allow-empty -m 'feat(hud): x'
-check "render: ahead with feat -> next minor" grep -q 'a…h@example.test  v9.10.0$' <<<"$(ver)"
+check "render: ahead with feat -> next minor" grep -q 'a…h@example.test  v9.10.0$' <<<"$(verfresh)"
 g tag backup
-check "render: non-release tag ignored" grep -q 'a…h@example.test  v9.10.0$' <<<"$(ver)"
+check "render: non-release tag ignored" grep -q 'a…h@example.test  v9.10.0$' <<<"$(verfresh)"
+
+
+# --- caches: reads that did not change are skipped; times, not text, are cached ---
+CD="$TMP/claudzilla-rules-$(id -u)"
+cfull() { local t=$1 sid=$2; echo "${full//$T/$t}" | sed "s/abcdef1234567890/$sid/"; }
+tick() { data <<<"$(cfull "$1" "$2")"; }
+sk() { printf '{"timestamp":"%s","message":{"content":[{"type":"tool_use","id":"x","name":"Skill","input":{"skill":"%s"}}]}}\n' "$(iso 30)" "$1"; }
+CT="$TMP/c1.jsonl"; { echo "{\"timestamp\":\"$(iso 5400)\",\"message\":{\"content\":\"hi\"}}"; sk pr; } > "$CT"
+# a file changed in the current second is never cached (racy), so let the clock pass first
+sleep 1; tick "$CT" csid1 >/dev/null
+# chmod would move ctime and miss the cache; instead plant a value only a cache hit can return
+perl -i -pe 's/^skill\tpr$/skill\tzz/' "$CD/hud-csid1.cache"
+check "cache: unchanged transcript reads nothing" [ "$(key skill "$(tick "$CT" csid1)")" = zz ]
+tick "$CT" csid1 >/dev/null
+c=$(cat "$CT"); printf '%s\n' "${c//\"pr\"/\"qq\"}" > "$CT"
+check "cache: same-size rewrite of a cached transcript shows the new skill" [ "$(key skill "$(tick "$CT" csid1)")" = qq ]
+sk new >> "$CT"
+# start of a new second, so write, tick and rewrite share it: the first tick must store nothing
+s=$(date +%s); until [ "$(date +%s)" != "$s" ]; do :; done
+CR="$TMP/c1r.jsonl"; sk pr > "$CR"; tick "$CR" csidR >/dev/null
+c=$(cat "$CR"); printf '%s\n' "${c//\"pr\"/\"qq\"}" > "$CR"
+check "cache: file changed this second is not cached" [ "$(key skill "$(tick "$CR" csidR)")" = qq ]
+check "cache: changed transcript shows the new skill" [ "$(key skill "$(tick "$CT" csid1)")" = new ]
+CU="$TMP/c2.jsonl"; echo '{"type":"mode","mode":"normal"}' > "$CU"
+u0=$(key up "$(tick "$CU" csid2)")
+echo "{\"timestamp\":\"$(iso 600)\",\"message\":{\"content\":\"hi\"}}" >> "$CU"
+check "cache: up appears once a timestamp line arrives" bash -c '[ -z "$1" ] && [ "$2" = 10m ]' _ "$u0" "$(key up "$(tick "$CU" csid2)")"
+CK="$TMP/c3.jsonl"; echo "{\"timestamp\":\"$(iso 25)\",\"message\":{\"content\":[{\"type\":\"thinking\",\"thinking\":\"\"}]}}" > "$CK"; sleep 1
+t1=$(key thinking "$(tick "$CK" csid3)"); sleep 6
+check "cache: thinking recomputed on an unchanged transcript" bash -c '[ "$1" = 1 ] && [ -z "$2" ]' _ "$t1" "$(key thinking "$(tick "$CK" csid3)")"
+# a 4 MB cut inside a multi-byte character must not push the whole slice through the slow decode fallback
+CM="$TMP/c5.jsonl"
+perl -e 'my $tail = shift; my $r = 4194305 - 91 - length $tail;
+  print "a" x 99, "\n" for 1 .. 1000; print "\xe2\x86\x92" x 30, "\n"; print "b" x 99, "\n" for 1 .. int($r / 100);
+  print "c" x ($r % 100 - 1), "\n" if $r % 100; print $tail' "$(sk pr)"$'\n' > "$CM"
+check "cache: transcript over 4 MB cut mid-character: size" [ "$(stat -c %s "$CM" 2>/dev/null || stat -f %z "$CM")" -gt 4194304 ]
+m0=$(perl -MTime::HiRes=time -e 'printf "%d", time*1000'); mo=$(tick "$CM" csid5); m1=$(perl -MTime::HiRes=time -e 'printf "%d", time*1000')
+check "cache: 4 MB cut mid-character still finds the skill" [ "$(key skill "$mo")" = pr ]
+check "cache: 4 MB cut mid-character reads in under 250 ms" [ $(( m1 - m0 )) -lt 250 ]
+echo "  mid-char tick: $(( m1 - m0 )) ms"
+CH="$TMP/c4.jsonl"; echo "{\"type\":\"assistant\",\"timestamp\":\"$(iso 60)\",\"message\":{\"usage\":{\"input_tokens\":5,\"cache_creation\":{\"ephemeral_5m_input_tokens\":10}}}}" > "$CH"; sleep 1
+h1=$(key cch "$(tick "$CH" csid4)"); sleep 4
+check "cache: cch recomputed on an unchanged transcript" [ "$(key cch "$(tick "$CH" csid4)")" -gt "$h1" ]
+VF="$CD/hud-ver-$(perl -e 'my $h = 2166136261; for (unpack "C*", $ARGV[0]) { $h ^= $_; $h = ($h * 16777619) & 0xffffffff } printf "%08x", $h' "$R/claude/hud")"
+vset() { perl -i -pe "s/^$1\t.*/$1\t$2/" "$VF" 2>/dev/null; }
+vat() { awk -F'\t' '$1=="at"{print $2}' "$VF"; }
+verfresh >/dev/null; vset ver v0.0.1-bogus
+check "cache: version reused within 60 s" grep -q 'v0.0.1-bogus$' <<<"$(ver)"
+verfresh >/dev/null; vset at $(( $(date +%s) - 61 )); vset ver v0.0.1-bogus; o=$(ver)
+check "cache: version recomputed past 60 s" bash -c '[ $(( $(date +%s) - $(cat "$2") )) -le 2 ] && grep -q "v9.10.0$" <<<"$1"' _ "$o" <(vat)
+verfresh >/dev/null; vset at $(( $(date +%s) + 61 )); vset ver v0.0.1-bogus
+check "cache: version recomputed when at is in the future" bash -c '[ -s "$2" ] && grep -q "v9.10.0$" <<<"$1"' _ "$(ver)" "$VF"
+sn() { data <<<"$full" | COLUMNS=170 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
+mkdir -p "$C/sessions"; echo '{"sessionId":"abcdef1234567890","name":"n1"}' > "$C/sessions/1.json"; sleep 1; sn >/dev/null
+echo '{"sessionId":"abcdef1234567890","name":"n22"}' > "$C/sessions/1.json"
+check "cache: session rename shows on the next tick" grep -q 'n22' <<<"$(sn)"
+rm -rf "$C/sessions"
+data <<<"$full" >/dev/null; echo '{"oauthAccount":{"emailAddress":"bob.jones@example.test"}}' > "$C/.claude.json"
+check "cache: account switch shows on the next tick" [ "$(key profile "$(data <<<"$full")")" = b…s@example.test ]
+echo '{"oauthAccount":{"emailAddress":"alex.smith@example.test"}}' > "$C/.claude.json"
+rm -f "$CD"/hud-csid5.cache "$TMP/rc"
+for i in $(seq 10); do { tick "$CT" csid5 >/dev/null; echo $? >> "$TMP/rc"; } & { tick "$CT" csid5 >/dev/null; echo $? >> "$TMP/rc"; } & done; wait
+check "cache: two ticks at once" bash -c '[ "$(grep -cx 0 "$1")" = 20 ] && [ -s "$2" ] && ! grep -qv "^[^	][^	]*	" "$2"' _ "$TMP/rc" "$CD/hud-csid5.cache"
+FT=$(date +%s)
+fr() { frz() { FROZEN_TIME=$FT TZ=UTC PERL5LIB="$PL" "$@"; }; frz env HUD_DUMP=1 perl -MFrozen "$HUD/hud.pl" <<<"$(cfull "$CT" csid6)" | frz env COLUMNS=120 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
+rm -f "$CD"/hud-csid6.cache; a=$(fr); echo garbage > "$CD/hud-csid6.cache"; b=$(fr)
+check "cache: corrupt cache file is a miss" [ "$a" = "$b" ]
 
 # --- palette: today's look, byte for byte ---
-# time and localtime frozen, so the sweep, the path pulse and the clock repeat run to run
-PL="$TMP/perl"; mkdir -p "$PL"
-cat > "$PL/Frozen.pm" <<'EOF'
-package Frozen;
-BEGIN { my $t = $ENV{FROZEN_TIME}; *CORE::GLOBAL::time = sub () { $t }; *CORE::GLOBAL::localtime = sub (;$) { CORE::localtime(@_ ? $_[0] : $t) } }
-1;
-EOF
 # a tagged clone copy (fixed version) that is also the dirty cwd (branch, dirty), under a fake HOME (~/gold)
 GH="$TMP/ghome"; G="$GH/gold"; GC="$TMP/gcfg"; mkdir -p "$G/claude/hud" "$G/.github" "$GC/sessions"
-cp "$HUD/hud-filter.pl" "$G/claude/hud/"; cp "$REPO/.github/next-version.sh" "$G/.github/"; printf 'a\nb\n' > "$G/f"
+cp "$HUD/hud.pl" "$G/claude/hud/"; cp "$REPO/.github/next-version.sh" "$G/.github/"; printf 'a\nb\n' > "$G/f"
 gg() { git -C "$G" -c user.name=t -c user.email=t@t "$@"; }
 gg init -q -b main; gg add -A; gg commit -qm init; gg tag v9.9.9; printf 'a\nc\n' > "$G/f"; touch "$G/u"
 echo '{"sessionId":"abcdef1234567890","name":"maxis-24"}' > "$GC/sessions/1.json"
 KV=$(printf 'id\tabcdef12\nsid\tabcdef1234567890\ncwd\t%s\nmodel\tOpus\neffort\thigh\nctx\t42\ncch\t50\ncch_note\t30m\n5h\t30\n5h_note\t2h0m\nwk\t12\nwk_note\t2d7h\nprofile\ta…h@example.test\nup\t90m\nskill\tpr\nthinking\t1' "$G")
 # frame <offset s> <cols> [extra kv line]: the payload plus hud-data's pal_ lines, as the pipe sends them
-frame() { { printf '%s\n' "$KV" ${3:+"$3"}; CLAUDE_CONFIG_DIR="$GC" node "$HUD/hud-data.mjs" </dev/null | grep '^pal_'; } |
-  FROZEN_TIME=$((1790000000 + $1)) TZ=UTC HOME="$GH" CLAUDE_CONFIG_DIR="$GC" COLUMNS=$2 PERL5LIB="$PL" perl -MFrozen "$G/claude/hud/hud-filter.pl"; }
+frame() { { printf '%s\n' "$KV" ${3:+"$3"}; CLAUDE_CONFIG_DIR="$GC" HUD_DUMP=1 perl "$HUD/hud.pl" </dev/null | grep '^pal_'; } |
+  FROZEN_TIME=$((1790000000 + $1)) TZ=UTC HOME="$GH" CLAUDE_CONFIG_DIR="$GC" COLUMNS=$2 PERL5LIB="$PL" HUD_KV=1 perl -MFrozen "$G/claude/hud/hud.pl"; }
 golden() { for t in 0 40 50 72; do echo "== $t 120"; frame "$t" 120; done; echo "== 45 170 compact"; frame 45 170 $'layout\tcompact'; echo "== 45 170 minimal"; frame 45 170 $'layout\tminimal'; echo "== 0 60"; frame 0 60; }
 golden > "$TMP/golden.out"
 [ -n "${HUD_GOLDEN_WRITE:-}" ] && cp "$TMP/golden.out" "$REPO/tests/fixtures/hud-golden.txt"
 check "palette: no palette -> byte-identical to tests/fixtures/hud-golden.txt" cmp -s "$TMP/golden.out" "$REPO/tests/fixtures/hud-golden.txt"
 want=$(node --experimental-strip-types --no-warnings -e "import {DEFAULTS} from '$REPO/plugins/margin/hooks/palette.ts'; for (const t of ['shared','hud']) for (const [k,v] of Object.entries(DEFAULTS[t])) if (v !== null) console.log('pal_'+t+'_'+k+'\t'+v); for (const [k,v] of Object.entries(DEFAULTS.margin.types)) console.log('pal_types_'+k+'\t'+v)" | sort)
-got=$(CLAUDE_CONFIG_DIR="$GC" node "$HUD/hud-data.mjs" </dev/null | grep '^pal_' | sort)
+got=$(CLAUDE_CONFIG_DIR="$GC" HUD_DUMP=1 perl "$HUD/hud.pl" </dev/null | grep '^pal_' | sort)
 check "palette: hud-data shared, hud and margin.types defaults equal palette.ts" bash -c '[ -n "$1" ] && [ "$1" = "$2" ]' _ "$want" "$got"
 check "palette: no session colour sent by default" bash -c '! grep -q "^pal_hud_session" <<<"$1"' _ "$got"
 for p in folio primer ballot; do
@@ -314,7 +400,7 @@ check "palette: shared.action recolours the branch glyph, 2 spaces after it" gre
 check "palette: uppercase hex accepted" grep -q $'\e\\[38;2;160;176;192mctx' <<<"$out"
 check "palette: hud.session colours the session name" grep -q $'\e\\[38;2;10;11;12mmaxis-24' <<<"$out"
 printf '{"palette":{"shared":{"label":"#12\\u001b[0m"},"hud":"x","margin":{"ahead":"#010203"}}}' > "$GC/claudzilla.json"
-kv=$(CLAUDE_CONFIG_DIR="$GC" node "$HUD/hud-data.mjs" </dev/null)
+kv=$(CLAUDE_CONFIG_DIR="$GC" HUD_DUMP=1 perl "$HUD/hud.pl" </dev/null)
 check "palette: escape in a value -> default sent" [ "$(key pal_shared_label "$kv")" = '#a396d2' ]
 check "palette: \"hud\": \"x\" -> hud defaults sent" [ "$(key pal_hud_rampHot "$kv")" = '#ffaa5a' ]
 check "palette: escape never reaches the output" bash -c '! grep -q "#12" <<<"$1"' _ "$(frame 0 120)"
@@ -323,7 +409,7 @@ echo '{"palette":{"shared":{"label":"nope"},"hud":{"rampHot":"#12"}}}' > "$GC/cl
 out=$(frame 0 120)
 check "palette: invalid override still renders" bash -c '[ -n "$1" ] && grep -q "⎇  .*main" <<<"$1"' _ "$out"
 printf '{bad' > "$GC/claudzilla.json"
-check "palette: broken file -> every default sent" [ "$(CLAUDE_CONFIG_DIR="$GC" node "$HUD/hud-data.mjs" </dev/null | grep -c '^pal_')" -eq 29 ]
+check "palette: broken file -> every default sent" [ "$(CLAUDE_CONFIG_DIR="$GC" HUD_DUMP=1 perl "$HUD/hud.pl" </dev/null | grep -c '^pal_')" -eq 29 ]
 rm "$GC/claudzilla.json"
 gg switch -qc feat/x
 check "palette: a branch type prefix takes its type colour, the rest plain" grep -q $'⎇  \e\\[0m\e\\[38;2;152;195;121mfeat/\e\\[0mx' <<<"$(frame 0 120)"
@@ -336,13 +422,13 @@ gg switch -q main; gg branch -qD release/1.0
 gg switch -qc chore/y
 check "palette: chore/ takes shared.label, as margin's Git tab draws it" grep -q $'\e\\[38;2;163;150;210mchore/\e\\[0my' <<<"$(frame 0 120)"
 gg switch -q main; gg branch -qD chore/y
-check "palette: no pal_ lines -> frame drawn, exit 0" bash -c 'out=$(printf "" | CLAUDE_CONFIG_DIR="$1" COLUMNS=120 perl "$2/hud-filter.pl") && [ -n "$out" ]' _ "$GC" "$HUD"
+check "palette: no pal_ lines -> frame drawn, exit 0" bash -c 'out=$(printf "" | CLAUDE_CONFIG_DIR="$1" COLUMNS=120 HUD_KV=1 perl "$2/hud.pl") && [ -n "$out" ]' _ "$GC" "$HUD"
 
 # --- trace: hud.change only when the output changes ---
 TRC="$TMP/trcfg"; TRT="$TMP/trtmp"; mkdir -p "$TRC" "$TRT"; TR="$TMP/trrepo"; mkdir -p "$TR"
 git -C "$TR" init -q -b main
 trun() { printf '{"session_id":"trs1","workspace":{"current_dir":"%s"},"model":{"display_name":"Opus"}}' "$TR" |
-  CLAUDE_CONFIG_DIR="$TRC" TMPDIR="$TRT" COLUMNS=120 node "$HUD/hud-data.mjs" | CLAUDE_CONFIG_DIR="$TRC" TMPDIR="$TRT" COLUMNS=120 perl "$HUD/hud-filter.pl"; }
+  CLAUDE_CONFIG_DIR="$TRC" TMPDIR="$TRT" COLUMNS=120 HUD_DUMP=1 perl "$HUD/hud.pl" | CLAUDE_CONFIG_DIR="$TRC" TMPDIR="$TRT" COLUMNS=120 HUD_KV=1 perl "$HUD/hud.pl"; }
 TRF="$TRC/claudzilla-trace/trs1.hud.jsonl"
 trun >/dev/null; trun >/dev/null
 check "trace hud: same payload twice -> one hud.change" [ "$(grep -c '"event":"hud.change"' "$TRF")" -eq 1 ]
