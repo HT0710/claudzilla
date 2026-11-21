@@ -50,7 +50,8 @@ type State = {
   wrap: boolean
   lit?: { from: number; to: number }
   menuPinned: boolean
-  find?: { open: boolean; text: string; pending: boolean; result: FindResult; spans: Spans; current: number }
+  // `lit`: the lit line find set, so a lit line from elsewhere outlives a find that leaves it.
+  find?: { open: boolean; text: string; pending: boolean; result: FindResult; spans: Spans; current: number; lit?: { from: number; to: number } }
   names?: { text: string; entries: NameEntry[]; rows: NameEntry[]; loading?: boolean }
   toggles: { matchCase: boolean; word: boolean; regex: boolean }
   rev: number
@@ -161,8 +162,16 @@ function rerunFind(): void {
   find.spans = spansOf(find.result)
   const at = line === undefined ? -1 : find.result.matches.findIndex(m => m.line >= line)
   find.current = Math.max(at, 0)
-  const m = find.result.matches[find.current]
-  state.lit = m && { from: m.line, to: m.line }
+  litFind(find, find.result.matches[find.current])
+}
+
+// Lights `m` for find, or with none clears the lit line only when find set it.
+function litFind(find: NonNullable<State['find']>, m: { line: number } | undefined): void {
+  if (m) state.lit = find.lit = { from: m.line, to: m.line }
+  else {
+    if (state.lit === find.lit) state.lit = undefined
+    find.lit = undefined
+  }
 }
 
 // Reloads the open file when its stamp changed or it is gone.
@@ -314,7 +323,7 @@ async function runFind($: EngineInterface): Promise<void> {
   find.spans = spansOf(find.result)
   find.current = 0
   const first = find.result.matches[0]
-  state.lit = first && { from: first.line, to: first.line }
+  litFind(find, first)
   if (first) state.top = undefined
   await update($, file, () => placeOf())
 }
@@ -329,7 +338,7 @@ function typeFind($: EngineInterface, text: string): void {
     find.result = { matches: [], bad: false, capped: false }
     find.spans = new Map()
     find.current = 0
-    state.lit = undefined
+    litFind(find, undefined)
   } else {
     find.pending = true
     $.clock.after(FIND_WAIT, async () => {
@@ -352,8 +361,7 @@ async function stepFind($: EngineInterface, by: 1 | -1): Promise<void> {
   // No match: only a redraw puts a field re-keyed by Enter, and so its text, on screen.
   if (!total) return $.ui.invalidate('ui.render')
   find.current = (find.current + by + total) % total
-  const at = find.result.matches[find.current]!
-  state.lit = { from: at.line, to: at.line }
+  litFind(find, find.result.matches[find.current])
   state.top = undefined
   await update($, file, () => placeOf())
 }
@@ -368,8 +376,8 @@ async function toggleFind($: EngineInterface, flag: keyof State['toggles']): Pro
 async function closeFind($: EngineInterface): Promise<void> {
   const find = state.find
   if (!find) return
+  litFind(find, undefined)
   endFind()
-  state.lit = undefined
   await update($, file, () => placeOf())
 }
 
