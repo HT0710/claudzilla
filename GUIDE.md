@@ -674,6 +674,8 @@ Type a word or command at the prompt and press **Enter**. Items marked "if insta
 |---|---|
 | `/claudzilla [topic]` | open or close this guide, or open one section |
 | `/claudzilla report [what happened]` | draft a problem report from the local trace |
+| `/claudzilla-guide [topic]` | open this guide, or one section; never closes it |
+| `/claudzilla-worlds` | open this guide on *Worlds* |
 | `/claudzilla compact` | draft a `/compact` line into the prompt box |
 | `/claudzilla handoff [ask]` or `/claudzilla-handoff [ask]` | start fresh with a note from this session; text after it is the new session's first ask |
 | `/claudzilla cost [session-id]` | show what this session or one session cost |

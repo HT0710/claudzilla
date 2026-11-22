@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { costArgs, draft, experimentalArgs, featureLines, find, fit, handoffNote, parse, reportArgs, rows } from '../hooks/register'
+import { costArgs, draft, openSlug, experimentalArgs, featureLines, find, fit, handoffNote, parse, reportArgs, rows } from '../hooks/register'
 
 const MD = '# claudzilla guide\n\n## Basics\n\n### What claudzilla is\n<!-- topic: start -->\n\nIntro.\n\n### Talk to Claude\n<!-- topic: talk -->\n\nSay it.\n\n## Screen\n\n### The picks card\n<!-- topic: picks -->\n\nDigits.\n'
 
@@ -1067,4 +1067,56 @@ test('/claudzilla handoff anchors the draft and intent greps on the tool_use cal
   expect(seen.argvs.some(a => a.includes('"type":"tool_use","id":"[^"]*","name":"mcp__primer__compact_draft"'))).toBe(true)
   expect(seen.argvs.some(a => a.includes('mcp__margin__intent') && a.includes('tail -40'))).toBe(true)
   expect(seen.argvs.some(a => a.includes('"isCompactSummary":true'))).toBe(true)
+})
+
+test('openSlug: a topic wins; no topic keeps an open Guide and starts a closed one on start', () => {
+  expect(openSlug('lore', true, 'picks')).toBe('lore')
+  expect(openSlug(' Lore ', false, 'picks')).toBe('lore')
+  expect(openSlug(undefined, true, 'picks')).toBe('picks')
+  expect(openSlug(undefined, false, 'picks')).toBe('start')
+})
+
+const LORE = MD + '\n## Worlds\n\n### Lore\n<!-- topic: lore -->\n\nLong ago.\n'
+const quick = ($: Parameters<TestBody>[0], command: string, args = '') =>
+  $.command.run({ command, args, origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })
+const mountGuide = ($: Parameters<TestBody>[0]) => $.ui.mount({ plugin: 'primer', surface: 'terminal', component: 'Pane', props: props(100, 'dock', 40), requestId: 'primer' })
+
+test('registers /claudzilla-guide and /claudzilla-worlds', async ($, on) => {
+  const seen = host(on)
+  await $.session.start(start)
+  expect(seen.registered).toContainEqual(expect.objectContaining({ name: 'claudzilla-guide', argumentHint: '[topic]' }))
+  expect(seen.registered).toContainEqual(expect.objectContaining({ name: 'claudzilla-worlds' }))
+})
+
+test('/claudzilla-worlds opens on lore and never closes the Guide', async ($, on) => {
+  const seen = host(on, { guide: LORE })
+  await $.session.start(start)
+  await quick($, 'claudzilla-worlds')
+  const ui = await mountGuide($)
+  expect((await ui.find({ type: 'Markdown' }))?.props.text).toContain('### Lore')
+  await quick($, 'claudzilla-worlds')
+  expect(seen.closed).toEqual([])
+})
+
+test('bare /claudzilla-guide opens on start, then keeps the shown topic and never closes', async ($, on) => {
+  const seen = host(on)
+  await $.session.start(start)
+  await quick($, 'claudzilla-guide')
+  expect(seen.opened).toHaveLength(1)
+  await run($, 'picks')
+  await quick($, 'claudzilla-guide')
+  const ui = await mountGuide($)
+  expect((await ui.find({ type: 'Markdown' }))?.props.text).toContain('### The picks card')
+  expect(seen.closed).toEqual([])
+})
+
+test('/claudzilla-guide <topic> opens that topic, and its words are only a topic', async ($, on) => {
+  const seen = host(on)
+  await $.session.start(start)
+  await quick($, 'claudzilla-guide', 'talk')
+  const ui = await mountGuide($)
+  expect((await ui.find({ type: 'Markdown' }))?.props.text).toContain('### Talk to Claude')
+  await quick($, 'claudzilla-guide', 'compact')
+  expect((await ui.findAll({ type: 'Text' })).map(t => t.text).join(' ')).toContain('No topic "compact"')
+  expect(seen.toasts).toEqual([])
 })
