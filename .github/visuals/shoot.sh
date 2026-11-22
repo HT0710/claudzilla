@@ -162,7 +162,7 @@ shot_primer() {
   local ok
   start "$DEMO" 110 42 && margin_want off || return 1
   tm send-keys -t "$SHOT" M-i   # alt+i: the guide, as /claudzilla opens it
-  wait_for 'BASICS' 20 && wait_for 'WORKING' 2 && sleep 1.5 && grab "$WORK/primer.ansi"; ok=$?
+  wait_for 'GET STARTED' 20 && wait_for 'WORK WITH CLAUDE' 2 && sleep 1.5 && grab "$WORK/primer.ansi"; ok=$?
   tm send-keys -t "$SHOT" M-q   # close it: the dock must be free for finish to bring the panel back
   sleep 1
   [ "$ok" = 0 ] && still "$WORK/primer.ansi" "$A/primer.png"
