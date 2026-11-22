@@ -763,6 +763,29 @@ Headline features of recent versions. Restart Claude after an update to use them
 
 ## Worlds
 
+### Lore
+<!-- topic: lore -->
+
+Long ago, which in claudzilla time means a few releases back, Claude was a plain helper in a terminal. Then some grew big and wild: claudzilla, Claude plus "zilla", the old word for a beast too large to ignore.
+
+Wild claudzilla need taming, and only one tamer knows how: [HT0710](https://github.com/HT0710). The rulebook and the guard are the reins, and `go` is the word every claudzilla waits for.
+
+No two claudzilla are alike. When one comes to live in your `~/.claude`, it is yours to raise. It waits for your `go`, wears your colours (`/claudzilla customize`), and picks up your ways as you train it.
+
+Some say yours will one day learn your world, with your names and your stories.
+
+On its back, creatures soon moved in. They live in three places:
+
+- **The print shop:** folio, margin, ledger, byline and primer set the type, keep the records and mind this guide.
+- **The court:** herald brings the news, ballot counts your vote, and steward decides who goes where.
+- **The road:** atlas scouts the code and comes back with a map.
+
+Each release is a chapter in the story, and the *Chronicle* tells them all (`/claudzilla chronicle`).
+
+Rare beasts roam here too. When steward sends out a subagent, about one in ten gets a name that nods to a famous figure, such as `sisyphus-the-retrier` for a retry. Spot one while Claude works, and you have seen something few have.
+
+New creatures arrive with each release. Each one takes a name from the print shop or the court, and its entry goes in the *Bestiary* (`/claudzilla bestiary`).
+
 ### Bestiary
 <!-- topic: bestiary -->
 
@@ -813,29 +836,6 @@ Every part of claudzilla is a creature with a name. Most come from the print sho
   - **First seen:** v1.8, then called agent routing.
 
 For each creature's full entry, and the rules for naming a new one, see [BESTIARY.md](https://github.com/HT0710/claudzilla/blob/main/BESTIARY.md).
-
-### Lore
-<!-- topic: lore -->
-
-Long ago, which in claudzilla time means a few releases back, Claude was a plain helper in a terminal. Then some grew big and wild: claudzilla, Claude plus "zilla", the old word for a beast too large to ignore.
-
-Wild claudzilla need taming, and only one tamer knows how: [HT0710](https://github.com/HT0710). The rulebook and the guard are the reins, and `go` is the word every claudzilla waits for.
-
-No two claudzilla are alike. When one comes to live in your `~/.claude`, it is yours to raise. It waits for your `go`, wears your colours (`/claudzilla customize`), and picks up your ways as you train it.
-
-Some say yours will one day learn your world, with your names and your stories.
-
-On its back, creatures soon moved in. They live in three places:
-
-- **The print shop:** folio, margin, ledger, byline and primer set the type, keep the records and mind this guide.
-- **The court:** herald brings the news, ballot counts your vote, and steward decides who goes where.
-- **The road:** atlas scouts the code and comes back with a map.
-
-Each release is a chapter in the story, and the *Chronicle* tells them all (`/claudzilla chronicle`).
-
-Rare beasts roam here too. When steward sends out a subagent, about one in ten gets a name that nods to a famous figure, such as `sisyphus-the-retrier` for a retry. Spot one while Claude works, and you have seen something few have.
-
-New creatures arrive with each release. Each one takes a name from the print shop or the court, and its entry goes in the *Bestiary* (`/claudzilla bestiary`).
 
 ### Chronicle
 <!-- topic: chronicle -->
