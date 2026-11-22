@@ -403,8 +403,9 @@ function idle(on: On, { transcript = reply(H1), box = '', cfg = '', hold = Promi
   on('session.id', () => ({ value: 's1' }) as any)
   on('env.get', (_, e: any) => ({ value: e.name === 'CLAUDE_CONFIG_DIR' ? '/cfg' : undefined }) as any)
   on('fs.read', (_, e: any) => (cfg && e.path === '/cfg/claudzilla.json' ? { value: cfg } : { deny: 'ENOENT' }) as any)
+  // projects/ as a link, as a second config dir sharing one has it: find without -H skips it.
   on('process.run', async (_, e: any) =>
-    (e.argv[0] === 'find' && e.argv[1] === '/cfg/projects' ? ran(0, '/cfg/projects/p/s1.jsonl\n') : e.argv[0] === 'tail' && e.argv.at(-1) === '/cfg/projects/p/s1.jsonl' ? (await hold, ran(0, transcript + '\n')) : ran(1, '')) as any)
+    (e.argv[0] === 'find' && e.argv[1] === '-H' && e.argv[2] === '/cfg/projects' ? ran(0, '/cfg/projects/p/s1.jsonl\n') : e.argv[0] === 'tail' && e.argv.at(-1) === '/cfg/projects/p/s1.jsonl' ? (await hold, ran(0, transcript + '\n')) : ran(1, '')) as any)
   on('prompt.read', () => ({ value: { text: prompt.text, cursor: 0 } }) as any)
   on('prompt.fill', (_, e: any) => { fills.push(e.text); return { isFilled: true } as any })
   return { ...seen, fills, box: prompt }
