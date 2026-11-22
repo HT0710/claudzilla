@@ -1788,6 +1788,129 @@ test('Enter on a file hit opens the file in the code area', async ($, on) => {
   expect(texts(await ui.drawn()).some(t => t.text.trim() === 'x')).toBe(true)
 })
 
+// The engine answers a ring move; the test engine has nothing beneath the plugins, so a test registers it first.
+const ring = (on: any) => on('ui.focus', () => ({ value: {} }))
+const step = async ($: any, ui: any, dir: 'up' | 'down', times = 1) => {
+  for (let i = 0; i < times; i++) await $.ui.focus({ component: 'Pane', requestId: 'margin', element: `explorer:name:${dir}`, origin: { kind: 'person' } })
+  await ui.redraw()
+}
+const litRows = async (ui: any) => {
+  const out: string[] = []
+  const walk = (n: any) => {
+    if (!n || typeof n !== 'object') return
+    if (Array.isArray(n)) return n.forEach(walk)
+    if (String(n.key ?? n.props?.key).startsWith('x:') && n.props?.backgroundColor) {
+      const left: any[] = []
+      const inner = (m: any) => {
+        if (!m || typeof m !== 'object') return
+        if (Array.isArray(m)) return m.forEach(inner)
+        if (m.props?.module && Array.isArray(m.props?.props?.left)) left.push(...m.props.props.left)
+        inner([m.children, m.props?.children])
+      }
+      inner(n)
+      return void out.push(left.map((x: any) => x.text).join('').trim())
+    }
+    walk([n.children, n.props?.children])
+  }
+  walk(await ui.drawn())
+  return out
+}
+const rowsOf = async (ui: any) => (await nameRows(ui)).map(r => r.slice(r.indexOf(' ') + 1))
+
+test('Down lights the first result, then the next', async ($, on) => {
+  ring(on)
+  const ui = await nameRoot($, on)
+  await nameOpen(ui, 'ab')
+  const rows = await nameRows(ui)
+  expect(await litRows(ui)).toEqual([])
+  await step($, ui, 'down')
+  expect(await litRows(ui)).toEqual([rows[0]])
+  await step($, ui, 'down')
+  expect(await litRows(ui)).toEqual([rows[1]])
+  expect(await ui.find({ key: 'explorer:name' })).toBeDefined()
+})
+
+test('Up from the first result clears the light', async ($, on) => {
+  ring(on)
+  const ui = await nameRoot($, on)
+  await nameOpen(ui, 'ab')
+  await step($, ui, 'down')
+  await step($, ui, 'up')
+  expect(await litRows(ui)).toEqual([])
+})
+
+test('Down stops at the last result', async ($, on) => {
+  ring(on)
+  const ui = await nameRoot($, on)
+  await nameOpen(ui, 'ab')
+  const rows = await nameRows(ui)
+  await step($, ui, 'down', rows.length + 3)
+  expect(await litRows(ui)).toEqual([rows.at(-1)])
+})
+
+test('Enter opens the lit result', async ($, on) => {
+  ring(on)
+  const ui = await nameRoot($, on)
+  await nameOpen(ui, 'ab')
+  const second = (await rowsOf(ui))[1]
+  await step($, ui, 'down', 2)
+  await ui.input({ key: 'explorer:name', text: 'ab', kind: 'submit' })
+  await ui.redraw()
+  const [name, parent] = second.split(' ')
+  expect(await pathText(ui)).toBe(['repo', parent, name].filter(Boolean).join('/'))
+})
+
+test('typing clears the lit result, and Enter opens the top row again', async ($, on) => {
+  ring(on)
+  const ui = await nameRoot($, on)
+  await nameOpen(ui, 'ab')
+  await step($, ui, 'down', 2)
+  await nameType(ui, 'ab.')
+  expect(await litRows(ui)).toEqual([])
+  await ui.input({ key: 'explorer:name', text: 'ab.', kind: 'submit' })
+  await ui.redraw()
+  expect(await pathText(ui)).toBe('repo/ab.ts')
+})
+
+test('the lit result scrolls into view', async ($, on) => {
+  ring(on)
+  const files = Array.from({ length: 40 }, (_, i) => ({ name: `f${String(i).padStart(2, '0')}.ts`, kind: 'file' as const }))
+  const ui = await explorerRoot($, on, { '/repo': files })
+  listed.out = files.map(f => f.name).join('\0')
+  await nameOpen(ui, 'f')
+  await step($, ui, 'down', 25)
+  expect(await litRows(ui)).toEqual([expect.stringContaining('f24.ts')])
+  expect((await nameRows(ui)).some(r => r.includes('f00.ts'))).toBe(false)
+})
+
+test('the wheel still scrolls the results past a lit one', async ($, on) => {
+  ring(on)
+  const files = Array.from({ length: 40 }, (_, i) => ({ name: `f${String(i).padStart(2, '0')}.ts`, kind: 'file' as const }))
+  const ui = await explorerRoot($, on, { '/repo': files })
+  listed.out = files.map(f => f.name).join('\0')
+  await nameOpen(ui, 'f')
+  await step($, ui, 'down')
+  await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 10, bodyRows: 19, contentRows: 19, origin: { kind: 'person' }, pointer: { column: 0, row: 6 } })
+  await ui.redraw()
+  expect((await nameRows(ui)).some(r => r.includes('f00.ts'))).toBe(false)
+})
+
+test('the stand-ins are drawn with the field, and a step with no results keeps it open', async ($, on) => {
+  ring(on)
+  const ui = await nameRoot($, on)
+  const drawn = async () => [!!(await ui.find({ key: 'explorer:name:up' })), !!(await ui.find({ key: 'explorer:name:down' }))]
+  expect(await drawn()).toEqual([false, false])
+  await ui.press({ key: 'explorer:search' })
+  await ui.redraw()
+  expect(await drawn()).toEqual([true, true])
+  await step($, ui, 'down')
+  expect(await ui.find({ key: 'explorer:name' })).toBeDefined()
+  await nameType(ui, 'qqq')
+  await step($, ui, 'down')
+  expect(await litRows(ui)).toEqual([])
+  expect(await ui.find({ key: 'explorer:name' })).toBeDefined()
+})
+
 test('the name search leaves the tree scroll where it was, after clearing the text or opening a result', async ($, on) => {
   const files = Array.from({ length: 40 }, (_, i) => ({ name: `f${String(i).padStart(2, '0')}.ts`, kind: 'file' as const }))
   const ui = await explorerRoot($, on, { '/repo': files })
