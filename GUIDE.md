@@ -2,7 +2,7 @@
 
 This file is the user guide for claudzilla. You can read it here, or type `/claudzilla` in Claude to open it in a pane. Type `/claudzilla <topic>` to jump to one section; in the pane, each section shows its topic name under its title. Each section stands alone.
 
-## Basics
+## Get started
 
 ### What claudzilla is
 <!-- topic: start -->
@@ -65,6 +65,8 @@ These words come up in Claude Code and in this guide. Each one names a single id
 - If you installed the status line, watch its `ctx` meter.
 
 *Manage context* (`/claudzilla context`) has more. Claude Code's [glossary](https://code.claude.com/docs/en/glossary) defines more terms. For the names claudzilla gives its own parts, such as `herald` or `atlas`, see [BESTIARY.md](https://github.com/HT0710/claudzilla/blob/main/BESTIARY.md).
+
+## Work with Claude
 
 ### Talk to Claude
 <!-- topic: talk -->
@@ -130,8 +132,6 @@ To answer, type one of these and press **Enter**, or write a question or correct
 - `go, but 2B` accepts the rest and changes one pick.
 
 If you installed the ballot plugin, the ballot card numbers the options so a digit answers. See *The ballot card* (`/claudzilla ballot`).
-
-## Working
 
 ### How a task runs
 <!-- topic: flow -->
@@ -297,7 +297,7 @@ If you installed the ledger plugin and two sessions work in one folder, Claude p
 
 Each blocked action in the table can be set to `deny`, `remind` or `off`, and the done check to `now`, `flag` or `off`. The force-push and discard holds take `ask` (the default), or the same three; `deny` brings back the old block. For a solo repository that commits straight to `main`, put `{"rulesGuard":{"allowMain":true}}` in `.claude/claudzilla.local.json`. See *Customize claudzilla* (`/claudzilla customize`). If the guard blocked something you need, see *Fix common problems* (`/claudzilla stuck`).
 
-## Screen
+## On your screen
 
 ### The status line
 <!-- topic: hud -->
@@ -419,7 +419,10 @@ An answer you send speaks in your voice, so the history reads as you wrote it: C
 
 The [ballot README](https://github.com/HT0710/claudzilla/blob/main/plugins/ballot/README.md) has the full detail.
 
-## Own it
+### Other plugins
+<!-- topic: plugins -->
+
+## Settings and cost
 
 ### Usage and cost
 <!-- topic: limits -->
@@ -454,6 +457,110 @@ Each of these costs tokens; here is how to turn it off.
 
 Two parts save tokens: caveman shortens replies, and rtk shortens command output. Claude Code's [costs](https://code.claude.com/docs/en/costs) page has more ways to reduce usage.
 
+### Customize claudzilla
+<!-- topic: customize -->
+
+You change claudzilla through a few files of your own.
+
+#### Two rules first
+
+- **Which file wins.** For settings, `~/.claude/settings.overrides.json` wins over claudzilla's settings and over `~/.claude/settings.json`. The installer merges it, so run `~/claudzilla/install.sh` after you edit it. For the guard, a later file wins: `~/.claude/claudzilla.json` (this machine), then `<repo>/.claude/claudzilla.json` (shared, commit it), then `<repo>/.claude/claudzilla.local.json` (yours only). The guard reads them on each prompt. It skips a bad value and tells Claude about it on your next prompt.
+- **Never edit the linked files.** `~/.claude/CLAUDE.md`, `~/.claude/rules/`, the hooks, claudzilla's skills and `~/.claude/agents/atlas.md` are links into the clone at `~/claudzilla`. An edit there is an uncommitted change in the clone, so any release that changes the same part waits, and you get only a notice.
+
+#### What to change
+
+In this list, `env`, `permissions` and `model` go in `~/.claude/settings.overrides.json`; the guard settings go under `rulesGuard` in a guard file. I want to:
+
+- **Change the reply style:** set `CAVEMAN_DEFAULT_MODE` to `caveman` for less terse replies, or `off` (if you installed caveman).
+- **Set how strictly Claude keeps changes small:** set `PONYTAIL_DEFAULT_MODE` to `full` to stop Claude pushing back on parts of a request, `lite` to build what you asked, or `off` (if you installed ponytail).
+- **Get fewer permission prompts:** set `permissions.defaultMode` to `acceptEdits` or `auto`. See *Approve actions* (`/claudzilla approve`).
+- **Use another model or effort:** run `/model` or `/effort` in a session. A default that `/model` or `/effort` saves lasts only until the next update; for every session, set `model` or `effortLevel` in `settings.overrides.json`, such as `"model": "sonnet"`.
+- **Loosen a guard rule:** set it under `rules`. Values: blocks take `deny`, `remind` or `off`; `doneClaim` takes `now`, `flag` or `off`; skill reminders take `remind` or `off`; reply format checks take `flag` or `off`; `specExclude` takes `on` or `off`. The rule names are in [CONFIGURATION.md](https://github.com/HT0710/claudzilla/blob/main/CONFIGURATION.md#guard-hook-config).
+- **Commit to `main` in a solo repository:** put `{"rulesGuard":{"allowMain":true}}` in `<repo>/.claude/claudzilla.local.json`.
+- **Stop auto-update:** put `{"rulesGuard":{"autoUpdate":false}}` in `~/.claude/claudzilla.json`; you still get the notice. If preview moved your clone to a release branch, that notice also shows the command to return to the newest tag on `main`.
+- **Change other guard settings:** `compactNudge` (the context size, in tokens, at which Claude suggests compacting; `0` turns it off), `coldCompact` (how many times `compactNudge` the context must reach before claudzilla compacts by itself while you are away, `2` by default; `0` never), `reviewNudge`, `autoUpdate` and `trace` (`false` stops the local trace; machine file only) sit next to `rules`, not inside it.
+- **Recolour claudzilla:** put a `palette` key in `~/.claude/claudzilla.json`. Each colour is `#rrggbb`; any other value keeps its default. The status line changes at once, the plugins after `/reload-plugins` or in a new session. The margin names each ignored key in a toast.
+- **Try a new behaviour early:** turn on an experimental feature. See *Experimental features* (`/claudzilla labs`).
+- **Add your own instructions:** write them in `~/.claude/CLAUDE.local.md`. claudzilla's rules load it in every session on this machine.
+- **Change keys:** run `/keybindings` to open `~/.claude/keybindings.json`. To free **alt+i**, **alt+o**, **alt+h**, **alt+e**, **alt+g** or **alt+k**, set it to `null` in the `Chat` block. Changes apply without a restart.
+
+#### Examples
+
+`~/.claude/settings.overrides.json`:
+
+```json
+{
+  "env": { "CAVEMAN_DEFAULT_MODE": "caveman", "PONYTAIL_DEFAULT_MODE": "full" },
+  "permissions": { "defaultMode": "acceptEdits" },
+  "model": "sonnet"
+}
+```
+
+A guard file, such as `~/.claude/claudzilla.json`. If the file already has other keys, such as `install`, keep them.
+
+```json
+{ "rulesGuard": { "rules": { "pushVerify": "remind", "doneClaim": "flag" }, "compactNudge": 300000 } }
+```
+
+A palette in `~/.claude/claudzilla.json`. Every table and every key is optional.
+
+```json
+{
+  "palette": {
+    "shared": { "label": "#a396d2", "action": "#5d9678" },
+    "hud": { "rampHot": "#ffaa5a" },
+    "margin": { "ahead": "#d4b860", "types": { "fix": "#e06c75" } }
+  }
+}
+```
+
+The key names in each table:
+
+- `shared`, colours that two or more parts use: `label`, `faint`, `idle`, `action`, `dirty`, `churn`, `muted`, `lit`. Folio, primer and ballot read only this table.
+- `hud`, the status line: `rampLow`, `rampHigh`, `rampHot`, `track`, `note`, `cwdLow`, `cwdHigh`, `profile`, `version`, `divider`, `sweep`, `model`, `skill`, `thinking`, `clock`, `session`.
+- `margin`: `compacted`, `latest`, `ahead`, `behind`, `card`, `hairline`, `faded`, and three tables: `pill` (`green`, `gray`, `purple`, `red`, `yellow`, `blue`, `cyan`), `types` (`feat`, `fix`, `refactor`, `perf`, `docs`, `test`; these also colour the branch prefix in the status line) and `status` (`M`, `A`, `D`, `U`, `R`, `C`, `?`).
+
+### Experimental features
+<!-- topic: labs -->
+
+An experimental feature is new behaviour that may change or be removed. Most are off until you turn them on. Steward (agent routing) is on by default, and you can turn it off. Once it proves itself, it moves into the normal rules.
+
+#### Switch one on or off
+
+- **List them:** run `/claudzilla experimental`.
+- **Turn one on or off:** run `/claudzilla experimental <id> on` or `/claudzilla experimental <id> off`.
+- **When it applies:** from the next session, or after `/clear`.
+
+#### The features
+
+- **Steward** (`steward`, called `agentRouting` before v1.9): on by default from v1.9; run `/claudzilla experimental steward off` to turn it off. Claude decides for each task whether to hand the work to a subagent. It picks the cheapest model and effort that does the job. Tracing code across files, such as following calls or imports, goes to a search subagent from the first step.
+  - **Search limit:** with the feature on, the third search in one turn without a subagent call is refused with a note to delegate. Reads of a known file and a grep inside one known file stay allowed. The limit starts or stops at the next tool call, while the rule text applies from the next session. Scripts that run without the Agent tool: set `EVAL_ROUTING=off`, or turn the feature off.
+  - **Superpowers skills:** subagent-driven development and parallel agents use a fixed model and effort per role. Implementers run on Sonnet, and the final review and stuck fixes run on Opus.
+  - **Reviews:** each task gets a Haiku review at high effort, a second pass that hunts for a missed bug, and a Haiku spec checker that ties each requirement to a line. Re-reviews after a fix run on Haiku too, and their brief names any fix to shared code so the reviewer checks its other callers.
+  - **Re-grade:** Claude re-checks each Important finding from these Haiku agents. A finding with no broken requirement and no shown wrong behavior becomes Minor and is noted, not fixed.
+  - **Cost:** it may start more subagents. A saving has not been measured yet.
+  - **Proven when:** the cost per completed task drops while the pass rate stays the same, measured over real sessions.
+
+### Shortcuts
+<!-- topic: keys -->
+
+Press a key at the prompt. Items marked "if installed" work only with that part.
+
+| press | does |
+|---|---|
+| Esc | stop Claude, or decline a prompt |
+| Esc Esc | open the rewind menu (empty prompt) |
+| Shift+Tab | change the permission mode |
+| → or Tab | put the dim suggestion in the prompt |
+| alt+i | open or close this guide |
+| alt+o | margin: Overview tab (if installed) |
+| alt+h | margin: History tab |
+| alt+e | margin: Explorer tab |
+| alt+g | margin: Git tab |
+| alt+k | move into the ballot card (if installed) |
+
+On macOS, alt is the Option key, and your terminal must send it as Meta; see [Option key shortcuts on macOS](https://code.claude.com/docs/en/terminal-config#enable-option-key-shortcuts-on-macos). To change keys, see *Customize claudzilla* (`/claudzilla customize`). Claude Code's [interactive mode](https://code.claude.com/docs/en/interactive-mode) page lists all its keys.
+
 ### What runs on its own
 <!-- topic: background -->
 
@@ -471,6 +578,8 @@ claudzilla does some things without being asked. This list names each one, so no
 - **Your email:** if you installed the status line, it shows the email of the account you are logged in with, masked to the first and last letter before `@` and the domain. Anyone who sees your screen sees that much.
 - **Agent teams:** claudzilla turns this experimental Claude Code feature off. It lets Claude start *teammates*: separate Claude sessions that work in parallel and message each other. A team uses far more tokens than one session, and while it is on, a subagent that Claude names can start as a teammate instead. To try it, put `{"env":{"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS":"1"}}` in `~/.claude/settings.overrides.json`, then run `~/claudzilla/install.sh`. See Claude Code's [agent teams](https://code.claude.com/docs/en/agent-teams) page.
 - **Prompt suggestions and away recap:** claudzilla turns off these two Claude Code features. Each sends a hidden request that re-reads the whole conversation: the dim suggested next prompt after each reply, and the one-line recap when you come back. Suggestions from claudzilla's own parts, such as ballot's pick, still show, and `/recap` still writes a recap on demand. To get one back, put `{"promptSuggestionEnabled":true}` or `{"awaySummaryEnabled":true}` in `~/.claude/settings.overrides.json`, then run `~/claudzilla/install.sh`; a `/config` toggle is reset on the next update.
+
+## Get help
 
 ### Fix common problems
 <!-- topic: stuck -->
@@ -569,110 +678,6 @@ Type a word or command at the prompt and press **Enter**. Items marked "if insta
 | `/usage` | show your usage limits |
 | `/help` | list Claude Code's commands |
 | `!` and a command | run the command yourself |
-
-### Shortcuts
-<!-- topic: keys -->
-
-Press a key at the prompt. Items marked "if installed" work only with that part.
-
-| press | does |
-|---|---|
-| Esc | stop Claude, or decline a prompt |
-| Esc Esc | open the rewind menu (empty prompt) |
-| Shift+Tab | change the permission mode |
-| → or Tab | put the dim suggestion in the prompt |
-| alt+i | open or close this guide |
-| alt+o | margin: Overview tab (if installed) |
-| alt+h | margin: History tab |
-| alt+e | margin: Explorer tab |
-| alt+g | margin: Git tab |
-| alt+k | move into the ballot card (if installed) |
-
-On macOS, alt is the Option key, and your terminal must send it as Meta; see [Option key shortcuts on macOS](https://code.claude.com/docs/en/terminal-config#enable-option-key-shortcuts-on-macos). To change keys, see *Customize claudzilla* (`/claudzilla customize`). Claude Code's [interactive mode](https://code.claude.com/docs/en/interactive-mode) page lists all its keys.
-
-### Customize claudzilla
-<!-- topic: customize -->
-
-You change claudzilla through a few files of your own.
-
-#### Two rules first
-
-- **Which file wins.** For settings, `~/.claude/settings.overrides.json` wins over claudzilla's settings and over `~/.claude/settings.json`. The installer merges it, so run `~/claudzilla/install.sh` after you edit it. For the guard, a later file wins: `~/.claude/claudzilla.json` (this machine), then `<repo>/.claude/claudzilla.json` (shared, commit it), then `<repo>/.claude/claudzilla.local.json` (yours only). The guard reads them on each prompt. It skips a bad value and tells Claude about it on your next prompt.
-- **Never edit the linked files.** `~/.claude/CLAUDE.md`, `~/.claude/rules/`, the hooks, claudzilla's skills and `~/.claude/agents/atlas.md` are links into the clone at `~/claudzilla`. An edit there is an uncommitted change in the clone, so any release that changes the same part waits, and you get only a notice.
-
-#### What to change
-
-In this list, `env`, `permissions` and `model` go in `~/.claude/settings.overrides.json`; the guard settings go under `rulesGuard` in a guard file. I want to:
-
-- **Change the reply style:** set `CAVEMAN_DEFAULT_MODE` to `caveman` for less terse replies, or `off` (if you installed caveman).
-- **Set how strictly Claude keeps changes small:** set `PONYTAIL_DEFAULT_MODE` to `full` to stop Claude pushing back on parts of a request, `lite` to build what you asked, or `off` (if you installed ponytail).
-- **Get fewer permission prompts:** set `permissions.defaultMode` to `acceptEdits` or `auto`. See *Approve actions* (`/claudzilla approve`).
-- **Use another model or effort:** run `/model` or `/effort` in a session. A default that `/model` or `/effort` saves lasts only until the next update; for every session, set `model` or `effortLevel` in `settings.overrides.json`, such as `"model": "sonnet"`.
-- **Loosen a guard rule:** set it under `rules`. Values: blocks take `deny`, `remind` or `off`; `doneClaim` takes `now`, `flag` or `off`; skill reminders take `remind` or `off`; reply format checks take `flag` or `off`; `specExclude` takes `on` or `off`. The rule names are in [CONFIGURATION.md](https://github.com/HT0710/claudzilla/blob/main/CONFIGURATION.md#guard-hook-config).
-- **Commit to `main` in a solo repository:** put `{"rulesGuard":{"allowMain":true}}` in `<repo>/.claude/claudzilla.local.json`.
-- **Stop auto-update:** put `{"rulesGuard":{"autoUpdate":false}}` in `~/.claude/claudzilla.json`; you still get the notice. If preview moved your clone to a release branch, that notice also shows the command to return to the newest tag on `main`.
-- **Change other guard settings:** `compactNudge` (the context size, in tokens, at which Claude suggests compacting; `0` turns it off), `coldCompact` (how many times `compactNudge` the context must reach before claudzilla compacts by itself while you are away, `2` by default; `0` never), `reviewNudge`, `autoUpdate` and `trace` (`false` stops the local trace; machine file only) sit next to `rules`, not inside it.
-- **Recolour claudzilla:** put a `palette` key in `~/.claude/claudzilla.json`. Each colour is `#rrggbb`; any other value keeps its default. The status line changes at once, the plugins after `/reload-plugins` or in a new session. The margin names each ignored key in a toast.
-- **Try a new behaviour early:** turn on an experimental feature. See *Experimental features* (`/claudzilla labs`).
-- **Add your own instructions:** write them in `~/.claude/CLAUDE.local.md`. claudzilla's rules load it in every session on this machine.
-- **Change keys:** run `/keybindings` to open `~/.claude/keybindings.json`. To free **alt+i**, **alt+o**, **alt+h**, **alt+e**, **alt+g** or **alt+k**, set it to `null` in the `Chat` block. Changes apply without a restart.
-
-#### Examples
-
-`~/.claude/settings.overrides.json`:
-
-```json
-{
-  "env": { "CAVEMAN_DEFAULT_MODE": "caveman", "PONYTAIL_DEFAULT_MODE": "full" },
-  "permissions": { "defaultMode": "acceptEdits" },
-  "model": "sonnet"
-}
-```
-
-A guard file, such as `~/.claude/claudzilla.json`. If the file already has other keys, such as `install`, keep them.
-
-```json
-{ "rulesGuard": { "rules": { "pushVerify": "remind", "doneClaim": "flag" }, "compactNudge": 300000 } }
-```
-
-A palette in `~/.claude/claudzilla.json`. Every table and every key is optional.
-
-```json
-{
-  "palette": {
-    "shared": { "label": "#a396d2", "action": "#5d9678" },
-    "hud": { "rampHot": "#ffaa5a" },
-    "margin": { "ahead": "#d4b860", "types": { "fix": "#e06c75" } }
-  }
-}
-```
-
-The key names in each table:
-
-- `shared`, colours that two or more parts use: `label`, `faint`, `idle`, `action`, `dirty`, `churn`, `muted`, `lit`. Folio, primer and ballot read only this table.
-- `hud`, the status line: `rampLow`, `rampHigh`, `rampHot`, `track`, `note`, `cwdLow`, `cwdHigh`, `profile`, `version`, `divider`, `sweep`, `model`, `skill`, `thinking`, `clock`, `session`.
-- `margin`: `compacted`, `latest`, `ahead`, `behind`, `card`, `hairline`, `faded`, and three tables: `pill` (`green`, `gray`, `purple`, `red`, `yellow`, `blue`, `cyan`), `types` (`feat`, `fix`, `refactor`, `perf`, `docs`, `test`; these also colour the branch prefix in the status line) and `status` (`M`, `A`, `D`, `U`, `R`, `C`, `?`).
-
-### Experimental features
-<!-- topic: labs -->
-
-An experimental feature is new behaviour that may change or be removed. Most are off until you turn them on. Steward (agent routing) is on by default, and you can turn it off. Once it proves itself, it moves into the normal rules.
-
-#### Switch one on or off
-
-- **List them:** run `/claudzilla experimental`.
-- **Turn one on or off:** run `/claudzilla experimental <id> on` or `/claudzilla experimental <id> off`.
-- **When it applies:** from the next session, or after `/clear`.
-
-#### The features
-
-- **Steward** (`steward`, called `agentRouting` before v1.9): on by default from v1.9; run `/claudzilla experimental steward off` to turn it off. Claude decides for each task whether to hand the work to a subagent. It picks the cheapest model and effort that does the job. Tracing code across files, such as following calls or imports, goes to a search subagent from the first step.
-  - **Search limit:** with the feature on, the third search in one turn without a subagent call is refused with a note to delegate. Reads of a known file and a grep inside one known file stay allowed. The limit starts or stops at the next tool call, while the rule text applies from the next session. Scripts that run without the Agent tool: set `EVAL_ROUTING=off`, or turn the feature off.
-  - **Superpowers skills:** subagent-driven development and parallel agents use a fixed model and effort per role. Implementers run on Sonnet, and the final review and stuck fixes run on Opus.
-  - **Reviews:** each task gets a Haiku review at high effort, a second pass that hunts for a missed bug, and a Haiku spec checker that ties each requirement to a line. Re-reviews after a fix run on Haiku too, and their brief names any fix to shared code so the reviewer checks its other callers.
-  - **Re-grade:** Claude re-checks each Important finding from these Haiku agents. A finding with no broken requirement and no shown wrong behavior becomes Minor and is noted, not fixed.
-  - **Cost:** it may start more subagents. A saving has not been measured yet.
-  - **Proven when:** the cost per completed task drops while the pass rate stays the same, measured over real sessions.
 
 ### Update and get help
 <!-- topic: more -->
