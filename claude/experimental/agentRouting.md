@@ -1,4 +1,4 @@
-# Agent routing
+# Steward (agent routing)
 
 Picks, per task, whether to delegate to a subagent and at which model and effort.
 

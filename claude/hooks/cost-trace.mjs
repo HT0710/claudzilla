@@ -49,7 +49,8 @@ function routingOf(o) {
   if (o.type !== "attachment" || a?.hookEvent !== "SessionStart" || typeof a.stdout !== "string") return null;
   let ctx;
   try { ctx = JSON.parse(a.stdout)?.hookSpecificOutput?.additionalContext; } catch { return null; }
-  const at = typeof ctx === "string" ? ctx.indexOf("# Agent routing") : -1;
+  // Sessions before the Steward rename carry the old heading.
+  const at = typeof ctx === "string" ? Math.max(ctx.indexOf("# Steward (agent routing)"), ctx.indexOf("# Agent routing")) : -1;
   if (at < 0) return null;
   const lines = ctx.slice(at).split("\n");
   const end = lines.findIndex((l, i) => i > 0 && l.startsWith("# "));
