@@ -44,6 +44,18 @@ export async function listDir($: EngineInterface, dir: string): Promise<Listing[
   }))
 }
 
+// Run as `sh -c SCRIPT sh <path>`: the path stays in $1, never in the script text. `open` is macOS only (on Linux it may be openvt); bare `open` would run a .command or .app, `-t` only edits.
+export const OPEN_EDITOR_SH = [
+  'case $1 in -*) set -- "./$1";; esac',
+  't=; if command -v code >/dev/null 2>&1; then o=code',
+  'elif [ "$(uname)" = Darwin ]; then o=open; t=-t',
+  'else o=xdg-open; fi',
+  'command -v "$o" >/dev/null 2>&1 || exit 127',
+  'if command -v setsid >/dev/null 2>&1; then setsid -f "$o" ${t:+"$t"} "$1" </dev/null >/dev/null 2>&1',
+  'else nohup "$o" ${t:+"$t"} "$1" </dev/null >/dev/null 2>&1 &',
+  'fi',
+].join('\n')
+
 /** Counter so a slow load that finished late can tell it was overtaken. */
 export function latestOf(): { begin(): number; isLatest(n: number): boolean } {
   let n = 0

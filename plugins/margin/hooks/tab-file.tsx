@@ -5,7 +5,7 @@ import { FIND_WAIT, filterNames, findIn, leavesField, markCells } from './explor
 import type { FindResult, NameEntry } from './explorer-find'
 import { cellsOf, fileWindow, hitsOf, layoutFor, layoutOf, lineAt, sliceTokens, thumbOf } from './explorer-layout'
 import type { Cached } from './explorer-layout'
-import { listDir, listNames, loadFile, latestOf, projectRoot, statOf } from './explorer-load'
+import { OPEN_EDITOR_SH, listDir, listNames, loadFile, latestOf, projectRoot, statOf } from './explorer-load'
 import type { Loaded } from './explorer-load'
 import { back, current, forward, navStart, remember, visit } from './explorer-nav'
 import type { Nav } from './explorer-nav'
@@ -930,9 +930,9 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
         await $.prompt.fill({ text: /\s/.test(ref) ? `@"${ref}"` : `@${ref}`, mode: 'append' }).catch(() => undefined)
       })}
       {item('open-editor', 'Open in editor', async () => {
-        const has = await $.process.run(['sh', '-c', 'command -v code >/dev/null 2>&1']).catch(() => undefined)
-        const launched = await $.process.run(['sh', '-c', 'setsid -f "$0" "$1" </dev/null >/dev/null 2>&1', has?.exitCode === 0 ? 'code' : 'xdg-open', place.path]).catch(() => undefined)
+        const launched = await $.process.run(['sh', '-c', OPEN_EDITOR_SH, 'sh', place.path]).catch(() => undefined)
         if (launched?.exitCode === 0) notify($, 'opened', target())
+        else notify($, 'failed to open', target())
       })}
       {!short && (
         <Box marginX={-1}>

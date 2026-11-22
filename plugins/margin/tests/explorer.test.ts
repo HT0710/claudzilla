@@ -1,7 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 
-import { CUT, gitArgs, latestOf, listDir, listNames, loadFile, projectRoot, statOf } from '../hooks/explorer-load'
+import { CUT, OPEN_EDITOR_SH, gitArgs, latestOf, listDir, listNames, loadFile, projectRoot, statOf } from '../hooks/explorer-load'
 import { markCells } from '../hooks/explorer-find'
 import { cellsOf, expandTabs, fileWindow, layoutFor, layoutOf, lineAt, sliceTokens, thumbOf } from '../hooks/explorer-layout'
 import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '../hooks/explorer-nav'
@@ -862,15 +862,25 @@ test('the header row never takes more cells than the pane body, at any path leng
   }
 })
 
-test('Open in editor runs a detached sh with setsid and the path, and says opened', async ($, on) => {
+test('Open in editor runs the launch script with the path as its argument, and says opened', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
   runs.length = 0
   await ui.press({ key: 'menu' })
   await ui.press({ key: 'open-editor' })
   await ui.redraw()
-  const detached = runs.find(a => a[0] === 'sh' && a.some(x => x.includes('setsid -f')))
+  const detached = runs.find(a => a[0] === 'sh' && a.includes(OPEN_EDITOR_SH))
   expect(detached?.at(-1)).toBe('/repo/src/a.ts')
   expect(await pathText(ui)).toBe('opened src/a.ts')
+})
+
+test('the launch script never holds the path, so a hostile name cannot run', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/$(touch x) "q".ts' }, lines(3))
+  runs.length = 0
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'open-editor' })
+  await ui.redraw()
+  const detached = runs.find(a => a[0] === 'sh' && a.includes(OPEN_EDITOR_SH))
+  expect(detached).toEqual(['sh', '-c', OPEN_EDITOR_SH, 'sh', '/repo/$(touch x) "q".ts'])
 })
 
 test('Wrap lines toggles, keeps the top source line, and shows a check while on', async ($, on) => {
@@ -904,13 +914,13 @@ test('wrapped rows each carry their own gutter key, and a drag on a continuation
   expect(copied).toEqual(['a.ts:1'])
 })
 
-test('Open in editor says nothing when the launch fails', async ($, on) => {
+test('Open in editor says it failed when the launch fails', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
   launch.exit = 1
   await ui.press({ key: 'menu' })
   await ui.press({ key: 'open-editor' })
   await ui.redraw()
-  expect(await pathText(ui)).toBe('repo/src/a.ts')
+  expect(await pathText(ui)).toBe('failed to open src/a.ts')
 })
 
 test('a refresh deep in a wrapped file keeps the top source line', async ($, on) => {
