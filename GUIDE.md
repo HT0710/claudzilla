@@ -754,6 +754,11 @@ Headline features of recent versions. Restart Claude after an update to use them
 - **Worlds:** meet claudzilla's parts and their stories with alt+w or `/claudzilla-worlds`.
 - **Changed keys:** the guide moved from alt+q to alt+i (`/claudzilla keys`).
 - **Fewer side requests:** prompt suggestions and the away recap are off by default (`/claudzilla background`).
+- **Preview channel:** set `{"rulesGuard":{"autoUpdate":"preview"}}` to follow the release in progress before it is tagged. It brings unreviewed work; set `true` to return to the newest release (`/claudzilla background`).
+- **Turn timer:** the Overview footer counts a turn's time while it runs and says how long it took when it ends (`/claudzilla margin`).
+- **Handoff in the Compact line:** when context runs long, the Compact line names `/claudzilla handoff` if the next step needs only the last few turns (`/claudzilla context`).
+- **Run before done:** after changing an app, CLI, server, UI or plugin, Claude launches it and checks the change before it says done (`/claudzilla skills`).
+- **Usage in cost warnings:** with a usage ratio set in `~/.claude/CLAUDE.local.md`, Claude's cost warning adds the share of your 5-hour and weekly limits, such as `≈ 3% of 5h, 1% of week`.
 
 #### v1.8.0
 
