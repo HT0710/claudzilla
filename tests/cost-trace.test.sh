@@ -200,11 +200,12 @@ check "index: unchanged file of another run is not re-read" [ "$(ICD="$IC" js "$
 
 # --- gate ---
 gate() { local d; d=$(mktemp -d -p "$TMP"); cp -r "$FX/projects" "$d/projects"; [ -n "${1:-}" ] && printf '%s' "$1" > "$d/claudzilla.json"; GOUT=$(CLAUDE_CONFIG_DIR="$d" node "$SCRIPT" </dev/null); GRC=$?; GLOG="$d/claudzilla-cost.jsonl"; GDIR="$d"; }
-gate; check "gate off: no output, no log" [ "$GOUT|$GRC|$(ls "$GLOG" 2>/dev/null)" = "|0|" ]
+gate '{"experimental":{"agentRouting":false}}'; check "gate off: no output, no log" [ "$GOUT|$GRC|$(ls "$GLOG" 2>/dev/null)" = "|0|" ]
+gate; check "gate on by default: indexes" [ "$GOUT|$(ls "$GLOG" 2>/dev/null)" = "|$GLOG" ]
 gate '{"experimental":{"agentRouting":true}}'; check "gate on: indexes" [ "$GOUT|$(ls "$GLOG" 2>/dev/null)" = "|$GLOG" ]
-gate '{"experimental":{"agentRouting":"true"}}'; check "gate needs exact true: string" [ ! -e "$GLOG" ]
-gate '{"experimental":{"agentRouting":1}}'; check "gate needs exact true: number" [ ! -e "$GLOG" ]
-gate; CLAUDE_CONFIG_DIR="$GDIR" node "$SCRIPT" report all >/dev/null; check "report ignores the gate" [ -e "$GLOG" ]
+gate '{"experimental":{"agentRouting":"false"}}'; check "gate off needs exact false: string" [ -e "$GLOG" ]
+gate '{"experimental":{"agentRouting":0}}'; check "gate off needs exact false: number" [ -e "$GLOG" ]
+gate '{"experimental":{"agentRouting":false}}'; CLAUDE_CONFIG_DIR="$GDIR" node "$SCRIPT" report all >/dev/null; check "report ignores the gate" [ -e "$GLOG" ]
 check "settings: own entry at index 1, async" [ "$(node -p 'const e=require(process.argv[1]).hooks.SessionStart;[e[1].matcher, e[1].hooks[0].command.includes("cost-trace.mjs"), e[1].hooks[0].async]' "$REPO/settings.base.json")" = '[ undefined, true, true ]' ]
 check "settings: trace entry unchanged" [ "$(node -p 'require(process.argv[1]).hooks.SessionStart[0].hooks[0].command.includes("--session-start")' "$REPO/settings.base.json")" = true ]
 

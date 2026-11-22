@@ -656,7 +656,7 @@ The key names in each table:
 ### Experimental features
 <!-- topic: labs -->
 
-An experimental feature is new behaviour that is off until you turn it on. It may change or be removed. Once it proves itself, it moves into the normal rules.
+An experimental feature is new behaviour that may change or be removed. Most are off until you turn them on. Steward (agent routing) is on by default, and you can turn it off. Once it proves itself, it moves into the normal rules.
 
 #### Switch one on or off
 
@@ -666,7 +666,7 @@ An experimental feature is new behaviour that is off until you turn it on. It ma
 
 #### The features
 
-- **Steward** (`agentRouting`): Claude decides for each task whether to hand the work to a subagent. It picks the cheapest model and effort that does the job. Tracing code across files, such as following calls or imports, goes to a search subagent from the first step.
+- **Steward** (`agentRouting`): on by default from v1.9; run `/claudzilla experimental agentRouting off` to turn it off. Claude decides for each task whether to hand the work to a subagent. It picks the cheapest model and effort that does the job. Tracing code across files, such as following calls or imports, goes to a search subagent from the first step.
   - **Search limit:** with the feature on, the third search in one turn without a subagent call is refused with a note to delegate. Reads of a known file and a grep inside one known file stay allowed. The limit starts or stops at the next tool call, while the rule text applies from the next session. Scripts that run without the Agent tool: set `EVAL_ROUTING=off`, or turn the feature off.
   - **Superpowers skills:** subagent-driven development and parallel agents use a fixed model and effort per role. Implementers run on Sonnet, and the final review and stuck fixes run on Opus.
   - **Reviews:** each task gets a Haiku review at high effort, a second pass that hunts for a missed bug, and a Haiku spec checker that ties each requirement to a line. Re-reviews after a fix run on Haiku too, and their brief names any fix to shared code so the reviewer checks its other callers.
@@ -717,6 +717,10 @@ It asks first, then removes claudzilla's links, settings entries, keys and plugi
 
 Headline features of recent versions. Restart Claude after an update to use them.
 
+#### v1.9.0
+
+- **Steward on by default:** Claude now decides for each task whether to hand it to a subagent, and at which model and effort. Run `/claudzilla experimental agentRouting off` to turn it off (`/claudzilla labs`).
+
 #### v1.8.0
 
 - **Overview redesign:** the margin's Overview tab shows SESSION, TOPIC, ASK, TAKE and PLAN, and PLAN scrolls in place when it runs long. USED lists what Claude read this turn and opens a modal per kind. Hover a label for a card saying what it is (`/claudzilla margin`).
@@ -735,15 +739,3 @@ Headline features of recent versions. Restart Claude after an update to use them
 - **Short edit rows:** an Edit or Write call draws one row with its line counts, and a run of edits folds into one row. Click the row for a tree of the edited files and each diff. `{"folio": {"hideEditDiff": false}}` keeps the diffs in the chat.
 - **Compact status line:** `{"hud":{"layout":"compact"}}` in `~/.claude/claudzilla.json` draws the status line in 3 rows.
 - **Brainstorm on the ballot card:** when `brainstorming` has options for you, each question comes as a Decision, so one key answers it.
-
-#### v1.6.0
-
-- **Run and Copy:** buttons under each code block in a reply. Copy puts the block on the clipboard, and two clicks on Run run a shell block and stream its output into the block's card.
-- **Two sessions, one file:** before Claude edits a file another session edited in the last 30 minutes, it pauses once and the other session is told. Needs the `ledger` part.
-- **Guard asks first:** a force-push or a command that discards work, such as `git reset --hard`, asks before it runs and lists what it would lose.
-- **Cache meter:** the status line's `cch` meter shows how long the prompt cache stays warm. On a 1-hour cache, when you step away past the compact threshold, herald puts `/claudzilla compact` in the prompt box 15 minutes before the cache goes cold, and past 300,000 tokens it compacts on its own. The herald plugin turns off Claude Code's own idle compaction so this runs first.
-- **Masked email:** the status line shows only the first and last letter of your account name and the domain.
-- **Writing rule:** docs, commits, PRs, issues and memory get plain, full sentences. Chat replies stay terse.
-- **Tab keys:** alt+o, alt+h, alt+e and alt+g open the margin on Overview, History, Explorer and Git; the letter is underlined in each tab. The guide moves from alt+g to alt+q. alt+o replaces Claude Code's fast-mode key; `/fast` still works.
-- **New names:** the plugins are now margin (`/margin`, was panel), folio (response-dividers), ballot (picks), primer (guide), herald (update-toast) and byline (attribution), and install parts follow. The update moves you over: once, margin opens and asks to show its pane again, and a usage toast may repeat. A `settings.overrides.json` naming an old plugin id needs the new one.
-
