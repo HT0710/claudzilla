@@ -346,7 +346,7 @@ Claude Code's [status line](https://code.claude.com/docs/en/statusline) page exp
 ### The margin
 <!-- topic: margin -->
 
-If you installed the margin, it is a pane with a narrow rail of four icons down its right edge: Overview, History, Explorer and Git. Hover the rail and it widens to show each tab's name. It shows how Claude read your request and what it is doing, and it lets you move around a long chat without scrolling. The Guide button at the foot of the rail opens this guide at its start, or keeps your place if it is already open. If you did not install it, run `~/claudzilla/install.sh --add margin` in a terminal.
+If you installed the margin, it is a pane with a narrow rail of four icons down its right edge: Overview, History, Explorer and Git. Hover the rail and it widens to show each tab's name. It shows how Claude read your request and what it is doing, and it lets you move around a long chat without scrolling. The Guide button at the foot of the rail opens this guide at its start, or keeps your place if it is already open. The Worlds button under it, or alt+w, opens the guide on *Lore*, the first page of *Worlds*. If you did not install it, run `~/claudzilla/install.sh --add margin` in a terminal.
 
 To open or close the margin, type `/margin`, or press a tab's key (see the key table). A new session opens it if you left it open, and the first session opens it too; on a terminal under 144 columns it waits for room (110 once you have opened it yourself); a tab key shows it at any width. In the fullscreen layout, on a terminal 110 columns or wider, it docks beside the chat; otherwise it opens over the prompt. It opens on the Overview tab; click a tab's icon or name, or press its key, to switch. Each tab key opens the margin on that tab, switches to it when another tab shows, and closes the margin when that tab already shows. The key letter is underlined in the tab name on the widened rail. On macOS, alt is the Option key, and your terminal must send it as Meta; see [Option key shortcuts on macOS](https://code.claude.com/docs/en/terminal-config#enable-option-key-shortcuts-on-macos).
 
@@ -674,9 +674,9 @@ Type a word or command at the prompt and press **Enter**. Items marked "if insta
 | type | does |
 |---|---|
 | `/claudzilla [topic]` | open or close this guide, or open one section |
-| `/claudzilla report [what happened]` | draft a problem report from the local trace |
 | `/claudzilla-guide [topic]` | open this guide, or one section; never closes it |
 | `/claudzilla-worlds` | open this guide on *Worlds* |
+| `/claudzilla report [what happened]` | draft a problem report from the local trace |
 | `/claudzilla compact` | draft a `/compact` line into the prompt box |
 | `/claudzilla handoff [ask]` or `/claudzilla-handoff [ask]` | start fresh with a note from this session; text after it is the new session's first ask |
 | `/claudzilla cost [session-id]` | show what this session or one session cost |

@@ -31,12 +31,12 @@ export const RAIL: RailTab[] = ['Overview', 'History', 'Explorer', 'Git']
 const TABS = RAIL
 // The tabs with an alt key: each runs /margin-<tab>.
 const KEYS: Record<RailTab, string> = { Overview: 'o', History: 'h', Explorer: 'e', Git: 'g' }
-export const ICON: Record<RailTab | 'Guide', string> = { Overview: '\uEA70', History: '\uEA82', Explorer: '\uEAF0', Git: '\uE702', Guide: '\uEAA4' }
-// The Guide button on the rail's bottom row: primer's pane, not a margin tab.
-const GUIDE = /^(wide:)?Guide$/
-const openGuide = async ($: EngineInterface) => {
+export const ICON: Record<RailTab | 'Guide' | 'Worlds', string> = { Overview: '\uEA70', History: '\uEA82', Explorer: '\uEAF0', Git: '\uE702', Guide: '\uEAA4', Worlds: '\uEB01' }
+// The Guide and Worlds buttons on the rail's bottom rows: primer's pane, not margin tabs.
+const GUIDE = /^(wide:)?(Guide|Worlds)$/
+const openGuide = async ($: EngineInterface, topic?: string) => {
   try {
-    await $.primer.open()
+    await $.primer.open(topic ? { topic } : {})
   } catch (err) {
     // A missing noun throws TypeError; any other failure is primer's to report.
     if (err instanceof TypeError) $.ui.toast('Could not open the Guide: is primer installed?')
@@ -1367,7 +1367,7 @@ export const register: Register = (on, options) => {
       return { element: e.element }
     }
     if (GUIDE.test(e.element ?? '')) {
-      await openGuide($)
+      await openGuide($, e.element?.endsWith('Worlds') ? 'lore' : undefined)
 
       return { element: e.element }
     }
@@ -1685,8 +1685,10 @@ export const register: Register = (on, options) => {
     const top = railTop(inner)
     // The rail's last row ends it with ├, unless a short pane puts a tab there.
     const cornerRow = inner >= top + SPAN ? inner - 1 : -1
-    // Hidden when a short pane leaves no blank row between the last tab and the Guide row.
-    const guideRow = inner > top + SPAN + 1 ? inner - 2 : -1
+    // Hidden when a short pane leaves no blank row between the last tab and the Guide row; Worlds, under it, hides first.
+    const both = inner > top + SPAN + 2
+    const guideRow = both ? inner - 3 : inner > top + SPAN + 1 ? inner - 2 : -1
+    const worldsRow = both ? inner - 2 : -1
     // A modal hides the rules' rows from the person: nothing joins.
     const joined = new Set(modalShown ? [] : out.rules)
     const rail = Array.from({ length: inner }, (_, row) => {
@@ -1700,6 +1702,12 @@ export const register: Register = (on, options) => {
             <Box key="guide" width={RAIL_COLUMNS - 1}>
               <Button key="Guide" plain onPress={() => openGuide($)}>
                 <Text color="claude">{` ${basic ? 'i' : ICON.Guide} `}</Text>
+              </Button>
+            </Box>
+          ) : row === worldsRow ? (
+            <Box key="worlds" width={RAIL_COLUMNS - 1}>
+              <Button key="Worlds" plain onPress={() => openGuide($, 'lore')}>
+                <Text color="claude">{` ${basic ? 'w' : ICON.Worlds} `}</Text>
               </Button>
             </Box>
           ) : !one ? (
@@ -1734,6 +1742,15 @@ export const register: Register = (on, options) => {
               {border}
               <Button key="wide:Guide" plain onPress={() => openGuide($)}>
                 <Text color="claude">{[` ${basic ? 'i' : ICON.Guide} Gu`, <Text underline>i</Text>, 'de'.padEnd(WIDE - 7)]}</Text>
+              </Button>
+            </Box>
+          )
+        if (row === worldsRow)
+          return (
+            <Box key="wide-row:worlds" width={WIDE}>
+              {border}
+              <Button key="wide:Worlds" plain onPress={() => openGuide($, 'lore')}>
+                <Text color="claude">{[` ${basic ? 'w' : ICON.Worlds} `, <Text underline>W</Text>, 'orlds'.padEnd(WIDE - 5)]}</Text>
               </Button>
             </Box>
           )
