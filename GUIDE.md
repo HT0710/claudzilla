@@ -205,6 +205,8 @@ Claude uses these skills without asking when the task fits:
 | you pass on code review feedback | `receiving-code-review` |
 | you ask to push, open a pull request or merge, and the branch had no review yet | `requesting-code-review`: an agent reviews the branch first |
 
+A review also checks the traps listed in your repo's `REVIEW.md`, if it has one. The reviewer reads it from the branch the work merges into, so a branch cannot weaken the checks that judge it. claudzilla's own `REVIEW.md` is an example.
+
 With caveman, a refactor or a migration runs `caveman:safe-refactor` or `caveman:migration`; with ponytail, asking what's next runs `ponytail:ponytail-debt`.
 
 When your prompt contains words such as "bug", "error" or "crash", the guard reminds Claude to use the debugging skill.
