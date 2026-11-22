@@ -420,7 +420,10 @@ const readOverview = async ($: EngineInterface, retries = 0, fromPeer = false) =
     const latest = shown.length > 0 && !merging
     const keep = (was ? `\n${SESSION_KEEP}\n> ${was}` : '') + (shown.length ? `\n${merging ? overviewMerge(shown.length) : OVERVIEW_KEEP}\n${shown.map(topic => `- ${topic}`).join('\n')}` : '')
     const prompt = `${latest ? LATEST_ASK : OVERVIEW_ASK}${keep}\n\nPrompts:\n${prompts.map(one => `- ${flat(one.display).slice(0, 'sent' in one ? SENT_CAP : 300)}`).join('\n')}`
-    const reply = await $.model.complete({ model: 'opus', prompt, effort: 'low', maxTokens: OVERVIEW_TOKENS, timeoutMs: 20_000 })
+    const ask = () => $.model.complete({ model: 'opus', prompt, effort: 'low', maxTokens: OVERVIEW_TOKENS, timeoutMs: 20_000 })
+    let reply = await ask()
+    // A timeout leaves SESSION and TOPIC empty until the next prompt, so retry it once.
+    if (!reply.isAnswered && reply.reason === 'aborted' && seq === overviewSeq) reply = await ask()
     if (seq !== overviewSeq) {
       t.event('overview.read', { dropped: 'newer read started' }, 'debug')
       return
