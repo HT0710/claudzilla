@@ -36,6 +36,10 @@ Off the fullscreen layout a printed row can't change, so nothing folds or opens.
 
 Tool rows sit 2 columns in, and a `│` rail runs down the left edge from your prompt or Claude's text through the rows after it, until the next reply. An agent row forks off the rail with `├─`, or `╰─` when it is the last row under it; a background agent's launch row uses `├┄` and its finish row a solid `├─` or `╰─`. A skill loaded into the chat sits on the rail as a node, `✦ loaded   caveman-help (caveman)`, with the `✦` in place of the `│`; a skill that runs as its own agent draws like an agent row, `├─✦ done     review (superpowers)`. ctrl+o and `--verbose` still draw every diff. Set `hideEditDiff` to `false` to keep diffs in the chat ([CONFIGURATION.md](../../CONFIGURATION.md)).
 
+<img src="../../.github/assets/fold.png" alt="A turn on the rail: folded Ran, Read and Edited rows, a named subagent row marked done, and the reply between them" width="647">
+
+*One turn: tool runs fold onto the rail, and a subagent gets its own row with its name, model and effort, then its time when done.*
+
 <img src="../../.github/assets/edits.png" alt="Two edits folded into one Edited (2 files) row, clicked open to a tree of auth/token.js and auth/token.test.js with their line counts" width="720">
 
 *Two edits in one turn fold into one row; a click opens the tree. Click a file to see its diff.*

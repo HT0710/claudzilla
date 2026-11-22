@@ -6,6 +6,8 @@ Adds `/claudzilla`: a pane listing the guide's topics, grouped by part, with the
 
 `/claudzilla` with no topic toggles the pane. `/claudzilla-guide [topic]` opens it, or one topic, and never closes it; `/claudzilla-worlds` opens it on the Worlds part. claudzilla's `install.sh` binds alt+i to `/claudzilla` and alt+w to `/claudzilla-worlds` unless you bound them. Each section shows its topic name under its title.
 
+<img src="../../.github/assets/worlds.png" alt="The primer pane on Worlds: the Lore section beside the topic list" width="639">
+
 `/claudzilla experimental [id on|off]` lists experimental features or switches one.
 
 `/claudzilla cost [session-id | all [--since d] [--until d] [--project p]]` reports what this session, one session or all sessions cost, at API list prices.
