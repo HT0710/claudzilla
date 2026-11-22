@@ -19,7 +19,7 @@ start() {
       { echo "start: $dir exists and is not the demo repo" >&2; return 1; }
     rm -rf "$dir"
   fi
-  cp -r "$V/demo" "$dir" && git -C "$dir" init -q && git -C "$dir" add -A &&
+  cp -r "$V/demo" "$dir" && git -C "$dir" init -q -b master && git -C "$dir" add -A &&
     git -C "$dir" -c user.name=demo -c user.email=demo@example.com commit -qm "feat: add token check" || return 1
   tm kill-session -t "$SHOT" 2>/dev/null
   COLS=$2 ROWS=$3
@@ -177,17 +177,20 @@ retry() {
   return 1
 }
 
-margin_open() { tm capture-pane -t "$SHOT" -p | grep 'Overview.*Decisions' >/dev/null; }
+# The rail's Overview icon: on screen whenever the panel is open, whatever its tab.
+MARGIN_ICON=$'\uea70'
+margin_open() { tm capture-pane -t "$SHOT" -p | grep -F "$MARGIN_ICON" >/dev/null; }
 # The panel opens a few seconds after the prompt when the user left it open; a slow start must not read as closed.
-margin_save() { if wait_for 'Overview.*Decisions' 25 2>/dev/null; then MARGIN0=on; else MARGIN0=off; fi; }
+margin_save() { if wait_for "$MARGIN_ICON" 25 2>/dev/null; then MARGIN0=on; else MARGIN0=off; fi; }
 # margin_want on|off
 margin_want() {
-  local now=off; margin_open && now=on
+  # The panel can open a few seconds after start: give it that long before reading it as closed.
+  local now=off; wait_for "$MARGIN_ICON" 6 2>/dev/null && now=on
   [ "$now" = "$1" ] && return 0
   tm send-keys -t "$SHOT" M-o
   # M-o closes only when Overview shows; from another tab it switches, so press again
   if [ "$1" = off ]; then sleep 1; ! margin_open || tm send-keys -t "$SHOT" M-o; fi
-  if [ "$1" = on ]; then wait_for 'Overview.*Decisions' 10; else sleep 1; ! margin_open; fi
+  if [ "$1" = on ]; then wait_for "$MARGIN_ICON" 10; else sleep 1; ! margin_open; fi
 }
 # Under 110 columns the panel cannot dock, so its state cannot be read or set here.
 margin_restore() { [ -z "${MARGIN0:-}" ] || [ "${COLS:-0}" -lt 110 ] || margin_want "$MARGIN0"; }
