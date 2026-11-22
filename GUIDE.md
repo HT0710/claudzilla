@@ -771,20 +771,46 @@ Every part of claudzilla is a creature with a name. Most come from the print sho
 #### Familiars (plugins)
 
 - **ballot:** a court clerk who waits by the prompt. After a reply with a Decision, it holds out a card of numbered options. Press a key, and it carries your vote back to Claude.
+  - **Habit:** it numbers every option on its card, and the recommended one glows blue. Type a digit into an empty prompt, wait a breath, and that row is picked.
+  - **Quirk:** it speaks in your voice, so "show you the diff" leaves its paws as "show me the diff".
+  - **First seen:** v1.0, then called picks.
 - **byline:** a quiet scribe who sits at the end of every commit and PR. It scrubs Claude's session links and the "Generated with Claude Code" line before anyone reads them.
+  - **Habit:** it hunts `Claude-Session:` lines and `claude.ai/code/session_…` links in the trailer Claude writes, and eats them before they reach a commit or PR.
+  - **First seen:** v1.0, then called attribution.
 - **folio:** a typesetter who lives in the chat. Before every reply it measures the page and sets the frame to fit, so not one line wraps, and it turns file paths into doors to the margin.
+  - **Habit:** it draws every code block as a card with Copy, and a shell block also gets Run. The first click arms Run, the second runs it, and the output streams into the card.
+  - **Habit:** in the fullscreen layout, finished tool calls fold into rows such as `◼ Ran (1 command)`, strung along a `│` rail.
+  - **First seen:** v1.0, then called response-dividers.
 - **herald:** a messenger who rides through the toasts. It cries the news: an update on its way, usage limits passing 50, 75 and 90%, and the moment to compact.
+  - **Habit:** every 15 minutes it rides out to check for a new release, so a session left open still hears the news.
+  - **Habit:** on a long chat with an hour-long prompt cache, when you step away and the cache is about to go cold, it puts `/claudzilla compact` in the empty prompt.
+  - **Habit:** once the cache has gone cold, it offers `/claudzilla handoff` instead.
+  - **First seen:** v1.0, then called update-toast.
 - **ledger:** a record keeper who watches every live session. When another one touched a file in the last 30 minutes, it stops Claude's first edit there and sends word to that session.
+  - **Habit:** it guards the Edit, Write and NotebookEdit tools. It cannot see files changed by shell commands, such as `sed -i`.
+  - **Memory:** it forgets a session's entries when that session ends, and any entry after 30 minutes.
+  - **First seen:** v1.6.
 - **margin:** a chronicler who lives in the side pane. It writes down Claude's plan and your prompts, and keeps a file view and git close at hand.
+  - **Lair:** it keeps four tabs on a narrow rail down its edge: Overview, History, Explorer and Git.
+  - **Habit:** click a prompt in History, and the chat scrolls to it. `⟲ rewind` opens the `/rewind` picker.
+  - **First seen:** v1.0, then called panel.
 - **primer:** the keeper of this guide, who lives in the Guide tab beside the margin. Call it with `/claudzilla [topic]`, and it opens one page at a time.
+  - **Habit:** `/claudzilla` with no topic opens or closes its pane, and alt+i calls it too, unless you gave that key another job.
+  - **Habit:** it also runs `/claudzilla report`, `/claudzilla compact` and `/claudzilla cost`.
+  - **First seen:** v1.4, then called guide.
 
 #### Scouts (agents)
 
 - **atlas:** a read-only scout on haiku who roams the code. Ask where X is defined, and it comes back with a `file:line` map. It never tells you how to fix what it finds.
+  - **Habit:** it travels light. It skips `CLAUDE.md`, carries only Read, Grep, Glob and read-only Bash, and sends its searches out side by side.
+  - **First seen:** v1.9.
 
 #### Wild ones (experiments)
 
 - **steward:** a court officer who stands behind every task. It decides which parts to send off to subagents, and on which model. Tamed in v1.9, it now runs by default.
+  - **Habit:** the third inline search in a turn with no subagent call is refused, so a long lookup goes to a scout such as atlas.
+  - **Taming:** it still counts as a wild one, so `/claudzilla experimental steward off` puts it back to sleep.
+  - **First seen:** v1.8, then called agent routing.
 
 For each creature's full entry, and the rules for naming a new one, see [BESTIARY.md](https://github.com/HT0710/claudzilla/blob/main/BESTIARY.md).
 
