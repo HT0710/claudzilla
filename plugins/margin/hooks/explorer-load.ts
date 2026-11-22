@@ -50,14 +50,17 @@ export function latestOf(): { begin(): number; isLatest(n: number): boolean } {
   return { begin: () => ++n, isLatest: m => m === n }
 }
 
-/** Every file and folder under `folder`, as paths relative to it. */
-export async function listNames($: EngineInterface, folder: string): Promise<NameEntry[]> {
+/** Every file and folder under `folder`, as paths relative to it. `onCap` runs when git's output was cut and rows were lost. */
+export async function listNames($: EngineInterface, folder: string, onCap?: () => void): Promise<NameEntry[]> {
   const run = await $.process.run(gitArgs('-C', folder, 'ls-files', '--cached', '--others', '--exclude-standard', '-z', '-s')).catch(() => undefined)
   if (run?.exitCode !== 0 || !run.stdout) return walkNames(dir => $.fs.list(dir).catch(() => []), folder)
   // -s prefixes tracked paths with `mode hash stage<TAB>`; untracked paths come bare. Mode 160000 is a submodule.
   const files = new Set<string>()
   const subs: string[] = []
-  for (const row of run.stdout.split('\0')) {
+  const rows = run.stdout.split('\0')
+  // The last row of a cut read is a partial path.
+  if (run.isStdoutTruncated) (rows.pop(), onCap?.())
+  for (const row of rows) {
     if (!row) continue
     const m = /^(\d{6}) [0-9a-f]+ \d\t/.exec(row)
     const path = m ? row.slice(m[0].length) : row
