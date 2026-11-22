@@ -599,6 +599,20 @@ test('handoffNote: where we were from the last margin intent', () => {
   expect(n).not.toContain('OLD ask')
 })
 
+test('handoffNote: an Esc stop after the last prompt is named, and never to be continued', () => {
+  const rows = [typed('do it'), tool('mcp__margin__intent', { wants: 'ASK', steps: [{ text: 'push' }] }), tool('mcp__margin__intent', { now: 1 })]
+  for (const t of ['[Request interrupted by user]', '[Request interrupted by user for tool use]']) {
+    const n = note(...rows, J({ type: 'user', message: { content: [{ type: 'text', text: t }] } }))
+    expect(n).toMatch(/Last step started: 1\nThe user stopped step 1 with Esc \(line \d+\)\. Never continue it unasked\./)
+  }
+  const esc = typed('[Request interrupted by user]')
+  expect(note(...rows, esc, typed('again'))).not.toContain('The user stopped')
+  expect(note(...rows)).not.toContain('The user stopped')
+  expect(note(...rows, esc, typed('<command-name>/claudzilla</command-name>'))).toContain('The user stopped step 1')
+  expect(note(typed('do it'), esc)).toMatch(/## Stopped\n\nThe user stopped the last turn with Esc \(line \d+\)\./)
+  expect(note(...rows, typed('/compact Keep: x.'), esc)).not.toContain('The user stopped')
+})
+
 test('handoffNote: a long last reply keeps its head and its closing Next line', () => {
   const long = 'a'.repeat(800) + 'Q'.repeat(1400) + 'z'.repeat(1200 - '\n**Next:** say "go"'.length) + '\n**Next:** say "go"'
   expect(long.length).toBe(3400)
@@ -807,7 +821,7 @@ test('handoffNote: how to dig says only the Git block was checked', () => {
 
 test('handoffNote: how to dig names grep, haiku and compact summaries', () => {
   const n = note(typed('hi'))
-  for (const s of ['If this note is your whole prompt: when the old session stopped mid-step, continue that step. When its last reply ended on an offer, end yours with that offer as your `Next:` line, unchanged, and wait. Otherwise say in one line what you loaded, then wait for the user\'s ask.', 'Text after this note, with or without a `## User\'s ask` heading, is the user\'s ask: work on it instead of waiting.', 'Check git before saying what is pending. Don\'t restate the last reply.', 'grep -n', 'isCompactSummary', 'Never Read it whole', 'Read with `offset` and `limit`', 'the old transcript yourself, by line number']) expect(n).toContain(s)
+  for (const s of ['If this note is your whole prompt: when the old session stopped mid-step on its own, continue that step; when the user stopped it, say which step and wait. When its last reply ended on an offer, end yours with that offer as your `Next:` line, unchanged, and wait. Otherwise say in one line what you loaded, then wait for the user\'s ask.', 'Text after this note, with or without a `## User\'s ask` heading, is the user\'s ask: work on it instead of waiting.', 'Check git before saying what is pending. Don\'t restate the last reply.', 'grep -n', 'isCompactSummary', 'Never Read it whole', 'Read with `offset` and `limit`', 'the old transcript yourself, by line number']) expect(n).toContain(s)
 })
 
 const CFG = '/cfg'

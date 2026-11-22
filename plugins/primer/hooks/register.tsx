@@ -202,6 +202,7 @@ export function handoffNote(input: HandoffInput): string {
   let away: { n: number; row: Row } | undefined
   const turns: { p: string; reply?: Row }[] = []
   let promptLine = 0
+  let stopped: number | undefined
   let housekeeping = false
   const houseLines = new Set<number>()
   for (const { n, row } of rows) {
@@ -220,7 +221,8 @@ export function handoffNote(input: HandoffInput): string {
     } else if (row.type === 'user' && !row.isMeta && !row.isCompactSummary) {
       const t = textOf(row).trim()
       if (/<command-message>claudzilla-compact|<command-name>\/compact|^\/compact/.test(t)) housekeeping = true
-      else if (t && !t.startsWith('<') && !t.startsWith('[Request interrupted')) { turns.push({ p: t }); promptLine = n; housekeeping = false }
+      else if (t.startsWith('[Request interrupted')) { if (!housekeeping) stopped = n }
+      else if (t && !t.startsWith('<')) { turns.push({ p: t }); promptLine = n; housekeeping = false; stopped = undefined }
     } else if (row.type === 'user' && row.isCompactSummary) away = undefined
     else if (row.type === 'system' && row.subtype === 'away_summary') away = { n, row }
   }
@@ -236,7 +238,9 @@ export function handoffNote(input: HandoffInput): string {
   }
   const out = [`# Handoff from ${input.sessionId}`, '', `Written ${new Date(input.now).toISOString()}. Resume the old session with \`claude --resume ${input.sessionId}\`. Its transcript: ${input.path}`]
   const add = (heading: string, body: string) => out.push('', `## ${heading}`, '', body)
-  if (wants) add('Where we were', [cut(wants.wants, 500), ...wants.steps.slice(0, 20).map(s => `- ${cut(String(s.text ?? ''), 500)}`), ...(now !== undefined ? [`Last step started: ${now}`] : [])].join('\n'))
+  const stop = stopped === undefined ? undefined : `The user stopped ${wants && now !== undefined ? `step ${now}` : 'the last turn'} with Esc (line ${stopped}). Never continue it unasked.`
+  if (wants) add('Where we were', [cut(wants.wants, 500), ...wants.steps.slice(0, 20).map(s => `- ${cut(String(s.text ?? ''), 500)}`), ...(now !== undefined ? [`Last step started: ${now}`] : []), ...(stop ? [stop] : [])].join('\n'))
+  else if (stop) add('Stopped', stop)
   if (input.git?.trim()) add('Git', '```text\n' + input.git.trim() + '\n```')
   if (asks.size) add('Earlier asks', [...asks].slice(-5).map(([w, n]) => `- Line ${n}: ${cut(w, 500)}`).join('\n'))
   if (turns.length) {
@@ -257,7 +261,7 @@ export function handoffNote(input: HandoffInput): string {
   const call = d && blocks(d.row).find(b => b.type === 'tool_use' && b.name === 'mcp__primer__compact_draft')
   if (d && call?.input && d.n > since) add('Compact draft', `At line ${d.n}${d.row.timestamp ? `, ${d.row.timestamp}` : ''}.\nKeep: ${cut(String(call.input.keep ?? ''), 500)}\nDrop: ${cut(String(call.input.drop ?? ''), 500)}`)
   add('How to dig', [
-    'If this note is your whole prompt: when the old session stopped mid-step, continue that step. When its last reply ended on an offer, end yours with that offer as your `Next:` line, unchanged, and wait. Otherwise say in one line what you loaded, then wait for the user\'s ask.',
+    'If this note is your whole prompt: when the old session stopped mid-step on its own, continue that step; when the user stopped it, say which step and wait. When its last reply ended on an offer, end yours with that offer as your `Next:` line, unchanged, and wait. Otherwise say in one line what you loaded, then wait for the user\'s ask.',
     'Text after this note, with or without a `## User\'s ask` heading, is the user\'s ask: work on it instead of waiting.',
     'Check git before saying what is pending. Don\'t restate the last reply.',
     'The Git block was checked when this note was written. Everything else is the old session\'s claim: re-check it before acting on it.',
