@@ -1702,6 +1702,18 @@ test('inside a repo the listing runs ls-files in the folder and reads its paths'
   expect(argvs[0]).toEqual(gitArgs('-C', '/r', 'ls-files', '--cached', '--others', '--exclude-standard', '-z', '-s'))
 })
 
+test('a truncated ls-files drops its cut last row and reports the cap', async () => {
+  const { $: eng, on: onE } = engine()
+  onE('process.run', () => ran(0, 'a.ts\0hooks/b.ts\0hooks/c', true))
+  let capped = 0
+  expect(await listNames(eng, '/r', () => capped++)).toEqual([
+    { path: 'hooks', kind: 'dir' },
+    { path: 'a.ts', kind: 'file' },
+    { path: 'hooks/b.ts', kind: 'file' },
+  ])
+  expect(capped).toBe(1)
+})
+
 test('a submodule in the listing is a folder, and a conflicted file is listed once', async () => {
   const { $, on } = engine()
   on('process.run', () => ran(0, ['160000 98dc 0\tlib/sub', '100644 aa 1\tc.ts', '100644 bb 2\tc.ts', 'new.ts', ''].join('\0')))
@@ -1750,6 +1762,15 @@ const pieces = async (ui: any) => {
   return out
 }
 const nameRows = async (ui: any) => (await pieces(ui)).map(l => l.map((x: any) => x.text).join('').trim())
+
+test('a capped name listing says so beside the field', async ($, on) => {
+  const ui = await nameRoot($, on)
+  listed.out = 'hooks/abc.ts\0ab.ts\0hooks/zz'
+  listed.cut = true
+  await nameOpen(ui, 'zz')
+  expect(await nameRows(ui)).toEqual([])
+  expect(await ui.find({ type: 'Text', text: 'named (capped) ' })).toBeDefined()
+})
 
 test('search on a folder page opens the name field, and the tree hides while text is typed', async ($, on) => {
   const ui = await nameRoot($, on)

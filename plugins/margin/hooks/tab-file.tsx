@@ -53,7 +53,7 @@ type State = {
   // `lit`: the lit line find set, so a lit line from elsewhere outlives a find that leaves it.
   find?: { open: boolean; text: string; pending: boolean; result: FindResult; spans: Spans; current: number; lit?: { from: number; to: number } }
   // `lit`: the result Down and Up have lit, an index into `rows`.
-  names?: { text: string; entries: NameEntry[]; rows: NameEntry[]; loading?: boolean; tree?: number; lit?: number; follow?: boolean }
+  names?: { text: string; entries: NameEntry[]; rows: NameEntry[]; loading?: boolean; capped?: boolean; tree?: number; lit?: number; follow?: boolean }
   toggles: { matchCase: boolean; word: boolean; regex: boolean }
   rev: number
   // The last atom rev the module state has taken.
@@ -286,7 +286,8 @@ export async function closeOnEscape($: EngineInterface): Promise<boolean> {
 async function openNames($: EngineInterface): Promise<void> {
   state.menuPinned = false
   const folder = current(state.nav).path
-  const listing = listNames($, folder)
+  let capped = false
+  const listing = listNames($, folder, () => (capped = true))
   // Drawn and focused before the listing returns, so keys typed meanwhile reach the field, not the prompt.
   const names = (state.names ??= { text: '', entries: [], rows: [] })
   names.loading = true
@@ -295,6 +296,7 @@ async function openNames($: EngineInterface): Promise<void> {
   const entries = await listing
   if (state.names !== names || current(state.nav).path !== folder) return
   names.entries = entries
+  names.capped = capped
   names.rows = filterNames(entries, names.text)
   names.loading = false
   await update($, file, () => placeOf())
@@ -963,7 +965,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   // The label gives way once the text no longer fits beside it.
   const labelFor = (text: string, label: string, placeholder: string) => (!text ? `${placeholder} ` : cellsOf(text) > ROOM - cellsOf(label) - 9 ? '' : label)
   const findLabel = labelFor(state.find?.text ?? '', 'lines with ', PLACEHOLDER)
-  const nameLabel = labelFor(state.names?.text ?? '', 'named ', NAME_PLACEHOLDER)
+  const nameLabel = labelFor(state.names?.text ?? '', state.names?.capped ? 'named (capped) ' : 'named ', NAME_PLACEHOLDER)
   const findL = ' '.repeat(fieldPad(findLabel, state.find?.text ?? '', 'next', MID, ROOM))
   const nameL = ' '.repeat(fieldPad(nameLabel, state.names?.text ?? '', 'open', MID, ROOM))
   return {

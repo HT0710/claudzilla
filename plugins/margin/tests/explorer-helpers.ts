@@ -4,7 +4,7 @@ import type { TestBody } from 'claude-code/testing'
 type Body = Parameters<TestBody>
 type Entry = { name: string; kind: 'file' | 'dir' }
 
-export const ran = (exitCode: number, stdout = '') => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
+export const ran = (exitCode: number, stdout = '', isStdoutTruncated = false) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated, isStderrTruncated: false } })
 export const props = { title: 'Panel', isFocused: false, bodyColumns: 44, placement: 'dock' as const, scroll: { offset: 0, bodyRows: 19 }, view: {} }
 // The disk: a test changes a file by setting its entry again. A path in `tree` is a folder.
 export const disk = new Map<string, { text: string; mtimeMs: number }>()
@@ -16,7 +16,7 @@ export const runs: string[][] = []
 // A test sets exit to make the detached editor launch fail.
 export const launch = { exit: 0 }
 // What `git ls-files` answers, NUL-separated.
-export const listed = { out: '' }
+export const listed = { out: '', cut: false }
 // The clock the plugin's timers run on; a test advances it.
 export let clock: ReturnType<typeof mock.clock>
 // A test sets failList to make every fs.list fail.
@@ -47,6 +47,7 @@ export const setup = async ($: Body[0], on: Body[1]) => {
   hold.names = undefined
   launch.exit = 0
   listed.out = ''
+  listed.cut = false
   lists.length = 0
   reads.length = 0
   sets.length = 0
@@ -61,7 +62,7 @@ export const setup = async ($: Body[0], on: Body[1]) => {
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('session.cwd', () => ({ value: '/repo' }))
-  on('process.run', (_, e) => (runs.push([...e.argv]), e.argv.includes('rev-parse') ? ran(0, '/repo\n') : e.argv.includes('ls-files') ? (hold.names ? new Promise(done => hold.names!.push(() => done(ran(0, listed.out)))) : ran(0, listed.out)) : ran(e.argv.some(x => x.includes('setsid -f')) ? launch.exit : 0)) as any)
+  on('process.run', (_, e) => (runs.push([...e.argv]), e.argv.includes('rev-parse') ? ran(0, '/repo\n') : e.argv.includes('ls-files') ? (hold.names ? new Promise(done => hold.names!.push(() => done(ran(0, listed.out, listed.cut)))) : ran(0, listed.out, listed.cut)) : ran(e.argv.some(x => x.includes('setsid -f')) ? launch.exit : 0)) as any)
   on('fs.stat', (_, e) => (tree.has(e.path) ? { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } : disk.has(e.path) ? { value: { kind: 'file', size: disk.get(e.path)!.text.length, mtimeMs: disk.get(e.path)!.mtimeMs, isLink: false } } : { deny: 'ENOENT' }) as any)
   on('fs.read', (_, e) => {
     reads.push(e.path)
