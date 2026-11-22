@@ -64,7 +64,7 @@ These words come up in Claude Code and in this guide. Each one names a single id
 - Run `/context` to see what uses the space.
 - If you installed the status line, watch its `ctx` meter.
 
-*Manage context* (`/claudzilla context`) has more. Claude Code's [glossary](https://code.claude.com/docs/en/glossary) defines more terms.
+*Manage context* (`/claudzilla context`) has more. Claude Code's [glossary](https://code.claude.com/docs/en/glossary) defines more terms. For the names claudzilla gives its own parts, such as `herald` or `atlas`, see [BESTIARY.md](https://github.com/HT0710/claudzilla/blob/main/BESTIARY.md).
 
 ### Talk to Claude
 <!-- topic: talk -->
