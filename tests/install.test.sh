@@ -235,6 +235,7 @@ check "keys: fresh alt+l unbound" [ "$(key "$K" Chat alt+l)" = undefined ]
 check "keys: fresh alt+g opens git" [ "$(key "$K" Chat alt+g)" = '"command:margin-git"' ]
 check "keys: fresh alt+k focuses band" [ "$(key "$K" Chat alt+k)" = '"abovePrompt:focus"' ]
 check "keys: fresh alt+i opens guide" [ "$(key "$K" Chat alt+i)" = '"command:claudzilla"' ]
+check "keys: fresh alt+w opens worlds" [ "$(key "$K" Chat alt+w)" = '"command:claudzilla-worlds"' ]
 K=$(new_home); mkdir -p "$K/.claude"
 echo '{"bindings":[{"context":"Global","bindings":{"ctrl+t":"app:toggleTodos"}},{"context":"Chat","bindings":{"ctrl+e":"chat:externalEditor"}}]}' > "$K/.claude/keybindings.json"
 run_install "$K"
@@ -263,7 +264,7 @@ for own in '{"bindings":[{"context":"Chat","bindings":{"alt+k":null}}]}' \
   check "keys: alt+k left alone: $own" [ "$(n "$K/.claude/keybindings.json" abovePrompt:focus)" -eq "$(n "$K/k0" abovePrompt:focus)" ]
   check "keys: alt+h still added: $own" [ "$(key "$K" Chat alt+h)" = '"command:margin-history"' ]
 done
-K=$(new_home); mkdir -p "$K/.claude"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+o":null,"alt+h":null,"alt+e":null,"alt+g":null,"alt+k":null,"alt+i":null}}]}' | tee "$K/k0" > "$K/.claude/keybindings.json"; run_install "$K"
+K=$(new_home); mkdir -p "$K/.claude"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+o":null,"alt+h":null,"alt+e":null,"alt+g":null,"alt+k":null,"alt+i":null,"alt+w":null}}]}' | tee "$K/k0" > "$K/.claude/keybindings.json"; run_install "$K"
 check "keys: all own, file untouched" cmp -s "$K/.claude/keybindings.json" "$K/k0"
 for own in '{"bindings":[{"context":"Chat","bindings":"x"}]}' '{bad'; do
   K=$(new_home); mkdir -p "$K/.claude"; printf '%s\n' "$own" | tee "$K/k0" > "$K/.claude/keybindings.json"; run_install "$K"; rc=$?
@@ -685,7 +686,7 @@ check "font: CLAUDZILLA_FONT=off declines" [ -f "$O/.claude/.claudzilla-basic-gl
 
 sec_menu() {
 # symlinked keybindings.json on a removal: the warning says remove, not add
-K=$(new_home); mkdir -p "$K/dots"; inst "$K"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+h":"command:margin-history","alt+k":"abovePrompt:focus","alt+i":"command:claudzilla"}}]}' > "$K/dots/kb.json"
+K=$(new_home); mkdir -p "$K/dots"; inst "$K"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+h":"command:margin-history","alt+k":"abovePrompt:focus","alt+i":"command:claudzilla","alt+w":"command:claudzilla-worlds"}}]}' > "$K/dots/kb.json"
 rm -f "$K/.claude/keybindings.json"; ln -s "$K/dots/kb.json" "$K/.claude/keybindings.json"; inst "$K" --remove margin
 check "keys: symlink on removal says remove" grep -q 'symlink - remove' "$K/install.log"
 # bad flag with no terminal: the flag error, not the ask-the-user stop
