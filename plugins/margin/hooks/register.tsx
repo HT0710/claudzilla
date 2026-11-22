@@ -390,18 +390,26 @@ const overviewShown = async ($: EngineInterface) =>
   (await read($, tab)) === 'Overview' && (await $.ui.panes()).some(pane => pane.id === PANE && pane.isPlaced)
 // Reads only while the tab shows, so its cost follows use.
 // retries: a submit's row may reach the chat file after its hook runs, and a mod's sent prompt is in no history file.
-const readOverview = async ($: EngineInterface, retries = 0) => {
+// fromPeer: a peer message's submit, which only a session with no prompt of its own reads for.
+const readOverview = async ($: EngineInterface, retries = 0, fromPeer = false) => {
   overviewStale = true
   if (!(await overviewShown($).catch(() => false))) return
   overviewStale = false
-  const seq = ++overviewSeq
+  // A peer read that turns out not needed must not drop a read in flight: it takes its seq once it knows.
+  let seq = fromPeer ? -1 : ++overviewSeq
   // Newest first from history and the chat file; a paste can be long, its head says enough.
   const [typed, sent] = await Promise.all([pastPrompts($), sentPrompts($)])
-  const prompts = [...typed, ...sent].sort((a, b) => b.timestamp - a.timestamp).filter(prompt => !isCommand(prompt)).slice(0, MAX_PROMPTS).reverse()
+  const own = [...typed, ...sent.filter(one => 'sent' in one)].filter(prompt => !isCommand(prompt))
+  if (fromPeer) {
+    // With prompts of its own, a session's peer messages are reports back, not its work.
+    if (own.length) return
+    seq = ++overviewSeq
+  }
+  const prompts = (own.length ? own : sent.filter(prompt => !isCommand(prompt))).sort((a, b) => b.timestamp - a.timestamp).slice(0, MAX_PROMPTS).reverse()
   if (!prompts.length) {
     overviewStale = true
     // Checked when it fires: a newer read or /clear in the wait ends this chain.
-    if (retries > 0) $.clock.after(500, () => seq === overviewSeq && readOverview($, retries - 1))
+    if (retries > 0) $.clock.after(500, () => seq === overviewSeq && readOverview($, retries - 1, fromPeer))
     return
   }
   await update($, overview, now => ({ ...now, running: true }))
@@ -501,17 +509,19 @@ const pastPrompts = async ($: EngineInterface): Promise<Prompt[]> => {
   return prompts.reverse()
 }
 
-// A mod's prompt sent as the user (primer's handoff) is in the chat file only: history keeps typed prompts.
-// -a: as in pastPrompts.
-const sentPrompts = async ($: EngineInterface): Promise<(Prompt & { sent: true })[]> => {
+// A mod's prompt sent as the user (primer's handoff) and a peer session's message are in the chat file only:
+// history keeps typed prompts. -a: as in pastPrompts.
+const sentPrompts = async ($: EngineInterface): Promise<(Prompt & ({ sent: true } | { peer: true }))[]> => {
   const path = await chatPath($).catch(() => '')
   if (!path) return []
-  const { stdout } = await $.process.run(['grep', '-a', '-F', '--', '"asUser":true', path]).catch(() => ({ stdout: '' }))
-  return stdout.split('\n').flatMap(line => {
+  const { stdout } = await $.process.run(['grep', '-a', '-F', '-e', '"asUser":true', '-e', '"kind":"peer"', '--', path]).catch(() => ({ stdout: '' }))
+  return stdout.split('\n').flatMap((line): (Prompt & ({ sent: true } | { peer: true }))[] => {
     try {
       const row = JSON.parse(line)
       const content = row.message?.content
       const timestamp = Date.parse(row.timestamp)
+      // A peer message's body is its text without the wrapper the engine adds; senderTaskId marks a subagent's report.
+      if (row.type === 'user' && row.origin?.kind === 'peer') return typeof row.origin.body === 'string' && !row.origin.senderTaskId && Number.isFinite(timestamp) ? [{ display: row.origin.body, timestamp, peer: true as const }] : []
       if (row.type !== 'user' || row.isMeta || row.origin?.asUser !== true || typeof content !== 'string' || !Number.isFinite(timestamp)) return []
       // primer puts the user's ask after a note of 4000+ characters: first, it survives SENT_CAP.
       const [note, ask] = content.split(HANDOFF_ASK)
@@ -1213,6 +1223,9 @@ export const register: Register = (on, options) => {
         !isIntentOn ? (isAnswered(now) ? EMPTY_INTENT : now)
         : isAnswered(now) ? { ...now, ended: false, waiting: true } : !now.wants ? { ...EMPTY_INTENT, waiting: true } : { ...now, agents: undefined },
       )
+    } else if (e.origin.kind === 'peer') {
+      // Another session's message comes in as meta, but it is this session's task.
+      $.clock.after(0, () => readOverview($, 10, true))
     }
 
     return result

@@ -3162,7 +3162,7 @@ const overviewHosts = (on: Parameters<TestBody>[1], reply: (n: number) => unknow
   // projects/ as a link, as a second config dir sharing one has it: find without -H skips it.
   const found = (argv: readonly string[]) => (argv.includes('-H') ? `${chatFile}\n` : '')
   on('process.run', (_, e) =>
-    ran(isHistoryGrep(e.argv) ? lines.join('\n') : e.argv[0] === 'find' ? found(e.argv) : e.argv.at(-1) === chatFile && e.argv.includes('"asUser":true') ? sent.join('\n') : ''),
+    ran(isHistoryGrep(e.argv) ? lines.join('\n') : e.argv[0] === 'find' ? found(e.argv) : e.argv.at(-1) === chatFile && e.argv.includes('"asUser":true') && e.argv.includes('"kind":"peer"') ? sent.join('\n') : ''),
   )
   const pane = { isOpen: true }
   on('ui.panes', () => ({ value: pane.isOpen ? [{ id: 'margin', isPlaced }] : [] }) as any)
@@ -3376,6 +3376,55 @@ test('TOPICS rereads a submitted prompt that reaches the chat file late', async 
   await clock.settle()
   expect(asks).toHaveLength(1)
   expect(asks[0]!.prompt).toContain('- add a dark theme')
+})
+
+// A session another session drives holds no typed prompt: its tasks come in as peer messages.
+test('TOPICS reads a peer message by its body', async ($, on) => {
+  const sent: string[] = []
+  const { clock, asks } = overviewHosts(on, undefined, [], true, sent)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await ui.press({ key: 'Overview' })
+  const origin = { kind: 'peer', name: 'claudzilla-0a', body: 'carry out the guide plan' }
+  await $.prompt.submit({ text: 'Another Claude session sent a message: carry out the guide plan', wait: false, isMeta: true, origin } as any)
+  await clock.advance(10)
+  expect(asks).toHaveLength(0)
+  sent.push(JSON.stringify({ type: 'user', isMeta: true, origin, timestamp: '2026-11-22T07:10:52Z', message: { content: 'Another Claude session sent a message: carry out the guide plan' } }))
+  await clock.advance(1000)
+  await clock.settle()
+  expect(asks).toHaveLength(1)
+  expect(asks[0]!.prompt).toContain('- carry out the guide plan')
+  expect(asks[0]!.prompt).not.toContain('Another Claude session')
+})
+
+// A session with prompts of its own gets peer messages as reports back: they start no read and stay out of TOPICS.
+test('TOPICS skips peer messages in a session with its own prompts', async ($, on) => {
+  const peer = (body: string, extra = {}) => JSON.stringify({ type: 'user', isMeta: true, origin: { kind: 'peer', name: 'claudzilla-0a', body, ...extra }, timestamp: '2026-11-22T07:10:52Z', message: { content: body } })
+  const sent = [peer('please rebase onto release/1.9')]
+  const { clock, asks } = overviewHosts(on, undefined, ['add an intent tab'], true, sent)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  expect(asks).toHaveLength(1)
+  await $.prompt.submit({ text: 'done, PR #5 merged', wait: false, isMeta: true, origin: { kind: 'peer', name: 'claudzilla-0a', body: 'done, PR #5 merged' } } as any)
+  await clock.advance(1000)
+  await clock.settle()
+  expect(asks).toHaveLength(1)
+  expect(asks[0]!.prompt).not.toContain('rebase onto')
+})
+
+test('TOPICS skips a subagent report and cuts a long peer message as a typed prompt', async ($, on) => {
+  const peer = (body: string, extra = {}) => JSON.stringify({ type: 'user', isMeta: true, origin: { kind: 'peer', name: 'claudzilla-0a', body, ...extra }, timestamp: '2026-11-22T07:10:52Z', message: { content: body } })
+  const { clock, asks } = overviewHosts(on, undefined, [], true, [peer('group 1 report', { senderTaskId: 'a1' }), peer(`ship it ${'z'.repeat(500)}`)])
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  expect(asks).toHaveLength(1)
+  expect(asks[0]!.prompt).not.toContain('group 1 report')
+  expect(asks[0]!.prompt).toContain(`- ship it ${'z'.repeat(292)}`)
+  expect(asks[0]!.prompt).not.toContain('z'.repeat(293))
 })
 
 test('TOPICS reads a handoff through a symlinked projects folder', async ($, on) => {
