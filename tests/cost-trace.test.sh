@@ -113,10 +113,10 @@ check "index: deleted owner keeps its keys" [ "$(jx "const s = rl().sessions.get
 cp -r "$FX" "$TMP/fx3"; LOG="$TMP/ix3.jsonl"; FXD="$TMP/fx3"
 printf '{"type":"assi' >>"$TMP/fx3/projects/-proj-a/s-a.jsonl"; echo '{' >"$TMP/fx3/projects/-proj-a/s-a/subagents/agent-y.meta.json"
 check "index: torn file and bad meta exit 0" jx "m.index({ root: process.env.FX + '/projects', log })"
-echo '{"experimental":{"agentRouting":true}}' >"$CLAUDE_CONFIG_DIR/claudzilla.json"
+echo '{"experimental":{"steward":true}}' >"$CLAUDE_CONFIG_DIR/claudzilla.json"
 check "index: no projects folder" bash -c "node '$SCRIPT' && ! test -e '$CLAUDE_CONFIG_DIR/claudzilla-cost.jsonl'"
 mkdir -p "$TMP/my cfg"; cp -r "$FX/projects" "$TMP/my cfg/projects"
-echo '{"experimental":{"agentRouting":true}}' >"$TMP/my cfg/claudzilla.json"; CLAUDE_CONFIG_DIR="$TMP/my cfg" node "$SCRIPT"
+echo '{"experimental":{"steward":true}}' >"$TMP/my cfg/claudzilla.json"; CLAUDE_CONFIG_DIR="$TMP/my cfg" node "$SCRIPT"
 check "index: CLAUDE_CONFIG_DIR with a space" [ -s "$TMP/my cfg/claudzilla-cost.jsonl" ]
 cp -r "$FX" "$TMP/fx5"; FXD="$TMP/fx5"; LOG="$TMP/ix5.jsonl"
 jx "m.index({ root: process.env.FX + '/projects', log })" >/dev/null
@@ -129,7 +129,7 @@ check "index: rewritten log has mode 600" [ "$(node -e 'console.log((require("fs
 check "index: rewrite leaves no temp file" [ "$(ls "$TMP" | grep -c '^ix5.jsonl\.')" = 0 ]
 check "readLog: ids flattened, later row wins, torn line skipped" [ "$(js "const f = '$TMP/rl.jsonl'; fs.writeFileSync(f, [{kind:'ids',keys:[{key:'m1',usd:1},{key:'m2',usd:5}]},{kind:'ids',keys:[{key:'m1',usd:2}]},{kind:'session',project:'p',run:7,n:1},{kind:'session',project:'p',run:7,n:2},{kind:'session',project:'q',run:7,n:3}].map(x => JSON.stringify(x)).join('\n') + '\n{\"kind\":\"ids\",\"ke'); const r = m.readLog(f); out([r.ids.get('m1').usd, r.ids.get('m2').usd, r.sessions.get('p/7').n, r.sessions.get('q/7').n])" 2>&1 | tail -1)" = '[2,5,2,3]' ]
 mkdir -p "$TMP/par"; cp -r "$FX/projects" "$TMP/par/projects"
-echo '{"experimental":{"agentRouting":true}}' >"$TMP/par/claudzilla.json"; for i in 1 2; do CLAUDE_CONFIG_DIR="$TMP/par" node "$SCRIPT" & done; wait
+echo '{"experimental":{"steward":true}}' >"$TMP/par/claudzilla.json"; for i in 1 2; do CLAUDE_CONFIG_DIR="$TMP/par" node "$SCRIPT" & done; wait
 check "index: two parallel runs leave a readable log" [ "$(LOG="$TMP/par/claudzilla-cost.jsonl" FX="$FX" js "out(m.readLog(process.env.LOG).sessions.size >= 1)")" = true ]
 
 # Report. State: fresh copy, s-d stripped of its cost-state (file run, running), s-live closed (stage 2 lines),
@@ -200,12 +200,12 @@ check "index: unchanged file of another run is not re-read" [ "$(ICD="$IC" js "$
 
 # --- gate ---
 gate() { local d; d=$(mktemp -d -p "$TMP"); cp -r "$FX/projects" "$d/projects"; [ -n "${1:-}" ] && printf '%s' "$1" > "$d/claudzilla.json"; GOUT=$(CLAUDE_CONFIG_DIR="$d" node "$SCRIPT" </dev/null); GRC=$?; GLOG="$d/claudzilla-cost.jsonl"; GDIR="$d"; }
-gate '{"experimental":{"agentRouting":false}}'; check "gate off: no output, no log" [ "$GOUT|$GRC|$(ls "$GLOG" 2>/dev/null)" = "|0|" ]
+gate '{"experimental":{"steward":false}}'; check "gate off: no output, no log" [ "$GOUT|$GRC|$(ls "$GLOG" 2>/dev/null)" = "|0|" ]
 gate; check "gate on by default: indexes" [ "$GOUT|$(ls "$GLOG" 2>/dev/null)" = "|$GLOG" ]
-gate '{"experimental":{"agentRouting":true}}'; check "gate on: indexes" [ "$GOUT|$(ls "$GLOG" 2>/dev/null)" = "|$GLOG" ]
-gate '{"experimental":{"agentRouting":"false"}}'; check "gate off needs exact false: string" [ -e "$GLOG" ]
-gate '{"experimental":{"agentRouting":0}}'; check "gate off needs exact false: number" [ -e "$GLOG" ]
-gate '{"experimental":{"agentRouting":false}}'; CLAUDE_CONFIG_DIR="$GDIR" node "$SCRIPT" report all >/dev/null; check "report ignores the gate" [ -e "$GLOG" ]
+gate '{"experimental":{"steward":true}}'; check "gate on: indexes" [ "$GOUT|$(ls "$GLOG" 2>/dev/null)" = "|$GLOG" ]
+gate '{"experimental":{"steward":"false"}}'; check "gate off needs exact false: string" [ -e "$GLOG" ]
+gate '{"experimental":{"steward":0}}'; check "gate off needs exact false: number" [ -e "$GLOG" ]
+gate '{"experimental":{"steward":false}}'; CLAUDE_CONFIG_DIR="$GDIR" node "$SCRIPT" report all >/dev/null; check "report ignores the gate" [ -e "$GLOG" ]
 check "settings: own entry at index 1, async" [ "$(node -p 'const e=require(process.argv[1]).hooks.SessionStart;[e[1].matcher, e[1].hooks[0].command.includes("cost-trace.mjs"), e[1].hooks[0].async]' "$REPO/settings.base.json")" = '[ undefined, true, true ]' ]
 check "settings: trace entry unchanged" [ "$(node -p 'require(process.argv[1]).hooks.SessionStart[0].hooks[0].command.includes("--session-start")' "$REPO/settings.base.json")" = true ]
 

@@ -35,10 +35,10 @@ check "hook: two on, alphabetical, blank line between" [ "$(node "$SCRIPT" | ctx
 fresh; conf '{"experimental":{"alpha":"true","beta":1}}'
 check "hook: non-true values are off" [ -z "$(node "$SCRIPT")" ]
 
-dflt() { fresh; printf '# Routed\n\nDefault-on feature.\n\nRouted body.\n' >"$FEAT/agentRouting.md"; [ -n "${1:-}" ] && conf "$1"; node "$SCRIPT" | ctx; }
+dflt() { fresh; printf '# Routed\n\nDefault-on feature.\n\nRouted body.\n' >"$FEAT/steward.md"; [ -n "${1:-}" ] && conf "$1"; node "$SCRIPT" | ctx; }
 check "hook: default-on feature is on with no config" [ "$(dflt)" = $'# Routed\n\nDefault-on feature.\n\nRouted body.' ]
-check "hook: false turns a default-on feature off" [ -z "$(dflt '{"experimental":{"agentRouting":false}}')" ]
-check "hook: non-false value keeps a default-on feature on" [ -n "$(dflt '{"experimental":{"agentRouting":"false"}}')" ]
+check "hook: false turns a default-on feature off" [ -z "$(dflt '{"experimental":{"steward":false}}')" ]
+check "hook: non-false value keeps a default-on feature on" [ -n "$(dflt '{"experimental":{"steward":"false"}}')" ]
 
 fresh; conf '{'
 out=$(node "$SCRIPT"); rc=$?
@@ -142,7 +142,7 @@ check "set then hook" grep -qF 'Alpha body.' <(node "$SCRIPT" | ctx)
 LIMIT=10000
 RF="$REPO/claude/experimental"
 fresh; rm -rf "$TMP/rcfg"; mkdir -p "$TMP/rcfg"
-check "repo: agentRouting listed and on by default" [ "$(has "$(CLAUDE_CONFIG_DIR="$TMP/rcfg" node "$REPO/claude/hooks/experimental.mjs" --list)" '{"id":"agentRouting","description":"Picks, per task, whether to delegate to a subagent and at which model and effort.","on":true}')" = y ]
+check "repo: steward listed and on by default" [ "$(has "$(CLAUDE_CONFIG_DIR="$TMP/rcfg" node "$REPO/claude/hooks/experimental.mjs" --list)" '{"id":"steward","description":"Picks, per task, whether to delegate to a subagent and at which model and effort.","on":true}')" = y ]
 all_under_limit() {
   local d="$TMP/allcfg" ids
   rm -rf "$d"; mkdir -p "$d"
@@ -152,16 +152,16 @@ all_under_limit() {
 }
 titled() { local f n=0; for f in "$RF"/*.md; do [ -f "$f" ] || return 1; [[ "$(head -n 1 "$f")" == "# "* ]] || return 1; n=1; done; [ $n -eq 1 ]; }
 valid_names() { [ -d "$RF" ] && [ -n "$(ls "$RF")" ] && [ -z "$(ls "$RF" | grep -Ev '^[a-z][A-Za-z0-9]*\.md$')" ]; }
-AR="$RF/agentRouting.md"
+AR="$RF/steward.md"
 no_machine_parts() { [ -f "$AR" ] && ! grep -Eq 'effort-eval-results|\$[0-9]|20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]|nested|1 or 2 searches' "$AR"; }
 names_fallback() { grep -qF '`atlas`' "$AR" && grep -qF 'Explore' "$AR"; }
 has_authority() { grep -qF 'counts as the user asking' "$AR" && grep -qF 'authorize setting `effort`' "$AR"; }
 check "repo: all features together under the size limit" all_under_limit
 check "repo: every feature starts with a title line" titled
 check "repo: every feature file name is a valid id" valid_names
-check "agentRouting: no machine-only parts" no_machine_parts
-check "agentRouting: names the fallback" names_fallback
-check "agentRouting: carries the authority lines" has_authority
-check "agentRouting: carries the naming rule" grep -qF 'kebab case' "$AR"
+check "steward feature: no machine-only parts" no_machine_parts
+check "steward feature: names the fallback" names_fallback
+check "steward feature: carries the authority lines" has_authority
+check "steward feature: carries the naming rule" grep -qF 'kebab case' "$AR"
 
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

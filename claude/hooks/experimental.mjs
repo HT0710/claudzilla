@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(realpathSync(fileURLToPath(import.meta.url)));
 const DIR = join(HERE, "..", "experimental");
 const ID = /^[a-z][A-Za-z0-9]*$/;
-const DEFAULT_ON = new Set(["agentRouting"]);
+const DEFAULT_ON = new Set(["steward"]);
 
 export function enabled() {
   try {
