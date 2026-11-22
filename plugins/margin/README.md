@@ -2,11 +2,11 @@
 
 A side pane that opens on its Overview tab, at session start as the last session left it (open the first time; under 144 columns it waits for room, 110 once you have opened it yourself; a tab key shows it at any width); the History tab lists this chat's prompts, newest first. A narrow rail of four icons runs down the pane's right edge: Overview, History, Explorer and Git. Hover it to widen it and show each tab's name. A Guide button at the foot of the rail opens primer's Guide pane at its start, or keeps its place if it is already open. A Worlds button under it opens the pane on the `lore` topic and hides first when the pane is short. Without primer, both show a toast.
 
-<img src="../../.github/assets/overview.gif" alt="The Overview tab during a fix: planning, then ASK, TAKE and steps that tick off one by one until done" width="720">
+<img src="../../.github/assets/overview.gif" alt="The Overview tab during a fix: sketching a route, then ASK, TAKE and steps that tick off one by one until done" width="720">
 
 *2× speed. Each step report is a short tool call; while the Overview tab shows, an Opus request at low effort after each prompt sorts topics.*
 
-<img src="../../.github/assets/git.png" alt="The Git tab: master with one changed file under CHANGES and one commit under COMMITS" width="720">
+<img src="../../.github/assets/git.png" alt="The Git tab: master with one changed file under CHANGES and one commit under COMMITS" width="523">
 
 - **Click a prompt:** the chat scrolls to it.
 - **`↻`:** puts the prompt back in the prompt box.
