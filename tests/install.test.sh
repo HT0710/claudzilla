@@ -931,6 +931,12 @@ H=$(new_home); seedbase "$H"; echo '{"hud":{"compact":true}}' > "$H/.claude/clau
 check "migrate: hud.compact true -> layout compact" [ "$(q "$H/.claude/claudzilla.json" .hud)" = '{"layout":"compact"}' ]
 H=$(new_home); seedbase "$H"; echo '{"hud":{"compact":false}}' > "$H/.claude/claudzilla.json"; inst "$H"
 check "migrate: hud.compact false dropped" [ "$(q "$H/.claude/claudzilla.json" .hud)" = '{}' ]
+H=$(new_home); seedbase "$H"; echo '{"experimental":{"agentRouting":false}}' > "$H/.claude/claudzilla.json"; inst "$H"
+check "migrate: agentRouting false -> steward false" [ "$(q "$H/.claude/claudzilla.json" .experimental)" = '{"steward":false}' ]
+H=$(new_home); seedbase "$H"; echo '{"experimental":{"agentRouting":true}}' > "$H/.claude/claudzilla.json"; inst "$H"
+check "migrate: agentRouting true dropped" [ "$(q "$H/.claude/claudzilla.json" .experimental)" = '{}' ]
+H=$(new_home); seedbase "$H"; echo '{"experimental":{"agentRouting":false,"steward":true}}' > "$H/.claude/claudzilla.json"; inst "$H"
+check "migrate: steward kept over agentRouting" [ "$(q "$H/.claude/claudzilla.json" .experimental)" = '{"steward":true}' ]
 H=$(new_home); seedbase "$H"; echo '{bad' | tee "$H/c0" > "$H/.claude/claudzilla.json"; inst "$H"; rc=$?
 check "rename: bad claudzilla.json untouched" bash -c "[ $rc -eq 0 ] && cmp -s '$H/c0' '$H/.claude/claudzilla.json'"
 H=$(new_home); seedbase "$H"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+h":"command:panel"}}]}' > "$H/.claude/keybindings.json"; inst "$H"
