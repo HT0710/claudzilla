@@ -280,15 +280,11 @@ function compactMsg(tokens, t, path) {
   const [label, when] = tokens >= 4 * t
     ? ["recommend", "any reply that is not mid-task, Q&A included"]
     : [tokens >= 2 * t ? "suggest" : "optional", "a reply that finishes a plan task (execute phase), a subtask (todo step, agreed item) or a big piece of work; never mid-task, not on a Q&A or small-tweak reply"];
-  return `Context ${k} tokens, re-sent every turn. Remind about compacting only on ${when}, and only if the next step (from your **Next:**, or nothing pending) won't need the older turns word for word. Add one line, right before **Next:**, or at the end when there is no **Next:**; even on a short reply. Next step needs decisions settled earlier → this line:
-**Compact — ${label}:** \`${k}\` tokens re-sent every turn; <what finished, a few words>. Run \`/claudzilla compact\`.
-
-Same work continues and the next step needs only the last few turns, a plan file or committed work, not decisions settled earlier → this line instead (\`/claudzilla handoff\` writes a note with no model call; compact re-reads all \`${k}\`):
-**Compact — ${label}:** \`${k}\` tokens re-sent every turn; <what finished, a few words>; next step needs only the last turns, plan or commits. Run \`/claudzilla handoff\`.
-
-A big piece of work finished and the next step is unrelated → this line instead (\`/clear\` is free):
-**Compact — ${label}:** \`${k}\` tokens re-sent every turn; <what finished, a few words>; nothing carries over. Run \`/clear\`.
-Fill <...> with facts from this session, not guesses. Condition not met → don't mention compacting.`;
+  return `Context ${k} tokens, re-sent every turn. Remind about compacting only on ${when}, and only if the next step (from your **Next:**, or nothing pending) won't need the older turns word for word. Add one line, right before **Next:**, or at the end when there is no **Next:**; even on a short reply. Put it on its own line, not in a bullet, quote or code span. It starts with **Compact — ${label}:** and ends with Run and the command in backticks, such as Run \`/clear\`. Between them, write one short sentence in your own words: the \`${k}\` tokens re-sent every turn, what finished, and why the command fits. Use facts from this session, not guesses. Pick the command:
+- \`/claudzilla compact\`: the next step needs decisions settled earlier.
+- \`/claudzilla handoff\`: the same work continues and the next step needs only the last few turns, a plan file or committed work. It writes a note with no model call; compact re-reads all \`${k}\`.
+- \`/clear\`: a big piece of work finished and the next step is unrelated. It is free.
+Condition not met → don't mention compacting.`;
 }
 
 function onPrompt(d) {

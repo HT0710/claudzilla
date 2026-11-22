@@ -70,13 +70,15 @@ cn() { new_session; hook UserPromptSubmit prompt=next "transcript_path=$1"; }
 : > "$TX"; usage "$TX" 50000 49000
 check "compact: below threshold silent" [ -z "$(cn "$TX")" ]
 : > "$TX"; usage "$TX" 60000 100000; out=$(cn "$TX")
-check "compact: tier 1 optional line" has "$out" '**Compact — optional:** `~160k` tokens re-sent every turn;'
+check "compact: tier 1 optional line" has "$out" 'It starts with **Compact — optional:** and ends with Run and the command in backticks'
+check "compact: own line, no bullet" has "$out" 'on its own line, not in a bullet, quote or code span'
+check "compact: own words, size given" has "$out" 'in your own words: the `~160k` tokens re-sent every turn'
 check "compact: one line, no heading" [ "$(grep -c '## Compact' <<<"$out")" = 0 ]
 check "compact: no draft" [ "$(grep -c 'Keep:' <<<"$out")" = 0 ]
-check "compact: points to the command" has "$out" 'Run `/claudzilla compact`.'
-check "compact: handoff when recent turns suffice" has "$out" '<what finished, a few words>; next step needs only the last turns, plan or commits. Run `/claudzilla handoff`.'
-check "compact: clear for unrelated work" has "$out" '<what finished, a few words>; nothing carries over. Run `/clear`.'
-check "compact: reason is a few words" has "$out" '`~160k` tokens re-sent every turn; <what finished, a few words>. Run `/claudzilla compact`.'
+check "compact: compact when decisions carry over" has "$out" '- `/claudzilla compact`: the next step needs decisions settled earlier.'
+check "compact: handoff when recent turns suffice" has "$out" '- `/claudzilla handoff`: the same work continues and the next step needs only the last few turns'
+check "compact: clear for unrelated work" has "$out" '- `/clear`: a big piece of work finished and the next step is unrelated.'
+check "compact: no fixed template" [ "$(grep -c '<what finished' <<<"$out")" = 0 ]
 check "compact: no why clause on screen" [ "$(grep -c "why the next step" <<<"$out")" = 0 ]
 check "compact: before Next or at end" has "$out" "right before **Next:**, or at the end when there is no **Next:**"
 check "compact: even on a short reply" has "$out" "even on a short reply"
