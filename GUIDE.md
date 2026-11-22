@@ -805,12 +805,151 @@ On its back, creatures soon moved in. They live in three places:
 - **The court:** herald brings the news, ballot counts your vote, and steward decides who goes where.
 - **The road:** atlas scouts the code and comes back with a map.
 
-Each release is a chapter in the story:
-
-- **v1.7, Many Branches:** the margin grew a Git tab and learned to read your branch.
-- **v1.8, The Herald's Horn:** herald began crying new releases every 15 minutes.
-- **v1.9, The Steward Wakes:** steward woke and took charge of the subagents.
+Each release is a chapter in the story, and the *Chronicle* tells them all (`/claudzilla chronicle`).
 
 Rare beasts roam here too. When steward sends out a subagent, about one in ten gets a name that nods to a famous figure, such as `sisyphus-the-retrier` for a retry. Spot one while Claude works, and you have seen something few have.
 
 New creatures arrive with each release. Each one takes a name from the print shop or the court, and its entry goes in the *Bestiary* (`/claudzilla bestiary`).
+
+### Chronicle
+<!-- topic: chronicle -->
+
+Every release leaves a chapter in claudzilla's story. Each one is told as it happened: a problem met in the wild, the choice the tamer made, and the paths left untaken. The oldest comes first.
+
+#### v1.0, The First Howl
+
+The first claudzilla stepped out of the terminal with five creatures on its back, and two of them led the way.
+
+One, then called update-toast and now herald, cried the news. The other, then called picks and now ballot, held out a card of choices.
+
+The beast needed reins. Rules read once at session start slipped away mid-session, so the tamer made the rules-guard: a hook that stops a bad move, or reminds Claude of the rule, as it happens.
+
+Each rule got its own strength, `deny`, `remind` or `off`, set in layered `claudzilla.json` files instead of being carved in stone.
+
+A public default of `dontAsk` would have let the beast quietly refuse tool calls for anyone who started a plain `claude`. The tamer turned it down, so claudzilla asks first.
+
+Settings brought a quieter trouble. Claude Code rewrote `settings.json` with its keys in a new order, and the old merge, which compared raw JSON, laid every hook down twice. Now a three-way merge remembers what it last laid down.
+
+The rules for pull requests loaded into every session, though they matter only when a PR opens. They moved into a `pr` skill that wakes only when Claude opens or edits one.
+
+#### v1.1, One Look Decides
+
+The card learned to hold back. A card with a lone `go` row asked for a press that meant nothing, because the dim suggestion already said it.
+
+Now the card shows only for a real choice, with two or more options.
+
+A pressed answer once went straight to Claude through `$.prompt.submit`. That path skipped the prompt box's own submit, so the old dim suggestion came back to haunt the next reply.
+
+The card now fills the box, and your Enter sends it.
+
+#### v1.2, Two Heads, One Go
+
+With a Picks line, the suggestion used to drop what `go` starts, so history read "1A, 2A" and nothing more. Now it reads like `1A, 2A, then X`: two heads, one `go`.
+
+The `go: ` prefix fell away, because it repeated in history and Tab on the suggestion already saves the typing. Replies that end with `say "push" and I'll X` now get a suggestion too.
+
+#### v1.3, Called by Name
+
+The panel, now margin, began opening on the Overview, where Claude reports its own plan. Getting Claude to answer that call took three tries.
+
+First the rule sat in a mod's `prompt.compose`, which the guard skips, so the Overview showed only topics. The rule moved into the tool's own text.
+
+In long chats it still faded, with 4 reports in 21 turns, so a one-line reminder now rides along with every prompt.
+
+A background agent set another trap. Its call ended Claude's turn, and the panel marked every step done while the agent still worked. Now steps stay open until the agent comes back.
+
+The release bell changed twice in one season. Eight tags in about a day felt like noise, so releases moved to a weekly Monday bell.
+
+Then fixes sat waiting up to a week, and the weekly bell was turned down: now every push to `main` that changes code, such as a fix or a feature, releases.
+
+Updates stopped chasing the tip of `main`, which brought every merge to users within a day. claudzilla now follows the newest `v*` tag. Shallow clones carried no tags at all, so the first background fetch now digs them up.
+
+The stop nudge asked for the verify skill after every claim of done. A 14-day replay counted 546 nudges, and the skill caught 0 real bugs in 355 calls.
+
+Now the nudge speaks only when a work file changed and no command ran after it.
+
+#### v1.4, Mother of Parts
+
+claudzilla learned to bring its parts out one by one. Full brings them all, and Custom lets you pick.
+
+A third mode named "auto" was turned down, because the word already belonged to `autoUpdate` and to Claude Code's own auto mode.
+
+The keeper of this guide, then called guide and now primer, got a den of its own instead of crowding into the panel, now margin, whose code had already grown to 73.6K.
+
+It is always there, because someone who turned parts off needs help most.
+
+Bug reports used to arrive as words alone. Now every part leaves tracks in a local trace, and `/claudzilla report` turns them into a report.
+
+Sending the tracks off on their own through Sentry was chosen, then deferred, because company networks may block it.
+
+A report must not carry work secrets out of a company. With a company sign-in, the report comes back as copyable text, and nothing is filed for you.
+
+Leaving got kinder too. claudzilla keeps a record of what it brought, and when it goes, it takes only those things, never yours.
+
+#### v1.5, Doors in the Margin
+
+File names in replies turned into doors. The creature then called response-dividers, now folio, cut them.
+
+One click on a file Claude names opens it in the panel's new File tab, beside the chat, with the line marked. The panel is now margin.
+
+A fourth tab broke the bar. At 40 columns, four labels in one bar left too few columns each, so the tabs split into two bars by scope.
+
+Picks, now ballot, spoke in Claude's voice, sending lines like "show you the result" as if you had said them. Now its answers speak in yours.
+
+The compact reminder was a whole drafted section, and it showed on too many replies. It shrank to one line at the end of a reply that finishes a task.
+
+#### v1.6, Cards on the Table
+
+Code blocks became cards with a Run button. Filling `! cmd` into the prompt was turned down, because a mod cannot switch the prompt to shell mode, so every run cost a Claude turn.
+
+Now the first click arms Run, and the second runs the block.
+
+The cards stream output as it comes, a run can be stopped, and the buttons sit beside the block they act on.
+
+Then came the naming. Every creature took one distinct word from the print shop or the court: picks became ballot, attribution became byline, response-dividers became folio, update-toast became herald, panel became margin, and guide became primer.
+
+A new creature arrived to keep the peace. Two sessions sharing one clone could edit the same file unaware, so ledger pauses the first such edit and sends word to the other session.
+
+The guard used to flatly deny a force push or a discard, and you had to retype the command after `!`. Now it asks, and lists what you would lose, so you can say yes in place.
+
+One idea was left in the wild. A note for repeated identical Bash failures was dropped, because 30 days of transcripts, with 15,628 Bash calls, held no three identical failures in a row. Its name, `ditto`, waits for it.
+
+#### v1.7, Many Branches
+
+The margin grew a Git tab. Its top rows show the branch and the fetch, rebase and PR state at a glance, with detail one hover or press away.
+
+CHANGES and COMMITS lists followed, and then a list of worktrees.
+
+One hung worktree once froze the whole tab, and a failed status read as a clean tree. Now each worktree gets 5 seconds to answer, and one that fails or stays silent shows `? changed`.
+
+Big edits filled the chat with their full diffs. folio began folding each edit into one row with a file tree.
+
+ballot met a riddle. A reply recommended "A + B", but the card picks one row, so B dropped out. A combination now gets its own option row.
+
+#### v1.8, The Herald's Horn
+
+herald learned to blow its horn in open sessions. The update check ran only when a session started, so sessions left open never heard of a new release.
+
+Now herald checks every 15 minutes, and every open session hears the news.
+
+Rules could not be switched off, so new behaviour could not be tried without changing every user's sessions. Experiments arrived as `experimental.<id>` keys, all off by default.
+
+The first wild one was agent routing, now steward. Its rule text alone was missed in practice, so a hook came along: the third inline search in a turn with no Agent call is stopped.
+
+Plans written on Opus cost $5.45 to $9.35 each.
+
+With agent routing on, which in v1.8 was off by default, haiku writes the plan, Opus reviews it, and sonnet re-checks the fixes. In a one-spec trial, all of that cost $4.07 against $8.76.
+
+Tool calls each drew their own row, and read and search groups never folded. folio now folds every tool group onto a section rail. Changing the engine's own grouping was turned down, because no API allows it.
+
+#### v1.9, The Steward Wakes
+
+Steward woke. Agent routing took the name steward and now runs by default for everyone, though it is still marked experimental. Only an explicit `false` puts it back to sleep.
+
+Reviews found a cheaper watchman. On 4 past reviews with 11 known bugs, haiku with a second pass caught 9.5 of 11 for $0.21, where sonnet caught 6 for $0.87. Per-task reviews moved to haiku.
+
+The margin's two tab bars became one side rail. A setting to choose bars or rail was turned down, because it meant two layouts to draw and test, and nobody asked for it.
+
+Every subagent now gets a name, and margin and folio show it. A hook that refuses unnamed calls was turned down, because each refusal costs one more main-chat call, about $0.05.
+
+Instead, a hook fills in a name when Claude forgets.
