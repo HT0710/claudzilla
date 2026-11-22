@@ -68,7 +68,7 @@ These words come up in Claude Code and in this guide. Each one names a single id
 - Run `/context` to see what uses the space.
 - If you installed the status line, watch its `ctx` meter.
 
-*Manage context* (`/claudzilla context`) has more. Claude Code's [glossary](https://code.claude.com/docs/en/glossary) defines more terms. For the names claudzilla gives its own parts, such as `herald` or `atlas`, see [BESTIARY.md](https://github.com/HT0710/claudzilla/blob/main/BESTIARY.md).
+*Manage context* (`/claudzilla context`) has more. Claude Code's [glossary](https://code.claude.com/docs/en/glossary) defines more terms. For the names claudzilla gives its own parts, such as `herald` or `atlas`, see *Bestiary* (`/claudzilla bestiary`).
 
 ## Work with Claude
 
@@ -760,3 +760,57 @@ Headline features of recent versions. Restart Claude after an update to use them
 - **Short edit rows:** an Edit or Write call draws one row with its line counts, and a run of edits folds into one row. Click the row for a tree of the edited files and each diff. `{"folio": {"hideEditDiff": false}}` keeps the diffs in the chat.
 - **Compact status line:** `{"hud":{"layout":"compact"}}` in `~/.claude/claudzilla.json` draws the status line in 3 rows.
 - **Brainstorm on the ballot card:** when `brainstorming` has options for you, each question comes as a Decision, so one key answers it.
+
+## Worlds
+
+### Bestiary
+<!-- topic: bestiary -->
+
+Every part of claudzilla is a creature with a name. Most come from the print shop, such as folio and ledger, and a few are old court roles, such as herald and steward. Here is who lives where.
+
+#### Familiars (plugins)
+
+- **ballot:** a court clerk who waits by the prompt. After a reply with a Decision, it holds out a card of numbered options. Press a key, and it carries your vote back to Claude.
+- **byline:** a quiet scribe who sits at the end of every commit and PR. It scrubs Claude's session links and the "Generated with Claude Code" line before anyone reads them.
+- **folio:** a typesetter who lives in the chat. Before every reply it measures the page and sets the frame to fit, so not one line wraps, and it turns file paths into doors to the margin.
+- **herald:** a messenger who rides through the toasts. It cries the news: an update on its way, usage limits passing 50, 75 and 90%, and the moment to compact.
+- **ledger:** a record keeper who watches every live session. When another one touched a file in the last 30 minutes, it stops Claude's first edit there and sends word to that session.
+- **margin:** a chronicler who lives in the side pane. It writes down Claude's plan and your prompts, and keeps a file view and git close at hand.
+- **primer:** the keeper of this guide, who lives in the Guide tab beside the margin. Call it with `/claudzilla [topic]`, and it opens one page at a time.
+
+#### Scouts (agents)
+
+- **atlas:** a read-only scout on haiku who roams the code. Ask where X is defined, and it comes back with a `file:line` map. It never tells you how to fix what it finds.
+
+#### Wild ones (experiments)
+
+- **steward:** a court officer who stands behind every task. It decides which parts to send off to subagents, and on which model. Tamed in v1.9, it now runs by default.
+
+For each creature's full entry, and the rules for naming a new one, see [BESTIARY.md](https://github.com/HT0710/claudzilla/blob/main/BESTIARY.md).
+
+### Lore
+<!-- topic: lore -->
+
+Long ago, which in claudzilla time means a few releases back, Claude was a plain helper in a terminal. Then some grew big and wild: claudzilla, Claude plus "zilla", the old word for a beast too large to ignore.
+
+Wild claudzilla need taming, and only one tamer knows how: [HT0710](https://github.com/HT0710). The rulebook and the guard are the reins, and `go` is the word every claudzilla waits for.
+
+No two claudzilla are alike. When one comes to live in your `~/.claude`, it is yours to raise. It waits for your `go`, wears your colours (`/claudzilla customize`), and picks up your ways as you train it.
+
+Some say yours will one day learn your world, with your names and your stories.
+
+On its back, creatures soon moved in. They live in three places:
+
+- **The print shop:** folio, margin, ledger, byline and primer set the type, keep the records and mind this guide.
+- **The court:** herald brings the news, ballot counts your vote, and steward decides who goes where.
+- **The road:** atlas scouts the code and comes back with a map.
+
+Each release is a chapter in the story:
+
+- **v1.7, Many Branches:** the margin grew a Git tab and learned to read your branch.
+- **v1.8, The Herald's Horn:** herald began crying new releases every 15 minutes.
+- **v1.9, The Steward Wakes:** steward woke and took charge of the subagents.
+
+Rare beasts roam here too. When steward sends out a subagent, about one in ten gets a name that nods to a famous figure, such as `sisyphus-the-retrier` for a retry. Spot one while Claude works, and you have seen something few have.
+
+New creatures arrive with each release. Each one takes a name from the print shop or the court, and its entry goes in the *Bestiary* (`/claudzilla bestiary`).
