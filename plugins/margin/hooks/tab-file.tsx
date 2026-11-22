@@ -52,7 +52,8 @@ type State = {
   menuPinned: boolean
   // `lit`: the lit line find set, so a lit line from elsewhere outlives a find that leaves it.
   find?: { open: boolean; text: string; pending: boolean; result: FindResult; spans: Spans; current: number; lit?: { from: number; to: number } }
-  names?: { text: string; entries: NameEntry[]; rows: NameEntry[]; loading?: boolean; tree?: number }
+  // `lit`: the result Down and Up have lit, an index into `rows`.
+  names?: { text: string; entries: NameEntry[]; rows: NameEntry[]; loading?: boolean; tree?: number; lit?: number; follow?: boolean }
   toggles: { matchCase: boolean; word: boolean; regex: boolean }
   rev: number
   // The last atom rev the module state has taken.
@@ -253,6 +254,8 @@ export async function unpinMenu($: EngineInterface): Promise<boolean> {
 }
 
 // The drawn key of the name field.
+const NAME_UP = `${NAME}:up`
+const NAME_DOWN = `${NAME}:down`
 const nameKey = (): string => (nameGen ? `${NAME}:${nameGen}` : NAME)
 const findKey = (): string => (gen ? `${FIELD}:${gen}` : FIELD)
 
@@ -301,16 +304,30 @@ function typeName($: EngineInterface, text: string): void {
   else if (!text && state.names.text) state.top = state.names.tree
   state.names.text = text
   state.names.rows = filterNames(state.names.entries, text)
+  state.names.lit = undefined
   if (text) state.top = 0
   $.ui.invalidate('ui.render')
 }
 
-// Opens the top result, which ends the name search through the move.
+// Down and Up while the name field has results: a ring move toward a stand-in beside the field steps the lit
+// result instead, so the field keeps the keys. False for any other element.
+export async function stepName($: EngineInterface, element: string | undefined): Promise<boolean> {
+  const by = element === NAME_DOWN ? 1 : element === NAME_UP ? -1 : 0
+  if (!by || !state.names) return false
+  // No text: the tree shows, not the results, so nothing lights.
+  const lit = state.names.text ? Math.min((state.names.lit ?? -1) + by, state.names.rows.length - 1) : -1
+  state.names.lit = lit < 0 ? undefined : lit
+  state.names.follow = true
+  await update($, file, () => placeOf())
+  return true
+}
+
+// Opens the lit result, or the top one, which ends the name search through the move.
 async function submitName($: EngineInterface): Promise<void> {
   // Still listing: Enter would find nothing, so it waits for a press once rows are in.
   if (state.names?.loading) return
   nameGen++
-  const top = state.names?.rows[0]
+  const top = state.names?.rows[state.names.lit ?? 0]
   if (top) await openPlace($, { path: `${current(state.nav).path.replace(/\/$/, '')}/${top.path}`, kind: top.kind === 'dir' ? 'folder' : undefined })
   // No match: only a redraw puts the new key, and so the text, on screen.
   else $.ui.invalidate('ui.render')
@@ -575,17 +592,21 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       all = treeRows(place.path, state.expanded, state.listed)
     }
     const total = hits ? hits.length : all.length
+    const lit = hits ? state.names?.lit : undefined
+    // Only a step pulls the lit row into view, so the wheel and the bar still move the list.
+    if (lit !== undefined && state.names?.follow) state.top = Math.max(Math.min(state.top ?? 0, lit), lit - codeRows + 1)
+    if (state.names) state.names.follow = false
     state.top = Math.max(0, Math.min(state.top ?? 0, total - codeRows))
     const top = state.top
     if (!total) body = [<Text key="empty" color={HUD.faint}>{hits ? (state.names?.loading ? 'listing…' : 'no match') : 'empty'}</Text>]
     rowHover.acts = {}
     const Client = 'Client' in ctx.el ? ctx.el.Client : undefined
-    const put = (path: string, left: JSX.Element[], press: () => unknown) => {
+    const put = (path: string, left: JSX.Element[], press: () => unknown, lit = false) => {
       const key = `x:${fileKey(path)}`
       rowHover.acts[key] = press
       body.push(
         // Keyed, its own hover scope: unkeyed, it would light whenever the pointer is anywhere in the tree.
-        <Box key={key} flexDirection="column" height={1} hover={{ backgroundColor: LIT }}>
+        <Box key={key} flexDirection="column" height={1} hover={{ backgroundColor: LIT }} backgroundColor={lit ? LIT : undefined}>
           {Client ? (
             <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left: toPieces(left), right: [] }} />
           ) : (
@@ -596,7 +617,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
         </Box>,
       )
     }
-    for (const hit of hits?.slice(top, top + codeRows) ?? []) {
+    for (const [i, hit] of (hits?.slice(top, top + codeRows) ?? []).entries()) {
       const name = hit.path.slice(hit.path.lastIndexOf('/') + 1)
       const parent = hit.path.slice(0, Math.max(0, hit.path.length - name.length - 1))
       const icon = iconOf(name, hit.kind, { open: false, empty: false })
@@ -610,6 +631,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
           ...(parent ? [<Text color={HUD.faint}>{` ${printable(parent)}`}</Text>] : []),
         ],
         () => openPlace($, { path: `${place.path.replace(/\/$/, '')}/${hit.path}`, kind: hit.kind === 'dir' ? 'folder' : undefined }),
+        top + i === lit,
       )
     }
     for (const r of hits ? [] : all.slice(top, top + codeRows)) {
@@ -923,6 +945,9 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     </Box>
   )
   const editing = (state.find?.open && place.kind === 'file') || (state.names && place.kind === 'folder')
+  // The stand-ins beside the name field that Down and Up move the ring to, so stepName can catch them.
+  // Drawn as long as the field is: one drawn in later before the field drops the ring off it.
+  const stepping = !!state.names
   // A closed field reopens under the same key, so it seeds afresh.
   if (!editing) seeds.clear()
   // A field's room: the path's, plus the 3 cells of the search and menu buttons it hides.
@@ -956,7 +981,9 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
                 <Text>{nameL}</Text>
                 <Text color={HUD.faint}>{nameLabel}</Text>
                 <Box width={capWidth(state.names.text, 'open', ROOM - (state.names.text ? cellsOf(nameLabel) : 0))} flexShrink={0}>
+                  {stepping && <Button plain key={NAME_UP} onPress={() => undefined}><Text>{''}</Text></Button>}
                   <Input key={nameKey()} value={seedOf(nameKey(), state.names.text)} submitLabel="open" autoFocus onInput={v => typeName($, fitField($, v, ROOM - 9, state.names?.text ?? '', () => nameGen++))} onSubmit={() => submitName($)} />
+                  {stepping && <Button plain key={NAME_DOWN} onPress={() => undefined}><Text>{''}</Text></Button>}
                 </Box>
               </Box>
             ) : state.notice ? (
