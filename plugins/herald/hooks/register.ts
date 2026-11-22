@@ -185,7 +185,8 @@ export function lastReply(tail: string): { at: number; tokens: number } | undefi
 }
 
 async function tailOf($: EngineInterface, dir: string): Promise<string> {
-  const found = await $.process.run(['find', `${dir}/projects`, '-maxdepth', '2', '-name', `${await $.session.id()}.jsonl`])
+  // -H: projects/ may be a link (a second config dir sharing one), and find skips a linked start point without it.
+  const found = await $.process.run(['find', '-H', `${dir}/projects`, '-maxdepth', '2', '-name', `${await $.session.id()}.jsonl`])
   const path = found.stdout.split('\n')[0]
   // shortcut: the last 1 MB only; a newer main-chat line past that (one huge tool result) reads as no TTL, so no stage runs.
   return path ? (await $.process.run(['tail', '-c', '1000000', path])).stdout : ''
