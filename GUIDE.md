@@ -745,7 +745,7 @@ Headline features of recent versions. Restart Claude after an update to use them
 
 #### v1.9.0
 
-- **Steward on by default:** Claude now decides for each task whether to hand it to a subagent, and at which model and effort. Run `/claudzilla experimental steward off` to turn it off; an old `agentRouting` setting no longer applies. Scripts that run without the Agent tool should set `EVAL_ROUTING=off` (`/claudzilla labs`).
+- **Steward on by default:** Claude now decides for each task whether to hand it to a subagent, and at which model and effort. Run `/claudzilla experimental steward off` to turn it off; an old `agentRouting: false` carries over. Scripts that run without the Agent tool should set `EVAL_ROUTING=off` (`/claudzilla labs`).
 
 #### v1.8.0
 

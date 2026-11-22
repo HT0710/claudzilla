@@ -119,7 +119,7 @@ OLD_IDS="response-dividers:folio panel:margin picks:ballot guide:primer update-t
 renamed() { local r; for r in $RENAMED; do [ "${r%%:*}" != "$1" ] || { echo "${r#*:}"; return 0; }; done; echo "$1"; }
 
 # Old names in a saved choice would be dropped, or fail an only-list; never fatal: the update merged already.
-# shortcut: also maps pre-v1.9 hud.compact to hud.layout; drop with the part renames above.
+# shortcut: also maps pre-v1.9 hud.compact to hud.layout and experimental.agentRouting to steward; drop with the part renames above.
 migrate_choice() {
   node -e '
 const fs=require("fs"),[f,ren]=process.argv.slice(1),R=new Map(ren.split(" ").map(r=>r.split(":")));
@@ -127,6 +127,7 @@ let j;try{j=JSON.parse(fs.readFileSync(f,"utf8"))}catch{process.exit(0)}
 const ins=j&&typeof j=="object"&&!Array.isArray(j)?j.install:null;let hit=0;
 for(const k of ["only","skip"])if(Array.isArray(ins?.[k]))ins[k]=ins[k].map(p=>R.has(p)?(hit=1,R.get(p)):p);
 const hud=j?.hud;if(hud&&typeof hud=="object"&&"compact" in hud){if(hud.compact===true)hud.layout??="compact";delete hud.compact;hit=1}
+const ex=j?.experimental;if(ex&&typeof ex=="object"&&"agentRouting" in ex){if(ex.agentRouting===false)ex.steward??=false;delete ex.agentRouting;hit=1}
 if(hit){fs.writeFileSync(f+".claudzilla",JSON.stringify(j,null,2)+"\n");fs.renameSync(f+".claudzilla",f)}' "$DEST/claudzilla.json" "$RENAMED" 2>/dev/null || true
 }
 
