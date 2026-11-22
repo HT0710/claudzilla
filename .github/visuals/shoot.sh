@@ -128,11 +128,25 @@ shot_margin() {
   start "$DEMO" 130 42 && margin_want on || return 1
   frames "$d" 300 & f=$!
   sleep 1
-  say "make isValid accept the expiry second, run the test, then show git diff"
+  # A subagent in the turn: its row shows on the Overview and in folio's fold.
+  say "make isValid accept the expiry second. while you edit, have a subagent check that auth/token.test.js covers the boundary. then run the test and show git diff"
   wait_for '✓ done' 240; ok=$?
   sleep 2; touch "$d/stop"; wait "$f"
   [ "$ok" = 0 ] && has "$d" 'sketching a route…' && has "$d" '●' || return 1
   clip overview "$d" || return 1
+  # The same turn's chat side once its subagent is done: folio's rail, the fold and the named agent row.
+  local fr plain top end c
+  fr=$(for x in "$d"/*.ansi; do
+    plain=$(sed 's/\x1b\[[0-9;:]*m//g' "$x")
+    grep -qF '❯ make isValid' <<< "$plain" && grep -qE 'done +[a-z]+(-[a-z]+)+ \(' <<< "$plain" && echo "$x"
+  done | tail -1)
+  [ -n "$fr" ] || return 1
+  plain=$(sed 's/\x1b\[[0-9;:]*m//g' "$fr")
+  top=$(grep -nF '❯ make isValid' <<< "$plain" | head -1 | cut -d: -f1)
+  end=$(($(grep -n '^─\{20,\}' <<< "$plain" | head -1 | cut -d: -f1) - 2))
+  c=$(dock_col)
+  [ -n "$c" ] && [ "$end" -gt "$top" ] && sed -n "${top},${end}p" "$fr" > "$WORK/fold.ansi" &&
+    cols "$WORK/fold.ansi" 0 "$c" && still "$WORK/fold.ansi" "$A/fold.png" || return 1
 
   ask "where is the expiry check? cite it as file:line, no edits" 120 && sleep 2 || return 1
   at=$(locate 'auth/token.js:3' "$(dock_col)") || return 1
@@ -187,11 +201,11 @@ for y, l in enumerate(sys.stdin, 1):
 sys.exit(1)' "$1" "$2"
 }
 
-# cols ANSI FROM: drops each line's first FROM cells, keeping the colours and links set in them.
+# cols ANSI FROM [TO]: keeps each line's cells FROM to TO (to the end without TO), with the colours and links set before.
 cols() {
-  python3 -I - "$1" "$2" <<'EOF'
+  python3 -I - "$1" "$2" "${3:-100000}" <<'EOF'
 import re, sys, unicodedata
-path, cut = sys.argv[1], int(sys.argv[2])
+path, cut, to = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
 tok = re.compile(r'\x1b\[[0-9;:]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|.', re.S)
 out = []
 for line in open(path).read().split('\n'):
@@ -200,7 +214,7 @@ for line in open(path).read().split('\n'):
         if t.startswith('\x1b'):
             (kept if x >= cut else held).append(t)
             continue
-        if x >= cut:
+        if cut <= x < to:
             if held: kept, held = held + kept, []
             kept.append(t)
         x += 2 if unicodedata.east_asian_width(t) in 'WF' else 1
