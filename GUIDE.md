@@ -432,11 +432,11 @@ Every request to Claude uses *tokens*: the text it reads, writes and thinks. On 
 - If you installed the status line, its `5h` and `wk` meters show the same, with the time to each reset. See *The status line* (`/claudzilla hud`).
 - If you installed the `herald` part, a toast shows when the 5-hour or weekly limit passes 50%, 75% and 90%, such as `5-hour usage 77% · resets in 2h10m`. Each point shows once per limit window, even across sessions.
 - Run `/claudzilla cost` to see what this session cost. `/claudzilla cost <session-id>` reports one session.
-- Run `/claudzilla cost all --since <date>` for totals and per-group lines of the sessions started since that date, split by Agent routing on and off.
+- Run `/claudzilla cost all --since <date>` for totals and per-group lines of the sessions started since that date, split by Steward (agent routing) on and off.
 - The `all` report covers the current project by default. Add `--project all` for every project.
 - Every dollar amount is an API list price. A subscription is not billed per token, so your real bill differs.
 - The cost log keeps its rows after Claude Code deletes old transcripts.
-- The log fills automatically only while Agent routing is on. `/claudzilla cost` works for everyone and reads the transcripts it can find.
+- The log fills automatically only while Steward is on. `/claudzilla cost` works for everyone and reads the transcripts it can find.
 
 #### What uses more
 
@@ -666,7 +666,7 @@ An experimental feature is new behaviour that is off until you turn it on. It ma
 
 #### The features
 
-- **Agent routing** (`agentRouting`): Claude decides for each task whether to hand the work to a subagent. It picks the cheapest model and effort that does the job. Tracing code across files, such as following calls or imports, goes to a search subagent from the first step.
+- **Steward** (`agentRouting`): Claude decides for each task whether to hand the work to a subagent. It picks the cheapest model and effort that does the job. Tracing code across files, such as following calls or imports, goes to a search subagent from the first step.
   - **Search limit:** with the feature on, the third search in one turn without a subagent call is refused with a note to delegate. Reads of a known file and a grep inside one known file stay allowed. The limit starts or stops at the next tool call, while the rule text applies from the next session. Scripts that run without the Agent tool: set `EVAL_ROUTING=off`, or turn the feature off.
   - **Superpowers skills:** subagent-driven development and parallel agents use a fixed model and effort per role. Implementers run on Sonnet, and the final review and stuck fixes run on Opus.
   - **Reviews:** each task gets a Haiku review at high effort, a second pass that hunts for a missed bug, and a Haiku spec checker that ties each requirement to a line. Re-reviews after a fix run on Haiku too, and their brief names any fix to shared code so the reviewer checks its other callers.
@@ -726,7 +726,7 @@ Headline features of recent versions. Restart Claude after an update to use them
 - **Recolour claudzilla:** the `palette` key in `~/.claude/claudzilla.json` changes claudzilla's colours (`/claudzilla customize`).
 - **Git tab fetch:** while the Git tab shows, the margin fetches on its own every 15 minutes (`/claudzilla margin`).
 - **Wrap on code cards:** the `↩ Wrap` button on a code card wraps its long lines, or a shell card's output (`/claudzilla replies`).
-- **Experimental features:** try new behaviour before it becomes a rule, starting with Agent routing (`/claudzilla labs`).
+- **Experimental features:** try new behaviour before it becomes a rule, starting with Steward (`/claudzilla labs`).
 
 #### v1.7.0
 
