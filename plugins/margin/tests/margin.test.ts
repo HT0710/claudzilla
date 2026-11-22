@@ -3475,14 +3475,46 @@ test('TOPICS reads a handoff through a symlinked projects folder', async ($, on)
 })
 
 test('a failed TOPICS read keeps the topics and says why', async ($, on) => {
-  const { ui, clock } = await overviewPane($, on, n => (n === 1 ? { isAnswered: true, text: TOPICS, usage: {} } : { isAnswered: false, reason: 'api-error', usage: {} }))
+  const { ui, clock, asks } = await overviewPane($, on, n => (n === 1 ? { isAnswered: true, text: TOPICS, usage: {} } : { isAnswered: false, reason: 'api-error', usage: {} }))
   await ui.press({ key: 'Overview' })
   await clock.settle()
   await send($, 'next thing')
   await clock.settle()
   await ui.drawn()
+  // Only a timeout retries.
+  expect(asks).toHaveLength(2)
   expect(await ui.find({ type: 'Text', text: 'update failed' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'shipping the branch' })).toBeDefined()
+})
+
+test('a timed-out TOPICS read retries once', async ($, on) => {
+  const aborted = { isAnswered: false, reason: 'aborted', usage: {} }
+  const { ui, clock, asks } = await overviewPane($, on, n => (n === 1 ? aborted : { isAnswered: true, text: TOPICS, usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  await ui.drawn()
+  expect(asks).toHaveLength(2)
+  expect(await ui.find({ type: 'Text', text: 'shipping the branch' })).toBeDefined()
+})
+
+test('a TOPICS read that times out twice stops', async ($, on) => {
+  const { ui, clock, asks } = await overviewPane($, on, () => ({ isAnswered: false, reason: 'aborted', usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  expect(asks).toHaveLength(2)
+})
+
+test('a timed-out TOPICS read that a newer read replaced does not retry', async ($, on) => {
+  let abort: (value: unknown) => void = () => undefined
+  const { ui, clock, asks } = await overviewPane($, on, n => (n === 1 ? new Promise(resolve => (abort = resolve)) : { isAnswered: true, text: TOPICS, usage: {} }))
+  await ui.press({ key: 'Overview' })
+  await clock.advance(0)
+  await send($, 'next thing')
+  await clock.settle()
+  expect(asks).toHaveLength(2)
+  abort({ isAnswered: false, reason: 'aborted', usage: {} })
+  await clock.settle()
+  expect(asks).toHaveLength(2)
 })
 
 test('the first topics read holds SESSION and TOPIC rows with faint words', async ($, on) => {
