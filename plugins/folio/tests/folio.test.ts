@@ -3343,3 +3343,37 @@ test('a tool another plugin hides counts for nothing in a group', async ($, on) 
   native(on)
   expect(await groupOf($, [call('p1', 'mcp__primer__compact_draft', {}), call('r1', 'Read', { file_path: '/p/a.txt' })])).toBe('◼ Read (1 file)')
 })
+
+const hiddenCall = () => call('p1', 'mcp__primer__compact_draft', {})
+
+test('a hidden tool row between two edits does not split their run', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
+  await mountRow($, 'mcp__primer__compact_draft', {}, {}, '/p/a.txt', 'p1')
+  await mountRow($, 'Edit', patch('+c'), {}, '/p/b.txt', 'e2')
+  expect(await textOf(first, 'e1')).toBe('◼ Edited (2 files)  +2')
+})
+
+test('a hidden tool row takes no place: the agent row before it keeps its corner', async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  await said($, 'a1')
+  const agent = await mountRow($, 'Agent', agentDone, { input: { description: 'Slow task' } }, '/p/a.txt', 'g1')
+  await mountRow($, 'mcp__primer__compact_draft', {}, {}, '/p/a.txt', 'p1')
+  expect(await rail(agent, /^╰─$/)).toBe(1)
+})
+
+test('a group led by a hidden tool still owns the fold of what follows', async ($, on) => {
+  native(on)
+  const grp = await mountGroup($, 'c1', [hiddenCall(), call('r1', 'Read', { file_path: '/p/a.txt' })])
+  await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
+  expect(await textOf(grp, 'c1')).toBe('◼ Read (1 file) · Edited (1 file)  +1')
+})
+
+test('a group led by a hidden tool between two edits joins their run', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
+  await mountGroup($, 'c1', [hiddenCall(), call('r1', 'Read', { file_path: '/p/a.txt' })])
+  await mountRow($, 'Edit', patch('+c'), {}, '/p/b.txt', 'e2')
+  expect(await textOf(first, 'e1')).toBe('◼ Edited (2 files) · Read (1 file)  +2')
+})

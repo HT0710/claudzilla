@@ -1018,7 +1018,7 @@ export const register: Register = on => {
     if (!('Client' in elements)) return native
     const root = await $.session.root().catch(() => '')
     const columns = e.viewport.columns ?? 80
-    const known = calls.filter(c => c.tool_use_id)
+    const known = calls.filter(c => c.tool_use_id && !HIDDEN_TOOLS.has(c.tool))
     // After a reload folio holds no record: the engine's diff gives the counts.
     for (const c of known) {
       if (c.tool === 'Bash' && !c.isRunning && !c.isInterrupted) adopt(c.tool_use_id!, c.output, String((c.input as { command?: unknown } | undefined)?.command ?? ''))
@@ -1181,8 +1181,8 @@ export const register: Register = on => {
     if (lastRow && corners.has(lastRow) && frameOf(lastRow)?.n === section.n) redraw()
   }
   const place = (redraw: () => void, e: any) => {
-    const isHidden = (e.component === 'ToolUse' && e.props.tool === INTENT_TOOL)
-      || (e.component === 'ToolGroup' && e.props.calls.length > 0 && e.props.calls.every((c: ToolGroupCall) => c.tool === INTENT_TOOL))
+    const isHidden = (e.component === 'ToolUse' && (e.props.tool === INTENT_TOOL || HIDDEN_TOOLS.has(e.props.tool)))
+      || (e.component === 'ToolGroup' && e.props.calls.length > 0 && e.props.calls.every((c: ToolGroupCall) => c.tool === INTENT_TOOL || HIDDEN_TOOLS.has(c.tool)))
     if (isHidden || e.surface !== 'terminal' || placed.has(e.requestId)) return
     placed.add(e.requestId)
     const ids = memberIds(e)
