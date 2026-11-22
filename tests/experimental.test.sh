@@ -35,6 +35,11 @@ check "hook: two on, alphabetical, blank line between" [ "$(node "$SCRIPT" | ctx
 fresh; conf '{"experimental":{"alpha":"true","beta":1}}'
 check "hook: non-true values are off" [ -z "$(node "$SCRIPT")" ]
 
+dflt() { fresh; printf '# Routed\n\nDefault-on feature.\n\nRouted body.\n' >"$FEAT/agentRouting.md"; [ -n "${1:-}" ] && conf "$1"; node "$SCRIPT" | ctx; }
+check "hook: default-on feature is on with no config" [ "$(dflt)" = $'# Routed\n\nDefault-on feature.\n\nRouted body.' ]
+check "hook: false turns a default-on feature off" [ -z "$(dflt '{"experimental":{"agentRouting":false}}')" ]
+check "hook: non-false value keeps a default-on feature on" [ -n "$(dflt '{"experimental":{"agentRouting":"false"}}')" ]
+
 fresh; conf '{'
 out=$(node "$SCRIPT"); rc=$?
 check "hook: invalid JSON is off" [ -z "$out" -a $rc -eq 0 ]
@@ -137,7 +142,7 @@ check "set then hook" grep -qF 'Alpha body.' <(node "$SCRIPT" | ctx)
 LIMIT=10000
 RF="$REPO/claude/experimental"
 fresh; rm -rf "$TMP/rcfg"; mkdir -p "$TMP/rcfg"
-check "repo: agentRouting listed and off by default" [ "$(has "$(CLAUDE_CONFIG_DIR="$TMP/rcfg" node "$REPO/claude/hooks/experimental.mjs" --list)" '{"id":"agentRouting","description":"Picks, per task, whether to delegate to a subagent and at which model and effort.","on":false}')" = y ]
+check "repo: agentRouting listed and on by default" [ "$(has "$(CLAUDE_CONFIG_DIR="$TMP/rcfg" node "$REPO/claude/hooks/experimental.mjs" --list)" '{"id":"agentRouting","description":"Picks, per task, whether to delegate to a subagent and at which model and effort.","on":true}')" = y ]
 all_under_limit() {
   local d="$TMP/allcfg" ids
   rm -rf "$d"; mkdir -p "$d"

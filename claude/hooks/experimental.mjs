@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Experimental features: claude/experimental/<id>.md, off until claudzilla.json sets experimental.<id> to true.
+// Experimental features: claude/experimental/<id>.md, off until claudzilla.json sets experimental.<id> to true;
+// a DEFAULT_ON feature is on until it is set to false.
 //   node experimental.mjs          SessionStart hook: print enabled feature text
 //   node experimental.mjs --list   print [{id, description, on}] as JSON
 //   node experimental.mjs --set <id> on|off   write experimental.<id> to claudzilla.json
@@ -11,6 +12,7 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(realpathSync(fileURLToPath(import.meta.url)));
 const DIR = join(HERE, "..", "experimental");
 const ID = /^[a-z][A-Za-z0-9]*$/;
+const DEFAULT_ON = new Set(["agentRouting"]);
 
 export function enabled() {
   try {
@@ -18,6 +20,11 @@ export function enabled() {
     const e = JSON.parse(readFileSync(cfg, "utf8")).experimental;
     return e && typeof e === "object" && !Array.isArray(e) ? e : {};
   } catch { return {}; }
+}
+
+export function isOn(id, state = enabled()) {
+  const v = Object.hasOwn(state, id) ? state[id] : undefined;
+  return v === true || (DEFAULT_ON.has(id) && v !== false);
 }
 
 export function features() {
@@ -32,7 +39,7 @@ export function features() {
       let text;
       try { text = readFileSync(join(DIR, `${id}.md`), "utf8").trimEnd(); } catch { return []; }
       const description = text.split("\n").slice(1).find((l) => l.trim()) ?? "";
-      return [{ id, description, text, on: Object.hasOwn(state, id) && state[id] === true }];
+      return [{ id, description, text, on: isOn(id, state) }];
     });
 }
 

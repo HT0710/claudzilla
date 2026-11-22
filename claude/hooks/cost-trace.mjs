@@ -5,7 +5,7 @@ import { appendFileSync, mkdirSync, readFileSync, readdirSync, realpathSync, ren
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { enabled } from "./experimental.mjs";
+import { isOn } from "./experimental.mjs";
 
 // USD per million tokens, read 2026-11-12 from the claude-api skill model table (cached 2026-11-03).
 // Keys are exact model ids; update when prices change. Unlisted ids stay unpriced.
@@ -544,7 +544,7 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
       if (a[0] === "all") a = a.slice(1);
       const ci = a.indexOf("--cwd");
       console.log(report(a, { log: logPath(process.env), root: join(dir, "projects"), cwd: ci >= 0 ? a[ci + 1] : process.cwd() }));
-    } else if (enabled().agentRouting === true) {
+    } else if (isOn("agentRouting")) {
       index({ root: join(dir, "projects"), log: logPath(process.env) });
     }
   } catch (e) {
