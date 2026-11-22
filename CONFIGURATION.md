@@ -15,7 +15,7 @@ Everything past the defaults. Back to the [README](README.md).
 settings.base.json     ──merge────▶  ~/.claude/settings.json  your own keys survive re-installs
 ```
 
-- **Linked:** instructions, rules, hooks (rules guard, trace, display filter, updater), skills (`pr`, `rule-review`, `claudzilla-report`, `claudzilla-compact`; your own stay), the `atlas` agent (your own agents stay), theme and statusline. The repo stays the source of truth.
+- **Linked:** instructions, rules, hooks (rules guard, trace, display filter, updater, subagent names), skills (`pr`, `rule-review`, `claudzilla-report`, `claudzilla-compact`; your own stay), the `atlas` agent (your own agents stay), theme and statusline. The repo stays the source of truth.
 - **Merged:** `settings.json` (Claude Code rewrites it). Repo values win, and extras you add on a machine are kept.
 - **Plugins:** claudzilla's own (`margin`, `ballot`, `primer`, `herald`, `folio`, `byline`, `ledger`) install from this clone as a local marketplace, so they load in place and update with the repo; `primer` always installs, with the updater. caveman and ponytail stay on the `ref` tag in `settings.base.json`; change the tag to upgrade.
 - **WSL:** adds `export COLORTERM=truecolor` to existing `~/.bashrc` / `~/.zshrc` that don't set COLORTERM, else the theme falls back to 256 colours.

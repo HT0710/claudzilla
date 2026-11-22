@@ -154,6 +154,7 @@ Primer pane: `/claudzilla` or alt+i, topics beside a section.
 | `/claudzilla [topic]` | the guide, one topic at a time |
 | `/claudzilla report [what happened]` | drafts a problem report from the local trace (nothing uploaded); files an issue only on your yes |
 | `/claudzilla compact` | drafts a `/compact` line into the prompt box |
+| `/claudzilla-worlds` | opens the guide on *Worlds* |
 | `/margin` | side panel: Claude's plan and steps, this chat's prompts, files, git |
 | `/rule-review` | how often each rule slipped; weekly summary at startup; on your yes, shares the counts (no text) as a claudzilla issue |
 | `pr` skill | pre-PR checks + description template, runs before every PR |
