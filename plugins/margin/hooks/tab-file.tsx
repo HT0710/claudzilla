@@ -766,37 +766,35 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const shown = headOf(place.path, state.root, home, MID)
   const inRoot = state.root !== '/' && (place.path === state.root || place.path.startsWith(`${state.root}/`))
   let path: JSX.Element[] | string = shown
-  if (inRoot && !shown.startsWith('…')) {
+  if (inRoot) {
     const parts = place.path === state.root ? [] : place.path.slice(state.root.length + 1).split('/')
-    let at = state.root
-    const openFolder = (dir: string) => () => update($, file, () => (showFolder(dir), placeOf()))
-    const rootName = printable(at.slice(at.lastIndexOf('/') + 1))
-    path = [
-      parts.length ? (
-        <Button key={at} plain onPress={openFolder(at)}>
-          <Text>{rootName}</Text>
-        </Button>
-      ) : (
-        <Text key="last" bold color="claude">
-          {rootName}
-        </Text>
-      ),
-    ]
-    parts.forEach((part, i) => {
-      path.push(<Text key={`sep:${i}`} color="promptBorder">/</Text>)
-      at += `/${part}`
-      path.push(
-        i < parts.length - 1 ? (
-          <Button key={at} plain onPress={openFolder(at)}>
-            <Text>{printable(part)}</Text>
-          </Button>
-        ) : (
-          <Text key="last" bold color="claude">
-            {printable(part)}
-          </Text>
-        ),
-      )
-    })
+    const names = [state.root.slice(state.root.lastIndexOf('/') + 1), ...parts].map(printable)
+    // Cut at a folder name, so each folder still shown stays a link; a last name too long keeps the plain cut.
+    const label = (from: number) => `${from ? '…/' : ''}${names.slice(from).join('/')}`
+    let from = 0
+    while (from < names.length - 1 && cellsOf(label(from)) > MID) from++
+    if (cellsOf(label(from)) <= MID) {
+      const openFolder = (dir: string) => () => update($, file, () => (showFolder(dir), placeOf()))
+      const links: JSX.Element[] = from ? [<Text key="cut" color={HUD.faint}>…</Text>] : []
+      let at = state.root
+      names.forEach((name, i) => {
+        if (i) at += `/${parts[i - 1]}`
+        if (i < from) return
+        if (i > 0) links.push(<Text key={`sep:${i}`} color="promptBorder">/</Text>)
+        links.push(
+          i < names.length - 1 ? (
+            <Button key={at} plain onPress={openFolder(at)}>
+              <Text>{name}</Text>
+            </Button>
+          ) : (
+            <Text key="last" bold color="claude">
+              {name}
+            </Text>
+          ),
+        )
+      })
+      path = links
+    }
   }
   const item = (key: string, label: string, act: () => unknown, mark?: string) => (
     <Button

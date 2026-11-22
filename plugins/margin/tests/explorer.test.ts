@@ -426,6 +426,28 @@ test('a long header path is cut from the left with an ellipsis', async ($, on) =
   expect(head.length).toBeLessThanOrEqual(36)
 })
 
+test('a long header path is cut at a folder name, and each folder still shown is a link', async ($, on) => {
+  const dirs = Array.from({ length: 20 }, (_, i) => `d${String(i + 1).padStart(2, '0')}`)
+  const ui = await explorer($, on, { path: `/repo/${dirs.join('/')}/a.ts` }, lines(3))
+  const head = await pathText(ui)
+  expect(head).toMatch(/^…\/d\d\d\/.*\/a\.ts$/)
+  const shown = head.split('/').slice(1, -1)
+  for (const [i, name] of shown.entries()) {
+    const at = `/repo/${dirs.slice(0, dirs.indexOf(name) + 1).join('/')}`
+    expect(await ui.find({ type: 'Button', key: at }), `${i}: ${name}`).toBeDefined()
+  }
+  expect(await ui.find({ type: 'Button', key: '/repo' })).toBeUndefined()
+  await ui.press({ key: `/repo/${dirs.join('/')}` })
+  await ui.redraw()
+  expect(await pathText(ui)).toMatch(/\/d20$/)
+})
+
+test('a last name too long for the header keeps the plain cut path', async ($, on) => {
+  const ui = await explorer($, on, { path: `/repo/src/${'x'.repeat(60)}.ts` }, lines(3))
+  expect(await pathText(ui)).toMatch(/^…x+\.ts$/)
+  expect(await ui.find({ type: 'Button', key: '/repo/src' })).toBeUndefined()
+})
+
 test('the header folder buttons sit in a Box that does not shrink, so no letter is lost', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
   const parts = await ui.find({ key: 'parts' })
