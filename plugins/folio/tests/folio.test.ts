@@ -3332,3 +3332,14 @@ test("margin's intent call in a group counts for nothing", async ($, on) => {
   native(on)
   expect(await groupOf($, [call('i1', 'mcp__margin__intent', { now: 1 }), call('r1', 'Read', { file_path: '/p/a.txt' })])).toBe('◼ Read (1 file)')
 })
+
+test('a lone tool another plugin hides keeps the native row, not a Called fold', async ($, on) => {
+  await saidFirst($, on)
+  const ui = await mountRow($, 'mcp__primer__compact_draft', 'x', {}, '', 'p1')
+  expect(await nativeText(ui)).toBe('native')
+})
+
+test('a tool another plugin hides counts for nothing in a group', async ($, on) => {
+  native(on)
+  expect(await groupOf($, [call('p1', 'mcp__primer__compact_draft', {}), call('r1', 'Read', { file_path: '/p/a.txt' })])).toBe('◼ Read (1 file)')
+})

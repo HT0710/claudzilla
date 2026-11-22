@@ -620,9 +620,11 @@ let wroteColumns = 0
 let hideEditDiff = true
 // Margin's intent report: its row draws nothing, so it must not break a run of edits.
 const INTENT_TOOL = 'mcp__margin__intent'
+// Tools another plugin hides with an empty row: folio never folds or counts them.
+const HIDDEN_TOOLS = new Set(['mcp__primer__compact_draft'])
 // Tools whose rows fold into a run; any mcp__ tool too.
 const FOLDED = new Set(['Read', 'Grep', 'Glob', 'Bash', 'Edit', 'Write', 'WebFetch', 'WebSearch', 'TaskStop'])
-const isFolded = (tool: string) => FOLDED.has(tool) || tool.startsWith('mcp__')
+const isFolded = (tool: string) => FOLDED.has(tool) || (tool.startsWith('mcp__') && !HIDDEN_TOOLS.has(tool))
 // A lone call that folds as a 1-call group does; a failed or interrupted one keeps its own row.
 const isLoneFold = (tool: string, isErrored?: boolean, isInterrupted?: boolean) =>
   isFolded(tool) && tool !== INTENT_TOOL && !isErrored && !isInterrupted
@@ -1053,7 +1055,7 @@ export const register: Register = on => {
   const foldCalls = (elements: Elements['terminal'], requestId: string, columns: number, root: string,
     all: readonly ToolGroupCall[], isLive: boolean, title?: Piece[], legacy = false, state?: State) => {
     // Margin's intent call draws nothing, so it counts for nothing; after a reload the engine groups it with the next call.
-    const calls = all.filter(c => c.tool !== INTENT_TOOL)
+    const calls = all.filter(c => c.tool !== INTENT_TOOL && !HIDDEN_TOOLS.has(c.tool))
     const { Box, Text } = elements
     const Client = 'Client' in elements ? elements.Client : undefined
     if (!Client) return undefined
@@ -1158,7 +1160,7 @@ export const register: Register = on => {
   const memberIds = (e: any): string[] | undefined => {
     if (e.component === 'ToolUse') return isFolded(e.props.tool) ? [e.requestId] : undefined
     if (e.component !== 'ToolGroup') return undefined
-    const calls: ToolGroupCall[] = e.props.calls
+    const calls: ToolGroupCall[] = e.props.calls.filter((c: ToolGroupCall) => !HIDDEN_TOOLS.has(c.tool))
     return calls.length && calls.every(c => c.tool_use_id && isFolded(c.tool)) ? calls.map(c => c.tool_use_id!) : undefined
   }
   // The agent or Bash finish row folio draws for a task notification; undefined for any other message.
