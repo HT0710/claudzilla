@@ -33,6 +33,7 @@ above_ok() { [ -f "$G" ] && ban '(^|[^[:alnum:]])(above|below)([^[:alnum:]]|$)';
 report_ok() { case " $SLUGS " in *" report "*) return 1;; esac; }
 MEMBERS="Get started:start Get started:first Get started:words Work with Claude:talk Work with Claude:replies Work with Claude:flow Work with Claude:approve Work with Claude:skills Work with Claude:context Work with Claude:undo Work with Claude:guard On your screen:hud On your screen:margin On your screen:ballot On your screen:plugins Settings and cost:limits Settings and cost:customize Settings and cost:labs Settings and cost:keys Settings and cost:background Get help:stuck Get help:bugs Get help:ref Get help:more Get help:news"
 members_ok() { [ -f "$G" ] && [ "$(awk '/^```/{f=!f;next} f{next} /^## /{p=substr($0,4)} /^<!-- topic: [a-z]+ -->$/{printf "%s:%s ",p,$3}' "$G")" = "$MEMBERS " ]; }
+body_ok() { [ -f "$G" ] && awk '/^```/{f=!f} !f&&/^<!-- topic: [a-z]+ -->$/{w=1;next} w&&NF{if(/^#{2,3} /)bad=1;w=0} END{exit bad}' "$G"; }
 check "slugs in order"        slugs_ok
 check "topic follows heading" follow_ok
 check "parts in order"        parts_ok
@@ -41,6 +42,7 @@ check "no above/below"        above_ok
 check "TL;DR only in replies" tldr_ok
 check "banned words"          words_ok
 check "sections in their part" members_ok
+check "every topic has text" body_ok
 
 echo "pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

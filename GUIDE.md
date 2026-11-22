@@ -9,7 +9,7 @@ This file is the user guide for claudzilla. You can read it here, or type `/clau
 
 [Claude Code](https://code.claude.com/docs/en/how-claude-code-works) is an AI coding agent. It runs in your terminal: you describe a task, and Claude reads your files, edits code and runs commands to do it.
 
-[claudzilla](https://github.com/HT0710/claudzilla) is a layer of configuration on top of Claude Code. It adds rules that Claude follows, the *guard* (a hook that checks Claude's git commands and its "done" claims), skills for common workflows, and plugins that change what you see. Its files live in a *clone*, `~/claudzilla` by default, and the installer sets them up in `~/.claude`, the folder where Claude Code reads your configuration.
+[claudzilla](https://github.com/HT0710/claudzilla) is a layer of configuration on top of Claude Code. It makes Claude a steadier partner for real work, and adds a bit of fun on the side. Its parts are rules that Claude follows, the *guard* (a hook that checks Claude's git commands and its "done" claims), skills for common workflows, and plugins that change what you see. Its files live in a *clone*, `~/claudzilla` by default, and the installer sets them up in `~/.claude`, the folder where Claude Code reads your configuration.
 
 What changes compared with stock Claude Code:
 
@@ -19,10 +19,14 @@ What changes compared with stock Claude Code:
 - **Git:** the guard asks you before a force-push or a command that discards work, and blocks commits on `main`.
 - **Permissions:** sessions start in Manual mode, so Claude asks before it edits files or runs commands. Recent versions of stock Claude Code start in auto mode, where a classifier reviews most actions instead of asking you.
 - **Screen:** if you installed them, the status line, the margin, the ballot card, the folio dividers and the herald toasts.
+- **Subagents:** Claude decides for each task whether to hand parts of it to subagents. This is Steward, on by default.
+- **A bit of fun:** every part has a name and a story. Meet them in *Worlds* (`/claudzilla bestiary`).
 
 A Full install includes every part; a Custom install includes the parts you kept. Sections about an optional part say "if you installed" it.
 
 If you are new to terminals, Claude Code's [terminal guide](https://code.claude.com/docs/en/terminal-guide) shows how to open one and start Claude Code. Then follow *Run your first task* (`/claudzilla first`).
+
+If you already use Claude Code, skip *Talk to Claude* and read the rest of *Work with Claude* for the claudzilla changes, then start at *On your screen*.
 
 ### Run your first task
 <!-- topic: first -->
@@ -146,6 +150,8 @@ claudzilla's rules give every task the same order of steps. Each step has a reas
 6. **Report the result.** Claude says "done" or "fixed" only after a check ran. If it claims done without one, the guard sends the claim back. See *Git and safety* (`/claudzilla guard`).
 
 A trivial edit, or one you state exactly, skips steps 1 to 3: Claude makes it at once and confirms it landed. For example: `in README.md, change "colour" to "color"`. If such an edit spans several files or is risky, Claude still investigates and waits for `go`.
+
+Claude decides for each task whether to hand parts of it to subagents. This is Steward (`steward`), on by default from v1.9. Turn it off in *Experimental features* (`/claudzilla labs`).
 
 Some rules apply only to certain files:
 
@@ -421,6 +427,16 @@ The [ballot README](https://github.com/HT0710/claudzilla/blob/main/plugins/ballo
 
 ### Other plugins
 <!-- topic: plugins -->
+
+If you installed them, three more plugins also run.
+
+**folio** draws the reply's frame and divider lines at your chat's width, so they never wrap, and links file paths to the margin.
+
+**herald** toasts claudzilla update progress, usage limits passing 50, 75 and 90%, and when to compact.
+
+**ledger** pauses Claude's first edit of a file that another live session edited in the last 30 minutes, and tells that session.
+
+For the names and what each one does, see [BESTIARY.md](https://github.com/HT0710/claudzilla/blob/main/BESTIARY.md).
 
 ## Settings and cost
 
