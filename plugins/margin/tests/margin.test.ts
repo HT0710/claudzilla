@@ -949,14 +949,43 @@ test('the rail group sits in the middle, 8 rows with the blank after each tab', 
   expect(railTop(3)).toBe(0)
 })
 
-test('the Guide button sits above the rail bottom corner and is no tab', async ($, on) => {
+test('the Guide and Worlds buttons sit above the rail bottom corner and are no tabs', async ($, on) => {
   noHistory(on)
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   const last = props.scroll.bodyRows - 2
-  expect((await textsUnder(ui, `rail:${last - 1}`)).map(t => t.text).join('')).toContain(ICON.Guide)
+  expect((await textsUnder(ui, `rail:${last - 2}`)).map(t => t.text).join('')).toContain(ICON.Guide)
+  expect((await textsUnder(ui, `rail:${last - 1}`)).map(t => t.text).join('')).toContain(ICON.Worlds)
   expect((await ui.find({ type: 'Text', text: ` ${ICON.Guide} ` }))?.props.inverse).toBeFalsy()
-  expect((await wideRows(ui)).rows.at(-2)).toContain('Guide')
+  expect((await ui.find({ type: 'Text', text: ` ${ICON.Worlds} ` }))?.props.inverse).toBeFalsy()
+  expect((await wideRows(ui)).rows.at(-3)).toContain('Guide')
+  expect((await wideRows(ui)).rows.at(-2)).toContain('Worlds')
 })
+
+// 12 body rows leave room under Git for one button: the Guide stays, Worlds hides.
+test('a pane with room for one button draws the Guide but not Worlds', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll: { offset: 0, bodyRows: 12 } }, requestId: 'margin' })
+  expect(await ui.find({ key: 'guide' })).toBeDefined()
+  expect(await ui.find({ key: 'worlds' })).toBeUndefined()
+})
+
+test('a pane with room for two buttons draws both', async ($, on) => {
+  noHistory(on)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll: { offset: 0, bodyRows: 14 } }, requestId: 'margin' })
+  expect(await ui.find({ key: 'guide' })).toBeDefined()
+  expect(await ui.find({ key: 'worlds' })).toBeDefined()
+})
+
+for (const key of ['Worlds', 'wide:Worlds'])
+  test(`a press on ${key} opens primer on lore`, async ($, on) => {
+    noHistory(on)
+    const asked: unknown[] = []
+    on('engine.create', async (_$, e, next) => ({ ...(await next(e)), primer: { open: async (a?: { topic?: string }) => { asked.push(a?.topic) } } }))
+    const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+    await ui.press({ key })
+    expect(asked).toEqual(['lore'])
+    expect((await ui.find({ type: 'Text', text: ICON.Overview }))?.props.inverse).toBe(true)
+  })
 
 test('the rail and the widened rail end their last row with ├', async ($, on) => {
   noHistory(on)
@@ -986,6 +1015,13 @@ test('basic glyphs draw i for the Guide button', async ($, on) => {
   on('fs.exists', (_, e) => ({ value: String((e as any).path ?? '').endsWith('.claudzilla-basic-glyphs') }))
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   expect((await textsUnder(ui, 'guide')).map(t => t.text).join('').trim()).toBe('i')
+})
+
+test('basic glyphs draw w for the Worlds button', async ($, on) => {
+  noHistory(on)
+  on('fs.exists', (_, e) => ({ value: String((e as any).path ?? '').endsWith('.claudzilla-basic-glyphs') }))
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  expect((await textsUnder(ui, 'worlds')).map(t => t.text).join('').trim()).toBe('w')
 })
 
 // The test's `$` carries no plugin noun, so `$.primer` is missing here, as without primer: the press toasts.
