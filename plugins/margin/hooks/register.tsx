@@ -710,7 +710,8 @@ const readSkillPaths = async ($: EngineInterface) => {
 const chatPath = async ($: EngineInterface) => {
   const [dir, sessionId] = await Promise.all([configDir($), $.session.id()])
   if (!chatPaths.has(sessionId)) {
-    const { stdout } = await $.process.run(['find', `${dir}/projects`, '-maxdepth', '2', '-name', `${sessionId}.jsonl`])
+    // -H: projects/ may be a link (a second config dir sharing one), and find skips a linked start point without it.
+    const { stdout } = await $.process.run(['find', '-H', `${dir}/projects`, '-maxdepth', '2', '-name', `${sessionId}.jsonl`])
     const path = stdout.split('\n')[0]
     if (path) chatPaths.set(sessionId, path)
   }

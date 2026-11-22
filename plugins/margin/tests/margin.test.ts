@@ -3159,8 +3159,10 @@ const overviewHosts = (on: Parameters<TestBody>[1], reply: (n: number) => unknow
   on('fs.read', () => ({ value: '' }))
   const lines = typed.map((display, i) => JSON.stringify({ display, timestamp: i + 1, sessionId: 'chat-1' }))
   const chatFile = '/home/me/.claude/projects/-proj/chat-1.jsonl'
+  // projects/ as a link, as a second config dir sharing one has it: find without -H skips it.
+  const found = (argv: readonly string[]) => (argv.includes('-H') ? `${chatFile}\n` : '')
   on('process.run', (_, e) =>
-    ran(isHistoryGrep(e.argv) ? lines.join('\n') : e.argv[0] === 'find' ? `${chatFile}\n` : e.argv.at(-1) === chatFile && e.argv.includes('"asUser":true') ? sent.join('\n') : ''),
+    ran(isHistoryGrep(e.argv) ? lines.join('\n') : e.argv[0] === 'find' ? found(e.argv) : e.argv.at(-1) === chatFile && e.argv.includes('"asUser":true') ? sent.join('\n') : ''),
   )
   const pane = { isOpen: true }
   on('ui.panes', () => ({ value: pane.isOpen ? [{ id: 'margin', isPlaced }] : [] }) as any)
@@ -3374,6 +3376,17 @@ test('TOPICS rereads a submitted prompt that reaches the chat file late', async 
   await clock.settle()
   expect(asks).toHaveLength(1)
   expect(asks[0]!.prompt).toContain('- add a dark theme')
+})
+
+test('TOPICS reads a handoff through a symlinked projects folder', async ($, on) => {
+  const handoff = JSON.stringify({ type: 'user', origin: { kind: 'plugin', name: 'primer', asUser: true }, timestamp: '2026-11-22T05:18:42Z', message: { content: 'review both branches' } })
+  const { clock, asks } = overviewHosts(on, undefined, [], true, [handoff])
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await ui.press({ key: 'Overview' })
+  await clock.settle()
+  expect(asks).toHaveLength(1)
+  expect(asks[0]!.prompt).toContain('- review both branches')
 })
 
 test('a failed TOPICS read keeps the topics and says why', async ($, on) => {
