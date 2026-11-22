@@ -979,3 +979,17 @@ The margin's two tab bars became one side rail. A setting to choose bars or rail
 Every subagent now gets a name, and margin and folio show it. A hook that refuses unnamed calls was turned down, because each refusal costs one more main-chat call, about $0.05.
 
 Instead, a hook fills in a name when Claude forgets.
+
+#### v1.10, The Baton Passes *(coming soon, title not final)*
+
+This chapter is not yet written. Only rumours drift back from the fog: tracks half seen, creatures not yet named. Some may never arrive, some may arrive under other names, and others no one has spotted yet may join them on the way.
+
+Word is that the margin may clear a quiet glade, perhaps a Notes tab, where the tamer could scratch their own runes beside the chat and find them again in every session. A finer quill was tried and laid down for now, because no spell could hand it the focus. If the makers upstream mend that, the glade may get the better quill.
+
+Long hunts make the beast heavy, and few sessions think to pass the work on before they tire. A wild one, for now called Baton, has been seen near the end of long sessions. If it comes, the next Decision may carry one more row: hand the job to a fresh session, with a continue prompt ready and a line naming what gets left on the trail.
+
+Some say the creatures may learn to call across sessions. When one session waits on the tamer, the others might hear its cry, with its name, its branch and the reason. How loud, and how often, is still argued around the fire.
+
+The 5-hour well once ran dry three times in a single day, and the $5 gatekeeper never saw it coming. Another wild one, still unnamed, might whisper to Claude how much context it carries and how much water is left in each well, so the gate could speak up before a run that will not fit.
+
+Smaller tracks may follow, if the season allows. Commit bodies could get a gentle growl, your own words might sit to the right like a voice across the fire, edit diffs may open in the File tab, and `.md` scrolls there may unroll already drawn.
