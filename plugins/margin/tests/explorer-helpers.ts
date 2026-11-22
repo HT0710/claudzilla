@@ -62,7 +62,7 @@ export const setup = async ($: Body[0], on: Body[1]) => {
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('session.cwd', () => ({ value: '/repo' }))
-  on('process.run', (_, e) => (runs.push([...e.argv]), e.argv.includes('rev-parse') ? ran(0, '/repo\n') : e.argv.includes('ls-files') ? (hold.names ? new Promise(done => hold.names!.push(() => done(ran(0, listed.out, listed.cut)))) : ran(0, listed.out, listed.cut)) : ran(e.argv.some(x => x.includes('setsid -f')) ? launch.exit : 0)) as any)
+  on('process.run', (_, e) => (runs.push([...e.argv]), e.argv.includes('rev-parse') ? ran(0, '/repo\n') : e.argv.includes('ls-files') ? (hold.names ? new Promise(done => hold.names!.push(() => done(ran(0, listed.out, listed.cut)))) : ran(0, listed.out, listed.cut)) : ran(e.argv.some(x => x.includes('xdg-open')) ? launch.exit : 0)) as any)
   on('fs.stat', (_, e) => (tree.has(e.path) ? { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } : disk.has(e.path) ? { value: { kind: 'file', size: disk.get(e.path)!.text.length, mtimeMs: disk.get(e.path)!.mtimeMs, isLink: false } } : { deny: 'ENOENT' }) as any)
   on('fs.read', (_, e) => {
     reads.push(e.path)
