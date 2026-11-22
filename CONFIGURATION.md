@@ -109,7 +109,7 @@ Only an exact `true` turns a feature on, and only an exact `false` turns Steward
 
 ## Keybindings
 
-`~/.claude/keybindings.json` holds your keys. Install adds alt+o, alt+h, alt+e and alt+g for the margin's Overview, History, Explorer and Git tabs, alt+k to focus the ballot card and alt+i to toggle the guide (`/claudzilla`), each with its part (removing the part removes the key), and each unless you bound that key (`Chat` or `Global`) or gave its action a key; a symlinked file is left alone; `"alt+o": null`, `"alt+h": null`, `"alt+e": null`, `"alt+g": null`, `"alt+k": null` or `"alt+i": null` in `Chat` opts out.
+`~/.claude/keybindings.json` holds your keys. Install adds alt+o, alt+h, alt+e and alt+g for the margin's Overview, History, Explorer and Git tabs, alt+k to focus the ballot card, alt+i to toggle the guide (`/claudzilla`) and alt+w to open it on Worlds (`/claudzilla-worlds`), each with its part (removing the part removes the key), and each unless you bound that key (`Chat` or `Global`) or gave its action a key; a symlinked file is left alone; `"alt+o": null`, `"alt+h": null`, `"alt+e": null`, `"alt+g": null`, `"alt+k": null`, `"alt+i": null` or `"alt+w": null` in `Chat` opts out.
 
 ## Notes
 
