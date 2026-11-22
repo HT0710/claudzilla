@@ -102,10 +102,10 @@ The same three files hold one folio option, under its own key and read when a se
 Experimental features are off until you turn them on, except Steward (agent routing), which is on by default. The key sits at the top level of `claudzilla.json`:
 
 ```json
-{"experimental": {"agentRouting": false}}
+{"experimental": {"steward": false}}
 ```
 
-Only an exact `true` turns a feature on, and only an exact `false` turns Steward off. Any other value leaves a feature at its default. claudzilla reads this key only from `~/.claude/claudzilla.json`, never from a project file. Run `/claudzilla experimental` to see the features and whether each is on, and `/claudzilla labs` for what each one does.
+Only an exact `true` turns a feature on, and only an exact `false` turns Steward off. Any other value leaves a feature at its default. The `agentRouting` key from before v1.9 is ignored; set `steward` instead. claudzilla reads this key only from `~/.claude/claudzilla.json`, never from a project file. Run `/claudzilla experimental` to see the features and whether each is on, and `/claudzilla labs` for what each one does.
 
 ## Keybindings
 

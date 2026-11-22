@@ -119,7 +119,7 @@ check "fresh: agent-name hook in settings" grep -q 'agent-name.mjs' "$H/.claude/
 check "fresh: agent teams 0 from base" [ "$(q "$H/.claude/settings.json" .env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS)" = '"0"' ]
 HT=$(new_home); mkdir -p "$HT/.claude"; echo '{"env":{"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS":"1"}}' > "$HT/.claude/settings.overrides.json"; run_install "$HT"
 check "overrides: a user's 1 wins over base 0" [ "$(q "$HT/.claude/settings.json" .env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS)" = '"1"' ]
-echo '{"experimental":{"agentRouting":true}}' > "$H/.claude/claudzilla.json"
+echo '{"experimental":{"steward":true}}' > "$H/.claude/claudzilla.json"
 check "fresh: experimental hook finds features via link" bash -c "CLAUDE_CONFIG_DIR='$H/.claude' node '$H/.claude/hooks/experimental.mjs' </dev/null | grep -q 'Steward'"
 check "fresh: md-display hook in settings" grep -q 'md-display.pl' "$H/.claude/settings.json"
 check "fresh: one unfiltered Bash rules-guard hook" node -e 'const h=require(process.argv[1]).hooks.PreToolUse.filter(e=>e.matcher==="Bash").flatMap(e=>e.hooks).filter(x=>/rules-guard/.test(x.command));process.exit(h.length===1&&!h[0].if?0:1)' "$H/.claude/settings.json"

@@ -666,7 +666,7 @@ An experimental feature is new behaviour that may change or be removed. Most are
 
 #### The features
 
-- **Steward** (`agentRouting`): on by default from v1.9; run `/claudzilla experimental agentRouting off` to turn it off. Claude decides for each task whether to hand the work to a subagent. It picks the cheapest model and effort that does the job. Tracing code across files, such as following calls or imports, goes to a search subagent from the first step.
+- **Steward** (`steward`, called `agentRouting` before v1.9): on by default from v1.9; run `/claudzilla experimental steward off` to turn it off. Claude decides for each task whether to hand the work to a subagent. It picks the cheapest model and effort that does the job. Tracing code across files, such as following calls or imports, goes to a search subagent from the first step.
   - **Search limit:** with the feature on, the third search in one turn without a subagent call is refused with a note to delegate. Reads of a known file and a grep inside one known file stay allowed. The limit starts or stops at the next tool call, while the rule text applies from the next session. Scripts that run without the Agent tool: set `EVAL_ROUTING=off`, or turn the feature off.
   - **Superpowers skills:** subagent-driven development and parallel agents use a fixed model and effort per role. Implementers run on Sonnet, and the final review and stuck fixes run on Opus.
   - **Reviews:** each task gets a Haiku review at high effort, a second pass that hunts for a missed bug, and a Haiku spec checker that ties each requirement to a line. Re-reviews after a fix run on Haiku too, and their brief names any fix to shared code so the reviewer checks its other callers.
@@ -719,7 +719,7 @@ Headline features of recent versions. Restart Claude after an update to use them
 
 #### v1.9.0
 
-- **Steward on by default:** Claude now decides for each task whether to hand it to a subagent, and at which model and effort. Run `/claudzilla experimental agentRouting off` to turn it off. Scripts that run without the Agent tool should set `EVAL_ROUTING=off` (`/claudzilla labs`).
+- **Steward on by default:** Claude now decides for each task whether to hand it to a subagent, and at which model and effort. Run `/claudzilla experimental steward off` to turn it off; an old `agentRouting` setting no longer applies. Scripts that run without the Agent tool should set `EVAL_ROUTING=off` (`/claudzilla labs`).
 
 #### v1.8.0
 
