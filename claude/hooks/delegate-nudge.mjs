@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Blocks the third search of a turn with no Agent call; hook half of the Agent routing experimental feature.
+// Blocks the third search of a turn with no Agent call; hook half of the Steward (agent routing) experimental feature.
 import { appendFileSync, lstatSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
