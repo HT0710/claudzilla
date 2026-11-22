@@ -746,6 +746,14 @@ Headline features of recent versions. Restart Claude after an update to use them
 #### v1.9.0
 
 - **Steward on by default:** Claude now decides for each task whether to hand it to a subagent, and at which model and effort. Run `/claudzilla experimental steward off` to turn it off; an old `agentRouting: false` carries over. Scripts that run without the Agent tool should set `EVAL_ROUTING=off` (`/claudzilla labs`).
+- **Explorer:** the margin's File tab is now Explorer, a read-only file browser with folder pages, find, back and forward, and line references you copy from the gutter (alt+e, `/claudzilla margin`).
+- **Side rail:** the margin's tabs sit on a narrow rail down its edge, which widens when you hover it (`/claudzilla margin`).
+- **Tool rows fold:** every finished tool call folds into one short row on a section rail, and a click opens it (`/claudzilla replies`).
+- **One-row status line:** `{"hud":{"layout":"minimal"}}` draws the status line in one row (`/claudzilla hud`).
+- **Subagent names:** each subagent gets a character name, and `atlas` scouts the code for Claude's lookups (`/claudzilla bestiary`).
+- **Worlds:** meet claudzilla's parts and their stories with alt+w or `/claudzilla-worlds`.
+- **Changed keys:** the guide moved from alt+q to alt+i (`/claudzilla keys`).
+- **Fewer side requests:** prompt suggestions and the away recap are off by default (`/claudzilla background`).
 
 #### v1.8.0
 
