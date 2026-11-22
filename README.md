@@ -4,7 +4,7 @@
 
 **Claude Code, tamed: terse answers, small diffs, verified work, guarded git.**
 
-One command turns a stock `~/.claude` into a careful senior dev's setup.
+One command turns a stock `~/.claude` into a careful senior dev's setup. Every part also has a name and a story: meet them in *Worlds* (alt+w).
 
 [![Release](https://img.shields.io/github/v/release/HT0710/claudzilla?style=flat-square)](https://github.com/HT0710/claudzilla/releases/latest)
 [![Tests](https://img.shields.io/github/actions/workflow/status/HT0710/claudzilla/test.yml?branch=main&label=tests&style=flat-square)](https://github.com/HT0710/claudzilla/actions/workflows/test.yml)
@@ -95,6 +95,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
   <img src=".github/assets/fix.png" alt="A one-line fix shown as one row, Updated auth/token.js +1 −1, then Claude reports the test now passes" width="720">
 
 - **Disciplined workflow:** debugging, TDD, plans and reviews via [superpowers](https://github.com/obra/superpowers).
+- **Steward:** Claude decides for each task whether to hand parts of it to subagents, and on which model and effort. On by default; `/claudzilla experimental steward off` turns it off.
 - **Fewer tokens:** short-form voice ([caveman](https://github.com/JuliusBrussee/caveman)), and every Bash call is filtered through [`rtk`](https://github.com/rtk-ai/rtk).
 
 ### Git that can't bite
@@ -127,9 +128,9 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 - **Margin:** `/margin` shows what Claude plans and does, lists this chat's prompts, previews files and shows git; click to jump, reuse or rewind ([details](plugins/margin/README.md)).
 - **Git tab:** the branch with a mark only when it needs you, a rebase or merge in progress with continue, skip and abort, the branch's pull request with its CI checks and description, a tree of every branch with its worktrees, then changed files and recent commits. Hover a row for a card, click it for details.
 
-  <img src=".github/assets/overview.gif" alt="The margin's Overview tab during a fix: sketching a route, then ASK, TAKE and steps that tick off one by one until done" width="720">
+  <img src=".github/assets/overview.gif" alt="The margin's Overview tab during a fix: sketching a route, then ASK, TAKE and steps that tick off one by one, a named subagent under one of them, until done" width="720">
 
-  *2× speed. After `sketching a route…`, Claude's reading of the request (ASK, TAKE) fills in, and each step goes ○ → ● → ✓ until the header reads `✓ done`. Docks beside the chat in the fullscreen layout, from 110 columns. Costs: a short tool call per report (the margin's `intent` option in `/config` turns it off), and while the Overview tab shows, an Opus request at low effort after each prompt to sort topics.*
+  *3× speed. After `sketching a route…`, Claude's reading of the request (ASK, TAKE) fills in, and each step goes ○ → ● → ✓ until the header reads `✓ done`. Docks beside the chat in the fullscreen layout, from 110 columns. Costs: a short tool call per report (the margin's `intent` option in `/config` turns it off), and while the Overview tab shows, an Opus request at low effort after each prompt to sort topics.*
 - **Toasts:** updates install in the background and say so; a toast also shows when the 5-hour or weekly limit passes 50%, 75% and 90%, and when context is worth compacting, including before the prompt cache goes cold while you are away ([details](plugins/herald/README.md)).
 - **Theme + settings:** muted dark truecolor theme, `opus[1m]`, normal permission prompts.
 - **Local trace:** a record of what claudzilla's parts did, kept in `~/.claude/claudzilla-trace/`, never uploaded; `{"rulesGuard":{"trace":false}}` in `~/.claude/claudzilla.json` turns it off. See the guide topic `bugs` (`/claudzilla bugs`).
