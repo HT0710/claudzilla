@@ -198,6 +198,8 @@ export async function changedOnDisk($: EngineInterface, call: { tool: string } &
   if (!state.root) return
   const here = current(state.nav)
   const target = call.tool === 'NotebookEdit' ? call.notebook_path : call.file_path
+  // Listings kept for other pages go stale too; the next folder draw relists only what is on screen.
+  if (call.tool === 'Write' || call.tool === 'NotebookEdit' || call.tool === 'Bash') state.listed.clear()
   if (here.kind === 'file' && (call.tool === 'Edit' || call.tool === 'Write' || call.tool === 'NotebookEdit') && target === here.path) return reloadPlace($)
   if (here.kind === 'folder' && (call.tool === 'Write' || call.tool === 'Bash')) await relistPage($)
   if (call.tool === 'Bash') await checkOpenFile($)

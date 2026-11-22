@@ -1007,6 +1007,20 @@ test('a Write into a folder seen empty re-lists it, so it shows as non-empty', a
   expect(await chevron(ui, '▸')).toBeDefined()
 })
 
+test('a Write while a file shows re-lists the folder when back returns to it', async ($, on) => {
+  hostOk(on)
+  const ui = await explorerRoot($, on, { '/repo': [{ name: 'a.ts', kind: 'file' }] })
+  disk.set('/repo/a.ts', { text: 'x', mtimeMs: 1 })
+  await tapTree(ui, 'a.ts')
+  await ui.press({ key: 'back' })
+  await ui.press({ key: 'forward' })
+  tree.set('/repo', [{ name: 'a.ts', kind: 'file' }, { name: 'b.ts', kind: 'file' }])
+  await $.tool.call({ tool: 'Write', file_path: '/repo/b.ts' } as any)
+  await ui.press({ key: 'back' })
+  await ui.redraw()
+  expect(await ui.find({ key: `row:x:${fileKey('/repo/b.ts')}` })).toBeDefined()
+})
+
 test('refresh re-lists the open folder page', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/src/a.ts' }, 'x\n', { '/repo/src': [{ name: 'a.ts', kind: 'file' }] })
   await ui.press({ key: '/repo/src' })
