@@ -797,7 +797,13 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     while (from < names.length - 1 && cellsOf(label(from)) > MID) from++
     if (cellsOf(label(from)) <= MID) {
       const openFolder = (dir: string) => () => update($, file, () => (showFolder(dir), placeOf()))
-      const links: JSX.Element[] = from ? [<Text key="cut" color={HUD.faint}>…</Text>] : []
+      const links: JSX.Element[] = from
+        ? [
+            <Button key="cut" plain onPress={openFolder(state.root)}>
+              <Text color={HUD.faint}>…</Text>
+            </Button>,
+          ]
+        : []
       let at = state.root
       names.forEach((name, i) => {
         if (i) at += `/${parts[i - 1]}`

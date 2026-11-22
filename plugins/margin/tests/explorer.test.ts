@@ -442,6 +442,14 @@ test('a long header path is cut at a folder name, and each folder still shown is
   expect(await pathText(ui)).toMatch(/\/d20$/)
 })
 
+test('the ellipsis of a cut header path opens the project root', async ($, on) => {
+  const dirs = Array.from({ length: 20 }, (_, i) => `d${String(i + 1).padStart(2, '0')}`)
+  const ui = await explorer($, on, { path: `/repo/${dirs.join('/')}/a.ts` }, lines(3))
+  await ui.press({ key: 'cut' })
+  await ui.redraw()
+  expect(await pathText(ui)).toBe('repo')
+})
+
 test('a last name too long for the header keeps the plain cut path', async ($, on) => {
   const ui = await explorer($, on, { path: `/repo/src/${'x'.repeat(60)}.ts` }, lines(3))
   expect(await pathText(ui)).toMatch(/^…x+\.ts$/)
