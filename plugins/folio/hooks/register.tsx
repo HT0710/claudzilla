@@ -1274,7 +1274,7 @@ export const register: Register = on => {
     const edits = bashEdits.get(e.requestId)
     // The engine draws bashEditDiff under the row; folio's own row already shows the edit, where it draws one.
     const { bashEditDiff, ...rest } = (e.props.output ?? {}) as { bashEditDiff?: unknown }
-    const isStripped = isFolded && (scripts.has(e.requestId) ? !!e.viewport?.isFullscreen : true)
+    const isStripped = isFolded && !(e.props.isErrored && !e.viewport?.isFullscreen) && (scripts.has(e.requestId) ? !!e.viewport?.isFullscreen : true)
     const native = await next(isStripped && edits?.length && bashEditDiff && typeof e.props.output === 'object' ? { ...e, props: { ...e.props, output: rest } } : e)
     const seg = runs.has(e.requestId) ? segmentOf(e.requestId) : undefined
     // A lone edit's block goes through isEdit below; a running call's stays.

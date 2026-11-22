@@ -2431,6 +2431,16 @@ test('an errored Bash edit off the fullscreen layout keeps its native row, not a
   expect(await rowsOf(ui)).toEqual([])
 })
 
+test('an errored Bash edit off the fullscreen layout keeps the engine diff in its result', async ($, on) => {
+  const seen = seenResult(on)
+  bashFs(on, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'), true)
+  await bash($, 'echo b > a.txt; false')
+  const output = { stderr: 'boom', bashEditDiff: { files: [] } }
+  await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolResult', requestId: 'b1',
+    props: { tool_use_id: 'b1', tool: 'Bash', output, isErrored: true }, viewport: { ...VIEW, isFullscreen: false } })
+  expect(seen.at(-1)).toEqual(output)
+})
+
 test('a parsed Bash write whose engine diff names its file by another path stays one row, not a script', async ($, on) => {
   native(on)
   bashFs(on, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))
