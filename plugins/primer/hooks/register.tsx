@@ -467,18 +467,23 @@ async function snapshot($: EngineInterface, columns: number | undefined) {
   }
 }
 
+// The topic `$.primer.open` shows: a given topic wins; without one an open Guide keeps its own.
+export const openSlug = (topic: string | undefined, wasOpen: boolean, shown: string) =>
+  topic?.trim().toLowerCase() || (wasOpen ? shown : 'start')
+
 export const register: Register = on => {
   // `$.primer.open` for other plugins: no chat line, as a /claudzilla run leaves, and it never toggles.
   on('engine.create', async (_$, e, next) => {
     const built = await next(e)
-    // Calls on `built` only: it is refused as an argument. Closed, it opens as a bare /claudzilla; open, it keeps its topic.
+    // Calls on `built` only: it is refused as an argument. Closed, it opens as a bare /claudzilla; open, it keeps its topic. A topic opens on it either way.
     // A tab the person picked keeps `focus` from bringing Guide forward, and no API picks a tab, so a toast says where it is.
-    const open = async () => {
+    const open = async (opts?: { topic?: string }) => {
+      const topic = opts?.topic
       const wasOpen = (await built.ui.panes()).some(pane => pane.id === PANE)
-      if (!wasOpen) {
+      if (!wasOpen || topic) {
         // The render reads GUIDE.md again: it changes with the clone.
         guide = undefined
-        slug = 'start'
+        slug = openSlug(topic, wasOpen, slug)
         note = undefined
         await built.state.set({ plugin: 'primer', key: 'bodyTop' } as const, 0)
         reveal = true
@@ -499,6 +504,8 @@ export const register: Register = on => {
     await t.start(traceIo($))
     HUD.label = (await readPalette($)).palette.shared.label
     await $.command.register({ name: 'claudzilla', description: 'The claudzilla guide, one section at a time', argumentHint: '[topic | report [what happened] | compact | handoff [ask] | experimental [id on|off] | cost [session-id | all [--since d] [--until d] [--project p]]]', immediate: true })
+    await $.command.register({ name: 'claudzilla-guide', description: 'Open the claudzilla guide, or a topic in it', argumentHint: '[topic]', immediate: true })
+    await $.command.register({ name: 'claudzilla-worlds', description: 'Open the Worlds part of the guide', immediate: true })
     await $.command.register({ name: 'claudzilla-handoff', description: 'Start fresh with a note from this session', argumentHint: '[ask]', immediate: true })
     await $.tool.register(COMPACT_SPEC).catch(() => undefined)
 
@@ -554,11 +561,20 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: ['claudzilla', 'claudzilla-handoff'] }, async ($, e) => {
-    const ask = e.command === 'claudzilla-handoff' ? e.args : /^handoff(\s|$)/i.test(e.args.trim()) ? e.args.trim().slice(7) : undefined
+  on('command.run', { command: ['claudzilla', 'claudzilla-handoff', 'claudzilla-guide', 'claudzilla-worlds'] }, async ($, e) => {
+    // The quick commands only open the Guide: their words are a topic, never report, compact or handoff.
+    const plain = e.command === 'claudzilla-guide' || e.command === 'claudzilla-worlds'
+    const ask = plain ? undefined : e.command === 'claudzilla-handoff' ? e.args : /^handoff(\s|$)/i.test(e.args.trim()) ? e.args.trim().slice(7) : undefined
     // The ask is sent as the user's own prompt, so only a person may give one.
     if (ask !== undefined) return coldHandoff($, ['composer', 'bridge', 'sdk'].includes(e.origin?.kind) ? ask.trim() : '')
-    const description = reportArgs(e.args)
+    const topic = e.command === 'claudzilla-worlds' ? 'lore' : e.args
+    // Bare /claudzilla-guide on an open Guide keeps its place, as the rail's Guide button does.
+    if (plain && !topic.trim() && (await $.ui.panes()).some(pane => pane.id === PANE)) {
+      await $.ui.open({ id: PANE, title: 'Guide', focus: true, closeOnEscape: true })
+
+      return {}
+    }
+    const description = plain ? undefined : reportArgs(e.args)
     if (description !== undefined) {
       t.event('report.snapshot', await snapshot($, e.presentation?.columns).catch(() => ({})))
       await t.flush(traceIo($))
@@ -566,20 +582,20 @@ export const register: Register = on => {
 
       return {}
     }
-    const lab = experimentalArgs(e.args)
-    if (/^compact$/i.test(e.args.trim())) {
+    const lab = plain ? undefined : experimentalArgs(e.args)
+    if (!plain && /^compact$/i.test(e.args.trim())) {
       await handOff($, 'claudzilla-compact', '')
 
       return {}
     }
     // Bare, it toggles like /margin (alt+i); a topic opens that topic either way.
-    if (!e.args.trim() && (await $.ui.panes()).some(pane => pane.id === PANE)) {
+    if (!plain && !e.args.trim() && (await $.ui.panes()).some(pane => pane.id === PANE)) {
       await $.ui.close({ id: PANE })
 
       return {}
     }
     let labNote: string | undefined
-    const cost = costArgs(e.args, await $.session.id().catch(() => ''))
+    const cost = plain ? undefined : costArgs(e.args, await $.session.id().catch(() => ''))
     if (cost && !Array.isArray(cost)) labNote = cost.error
     else if (cost) {
       const home = await $.env.get('HOME').catch(() => undefined)
@@ -610,7 +626,7 @@ export const register: Register = on => {
     // Read again on each run: GUIDE.md changes with the clone.
     guide = load($)
     const { sections } = await guide
-    const hit = find(sections ?? [], lab ? 'labs' : cost ? 'limits' : e.args)
+    const hit = find(sections ?? [], lab ? 'labs' : cost ? 'limits' : topic)
     if (hit.section) slug = hit.section.slug
     note = labNote ?? hit.note
     if (hit.section) await update($, bodyTop, () => 0)
