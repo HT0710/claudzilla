@@ -22,7 +22,7 @@ try {
   // The effort eval's routing-off runs disallow Agent, so this guard would block every search there.
   if (process.env.EVAL_ROUTING === "off") process.exit(0);
   const { isOn } = await import("./experimental.mjs");
-  if (!isOn("agentRouting")) process.exit(0);
+  if (!isOn("steward")) process.exit(0);
   const d = JSON.parse(raw);
   if (!d.session_id) process.exit(0);
   // Per user and private, because tmpdir is shared on Linux: another user's planted dir or symlink would get our writes.

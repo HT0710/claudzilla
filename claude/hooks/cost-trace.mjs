@@ -544,7 +544,7 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
       if (a[0] === "all") a = a.slice(1);
       const ci = a.indexOf("--cwd");
       console.log(report(a, { log: logPath(process.env), root: join(dir, "projects"), cwd: ci >= 0 ? a[ci + 1] : process.cwd() }));
-    } else if (isOn("agentRouting")) {
+    } else if (isOn("steward")) {
       index({ root: join(dir, "projects"), log: logPath(process.env) });
     }
   } catch (e) {

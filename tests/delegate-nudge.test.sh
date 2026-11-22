@@ -8,7 +8,7 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 H="$REPO/claude/hooks/delegate-nudge.mjs"; SID=s1; CWD=/
 export CLAUDE_CONFIG_DIR="$TMP/cfg" TMPDIR="$TMP"
 mkdir -p "$CLAUDE_CONFIG_DIR"
-on() { printf '%s' '{"experimental":{"agentRouting":true}}' >"$CLAUDE_CONFIG_DIR/claudzilla.json"; }
+on() { printf '%s' '{"experimental":{"steward":true}}' >"$CLAUDE_CONFIG_DIR/claudzilla.json"; }
 # Empty SID leaves session_id out of the event.
 # A variable, not a literal: bash 3.2 (macOS) keeps the backslash in "${3:-{\}}".
 NO_INPUT='{}'
@@ -77,12 +77,12 @@ check "a dir others can write is never used" open_dir
 check "bad JSON exits 0" eq "$(echo nope | node "$H"; echo $?)" 0
 
 third() { warm; ev PreToolUse Grep; }
-off() { printf '%s' '{"experimental":{"agentRouting":false}}' >"$CLAUDE_CONFIG_DIR/claudzilla.json"; }
+off() { printf '%s' '{"experimental":{"steward":false}}' >"$CLAUDE_CONFIG_DIR/claudzilla.json"; }
 gate_default() { rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"; [ "$(denied "$(third)")" = yes ]; }
 check "gate: on by default" gate_default
 gate_off() { off; prompt; local i o; for i in 1 2 3; do o=$(ev PreToolUse Grep); [ -z "$o" ] || return 1; done; }
 check "gate: false turns it off" gate_off
-nonfalse() { printf '%s' '{"experimental":{"agentRouting":"false"}}' >"$CLAUDE_CONFIG_DIR/claudzilla.json"; [ "$(denied "$(third)")" = yes ]; }
+nonfalse() { printf '%s' '{"experimental":{"steward":"false"}}' >"$CLAUDE_CONFIG_DIR/claudzilla.json"; [ "$(denied "$(third)")" = yes ]; }
 check "gate: non-false value stays on" nonfalse
 on_blocks() { on; [[ "$(third)" == *'"permissionDecision":"deny"'* ]]; }
 check "gate: on blocks the third search" on_blocks
