@@ -16,6 +16,7 @@ check "import: does not run the hook" [ -z "$(echo '{"session_id":"x","hook_even
 check "firedRules: deny reason" [ "$(js 'm.firedRules("PreToolUse:Bash hook error: " + m.WHY.pushVerify)')" = '["pushVerify"]' ]
 check "firedRules: joined reasons" [ "$(js 'm.firedRules(m.WHY.pushVerify + " " + m.WHY.prSkill)')" = '["pushVerify","prSkill"]' ]
 check "firedRules: subject reason" [ "$(js 'm.firedRules("Commit subject is 52 chars; max 50 (git.md:19).")')" = '["commitSubject"]' ]
+check "firedRules: body reason" [ "$(js 'm.firedRules("Reminder: Commit body: 1 body line over 72 columns (git.md).")')" = '["commitBody"]' ]
 check "firedRules: prompt trigger" [ "$(js 'm.firedRules(m.MSG.debugTrigger)')" = '["debugTrigger"]' ]
 check "firedRules: conditional nudge" [ "$(js 'm.firedRules(m.nudge("doneClaim"))')" = '["doneClaim"]' ]
 check "firedRules: previous-reply flags" [ "$(js 'm.firedRules("Previous reply broke: missing TL;DR; diagram box edge misaligned at line 3. Apply from this reply on.")')" = '["tldr","boxAlign"]' ]

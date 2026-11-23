@@ -295,6 +295,8 @@ By default, the guard blocks these and tells Claude what to do instead:
 | commit a staged `.env` file | unstages it |
 | add a worktree inside the repository | puts it at `../<repo>-<slug>` |
 
+On each commit, the guard also reminds Claude, without blocking, when the message body has a line over 72 characters, a `Verify:` line with no result, or more than 2 staged files with no `Why:` or `Impact:` line. Set `commitBody` to `off` to stop it.
+
 When Claude edited files and its reply says "done", "fixed" or "passing" with no command run after the last edit, the guard sends the reply back: Claude must run a check, such as the tests, and report the output.
 
 Claude also never pushes, opens a PR or tags unless you ask. Before a push, it regroups its commits into one logical change each. If you installed the byline plugin, it removes session links and the "Generated with Claude Code" line from the commit trailer and PR footer that Claude Code asks Claude to write.
