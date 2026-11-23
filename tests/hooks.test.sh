@@ -326,6 +326,32 @@ check "commit: -m \$(cat file) skipped" [ -z "$(sh_ 'git commit -m "$(cat /tmp/m
 check "commit: heredoc subject checked" denied "$(sh_ $'git commit -m "$(cat <<\'EOF\'\nupdate stuff\n\nbody\nEOF\n)"')"
 check "commit: heredoc body not a push" [ -z "$(sh_ $'git commit -m "$(cat <<\'EOF\'\nfix: ok\n\ngit push later\nEOF\n)"')" ]
 check "commit: session trailer -> deny" denied "$(sh_ $'git commit -m "fix: x\n\nClaude-Session: abc"')"
+LONG=$(printf 'a%.0s' {1..73})
+check "body: line over 72 -> remind" has "$(sh_ "git commit -m \"fix: x\" -m \"$LONG\"")" "over 72 columns"
+check "body: long line is not a deny" not denied "$(sh_ "git commit -m \"fix: x\" -m \"$LONG\"")"
+check "body: heredoc long line -> remind" has "$(sh_ $'git commit -F - <<\'EOF\'\nfix: x\n\n'"$LONG"$'\nEOF')" "over 72 columns"
+check "body: long trailer skipped" [ -z "$(sh_ "git commit -m \"fix: x\" -m \"Co-Authored-By: $LONG\"")" ]
+check "body: Verify with no result -> remind" has "$(sh_ $'git commit -m "fix: x\n\nVerify: ran the tests"')" "Verify:"
+check "body: Verify with pass count quiet" [ -z "$(sh_ $'git commit -m "fix: x\n\nVerify: bash tests/hooks.test.sh, 12 pass"')" ]
+check "body: Verify not run quiet" [ -z "$(sh_ $'git commit -m "fix: x\n\nVerify: not run"')" ]
+printf '%s\n' "fix: x" "" "$LONG" > msg.txt
+check "body: -F file read" has "$(sh_ 'git commit -F msg.txt')" "over 72 columns"
+check "body: file written in same command skipped" [ -z "$(sh_ $'cat > msg.txt <<\'EOF\'\nfix: x\nEOF\ngit commit -F msg.txt')" ]
+check "body: -F of a later command ignored" [ -z "$(sh_ 'git commit -q && grep -F msg.txt msg.txt')" ]
+printf '%s\n' "bad subject" "" "$LONG" > msg.txt
+check "body: -F file subject not denied" not denied "$(sh_ 'git commit -F msg.txt')"
+rm msg.txt
+mkfifo p.fifo; export RG; export -f hook sh_
+check "body: fifo -F returns" timeout 5 bash -c 'sh_ "git commit -F p.fifo"'
+rm p.fifo
+touch b1 b2 b3; git add b1 b2
+check "body: 2 staged files, no Why quiet" [ -z "$(sh_ 'git commit -m "fix: x"')" ]
+git add b3
+check "body: 3 staged files, no Why -> remind" has "$(sh_ 'git commit -m "fix: x"')" "Why:"
+check "body: 3 staged files with Impact quiet" [ -z "$(sh_ $'git commit -m "fix: x\n\nImpact: callers"')" ]
+mkdir -p .claude; printf '{"rulesGuard":{"rules":{"commitBody":"off"}}}' > .claude/claudzilla.local.json
+check "body: off level quiet" [ -z "$(sh_ 'git commit -m "fix: x"')" ]
+rm -rf .claude; git reset -q; rm b1 b2 b3
 check "gh pr edit: session link -> deny" denied "$(sh_ 'gh pr edit 1 --body "see claude.ai/code/session_x"')"
 check "gh pr edit: no pr skill -> deny" denied "$(sh_ 'gh pr edit 1 --title x')"
 hook PostToolUse tool_name=Skill tool_input.skill=pr >/dev/null

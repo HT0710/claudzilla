@@ -42,7 +42,7 @@ const HOLD = ["ask", ...GATE];
 const LEVELS = {
   pushVerify: GATE, prSkill: GATE, forcePush: HOLD, discard: HOLD, mainCommit: GATE,
   commitSubject: GATE, sessionLink: GATE, envStaged: GATE, worktreePath: GATE,
-  debugTrigger: ["remind", "off"], reviewTrigger: ["remind", "off"], debugGate: ["remind", "off"], releaseSync: ["off", "remind"],
+  debugTrigger: ["remind", "off"], reviewTrigger: ["remind", "off"], debugGate: ["remind", "off"], commitBody: ["remind", "off"], releaseSync: ["off", "remind"],
   specExclude: ["on", "off"],
   doneClaim: ["now", "flag", "off"], tldr: ["flag", "off"], emoji: ["flag", "off"], brInTable: ["flag", "off"], boxAlign: ["flag", "off"], tableWidth: ["flag", "off"],
 };
@@ -358,6 +358,7 @@ function firedRules(text) {
   // WHY and MSG are keyed by rule id, so rule-review can count fires from transcripts.
   for (const [id, t] of [...Object.entries({ ...WHY, ...MSG }), ...Object.entries(ASK)]) if (text.includes(head(t))) ids.add(id);
   if (/Commit subject (?:must be|is \d+ chars)/.test(text)) ids.add("commitSubject");
+  if (text.includes("Commit body: ")) ids.add("commitBody");
   const prev = text.match(/Previous reply broke: (.*)\. Apply from this reply on\./);
   for (const f of prev ? prev[1].split("; ") : []) {
     const id = Object.keys(FLAG).find((k) => f.startsWith(FLAG[k]));
@@ -414,20 +415,29 @@ function segments(cmd) {
   return segs.filter((t) => t[0]);
 }
 
-function commitSubject(full) {
+// Full message, -m values joined by a blank line as git does; null when the command doesn't show it.
+// With dir, a `-F <file>` that already exists is read.
+function commitMessage(full, dir) {
   // Only flags after `git … commit`, so `python -m x && git commit` isn't read as a message.
   const at = full.search(/\bgit\b[^\n;&|]*?\bcommit\b/);
   const cmd = at === -1 ? full : full.slice(at);
   const doc = cmd.match(HEREDOC_RE);
-  const m = cmd.match(/(?:^|\s)(?:-[a-zA-Z]*m|--message)(?:\s+|=)("(?:[^"\\]|\\.)*"|'[^']*'|\S+)/);
-  if (m) {
-    const v = m[1].replace(/^(["'])([\s\S]*)\1$/, "$2");
-    if (v.startsWith("$")) return v.startsWith("$(") && doc ? doc[3].split("\n")[0].trim() : null;
-    return v.split("\n")[0].trim();
-  }
-  if (doc && /(?:^|\s)(?:-F|--file)(?:\s+|=)-(?:\s|$)/.test(cmd)) return doc[3].split("\n")[0].trim();
-  return null;
+  const vals = [...cmd.matchAll(/(?:^|\s)(?:-[a-zA-Z]*m|--message)(?:\s+|=)("(?:[^"\\]|\\.)*"|'[^']*'|\S+)/g)]
+    .map((m) => m[1].replace(/^(["'])([\s\S]*)\1$/, "$2"))
+    .map((v) => (!v.startsWith("$") ? v : v.startsWith("$(") && doc ? doc[3] : null));
+  if (vals.length) return vals[0] == null ? null : vals.filter((v) => v != null).join("\n\n");
+  const f = cmd.split(/[\n;&|]/)[0].match(/(?:^|\s)(?:-F|--file)(?:\s+|=)(\S+)/);
+  if (f?.[1] === "-") return doc ? doc[3] : null;
+  // Written earlier in the same command: the hook would read the old file.
+  if (!f || !dir || new RegExp(`>\\s*['"]?${RegExp.escape(f[1])}['"]?(?:\\s|$)`).test(full.slice(0, at))) return null;
+  try {
+    const p = resolve(dir, home(f[1])), st = statSync(p);
+    // A fifo or device would block or never end.
+    return st.isFile() && st.size < 1e6 ? readFileSync(p, "utf8") : null;
+  } catch { return null; }
 }
+
+const commitSubject = (full) => commitMessage(full)?.split("\n")[0].trim() ?? null;
 
 function subjectProblem(cmd, cfg) {
   const subj = commitSubject(cmd);
@@ -438,16 +448,30 @@ function subjectProblem(cmd, cfg) {
   return len > cfg.subjectMax ? `Commit subject is ${len} chars; max ${cfg.subjectMax} (git.md:19).` : null;
 }
 
-function stagedEnv(dir) {
-  const staged = git(dir, "diff", "--cached", "--name-only").split("\n").map((f) => f.split("/").pop());
-  return staged.some((f) => /^\.env(\..+)?$/.test(f) && !/^\.env\.(example|sample|template)$/.test(f));
+// Long trailers are exempt from the 72-column wrap (git.md).
+const TRAILER = /^(?:Co-Authored-By|Signed-off-by|Fixes|Closes):/i;
+// shortcut: staged count is read before the command runs, so `git add … && git commit` or `commit -a` undercounts; parse those adds if missed warnings matter.
+function bodyProblem(msg, staged) {
+  if (msg == null) return null;
+  const body = msg.split("\n").slice(1);
+  const found = [];
+  const long = body.filter((l) => [...l].length > 72 && !TRAILER.test(l)).length;
+  if (long) found.push(`${long} body line${long > 1 ? "s" : ""} over 72 columns`);
+  if (body.some((l) => /^Verify:/.test(l) && !/\d|\bpass|\brc\b|not run/i.test(l))) found.push("a `Verify:` line with no result (a number, `pass`, `rc` or `not run`)");
+  if (staged > 2 && !body.some((l) => /^(?:Why|Impact):/.test(l))) found.push(`${staged} staged files but no \`Why:\` or \`Impact:\` line`);
+  return found.length ? `Commit body: ${found.join("; ")} (git.md).` : null;
 }
+
+const stagedEnv = (staged) => staged.map((f) => f.split("/").pop())
+  .some((f) => /^\.env(\..+)?$/.test(f) && !/^\.env\.(example|sample|template)$/.test(f));
 
 function checkCommit(dir, cmd, hit, cfg, branch) {
   hit("sessionLink", SESSION_RE.test(cmd) && WHY.sessionLink);
   hit("mainCommit", !cfg.allowMain && ["main", "master"].includes(branch ?? git(dir, "symbolic-ref", "--short", "HEAD")) && WHY.mainCommit);
-  hit("envStaged", stagedEnv(dir) && WHY.envStaged);
+  const staged = git(dir, "--no-optional-locks", "diff", "--cached", "--name-only").split("\n").filter(Boolean);
+  hit("envStaged", stagedEnv(staged) && WHY.envStaged);
   hit("commitSubject", subjectProblem(cmd, cfg));
+  hit("commitBody", bodyProblem(commitMessage(cmd, dir), staged.length));
 }
 
 function worktreePath(a) {
