@@ -684,7 +684,7 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     // A /clear or resume goes on under a new session id, which needs its own cols file.
     wroteColumns = 0
-    for (const rows of [runs, done, placed, agents, skills, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails]) rows.clear()
+    for (const rows of [runs, done, placed, agents, skills, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails, late]) rows.clear()
     corners.clear()
     section = { open: false, n: 0 }
     lastRow = undefined
@@ -797,6 +797,8 @@ export const register: Register = on => {
   const corners = new Set<string>()
   // The last folio row each section drew: a row is the section's corner while it holds this.
   const tails = new Map<number, string>()
+  // Messages first drawn empty, with the section's last row then and the rows placed since: their text may come later.
+  const late = new Map<string, { n: number; rows: string[]; before?: string }>()
   // A forked skill draws as an agent row, under its own glyph and name.
   const agentRow = (elements: Elements['terminal'], id: string, state: State, agent: AgentRow | undefined, desc: string, isBackground: boolean, ms?: number, skill?: string) => {
     const { Text } = elements
@@ -1185,7 +1187,10 @@ export const register: Register = on => {
       || (e.component === 'ToolGroup' && e.props.calls.length > 0 && e.props.calls.every((c: ToolGroupCall) => c.tool === INTENT_TOOL || HIDDEN_TOOLS.has(c.tool)))
     if (isHidden || e.surface !== 'terminal' || placed.has(e.requestId)) return
     // An empty message between tool calls is no text: it must not cut their run. Left unplaced, so a later draw with text still places it.
-    if (e.component === 'AssistantMessage' && !e.props.text?.trim()) return
+    if (e.component === 'AssistantMessage' && !e.props.text?.trim()) {
+      if (!late.has(e.requestId)) late.set(e.requestId, { n: section.n, rows: [], before: tails.get(section.n) })
+      return
+    }
     placed.add(e.requestId)
     const ids = memberIds(e)
     // The engine re-keys a group once it ends: the new row takes the old one's place in its section.
@@ -1202,6 +1207,26 @@ export const register: Register = on => {
     if (e.component === 'ToolUse' && runs.has(e.requestId)) return
     const origin = e.component === 'UserMessage' ? e.props.origin : undefined
     if (e.component === 'AssistantMessage' || origin?.kind === 'composer' || (origin?.kind === 'plugin' && origin.asUser)) section = { open: true, n: section.n + 1 }
+    // Text that arrives after the rows drawn below its message: those rows belong to its section, not the one before.
+    const early = e.component === 'AssistantMessage' ? late.get(e.requestId) : undefined
+    // Messages drawn empty before this one won't get text later; those drawn after it still may.
+    if (e.component === 'AssistantMessage') {
+      if (!early) late.clear()
+      else for (const id of late.keys()) { late.delete(id); if (id === e.requestId) break }
+    }
+    const n = section.n - 1
+    if (early?.n === n) {
+      let moved = 0
+      for (const id of early.rows) { const f = frameOf(id); if (f?.n === n) { f.n = section.n; moved++ } }
+      if (moved) {
+        for (const rest of late.values()) if (rest.n === n) rest.n = section.n
+        const last = tails.get(n)
+        if (last) tails.set(section.n, last)
+        if (early.before) tails.set(n, early.before)
+        else tails.delete(n)
+        redraw()
+      }
+    }
     const frame = e.viewport?.isFullscreen ? { ...section } : undefined
     // A tool row, or a finish row folio draws, takes its frame here.
     const take = () => {
@@ -1209,6 +1234,7 @@ export const register: Register = on => {
       if (frame) frames.set(e.requestId, frame)
       lastRow = e.requestId
       tails.set(section.n, e.requestId)
+      for (const { rows } of late.values()) rows.push(e.requestId)
     }
     if (!ids) {
       current = undefined
@@ -1225,6 +1251,7 @@ export const register: Register = on => {
       forkLast(redraw)
       lastRow = e.requestId
       tails.set(section.n, e.requestId)
+      for (const { rows } of late.values()) rows.push(e.requestId)
     }
     // An id a ToolUse row already placed stays in its first run.
     for (const id of ids.filter(id => !runs.has(id))) {
