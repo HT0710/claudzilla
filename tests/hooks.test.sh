@@ -342,7 +342,7 @@ printf '%s\n' "bad subject" "" "$LONG" > msg.txt
 check "body: -F file subject not denied" not denied "$(sh_ 'git commit -F msg.txt')"
 rm msg.txt
 mkfifo p.fifo; export RG; export -f hook sh_
-check "body: fifo -F returns" timeout 5 bash -c 'sh_ "git commit -F p.fifo"'
+check "body: fifo -F returns" perl -e 'alarm 5; exec @ARGV' bash -c 'sh_ "git commit -F p.fifo"'
 rm p.fifo
 touch b1 b2 b3; git add b1 b2
 check "body: 2 staged files, no Why quiet" [ -z "$(sh_ 'git commit -m "fix: x"')" ]
