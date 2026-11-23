@@ -1063,6 +1063,15 @@ test('two old Reads fold', async ($, on) => {
   expect(await textOf(second, 'r2')).toBeUndefined()
 })
 
+test('an empty assistant message between two Reads keeps them in one fold', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'AssistantMessage', requestId: 'a1', props: { text: '' }, viewport: VIEW })
+  const second = await mountRow($, 'Read', 'x', {}, '/p/b.txt', 'r2')
+  expect(await textOf(first, 'r1')).toBe('◼ Read (2 files)')
+  expect(await textOf(second, 'r2')).toBeUndefined()
+})
+
 test('a lone row is a fold already, and a second member joins it', async ($, on) => {
   native(on)
   const first = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')

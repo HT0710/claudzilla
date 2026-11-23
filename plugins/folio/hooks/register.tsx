@@ -1184,6 +1184,8 @@ export const register: Register = on => {
     const isHidden = (e.component === 'ToolUse' && (e.props.tool === INTENT_TOOL || HIDDEN_TOOLS.has(e.props.tool)))
       || (e.component === 'ToolGroup' && e.props.calls.length > 0 && e.props.calls.every((c: ToolGroupCall) => c.tool === INTENT_TOOL || HIDDEN_TOOLS.has(c.tool)))
     if (isHidden || e.surface !== 'terminal' || placed.has(e.requestId)) return
+    // An empty message between tool calls is no text: it must not cut their run. Left unplaced, so a later draw with text still places it.
+    if (e.component === 'AssistantMessage' && !e.props.text?.trim()) return
     placed.add(e.requestId)
     const ids = memberIds(e)
     // The engine re-keys a group once it ends: the new row takes the old one's place in its section.
