@@ -1228,32 +1228,6 @@ test('a notification the engine draws keeps the rail on the next gap', async ($,
   expect(await rail(fold, OWN)).toBe(1)
 })
 
-const sent = async ($: any, output: unknown, extra: object = {}, viewport: object = VIEW, id = 'm1') => {
-  await mountRow($, 'SendMessage', output, extra, '/p/a.txt', id, viewport)
-  return $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolResult', requestId: id,
-    props: { tool_use_id: id, tool: 'SendMessage', output, isErrored: false, ...extra }, viewport })
-}
-
-test('a SendMessage result sits on the rail', async ($, on) => {
-  native(on)
-  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
-  await said($, 'a1')
-  const ui = await sent($, { success: true, message: 'Resuming agent ad74bb0' })
-  expect(await rail(ui, GAP)).toBe(1)
-  expect(await rail(ui, OWN)).toBe(1)
-  expect((await ui.find({ type: 'Text', text: /Resuming/ }))?.text).toBe('⎿  Resuming agent ad74bb0')
-})
-
-test('a failed, expanded or unplaced SendMessage, or one off the fullscreen layout, keeps the engine block', async ($, on) => {
-  native(on)
-  expect((await (await sent($, { success: true, message: 'Resuming agent x' }, { isExpanded: true }, VIEW, 'm3')).find({ type: 'Text' }))?.text).toBe('native block')
-  const early = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolResult', requestId: 'm4',
-    props: { tool_use_id: 'm4', tool: 'SendMessage', output: { success: true, message: 'Resuming agent x' }, isErrored: false }, viewport: VIEW })
-  expect((await early.find({ type: 'Text' }))?.text).toBe('native block')
-  expect((await (await sent($, { success: true, message: 'Resuming agent x' }, { isErrored: true })).find({ type: 'Text' }))?.text).toBe('native block')
-  expect((await (await sent($, { success: true, message: 'Resuming agent x' }, {}, { ...VIEW, isFullscreen: false }, 'm2')).find({ type: 'Text' }))?.text).toBe('native block')
-})
-
 for (const [tool, output] of [['Agent', { status: 'async_launched' }], ['Skill', { success: true }]] as const) {
   test(`${tool}: a row first drawn before its output keeps the rail on the next gap`, async ($, on) => {
     native(on)
@@ -1681,6 +1655,7 @@ for (const [name, tool, input, output, want] of [
   ['a fetch', 'WebFetch', { url: 'https://example.com/a?b' }, fetched, '◼ Fetched (1 page)'],
   ['a search', 'WebSearch', { query: 'example domain' }, searched, '◼ Searched (1 query)'],
   ['a stopped task', 'TaskStop', { task_id: 'b1' }, stopped, '◼ Stopped (1 task)'],
+  ['a sent message', 'SendMessage', { to: 'nutmeg-owl', message: 'hi' }, { success: true, message: 'Resuming agent nutmeg-owl' }, '◼ Sent (1 message)'],
   ['a background agent', 'Agent', { description: 'Say hi', prompt: 'p' }, { status: 'async_launched', agentId: 'a1', description: 'Say hi', prompt: 'p', outputFile: '/o' }, '◇ working  agent (Say hi)'],
   ['a named agent', 'Agent', { description: 'Say hi', name: 'sleepy-lynx', prompt: 'p' }, { status: 'async_launched', agentId: 'a1', description: 'Say hi', prompt: 'p', outputFile: '/o' }, '◇ working  sleepy-lynx (Say hi)'],
   ['a finished agent', 'Agent', { description: 'Say hi', prompt: 'p' }, agentDone, '◆ done     agent (Say hi)'],
@@ -1749,6 +1724,7 @@ for (const [name, tool, input, want] of [
   ['a running skill', 'Skill', { skill: 'caveman:caveman-help' }, '✦ loading  caveman-help (caveman)'],
   ['a running write', 'Write', { file_path: '/p/a.txt' }, '● Writing (a.txt)'],
   ['a running stop', 'TaskStop', { task_id: 'b1' }, '● Stopping (b1)'],
+  ['a running send', 'SendMessage', { to: 'nutmeg-owl', message: 'hi' }, '● Sending (nutmeg-owl)'],
 ] as const) {
   test(`${name} draws its running row, and its engine block stays`, async ($, on) => {
     native(on)
@@ -3344,6 +3320,26 @@ test('an open fold shows a stopped task by its command', async ($, on) => {
   await click(first, 'fold:r1')
   const texts = (await first.findAll({ type: 'Text' })).map((x: any) => x.text)
   expect(texts).toContain('  └ sleep 9')
+})
+
+test('a failed lone SendMessage keeps its native row, off the rail', async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  await said($, 'a1')
+  const ui = await mountRow($, 'SendMessage', 'No agent named nope', { isErrored: true, input: { to: 'nope', message: 'hi' } }, '', 'm1')
+  expect(await rail(ui, GAP)).toBe(0)
+  expect(await rail(ui, OWN)).toBe(0)
+  expect((await ui.find({ type: 'Text' }))?.text).toBe('native')
+})
+
+test('an open fold shows a sent message by its recipient and first line', async ($, on) => {
+  native(on)
+  const first = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  await mountRow($, 'SendMessage', { success: true, message: 'Resuming agent nutmeg-owl' }, { input: { to: 'nutmeg-owl', message: 'Reply ok.\nNo tools.' } }, '', 'm1')
+  expect(await textOf(first, 'r1')).toBe('◼ Read (1 file) · Sent (1 message)')
+  await click(first, 'fold:r1')
+  const texts = (await first.findAll({ type: 'Text' })).map((x: any) => x.text)
+  expect(texts).toContain('  └ nutmeg-owl (Reply ok.)')
 })
 
 test('a session end closes the open section', async ($, on) => {
