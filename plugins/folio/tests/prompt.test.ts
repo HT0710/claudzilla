@@ -5,6 +5,11 @@ test('cells counts CJK and emoji as 2', () => {
   expect(cells('界a')).toBe(3)
 })
 
+test('tidy hides pasted_content tag lines and keeps the paste', () => {
+  expect(tidy('look:\n<pasted_content id="f4bf">\n  one\n\n  two\n</pasted_content id="f4bf">\nthanks')).toBe('look:\n  one\n\n  two\nthanks')
+  expect(tidy('<pasted_content id="a1">\nonly\n</pasted_content id="a1">')).toBe('only')
+})
+
 test('tidy drops blank edges, squashes runs, and shows a tab as one space', () => {
   expect(tidy('\n\na\n\n\n\nb\n\n')).toBe('a\n\nb')
   expect(tidy('a\tb\x07c')).toBe('a bc')

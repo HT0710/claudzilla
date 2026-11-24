@@ -8,9 +8,9 @@ export const cells = (text: string) =>
   pieces(text).reduce((sum, g) =>
     sum + (/\p{Emoji_Presentation}|[ᄀ-ᅟ⺀-꓏가-힣豈-﫿＀-｠￠-￦\u{1F000}-\u{1FAFF}\u{20000}-\u{3FFFF}\uFE0F]/u.test(g) ? 2 : 1), 0)
 
-// Display only: the sent text keeps its tabs, controls and blank lines.
+// Display only: the sent text keeps its tabs, controls, blank lines and paste tags.
 export const tidy = (text: string) =>
-  text.replace(/\t/g, ' ').replace(CONTROLS, '')
+  text.replace(/^<\/?pasted_content id="[^"]*">$\n?/gm, '').replace(/\t/g, ' ').replace(CONTROLS, '')
     .replace(/^(?:[ \t]*\n)+/, '').replace(/(?:\n[ \t]*)+$/, '').replace(/\n(?:[ \t]*\n){2,}/g, '\n\n')
 
 // Word wrap to `room` cells, keeping indentation and space runs; a word longer than room is cut by grapheme, taking at least one per line.
