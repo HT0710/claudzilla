@@ -689,16 +689,24 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // Prompts typed over a running turn: the engine draws each as a prompt row before the turn's own rows, which must not take its section.
+  const queued = new Set<string>()
   on('prompt.submit', async ($, e, next) => {
+    if (e.turnId) queued.add(e.text)
     t.turn()
     void t.flush(traceIo($))
+    return next(e)
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    if (e.agentId === undefined) queued.clear()
     return next(e)
   })
 
   on('session.end', async ($, e, next) => {
     // A /clear or resume goes on under a new session id, which needs its own cols file.
     wroteColumns = 0
-    for (const rows of [runs, done, placed, agents, skills, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails, late, prompts, promptBefore, framedAfter, scans]) rows.clear()
+    for (const rows of [runs, done, placed, agents, skills, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails, late, prompts, promptBefore, framedAfter, scans, queued]) rows.clear()
     redrawAll = () => {}
     corners.clear()
     section = { open: false, n: 0 }
@@ -1236,7 +1244,7 @@ export const register: Register = on => {
     // A finished row of a call a run already holds stays in that run: as a run of its own it would cut the next live row off.
     if (e.component === 'ToolUse' && runs.has(e.requestId)) return
     const origin = e.component === 'UserMessage' ? e.props.origin : undefined
-    if (e.component === 'AssistantMessage' || origin?.kind === 'composer' || (origin?.kind === 'plugin' && origin.asUser)) {
+    if (!(origin?.kind === 'composer' && queued.has(e.props.text)) && (e.component === 'AssistantMessage' || origin?.kind === 'composer' || (origin?.kind === 'plugin' && origin.asUser))) {
       section = { open: true, n: section.n + 1 }
       // Only the row drawn right after a prompt, in its section, joins its card to the rail.
       if (origin?.kind === 'composer') { prompts.add(e.requestId); lastRow = e.requestId }
