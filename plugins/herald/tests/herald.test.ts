@@ -2,7 +2,8 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import type { On } from 'claude-code'
 
-import { AUTO_MS, CHECK_MS, coldText, contextToast, crossed, due, EVERY_MS, FILL_MS, HOUR, parse, ttlOf } from '../hooks/register'
+import { AUTO_MS, CHECK_MS, coldText, contextToast, crossed, due, EVERY_MS, FILL_MS, HOUR, formatWait, isOtherWait, parse, parseWait, ttlOf, waitRepeat, waitToast } from '../hooks/register'
+import type { Wait } from '../hooks/register'
 
 const S = 1_000_000
 const ran = (exitCode: number, stdout: string) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -50,6 +51,46 @@ test('parse refuses a malformed line', () => {
   expect(parse('x\tlive\ttext')).toBeUndefined()
   expect(parse(`${S}\tother\ttext`)).toBeUndefined()
   expect(parse('')).toBeUndefined()
+})
+
+const W: Wait = { at: S, session: 's1', kind: 'wait', name: 'claudzilla-35', branch: 'main', detail: 'Bash permission' }
+
+test('formatWait writes six tab fields and flattens tabs and newlines in name and branch', () => {
+  expect(formatWait(W)).toBe(`${S}\ts1\twait\tclaudzilla-35\tmain\tBash permission`)
+  expect(formatWait({ ...W, name: 'a\tb\nc', branch: 'x\ty' }).split('\t')).toEqual([`${S}`, 's1', 'wait', 'a b c', 'x y', 'Bash permission'])
+})
+
+test('parseWait reads formatWait back and refuses malformed lines', () => {
+  expect(parseWait(formatWait(W))).toEqual(W)
+  expect(parseWait(formatWait({ ...W, detail: 'a\tb' }))).toEqual({ ...W, detail: 'a\tb' })
+  expect(parseWait(`${S}\ts1\tother\tn\tb\td`)).toBeUndefined()
+  expect(parseWait(`x\ts1\twait\tn\tb\td`)).toBeUndefined()
+  expect(parseWait(`${S}\ts1\twait\tn\tb`)).toBeUndefined()
+})
+
+test('waitToast names the session, reason and branch', () => {
+  expect(waitToast(W)).toBe('! claudzilla-35 waits on you · Bash permission · ⎇ main')
+  expect(waitToast({ ...W, kind: 'done', detail: '' })).toBe('✓ claudzilla-35 done · ⎇ main')
+  expect(waitToast({ ...W, kind: 'done', name: 'n', branch: '', detail: '' })).toBe('✓ n done')
+})
+
+test('waitRepeat: one toast per session and kind per 30 s, whatever the detail', () => {
+  const T = S * 1000
+  const seen = new Map<string, number>()
+  expect(waitRepeat(seen, W, T)).toBe(true)
+  expect(waitRepeat(seen, { ...W, detail: 'Edit permission' }, T + 1000)).toBe(false)
+  expect(waitRepeat(seen, { ...W, kind: 'done' }, T + 1000)).toBe(true)
+  expect(waitRepeat(seen, { ...W, session: 's2' }, T + 1000)).toBe(true)
+  expect(waitRepeat(seen, W, T + 29_999)).toBe(false)
+  expect(waitRepeat(seen, W, T + 30_000)).toBe(true)
+})
+
+test('isOtherWait skips the own session and lines over 10 s old', () => {
+  const now = S * 1000
+  expect(isOtherWait(W, 's1', now)).toBe(false)
+  expect(isOtherWait({ ...W, session: 's2', at: S - 11 }, 's1', now)).toBe(false)
+  expect(isOtherWait({ ...W, session: 's2', at: S - 10 }, 's1', now)).toBe(true)
+  expect(isOtherWait({ ...W, session: 's2' }, 's1', now)).toBe(true)
 })
 
 test('due: start lines within 30 s of the session start', () => {
