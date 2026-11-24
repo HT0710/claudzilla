@@ -10,11 +10,13 @@ export const CUT = 2000
 
 export const gitArgs = (...args: string[]): string[] => ['git', '--no-optional-locks', '-c', 'core.quotePath=false', ...args]
 
-/** Git top-level of the session directory; the directory itself outside a repo. */
+/** Git top-level of the folder the session started in; the folder itself outside a repo. */
 export async function projectRoot($: EngineInterface): Promise<string> {
-  const run = await $.process.run(gitArgs('rev-parse', '--show-toplevel')).catch(() => undefined)
+  // Not cwd: a shell `cd` into a nested repo would make that repo the root.
+  const start = await $.session.root().catch(() => '')
+  const run = await $.process.run(gitArgs('rev-parse', '--show-toplevel'), start ? { cwd: start } : undefined).catch(() => undefined)
   const top = run?.exitCode === 0 ? run.stdout.split('\n')[0]!.trim() : ''
-  return top || (await $.session.cwd().catch(() => ''))
+  return top || start || (await $.session.cwd().catch(() => ''))
 }
 
 export function statOf($: EngineInterface, path: string): Promise<{ kind: 'file' | 'dir' | 'other'; size: number; mtimeMs: number } | undefined> {
