@@ -1230,6 +1230,39 @@ test('an empty transcript path gives no time row', async ($, on) => {
   expect((await ui.find({ type: 'Box', props: { width: '100%' } }))?.props.marginBottom).toBe(0)
 })
 
+test('the placeholder prompt row draws no card', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'placeholder',
+    props: { text: 'hi', origin: { kind: 'composer' } }, viewport: { columns: 80, rows: 20, isFullscreen: true } })
+  expect(await ui.find({ type: 'Text', text: /^╭─*╮$/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'native' })).toBeUndefined()
+})
+
+test('the card draws without waiting on the session lookup', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('session.info', () => new Promise(() => {}))
+  const ui = await prompt($, 'hi')
+  expect(await ui.find({ type: 'Text', text: /^╭─*╮$/ })).toBeDefined()
+})
+
+test('after a session end the card reads the new transcript for its time', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  mock.clock(on, { now: 0 })
+  let path = '/t/a.jsonl'
+  const file = JSON.stringify(sentRow) + '\n'
+  on('session.info', () => ({ value: { transcriptPath: path } }))
+  on('fs.read', (_: any, e: any) => (e.path === '/t/b.jsonl' ? { value: file.slice(e.offset ?? 0, (e.offset ?? 0) + (e.length ?? file.length)) } : { deny: 'ENOENT' }))
+  on('session.end', () => ({ sessionId: 's1' }))
+  await (await prompt($, 'hi')).unmount()
+  await $.session.end({ reason: 'clear' })
+  path = '/t/b.jsonl'
+  const ui = await prompt($, 'hi')
+  expect(await ui.find({ type: 'Text', text: stamp(0) })).toBeDefined()
+})
+
 test('the card redraws once the lookup lands', async ($, on) => {
   native(on)
   nativePrompt(on)
