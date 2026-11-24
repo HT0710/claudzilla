@@ -1,5 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
+import { cells } from '../hooks/prompt'
 import { agentLabel, cutPath, diffRows, durationText, runText, split, writeTargets } from '../hooks/register'
 
 const text = '━━━━\n\n**TL;DR** x\n\n──\n\n## H\n\n┈┈\n\nmore\n\n```text\n━━━━\n```\n\n━━━━'
@@ -1192,11 +1193,13 @@ test('CJK and tab lines keep the border aligned', async ($, on) => {
   native(on)
   nativePrompt(on)
   const ui = await prompt($, '日本語のテキスト\n\tindented\nplain')
-  const rows = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props.flexDirection === 'row')
-  expect(rows.length).toBe(3)
-  expect(new Set(rows.map((b: any) => b.props.paddingLeft)).size).toBe(1)
-  const inner = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props.paddingX === 1)
-  expect(new Set(inner.map((b: any) => b.props.width)).size).toBe(1)
+  const top = (await ui.find({ type: 'Text', text: /^╭─*╮$/ }))!.text
+  const w = cells(top)
+  const lines = (await colored(ui, '#e0a878')).map((t: any) => t.text)
+  expect(lines.length).toBe(3)
+  for (const l of lines) expect(cells(l)).toBeLessThanOrEqual(w - 4)
+  expect(Math.max(...lines.map(cells))).toBe(w - 4)
+  expect(cells((await ui.find({ type: 'Text', text: /^─+$/ }))!.text)).toBe(80)
 })
 
 test('blank runs show once', async ($, on) => {
@@ -1227,6 +1230,7 @@ for (const [name, text, extra, surface, columns] of [
   ['non-composer', 'hi', { origin: { kind: 'plugin' } }, 'terminal', 80],
   ['non-terminal', 'hi', {}, 'desktop', 80],
   ['too narrow', 'hi', {}, 'terminal', 6],
+  ['a CJK glyph wider than the room', '日', {}, 'terminal', 7],
   ['blank', ' \n ', {}, 'terminal', 80],
 ] as const) {
   test(`${name} keeps the native prompt`, async ($, on) => {
