@@ -3616,6 +3616,15 @@ for (const [name, tool, output, extra] of [
   })
 }
 
+test('a SendMessage row after a prompt gives ╭', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  const card = await prompt($, 'hi')
+  expect(await ruleOf(card)).toBe('─')
+  await mountRow($, 'SendMessage', { success: true, message: 'Resuming agent nutmeg-owl' }, { input: { to: 'nutmeg-owl', message: 'hi' } }, '', 'm1')
+  expect(await ruleOf(card)).toBe('╭')
+})
+
 test('a prompt followed by exactly one framed row gives ╭ above its ╰─', async ($, on) => {
   native(on)
   nativePrompt(on)
