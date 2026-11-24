@@ -1322,7 +1322,8 @@ export const register: Register = on => {
   }
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     const p = e.props
-    if (e.surface !== 'terminal' || p.origin?.kind !== 'composer' || p.isExpanded) return next(e)
+    // A slash command's echo is the engine's own row once it runs; a card would flash in its place.
+    if (e.surface !== 'terminal' || p.origin?.kind !== 'composer' || p.isExpanded || /^\/[\w:-]+(\s|$)/.test(p.text)) return next(e)
     // The shared row hook below sees the row through next(e), so the prompt opens its rail section.
     const native = await next(e)
     const columns = e.viewport?.columns ?? 80
