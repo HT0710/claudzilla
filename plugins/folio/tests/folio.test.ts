@@ -1079,7 +1079,7 @@ test('an errored Edit cuts the run', async ($, on) => {
   await mountRow($, 'Read', 'x', {}, '/p/b.txt', 'r1')
   const cut = await mountRow($, 'Edit', 'Error: no.', { isErrored: true }, '/p/c.txt', 'e3')
   const after = await mountRow($, 'Read', 'x', {}, '/p/d.txt', 'r2')
-  expect(await textOf(cut, 'e3')).toBe('native')
+  expect(await textOf(cut, 'e3')).toBe('● Edit (c.txt)  failed')
   expect(await textOf(first, 'e1')).toBe('◼ Edited (1 file) · Read (1 file)  +1')
   expect(await textOf(after, 'r2')).toBe('◼ Read (1 file)')
 })
@@ -1405,12 +1405,12 @@ test("margin's hidden intent row does not break a run", async ($, on) => {
   expect(await textOf(first, 'e1')).toBe('◼ Edited (2 files)  +2')
 })
 
-test('a failed edit keeps its native row, reason included; the fold counts the rest', async ($, on) => {
+test('a failed edit keeps its own row, reason included; the fold counts the rest', async ($, on) => {
   native(on)
   const first = await mountRow($, 'Edit', patch('+b'), {}, '/p/a.txt', 'e1')
   await mountRow($, 'Edit', patch('+c'), {}, '/p/b.txt', 'e2')
   const third = await mountRow($, 'Edit', 'Error: ledger: /p/c.txt was edited by another session 2m ago.', { isErrored: true }, '/p/c.txt', 'e3')
-  expect(await textOf(third, 'e3')).toBe('native')
+  expect(await textOf(third, 'e3')).toBe('● Edit (c.txt)  failed')
   expect(await textOf(first, 'e1')).toBe('◼ Edited (2 files)  +2')
 })
 
@@ -1731,8 +1731,7 @@ test('the engine block stays where the row stays native', async ($, on) => {
   native(on)
   expect(await block($, 'Edit', patch('-a', '+b'), { isExpanded: true }, 'b1')).toBe('native block')
   expect(await block($, 'Edit', "The user doesn't want to proceed.", { isErrored: true }, 'b2')).toBe('native block')
-  expect(await block($, 'Edit', 'Error: ledger: /p/a.txt was edited by another session.', { isErrored: true }, 'b4')).toBe('native block')
-  expect(await block($, 'Bash', { stderr: 'x' }, { isErrored: true }, 'b3')).toBe('native block')
+  expect(await block($, 'Edit', 'Error: cut.', { isErrored: true, isInterrupted: true }, 'b4')).toBe('native block')
 })
 
 test('a running edit draws its running row', async ($, on) => {
@@ -1757,17 +1756,33 @@ test('the mark and counts take the theme colours', async ($, on) => {
 for (const [name, tool, output, extra] of [
   ['the expanded view', 'Edit', patch('-a', '+b'), { isExpanded: true }],
   ['an expanded error', 'Edit', 'Error: String to replace not found in file.', { isErrored: true, isExpanded: true }],
-  ['a tool error', 'Edit', 'Error: String to replace not found in file.', { isErrored: true }],
-  ['a tool error on Write', 'Write', 'Error: it failed.', { isErrored: true }],
-  ['a hook denial', 'Edit', 'Error: ledger: /p/a.txt was edited by another session 2m ago.', { isErrored: true }],
-  ['a rule denial', 'Write', 'Error: Permission to use Write has been denied.', { isErrored: true }],
   ['a refusal', 'Edit', "The user doesn't want to proceed with this tool use.", { isErrored: true }],
-  ['another tool\'s error', 'Bash', 'Error: exit 1', { isErrored: true }],
+  ['an MCP error', 'mcp__x__y', 'Error: down', { isErrored: true }],
   ['another tool', 'TodoWrite', patch('-a', '+b'), {}],
 ] as const) {
   test(`${name} stays native`, async ($, on) => {
     native(on)
     expect(await drawn($, tool, output, extra)).toBe('native')
+  })
+}
+
+const DENIAL = "Error: Permission to use Write has been denied because Claude Code is running in don't ask mode.\nIMPORTANT: You *may* attempt this\nanother way.\nLet the user decide."
+for (const [name, tool, output, want] of [
+  ['a tool error', 'Edit', 'Error: String to replace not found in file.', ['● Edit (a.txt)  failed', 'String to replace not found in file.']],
+  ['a hook denial', 'Edit', 'Error: ledger: /p/a.txt was edited by another session 2m ago.', ['● Edit (a.txt)  failed', 'ledger: /p/a.txt was edited by another session 2m ago.']],
+  ['a rule denial', 'Write', DENIAL, ['● Write (a.txt)  failed', 'Permission to use Write has been denied because Claude Code is running in', "don't ask mode.", '… +3 lines']],
+  ['a long error', 'Write', 'Error: a\nb\nc\nd\ne\n', ['● Write (a.txt)  failed', 'a', 'b', 'c', '… +2 lines']],
+  ['a failed command', 'Bash', { stdout: '', stderr: 'boom\n' }, ['● Bash (false)  failed', 'boom']],
+  ['a failed fetch', 'WebFetch', 'Error: refused', ['● WebFetch (https://x.y)  failed', 'refused']],
+] as const) {
+  test(`${name} draws a failed row with its reason, and hides the engine block`, async ($, on) => {
+    native(on)
+    const input = tool === 'Bash' ? { command: 'false' } : tool === 'WebFetch' ? { url: 'https://x.y' } : { file_path: '/p/a.txt' }
+    const ui = await mountRow($, tool, output, { input, isErrored: true })
+    expect((await ui.findAll({ type: 'Text' })).filter((t: any) => t.props?.wrap || (t.props?.color === 'error' && !['●', 'failed'].includes(t.text))).map((t: any) => t.text)).toEqual(want)
+    expect((await ui.find({ type: 'Text', text: /^●$/ }))?.props.color).toBe('error')
+    expect((await ui.find({ type: 'Text', text: '└' }))?.props.color).toBe('promptBorder')
+    expect(await block($, tool, output, { input, isErrored: true }, 'r2')).toBeUndefined()
   })
 }
 
@@ -1838,7 +1853,6 @@ for (const [name, tool, output, want] of [
 }
 
 for (const [name, tool, input, output, extra] of [
-  ['a failed fetch', 'WebFetch', { url: 'https://x.y' }, 'Error: refused', { isErrored: true }],
   ['an expanded search', 'WebSearch', { query: 'q' }, searched, { isExpanded: true }],
   ['an interrupted agent', 'Agent', { description: 'd' }, 'Error: cut.', { isErrored: true, isInterrupted: true }],
   ['an agent of unknown shape', 'Agent', { description: 'd' }, { status: 'teammate_spawned' }, {}],
@@ -3413,11 +3427,12 @@ test('a lone Bash command folds into one Ran row inside the rail, drops its outp
   expect(await treeOf(ui)).toEqual(['  └ ls'])
 })
 
-test('a lone errored Read sits inside the rail with its native row', async ($, on) => {
+test('a lone errored Read sits inside the rail with its failed row', async ($, on) => {
   await saidFirst($, on)
   const ui = await mountRow($, 'Read', 'Error: nope', { isErrored: true }, '/p/a.txt', 'r1')
-  expect(await nativeText(ui)).toBe('native')
-  expect(await rail(ui, OWN)).toBe(1)
+  expect((await ui.find({ type: 'Text', text: /failed$/ }))?.text).toBe('● Read (a.txt)  failed')
+  // One rail line beside the title, one beside the reason.
+  expect((await ui.find({ type: 'Text', text: /^│ \n│ $/ }))).toBeDefined()
 })
 
 test('a lone MCP call folds into one Called row, inside the rail', async ($, on) => {
@@ -3427,10 +3442,10 @@ test('a lone MCP call folds into one Called row, inside the rail', async ($, on)
   expect(await rail(ui, OWN)).toBe(1)
 })
 
-test('a lone errored Bash command keeps its native row', async ($, on) => {
+test('a lone errored Bash command draws its failed row', async ($, on) => {
   await saidFirst($, on)
   const ui = await mountRow($, 'Bash', { stderr: 'x' }, { input: { command: 'ls' }, isErrored: true }, '', 'b1')
-  expect(await nativeText(ui)).toBe('native')
+  expect((await ui.find({ type: 'Text', text: /failed$/ }))?.text).toBe('● Bash (ls)  failed')
 })
 
 test('off the fullscreen layout a lone Read keeps the native row', async ($, on) => {
@@ -3458,14 +3473,14 @@ test('an open fold shows a stopped task by its command', async ($, on) => {
   expect(texts).toContain('  └ sleep 9')
 })
 
-test('a failed lone SendMessage keeps its native row, off the rail', async ($, on) => {
+test('a failed lone SendMessage draws its failed row with the reason, inside the rail', async ($, on) => {
   native(on)
   on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
   await said($, 'a1')
   const ui = await mountRow($, 'SendMessage', 'No agent named nope', { isErrored: true, input: { to: 'nope', message: 'hi' } }, '', 'm1')
-  expect(await rail(ui, GAP)).toBe(0)
-  expect(await rail(ui, OWN)).toBe(0)
-  expect((await ui.find({ type: 'Text' }))?.text).toBe('native')
+  expect(await rail(ui, GAP)).toBe(1)
+  expect((await ui.find({ type: 'Text', text: /failed$/ }))?.text).toBe('● SendMessage (nope)  failed')
+  expect(await ui.find({ type: 'Text', text: 'No agent named nope' })).toBeDefined()
 })
 
 test('an open fold shows a sent message by its recipient and first line', async ($, on) => {
@@ -3882,4 +3897,45 @@ test('a reply whose text comes after its tool row takes the join back: ─', asy
   await empty.unmount()
   await said($, 'm1', 'later')
   expect(await ruleOf(card)).toBe('╌')
+})
+
+test("a group of margin's hidden intent and one failed call draws the failed row, not a fold", async ($, on) => {
+  native(on)
+  const denied = 'Permission to use Bash has been denied because Claude Code is running in don\'t ask mode.\nIMPORTANT: stop.'
+  const ui = await group($, [call('i1', 'mcp__margin__intent', {}, { output: 'ok' }), call('b1', 'Bash', { command: 'cat x' }, { isErrored: true, output: denied })])
+  expect((await ui.find({ type: 'Text', text: /failed$/ }))?.text).toBe('● Bash (cat x)  failed')
+  expect(await ui.find({ type: 'Text', text: 'Permission to use Bash has been denied because Claude Code is running in' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: "don't ask mode." })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '… +1 lines' })).toBeDefined()
+})
+
+test('a group with one failed call among others still folds with its count', async ($, on) => {
+  native(on)
+  expect(await groupOf($, [call('r1', 'Read', { file_path: '/p/a.txt' }), call('b1', 'Bash', { command: 'false' }, { isErrored: true, output: { stderr: 'x' } })]))
+    .toBe('◼ Read (1 file) · Ran (1 command) · 1 failed')
+})
+
+test('a failed row keeps `failed` on screen under a long command, and wraps a long error to 3 rows', async ($, on) => {
+  native(on)
+  const command = `npm run build -- --filter ${'x'.repeat(120)}`
+  const ui = await mountRow($, 'Bash', { stderr: 'y '.repeat(400) }, { input: { command }, isErrored: true }, '', 'b1')
+  const title = (await ui.find({ type: 'Text', text: /^● Bash/ }))?.text ?? ''
+  expect(title.endsWith('…)  failed')).toBe(true)
+  expect(title.length).toBeLessThanOrEqual(78)
+  const rows = (await ui.findAll({ type: 'Text' })).filter((t: any) => t.props?.color === 'error' && !['●', 'failed'].includes(t.text)).map((t: any) => t.text)
+  expect(rows.length).toBe(4)
+  expect(rows.slice(0, 3).every((r: string) => r.length <= 74)).toBe(true)
+  expect(rows[3]).toMatch(/^… \+\d+ lines$/)
+})
+
+test('a denial that names the command shows only its reason', async ($, on) => {
+  native(on)
+  const ui = await mountRow($, 'Bash', 'Permission to use Bash with command rm x has been denied.\nIMPORTANT: stop.', { input: { command: 'rm x' }, isErrored: true }, '', 'b1')
+  expect(await ui.find({ type: 'Text', text: 'Permission to use Bash with command rm x has been denied.' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '… +1 lines' })).toBeDefined()
+})
+
+test('a wrapped refusal keeps the native row', async ($, on) => {
+  native(on)
+  expect(await drawn($, 'Edit', "<tool_use_error>The user doesn't want to proceed with this tool use.</tool_use_error>", { isErrored: true })).toBe('native')
 })
