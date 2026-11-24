@@ -22,6 +22,7 @@ jobs:
           - tests/agent-name.test.sh
           - tests/hud.test.sh
           - tests/guide.test.sh
+          - tests/glyphs.test.sh
           - tests/visuals.test.sh
           - tests/release.test.sh
           - tests/cost-trace.test.sh

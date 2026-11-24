@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Check, CheckState, CommitView, Counts, Gh, LogRow, Modal, ModalKey, Op, Pr, PrState, PrView, Stage, Word } from '../types'
 import { LOG_FORMAT, age, ago, branches, cutMiddle, fetchDue, fileKey, incomingPrs, ownPrs, parseHead, parseLog, parseMerge, parseNumstat, parseRebase, parseShortstat, parseStatusZ, printable, sortChecks, stashCount, syncMark, treeRows, worktrees, worst } from './git-data'
-import { AHEAD, BEHIND, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, basicGlyphs, capped, card as kitCard, clock, configDir, contentFrame, counted as kitCounted, cues, dayName, dim, drawLayer as kitDrawLayer, emptyNote, fade, fadeBg, fit, heading as kitHeading, kv as kitKv, line as kitLine, modalFrame, modalZone, nudge, readTheme, row as kitRow, rowHovers, stackFrame, toPieces, colWidth, zoneWindow } from './kit'
+import { AHEAD, BEHIND, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, basicGlyphs, nf, capped, card as kitCard, clock, configDir, contentFrame, counted as kitCounted, cues, dayName, dim, drawLayer as kitDrawLayer, emptyNote, fade, fadeBg, fit, heading as kitHeading, kv as kitKv, line as kitLine, modalFrame, modalZone, nudge, readTheme, row as kitRow, rowHovers, stackFrame, toPieces, colWidth, zoneWindow } from './kit'
 import type { Frame, Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, Zone } from './kit'
 import { statOf } from './explorer-load'
 import { mdRows } from './markdown'
@@ -349,7 +349,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   const remoteUrl = remote?.exitCode === 0 ? remote.stdout.trim() : ''
   const fetchedAt = gitDir?.fetchedAt
   const stale = fetchedAt === undefined || now - fetchedAt >= 60 * 60e3
-  const fetchLabel = `${basic ? '↻' : '\uf46a'} ${fetchedAt === undefined ? 'never' : age(fetchedAt, now)}`
+  const fetchLabel = `${nf(0xf46a, '↻')} ${fetchedAt === undefined ? 'never' : age(fetchedAt, now)}`
   // The fetch row's width as drawn: while a fetch runs it reads "◌ fetching".
   const fetchWidth = isFetching ? 10 : [...fetchLabel].length
   // ⎇ draws 2 cells wide in 1, so a second space keeps the gap before the name.
@@ -533,11 +533,14 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
     modified: [PILL_BG.yellow, STATUS.M!], added: [PILL_BG.green, STATUS.A!], deleted: [PILL_BG.red, STATUS.D!], renamed: [PILL_BG.blue, STATUS.R!], untracked: [PILL_BG.cyan, STATUS['?']!], conflict: [PILL_BG.red, STATUS.U!],
   }
   // A state pill: the rounded ends in its background colour around the word.
-  const pill = (state: PrState | Stage | Word) => [
-    <Text color={PILL[state][0]}>{''}</Text>,
-    <Text backgroundColor={PILL[state][0]} color={PILL[state][1]}>{state}</Text>,
-    <Text color={PILL[state][0]}>{''}</Text>,
-  ]
+  const pill = (state: PrState | Stage | Word) =>
+    basic
+      ? [<Text backgroundColor={PILL[state][0]} color={PILL[state][1]}>{` ${state} `}</Text>]
+      : [
+          <Text color={PILL[state][0]}>{[...PILL_CAPS][0]}</Text>,
+          <Text backgroundColor={PILL[state][0]} color={PILL[state][1]}>{state}</Text>,
+          <Text color={PILL[state][0]}>{[...PILL_CAPS][1]}</Text>,
+        ]
   const CI: Record<CheckState, [string, string]> = { bad: ['✗ CI failed', TYPES.fix!], run: ['◌ CI running', 'claude'], ok: ['✓ CI passed', 'success'], skip: ['✓ CI passed', 'success'] }
   // Lines added and removed; a side that is 0 is left out, as the mockup draws it: "+8", "−9".
   const churnText = (add: number, del: number) => [add || !del ? `+${add}` : '', del ? `−${del}` : ''].filter(Boolean).join(' ')
@@ -647,7 +650,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
       'pr',
       [
         <Text dimColor={ended}>  </Text>,
-        basic ? '' : <Text color="claude" dimColor={ended}>{' '}</Text>,
+        basic ? '' : <Text color="claude" dimColor={ended}>{`${nf(0xf407, '')} `}</Text>,
         <Text color="claude" dimColor={ended}>{`#${pr.n}`}</Text>,
         <Text color={HUD.faint} dimColor={ended}> into </Text>,
         <Text dimColor={ended}>{pr.base}</Text>,
@@ -686,7 +689,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
         'rebase',
         [
           <Text>  </Text>,
-          <Text color="warning">{rebase ? '↺ ' : ' '}</Text>,
+          <Text color="warning">{rebase ? '↺ ' : `${nf(0xf419, '›')} `}</Text>,
           <Text>{rebase ? 'rebasing ' : op.verb === 'cherry-pick' ? 'cherry-picking ' : op.verb === 'revert' ? 'reverting ' : 'merging '}</Text>,
           rebase ? <Text color={HUD.faint}>onto </Text> : '',
           <Text>{rebase ? op.onto : op.from}</Text>,
@@ -857,7 +860,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
                 b.pr ? (
                   <Text>
                     <Text color={HUD.faint}>{`#${b.pr.n} `}</Text>
-                    {b.pr.state === 'merged' ? <Text color={HUD.label}>{'\uf419'}</Text> : glyph(worst(b.pr.checks))}
+                    {b.pr.state === 'merged' ? <Text color={HUD.label}>{nf(0xf419, '✓')}</Text> : glyph(worst(b.pr.checks))}
                   </Text>
                 ) : null,
                 <Text color={HUD.faint}>{age(b.at, now)}</Text>,
@@ -878,7 +881,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
       )
     // The chosen view is plain text; only the other is a button, and switching opens on the current branch again.
     const acts = viewNames.map(one => {
-      const label = `${one === 'base' ? '\uf419' : one === 'prefix' ? '\uea83' : '⧉'} ${one}`
+      const label = `${one === 'base' ? nf(0xf419, '›') : one === 'prefix' ? nf(0xea83, '*') : '⧉'} ${one}`
       return by === one ? (
         <Text color="claude">{label}</Text>
       ) : (
@@ -1020,17 +1023,17 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
     const failedRuns = [...new Set(checks.filter(c => c.state === 'bad' && c.run).map(c => c.run!))]
     const rerun = (layer: 'm' | 's') => (
       <Button key={`${layer}:rerun`} plain onPress={() => ctx.rerunFailed(failedRuns)}>
-        <Text color="claude">{'\uebc0 rerun'}</Text>
+        <Text color="claude">{`${nf(0xebc0, '↻')} rerun`}</Text>
       </Button>
     )
     // Each action its icon and one word in the accent, as the mockup's buttons; github is a link, so the terminal
     // opens the page.
     const acts = [
       <Link href={pr.url}>
-        <Text color="claude">{'\uf408 github'}</Text>
+        <Text color="claude">{`${nf(0xf408, '↗')} github`}</Text>
       </Link>,
       <Button key="m:copy" plain onPress={press => $.ui.copy({ text: pr.url, surface: press.surface })}>
-        <Text color="claude">{'\uf44c copy'}</Text>
+        <Text color="claude">{`${nf(0xf44c, '⧉')} copy`}</Text>
       </Button>,
       ...(failedRuns.length ? [rerun('m')] : []),
     ]
@@ -1077,12 +1080,12 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
       ...(href
         ? [
             <Link href={href}>
-              <Text color="claude">{'\uf408 github'}</Text>
+              <Text color="claude">{`${nf(0xf408, '↗')} github`}</Text>
             </Link>,
           ]
         : []),
       <Button key="m:copy" plain onPress={press => $.ui.copy({ text: row.full, surface: press.surface })}>
-        <Text color="claude">{'\uf44c copy'}</Text>
+        <Text color="claude">{`${nf(0xf44c, '⧉')} copy`}</Text>
       </Button>,
     ]
     return sectionModal(
@@ -1131,8 +1134,8 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
       )
     }
     const acts = rebase
-      ? [act('continue', '', ['rebase', '--continue']), act('skip', '', ['rebase', '--skip']), act('abort', '', ['rebase', '--abort'])]
-      : [act('commit', '', ['commit', '--no-edit']), act('abort', '', [op.verb ?? 'merge', '--abort'])]
+      ? [act('continue', nf(0xeacf, '▶'), ['rebase', '--continue']), act('skip', nf(0xead6, '»'), ['rebase', '--skip']), act('abort', nf(0xf468, '✕'), ['rebase', '--abort'])]
+      : [act('commit', nf(0xf417, '✓'), ['commit', '--no-edit']), act('abort', nf(0xf468, '✕'), [op.verb ?? 'merge', '--abort'])]
     const mark = (m: 'done' | 'stop' | 'todo') =>
       m === 'done' ? <Text color="success">✓</Text>
       : m === 'todo' ? <Text color={HUD.faint}>○</Text>
@@ -1228,12 +1231,12 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
           const sf = stackFrame(props.bodyColumns, tabRows, f, 5 + subRows.length)
           const acts = [
             <Link href={subPr.url}>
-              <Text>{' github'}</Text>
+              <Text>{`${nf(0xf408, '↗')} github`}</Text>
             </Link>,
             ...(runs.length
               ? [
                   <Button key="s:rerun" plain onPress={() => ctx.rerunFailed(runs)}>
-                    <Text>{' rerun'}</Text>
+                    <Text>{`${nf(0xebc0, '↻')} rerun`}</Text>
                   </Button>,
                 ]
               : []),
@@ -1249,7 +1252,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
     const pulls = summary.list[0]!.url.replace(/\/pull\/\d+$/, '/pulls')
     const acts = [
       <Link href={pulls}>
-        <Text>{' github'}</Text>
+        <Text>{`${nf(0xf408, '↗')} github`}</Text>
       </Link>,
     ]
     return [drawLayer('m', f, { top: f.top, left: f.left - PAD }, acts, [], rows, open!.top), stacked ?? null]

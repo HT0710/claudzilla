@@ -105,6 +105,8 @@ export function readTheme($: EngineInterface): Promise<unknown> {
   })().catch(() => undefined))
 }
 export const fade = (_color?: unknown) => DIMMED
+// Rail icons; register.tsx swaps them for key letters in basic glyphs.
+export const ICON = { Overview: '\uEA70', History: '\uEA82', Explorer: '\uEAF0', Git: '\uE702', Guide: '\uEAA4', Worlds: '\uEB01' }
 // A pill's caps are Texts coloured as its background, so they halve with it.
 export const PILL_CAPS = new Set(['\ue0b6', '\ue0b4'])
 export const fadeBg = (color: unknown) => {
@@ -171,11 +173,15 @@ export async function configDir($: EngineInterface): Promise<string> {
 }
 // Whether install.sh chose basic glyphs: read once a session.
 let basic: Promise<boolean> | undefined
+let basicNow = false
 export function basicGlyphs($: EngineInterface): Promise<boolean> {
   return (basic ??= configDir($)
     .then(dir => $.fs.exists(`${dir}/.claudzilla-basic-glyphs`))
-    .catch(() => false))
+    .catch(() => false)
+    .then(on => (basicNow = on)))
 }
+// A Nerd Font icon, or `plain` in basic glyphs. Call after awaiting basicGlyphs.
+export const nf = (code: number, plain: string) => (basicNow ? plain : String.fromCharCode(code))
 
 export type Els = Elements[RenderSurface]
 // `typed`: history's own text, set when a paste placeholder in it was swapped for the paste.
