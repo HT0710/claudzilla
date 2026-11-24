@@ -1287,7 +1287,7 @@ export const register: Register = on => {
     const columns = e.viewport?.columns ?? 80
     const room = Math.floor(0.8 * columns) - 2 - 2 * PAD
     const text = tidy(p.text)
-    if (!text.trim() || room < 1) return native
+    if (!text.trim() || room < 2) return native
     const lines = wrap(text, room)
     const w = Math.max(...lines.map(textCells)) + 2 + 2 * PAD
     const off = Math.max(0, columns - w)
