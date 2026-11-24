@@ -217,15 +217,15 @@ test('an extension named like an object member gets the faint file icon', () => 
 // The test client has no fs, process or session; this stands for the engine `$` the loaders take.
 const engine = () => {
   const handlers = new Map<string, (_: unknown, e: any) => any>()
-  const call = (name: string) => async (arg: unknown) => {
-    const out = await handlers.get(name)!(undefined, name === 'process.run' ? { argv: arg } : { path: arg })
+  const call = (name: string) => async (arg: unknown, init?: unknown) => {
+    const out = await handlers.get(name)!(undefined, name === 'process.run' ? { argv: arg, init } : { path: arg })
     if (out && 'deny' in out) throw new Error(out.deny)
     return out?.value
   }
   const $ = {
     process: { run: call('process.run') },
     fs: { stat: call('fs.stat'), read: call('fs.read'), list: call('fs.list') },
-    session: { cwd: call('session.cwd') },
+    session: { cwd: call('session.cwd'), root: call('session.root') },
   } as unknown as EngineInterface
   return { $, on: (name: string, fn: (_: unknown, e: any) => any) => void handlers.set(name, fn) }
 }
@@ -247,6 +247,15 @@ test('outside a repo, or with an empty answer, the root is the session working d
   expect(await projectRoot($)).toBe('/home/me/notes')
   answer = ran(0, '')
   expect(await projectRoot($)).toBe('/home/me/notes')
+})
+
+test('the root comes from where the session started, not where the shell moved to', async () => {
+  const { $, on } = engine()
+  on('session.root', () => ({ value: '/home/me/itsm' }))
+  on('session.cwd', () => ({ value: '/home/me/itsm/am3' }))
+  // am3 is its own repo; the start folder is in none.
+  on('process.run', (_, e) => (e.init?.cwd === '/home/me/itsm' ? ran(128) : ran(0, '/home/me/itsm/am3\n')))
+  expect(await projectRoot($)).toBe('/home/me/itsm')
 })
 
 test('statOf is undefined for a missing path', async () => {
