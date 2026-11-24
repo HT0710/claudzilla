@@ -14,6 +14,8 @@ Once the cache has gone cold, a compact would read the whole conversation back, 
 
 The fills `/claudzilla compact` and `/claudzilla handoff` are primer commands, so they work only with the primer part installed.
 
+When one session ends a turn, asks for a permission or asks a question, every other open session toasts it for 5 seconds: `! claudzilla-35 waits on you · Bash permission · ⎇ main`, or `✓ claudzilla-35 done · ⎇ main`. Sessions share the lines through `~/.cache/claudzilla/waiting.events`, so sessions under every config folder see each other. The same session and reason toasts at most once per 30 seconds, so a run of permission prompts shows one toast. `"herald": {"waiting": false}` in `claudzilla.json` turns it off.
+
 ## Install
 
 claudzilla's `install.sh` installs it.
