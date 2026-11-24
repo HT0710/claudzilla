@@ -535,6 +535,23 @@ const cutSpans = (spans: Span[], width: number, max = Infinity): Span[][] => {
 
 const text = (spans: Span[]) => spans.map(s => s.text).join('')
 const plain = (s: string) => s.split('\n').map(l => text(paintLine(l, {})[0])).join('\n')
+// A failed call's error for its own row: up to 3 lines and a count of the rest; undefined keeps the native row.
+function failure(output: unknown): { shown: string[]; more: number } | undefined {
+  const { stderr } = (output ?? {}) as { stderr?: unknown }
+  const raw = typeof stderr === 'string' ? stderr : typeof output === 'string' ? output : undefined
+  if (raw === undefined) return undefined
+  const all = plain(raw).replace(/<\/?tool_use_error>/g, '').replace(/^Error: /, '').trim()
+  // A refusal draws as usual.
+  if (!all || all.startsWith("The user doesn't want to proceed")) return undefined
+  // A denial's first sentence is its reason; the rest is a note to Claude.
+  const reason = /^Permission to use .+? has been denied[^\n]*?\.(?=\s|$)/.exec(all)?.[0]
+  if (reason) {
+    const rest = all.slice(reason.length).trim()
+    return { shown: [reason], more: rest ? rest.split('\n').length : 0 }
+  }
+  const lines = all.split('\n')
+  return { shown: lines.slice(0, 3), more: Math.max(lines.length - 3, 0) }
+}
 
 // shortcut: no terminal and stdin at EOF, so a prompt (sudo, ssh) fails; a typed `!` handles those.
 async function shell($: EngineInterface, cmd: string, block: string) {
@@ -885,6 +902,38 @@ export const register: Register = on => {
   }
   const textRow = (elements: Elements['terminal'], id: string, dot: RenderNode, row: [string, string, RenderNode], tag?: string, tone?: string) =>
     framed(elements, frameOf(id), textLine(elements, dot, row, tag, tone), 1, 1, undefined, id)
+  // The call's main argument: its path, pattern, command or address.
+  const mainArg = (input: unknown, root: string, columns?: number) => {
+    const args = (input ?? {}) as Record<string, unknown>
+    const key = ['file_path', 'pattern', 'path', 'command', 'url', 'query', 'task_id', 'to'].find(k => typeof args[k] === 'string')
+    return !key ? '' : key === 'file_path' || key === 'path' ? namer(root, columns)(String(args[key])) : String(args[key]).split('\n')[0]!
+  }
+  // A finished call that failed draws its own row; a failed write or a call in a fold draws elsewhere.
+  const failedOf = (id: string, tool: string, output: unknown, isErrored?: boolean, isInterrupted?: boolean) =>
+    isErrored && !isInterrupted && FOLDED.has(tool) && !bashEdits.get(id)?.length ? failure(output) : undefined
+  // The calls a fold row shows: margin's intent and the hidden tools draw nothing.
+  const shownCalls = (calls: ToolGroupCall[]) => calls.filter(c => c.tool !== INTENT_TOOL && !HIDDEN_TOOLS.has(c.tool))
+  // A failed call's own row: its title, then its error under a branch.
+  const failedRow = (elements: Elements['terminal'], id: string, call: ToolGroupCall, columns: number, root: string) => {
+    const { Box, Text } = elements
+    const fail = failure(call.output)!
+    const room = Math.max(columns - 6, 1)
+    // Wrapped here, not by the terminal, so a one-line dump stays 3 rows and the rail knows the count.
+    const rows = fail.shown.flatMap(l => wrap(l, room))
+    const more = fail.more + Math.max(rows.length - 3, 0)
+    const shown = [...rows.slice(0, 3), ...(more ? [`… +${more} lines`] : [])]
+    // The tail keeps its room: `● `, ` (`, `)` and `  failed`.
+    const arg = clip(mainArg(call.input, root, columns), columns - 2 - 2 - call.tool.length - 3 - 8)
+    return framed(elements, frameOf(id), (
+      <Box flexDirection="column">
+        {textLine(elements, <Text color="error">●</Text>, [call.tool, arg, <Text color="error">failed</Text>])}
+        <Box paddingLeft={2}>
+          <Box width={2}><Text color="promptBorder">└</Text></Box>
+          <Box flexDirection="column">{shown.map(l => <Text color="error" wrap="truncate-end">{l}</Text>)}</Box>
+        </Box>
+      </Box>
+    ), 1 + shown.length, 1, undefined, id)
+  }
   // An opened file's diff under its tree row, the tree line beside it; `hasNext` runs the line on to the next row.
   const diffBox = ({ Box, Code, Text }: Elements['terminal'], columns: number, entry: { file: string; diff?: string }, hasNext = false) => entry.diff && (
     <Box paddingLeft={2}>
@@ -1077,6 +1126,9 @@ export const register: Register = on => {
       const seg = segmentOf(known[0]!.tool_use_id!)
       if (seg) {
         if (seg.owner !== known[0]!.tool_use_id) return <elements.Box />
+        const lone = shownCalls(seg.calls)
+        const one = lone.length === 1 && !lone[0]!.isRunning ? lone[0]! : undefined
+        if (one && failedOf(one.tool_use_id!, one.tool, one.output, one.isErrored, one.isInterrupted)) return failedRow(elements, e.requestId, one, columns, root)
         const isLive = isActive || seg.calls.some(isGoing)
         if (isLive) {
           blinking.add(e.requestId)
@@ -1097,7 +1149,7 @@ export const register: Register = on => {
   const foldCalls = (elements: Elements['terminal'], requestId: string, columns: number, root: string,
     all: readonly ToolGroupCall[], isLive: boolean, title?: Piece[], legacy = false, state?: State) => {
     // Margin's intent call draws nothing, so it counts for nothing; after a reload the engine groups it with the next call.
-    const calls = all.filter(c => c.tool !== INTENT_TOOL && !HIDDEN_TOOLS.has(c.tool))
+    const calls = shownCalls(all)
     const { Box, Text } = elements
     const Client = 'Client' in elements ? elements.Client : undefined
     if (!Client) return undefined
@@ -1428,7 +1480,8 @@ export const register: Register = on => {
     const isFoldRow = !!seg && (seg.ids.length > 1 || isLoneRow)
     const isEdit = isFoldRow || (runs.has(e.requestId) && editSummary(e.props.tool, e.props.output, e.props.isErrored)) || (!!bashEdits.get(e.requestId)?.length && !e.props.isErrored && !scripts.has(e.requestId)) || lostWrites.has(e.requestId)
     const isScriptRow = scripts.has(e.requestId) && !e.props.isErrored && !!e.viewport?.isFullscreen
-    if (!hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || !(isEdit || isScriptRow || toolRow(e.props.tool, {}, e.props.output, e.props.isErrored))) return native
+    const isFailed = !!failedOf(e.requestId, e.props.tool, e.props.output, e.props.isErrored, members.get(e.requestId)?.call.isInterrupted ?? (e.props as { isInterrupted?: boolean }).isInterrupted)
+    if (!hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || !(isEdit || isScriptRow || isFailed || toolRow(e.props.tool, {}, e.props.output, e.props.isErrored))) return native
     const { Box } = $.ui.resolve(e)
 
     return <Box />
@@ -1444,6 +1497,12 @@ export const register: Register = on => {
     const call: ToolGroupCall = { tool_use_id: e.requestId, tool, input, isRunning, isErrored, isInterrupted, output }
     if (runs.has(e.requestId) && remember(e.requestId, call)) $.ui.invalidate('ui.render')
     const seg = runs.has(e.requestId) ? segmentOf(e.requestId) : undefined
+    if (!isRunning && (!seg || shownCalls(seg.calls).length === 1) && failedOf(e.requestId, tool, output, isErrored, isInterrupted)) {
+      const elements = $.ui.resolve(e)
+      // The run's owner draws it, as the intent row before it draws nothing.
+      if (seg && seg.owner !== e.requestId) return <elements.Box />
+      return failedRow(elements, e.requestId, call, e.viewport?.columns ?? 80, await $.session.root().catch(() => ''))
+    }
     // A cut row keeps its native row.
     if (runs.has(e.requestId) && !seg) return native
     // A result drawn first has no record yet; a run's owner draws every member's count.
@@ -1539,9 +1598,7 @@ export const register: Register = on => {
     // A running lone Read, Grep or Glob call: one plain row; once done it folds above.
     if (e.viewport?.isFullscreen && isRunning && !isErrored && !isInterrupted && tool !== 'Bash' && !tool.startsWith('mcp__') && !(tool in EDIT) && !(tool in RUNNING)) {
       const liveLabel = kindOf(tool)[1]
-      const args = (input ?? {}) as Record<string, unknown>
-      const key = ['file_path', 'pattern', 'path', 'url', 'query', 'task_id', 'to'].find(k => typeof args[k] === 'string')
-      const arg = !key ? '' : key === 'file_path' || key === 'path' ? namer(await $.session.root().catch(() => ''), e.viewport?.columns)(String(args[key])) : String(args[key]).split('\n')[0]!
+      const arg = mainArg(input, await $.session.root().catch(() => ''), e.viewport?.columns)
       blinking.add(e.requestId)
       blink ??= $.clock.every(BLINK_MS, () => toggleBlink(() => $.ui.invalidate('ui.render')))
       const elements = $.ui.resolve(e)
