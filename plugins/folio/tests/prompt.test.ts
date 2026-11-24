@@ -44,6 +44,10 @@ test('wrap fills each line to the room', () => {
   expect(wrap('one two three', 7)).toEqual(['one two', 'three'])
 })
 
+test('stamp spells September as Sep', () => {
+  expect(stamp(new Date(2026, 8, 15, 9, 56).getTime(), new Date(2026, 10, 1).getTime())).toBe('Tue 15 Sep 09:56')
+})
+
 test('stamp gives the time on the send day, the day on another', () => {
   const sent = new Date(2026, 10, 23, 9, 56).getTime()
   expect(stamp(sent, new Date(2026, 10, 23, 18, 0).getTime())).toBe('09:56')

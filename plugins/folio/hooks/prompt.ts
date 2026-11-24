@@ -37,8 +37,8 @@ export const wrap = (text: string, room: number) => text.split('\n').flatMap(par
 export const stamp = (ms: number, now = Date.now()) => {
   const d = new Date(ms)
   const hm = d.toTimeString().slice(0, 5)
-  return d.toDateString() === new Date(now).toDateString() ? hm
-    : `${d.toLocaleDateString('en-GB', { weekday: 'short' })} ${d.getDate()} ${d.toLocaleDateString('en-GB', { month: 'short' })} ${hm}`
+  const [weekday, month] = d.toDateString().split(' ')
+  return d.toDateString() === new Date(now).toDateString() ? hm : `${weekday} ${d.getDate()} ${month} ${hm}`
 }
 
 export type ReadText = (path: string, offset: number, length: number) => Promise<string>
