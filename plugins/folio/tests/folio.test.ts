@@ -1176,7 +1176,7 @@ for (const columns of [62, 80]) {
     const lines = await colored(ui, '#e0a878')
     expect(lines.length).toBeGreaterThan(1)
     for (const l of lines) expect(width(l.text) + 4).toBeLessThanOrEqual(Math.floor(0.8 * columns))
-    expect((await ui.find({ type: 'Text', text: /^─*┴─*╯$/ }))?.text.length).toBe(columns)
+    expect((await ui.find({ type: 'Text', text: /^╌*┴─*╯$/ }))?.text.length).toBe(columns)
   })
 }
 
@@ -1195,7 +1195,7 @@ test('CJK and tab lines keep the border aligned', async ($, on) => {
   const ui = await prompt($, '日本語のテキスト\n\tindented\nplain')
   expect((await ui.find({ type: 'Text', text: /^╭─*╮$/ }))?.text).toBe('╭' + '─'.repeat(18) + '╮')
   expect((await colored(ui, '#e0a878')).map((t: any) => t.text)).toEqual(['日本語のテキスト', ' indented', 'plain'])
-  expect((await ui.find({ type: 'Text', text: /^─*┴─*╯$/ }))?.text).toBe('─'.repeat(60) + '┴' + '─'.repeat(18) + '╯')
+  expect((await ui.find({ type: 'Text', text: /^╌*┴─*╯$/ }))?.text).toBe('╌'.repeat(60) + '┴' + '─'.repeat(18) + '╯')
   const rows = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props.flexDirection === 'row')
   expect(rows.map((b: any) => b.props.paddingLeft)).toEqual([60, 60, 60])
 })
@@ -3608,7 +3608,7 @@ test('a group led by a hidden tool between two edits joins their run', async ($,
   expect(await textOf(first, 'e1')).toBe('◼ Edited (2 files) · Read (1 file)  +2')
 })
 
-const RULE = /^[╭─]─*┴─*╯$/
+const RULE = /^[╭╌]╌*┴─*╯$/
 const ruleOf = async (ui: any) => (await ui.find({ type: 'Text', text: RULE }))?.text[0]
 
 for (const [name, tool, output, extra] of [
@@ -3620,7 +3620,7 @@ for (const [name, tool, output, extra] of [
     native(on)
     nativePrompt(on)
     const card = await prompt($, 'hi')
-    expect(await ruleOf(card)).toBe('─')
+    expect(await ruleOf(card)).toBe('╌')
     await mountRow($, tool, output, extra, '/p/a.txt', 'r1')
     expect(await ruleOf(card)).toBe('╭')
   })
@@ -3630,7 +3630,7 @@ test('a SendMessage row after a prompt gives ╭', async ($, on) => {
   native(on)
   nativePrompt(on)
   const card = await prompt($, 'hi')
-  expect(await ruleOf(card)).toBe('─')
+  expect(await ruleOf(card)).toBe('╌')
   await mountRow($, 'SendMessage', { success: true, message: 'Resuming agent nutmeg-owl' }, { input: { to: 'nutmeg-owl', message: 'hi' } }, '', 'm1')
   expect(await ruleOf(card)).toBe('╭')
 })
@@ -3655,7 +3655,7 @@ for (const [name, draw] of [
     on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
     const card = await prompt($, 'hi')
     await draw($)
-    expect(await ruleOf(card)).toBe('─')
+    expect(await ruleOf(card)).toBe('╌')
   })
 }
 
@@ -3666,7 +3666,7 @@ test('hideEditDiff off keeps ─', async ($, on) => {
   await $.session.start(start)
   const card = await prompt($, 'hi')
   await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
-  expect(await ruleOf(card)).toBe('─')
+  expect(await ruleOf(card)).toBe('╌')
 })
 
 const flat = (n: any): string => (typeof n === 'string' ? n : (n.children ?? []).map(flat).join(''))
@@ -3714,7 +3714,7 @@ test('a plain prompt followed only by reply text keeps ─', async ($, on) => {
   on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
   const card = await prompt($, 'hi')
   await said($, 'a1')
-  expect(await ruleOf(card)).toBe('─')
+  expect(await ruleOf(card)).toBe('╌')
 })
 
 test('an image prompt followed by reply text corners down', async ($, on) => {
@@ -3722,7 +3722,7 @@ test('an image prompt followed by reply text corners down', async ($, on) => {
   nativePrompt(on)
   on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
   const card = await prompt($, 'look [Image #2]')
-  expect(await ruleOf(card)).toBe('─')
+  expect(await ruleOf(card)).toBe('╌')
   await said($, 'a1')
   expect(await ruleOf(card)).toBe('╭')
 })
@@ -3749,7 +3749,7 @@ test('outside fullscreen the reply link gives no ╭ and no overlay', async ($, 
   const card = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'p1',
     props: { text: 'look [Image #2]', origin: { kind: 'composer' } }, viewport: { columns: 80, rows: 20, isFullscreen: false } })
   const reply = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'AssistantMessage', requestId: 'a1', props: { text: 'ok', isFirstOfReply: true }, viewport: flat1 })
-  expect(await ruleOf(card)).toBe('─')
+  expect(await ruleOf(card)).toBe('╌')
   expect((await reply.findAll({ type: 'Text', text: '│' })).length).toBe(0)
   expect((await reply.find({ type: 'Box' }))?.props.marginTop).toBeUndefined()
 })
@@ -3805,7 +3805,7 @@ test("a prompt queued before the first tool row leaves ╭ to the turn's prompt"
     props: { text: 'oke', origin: { kind: 'composer' } }, viewport: { columns: 80, rows: 20, isFullscreen: true } })
   await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
   expect(await ruleOf(card)).toBe('╭')
-  expect(await ruleOf(q)).toBe('─')
+  expect(await ruleOf(q)).toBe('╌')
 })
 
 test('a prompt queued in one turn opens its own section once the turn completes', async ($, on) => {
@@ -3827,7 +3827,7 @@ test('a prompt keeps ─ outside fullscreen', async ($, on) => {
   nativePrompt(on)
   const card = await prompt($, 'hi')
   await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1', { ...VIEW, isFullscreen: false })
-  expect(await ruleOf(card)).toBe('─')
+  expect(await ruleOf(card)).toBe('╌')
 })
 
 test("Claude's text then a tool row keeps ─", async ($, on) => {
@@ -3837,7 +3837,7 @@ test("Claude's text then a tool row keeps ─", async ($, on) => {
   const card = await prompt($, 'hi')
   await said($, 'a1')
   await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
-  expect(await ruleOf(card)).toBe('─')
+  expect(await ruleOf(card)).toBe('╌')
 })
 
 test('a reply whose text comes after its tool row takes the join back: ─', async ($, on) => {
@@ -3850,5 +3850,5 @@ test('a reply whose text comes after its tool row takes the join back: ─', asy
   expect(await ruleOf(card)).toBe('╭')
   await empty.unmount()
   await said($, 'm1', 'later')
-  expect(await ruleOf(card)).toBe('─')
+  expect(await ruleOf(card)).toBe('╌')
 })

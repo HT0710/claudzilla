@@ -1359,7 +1359,7 @@ export const register: Register = on => {
             <Text color="promptBorder">│</Text>
           </Box>
         ))}
-        <Text color="promptBorder">{(framedAfter.has(e.requestId) || (e.viewport?.isFullscreen && promptImages.get(id) && promptReply.has(id)) ? '╭' : '─') + '─'.repeat(off - 1) + '┴' + '─'.repeat(w - 2) + '╯'}</Text>
+        <Text color="promptBorder">{(framedAfter.has(e.requestId) || (e.viewport?.isFullscreen && promptImages.get(id) && promptReply.has(id)) ? '╭' : '╌') + '╌'.repeat(off - 1) + '┴' + '─'.repeat(w - 2) + '╯'}</Text>
         {time && <Box paddingLeft={Math.max(0, columns - 1 - textCells(time))}><Text color={FAINT}>{time}</Text></Box>}
       </Box>
     )
