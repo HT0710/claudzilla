@@ -723,6 +723,7 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     // A /clear or resume goes on under a new session id, which needs its own cols file.
     wroteColumns = 0
+    transcriptPath = ''
     for (const rows of [runs, done, placed, agents, skills, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails, late, prompts, promptBefore, framedAfter, promptImages, joinRow, promptReply, scans, queued]) rows.clear()
     redrawAll = () => {}
     corners.clear()
@@ -763,6 +764,8 @@ export const register: Register = on => {
   }
   const framedAfter = new Set<string>()
   const scans = new Map<string, Scan>()
+  // Last known transcript path: the card draws with it at once, since a wait on the lookup blanks the row for a frame.
+  let transcriptPath = ''
   let redrawAll = () => {}
   const frameOf = (id: string) => frames.get(id) ?? runs.get(id)?.frame
   // Each member's latest props, by tool_use_id, and the row that draws it: the fold's calls come from here.
@@ -1388,6 +1391,9 @@ export const register: Register = on => {
     if (e.surface !== 'terminal' || p.origin?.kind !== 'composer' || p.isExpanded || /^\/[\w:-]+(\s|$)/.test(p.text)) return next(e)
     // The shared row hook below sees the row through next(e), so the prompt opens its rail section.
     const native = await next(e)
+    const { Box, Text } = $.ui.resolve(e)
+    // The engine swaps this row for the real one, a frame apart: a card drawn here would vanish for that frame.
+    if (e.requestId === 'placeholder') return <Box />
     const columns = e.viewport?.columns ?? 80
     const room = Math.floor(0.8 * columns) - 2 - 2 * PAD
     const text = tidy(p.text)
@@ -1395,10 +1401,12 @@ export const register: Register = on => {
     const lines = wrap(text, room)
     const w = widest(lines) + 2 + 2 * PAD
     const off = Math.max(0, columns - w)
-    const { Box, Text } = $.ui.resolve(e)
     let time: string | undefined
     const id = e.requestId
-    const path = id === 'placeholder' ? '' : await $.session.info().then(i => i.transcriptPath, () => '')
+    void $.session.info().then(i => {
+      if (i.transcriptPath && i.transcriptPath !== transcriptPath) { transcriptPath = i.transcriptPath; $.ui.invalidate('ui.render') }
+    }, () => {})
+    const path = transcriptPath
     if (path) {
       let scan = scans.get(path)
       if (!scan) scans.set(path, scan = newScan())
