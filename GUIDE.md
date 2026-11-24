@@ -621,7 +621,7 @@ The notice reads `claudzilla: auto-update to <version> failed - ask Claude to de
 
 #### Boxes instead of symbols
 
-The status line draws its symbols with the MesloLGS NF font. Set MesloLGS NF as your terminal font. If it is not installed, run `CLAUDZILLA_FONT=yes ~/claudzilla/install.sh` first. To use basic symbols instead, run `CLAUDZILLA_FONT=no ~/claudzilla/install.sh`.
+The status line and margin draw their symbols with the MesloLGS NF font. The installer adds the font, but your terminal keeps its own font, such as SF Mono in macOS Terminal, until you change it. Set MesloLGS NF as your terminal font. If it is not installed, run `CLAUDZILLA_FONT=yes ~/claudzilla/install.sh` first. To use basic symbols in both instead, run `CLAUDZILLA_FONT=no ~/claudzilla/install.sh`.
 
 #### A plugin misbehaves
 
