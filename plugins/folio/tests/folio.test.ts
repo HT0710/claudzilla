@@ -3558,3 +3558,63 @@ test('a group led by a hidden tool between two edits joins their run', async ($,
   await mountRow($, 'Edit', patch('+c'), {}, '/p/b.txt', 'e2')
   expect(await textOf(first, 'e1')).toBe('◼ Edited (2 files) · Read (1 file)  +2')
 })
+
+const RULE = /^[╭─]─+$/
+const ruleOf = async (ui: any) => (await ui.find({ type: 'Text', text: RULE }))?.text[0]
+
+for (const [name, tool, output, extra] of [
+  ['a tool row', 'Read', 'x', {}],
+  ['an agent row', 'Agent', agentDone, { input: { description: 'Slow task' } }],
+  ['an MCP call', 'mcp__a__b', {}, {}],
+] as const) {
+  test(`${name} after a prompt gives ╭`, async ($, on) => {
+    native(on)
+    nativePrompt(on)
+    const card = await prompt($, 'hi')
+    expect(await ruleOf(card)).toBe('─')
+    await mountRow($, tool, output, extra, '/p/a.txt', 'r1')
+    expect(await ruleOf(card)).toBe('╭')
+  })
+}
+
+test('a prompt followed by exactly one framed row gives ╭ above its ╰─', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  const card = await prompt($, 'hi')
+  const agent = await mountRow($, 'Agent', agentDone, { input: { description: 'Slow task' } }, '/p/a.txt', 'g1')
+  expect(await rail(agent, /^╰─$/)).toBe(1)
+  expect(await ruleOf(card)).toBe('╭')
+})
+
+for (const [name, draw] of [
+  ["margin's intent group", ($: any) => mountGroup($, 'g0', [call('i1', 'mcp__margin__intent', {})])],
+  ["Claude's text", ($: any) => said($, 'a1')],
+  ['a native row', ($: any) => mountRow($, 'Read', 'x', { isExpanded: true }, '/p/a.txt', 'r1')],
+] as const) {
+  test(`${name} after a prompt keeps ─`, async ($, on) => {
+    native(on)
+    nativePrompt(on)
+    on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+    const card = await prompt($, 'hi')
+    await draw($)
+    expect(await ruleOf(card)).toBe('─')
+  })
+}
+
+test('hideEditDiff off keeps ─', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  configured(on, { '/cfg/claudzilla.json': off })
+  await $.session.start(start)
+  const card = await prompt($, 'hi')
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  expect(await ruleOf(card)).toBe('─')
+})
+
+test('a prompt keeps ─ outside fullscreen', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  const card = await prompt($, 'hi')
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1', { ...VIEW, isFullscreen: false })
+  expect(await ruleOf(card)).toBe('─')
+})

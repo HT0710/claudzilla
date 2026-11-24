@@ -697,7 +697,8 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     // A /clear or resume goes on under a new session id, which needs its own cols file.
     wroteColumns = 0
-    for (const rows of [runs, done, placed, agents, skills, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails, late]) rows.clear()
+    for (const rows of [runs, done, placed, agents, skills, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails, late, prompts, promptBefore, framedAfter]) rows.clear()
+    redrawAll = () => {}
     corners.clear()
     section = { open: false, n: 0 }
     lastRow = undefined
@@ -717,6 +718,11 @@ export const register: Register = on => {
   const frames = new Map<string, Frame>()
   let section: Frame = { open: false, n: 0 }
   let lastRow: string | undefined
+  // Composer prompts, the row each folio row follows when that is a prompt, and the prompts a framed row follows: their card joins the rail.
+  const prompts = new Set<string>()
+  const promptBefore = new Map<string, string>()
+  const framedAfter = new Set<string>()
+  let redrawAll = () => {}
   const frameOf = (id: string) => frames.get(id) ?? runs.get(id)?.frame
   // Each member's latest props, by tool_use_id, and the row that draws it: the fold's calls come from here.
   const members = new Map<string, { requestId: string; call: ToolGroupCall }>()
@@ -793,9 +799,11 @@ export const register: Register = on => {
   )
   // A folio tool row sits 2 columns in: blank with no section open, else a rail of `lines` lines beside it and on the
   // gap line above. `margin` 0 joins the row to the one above.
-  const framed = ({ Box, Text }: Elements['terminal'], frame: Frame | undefined, content: RenderNode, lines = 1, margin = 1, prefix: RenderNode = '│ ') => {
+  const framed = ({ Box, Text }: Elements['terminal'], frame: Frame | undefined, content: RenderNode, lines = 1, margin = 1, prefix: RenderNode = '│ ', id?: string) => {
     if (!frame) return <Box flexDirection="column" marginTop={margin}>{content}</Box>
     if (!frame.open) return <Box flexDirection="column" marginTop={margin} paddingLeft={2}>{content}</Box>
+    const prompt = id && promptBefore.get(id)
+    if (prompt && !framedAfter.has(prompt)) { framedAfter.add(prompt); redrawAll() }
     return (
       <Box flexDirection="column">
         {!!margin && <Text color="promptBorder">│</Text>}
@@ -834,7 +842,7 @@ export const register: Register = on => {
         {ms !== undefined && <Text>{' '}<Text color={FAINT}>in</Text> {durationText(ms)}</Text>}
       </Text>
     )
-    return framed(elements, frame, row, 1, 1, `${isLast ? '╰' : '├'}${isBackground ? '┄' : '─'}`)
+    return framed(elements, frame, row, 1, 1, `${isLast ? '╰' : '├'}${isBackground ? '┄' : '─'}`, id)
   }
   // A skill's name in the skill colour, its plugin in brackets.
   const skillLabel = ({ Text }: Elements['terminal'], skill: string) => {
@@ -855,10 +863,10 @@ export const register: Register = on => {
     // Blinked off, the rail shows through, so it never breaks.
     const mark = isLive && !isLit ? <Text color="promptBorder">{frame?.open ? '│' : ' '}</Text> : <Text color={color}>✦</Text>
     const row = <Text><Text color={color}>{(isLive ? 'loading' : 'loaded').padEnd(7)}</Text>{'  '}{skillLabel(elements, skill)}</Text>
-    return frame?.open ? framed(elements, frame, <Text wrap="truncate-end">{row}</Text>, 1, 1, mark) : framed(elements, frame, <Text wrap="truncate-end">{mark} {row}</Text>)
+    return frame?.open ? framed(elements, frame, <Text wrap="truncate-end">{row}</Text>, 1, 1, mark, id) : framed(elements, frame, <Text wrap="truncate-end">{mark} {row}</Text>, 1, 1, undefined, id)
   }
   const textRow = (elements: Elements['terminal'], id: string, dot: RenderNode, row: [string, string, RenderNode], tag?: string, tone?: string) =>
-    framed(elements, frameOf(id), textLine(elements, dot, row, tag, tone))
+    framed(elements, frameOf(id), textLine(elements, dot, row, tag, tone), 1, 1, undefined, id)
   // An opened file's diff under its tree row, the tree line beside it; `hasNext` runs the line on to the next row.
   const diffBox = ({ Box, Code, Text }: Elements['terminal'], columns: number, entry: { file: string; diff?: string }, hasNext = false) => entry.diff && (
     <Box paddingLeft={2}>
@@ -1165,7 +1173,7 @@ export const register: Register = on => {
             : [<Text wrap="truncate-end">{line.map(({ text, color, bold }) => <Text color={color} bold={bold}>{text}</Text>)}</Text>]
         })}
       </Box>
-    ), 1 + rows.length + rows.reduce((sum, r, i) => sum + (r.key && openGroups.get(requestId)?.has(r.key) ? diffLines(r.edit!, i < rows.length - 1) : 0), 0))
+    ), 1 + rows.length + rows.reduce((sum, r, i) => sum + (r.key && openGroups.get(requestId)?.has(r.key) ? diffLines(r.edit!, i < rows.length - 1) : 0), 0), 1, undefined, requestId)
   }
 
   // A run lies in one transcript: an agent's rows must not take in the main chat's.
@@ -1211,6 +1219,7 @@ export const register: Register = on => {
       return
     }
     placed.add(e.requestId)
+    redrawAll = redraw
     const ids = memberIds(e)
     // The engine re-keys a group once it ends: the new row takes the old one's place in its section.
     // A group that also holds a call a live row placed takes that row's place too; growGroup adds its new calls.
@@ -1225,7 +1234,12 @@ export const register: Register = on => {
     // A finished row of a call a run already holds stays in that run: as a run of its own it would cut the next live row off.
     if (e.component === 'ToolUse' && runs.has(e.requestId)) return
     const origin = e.component === 'UserMessage' ? e.props.origin : undefined
-    if (e.component === 'AssistantMessage' || origin?.kind === 'composer' || (origin?.kind === 'plugin' && origin.asUser)) section = { open: true, n: section.n + 1 }
+    if (e.component === 'AssistantMessage' || origin?.kind === 'composer' || (origin?.kind === 'plugin' && origin.asUser)) {
+      section = { open: true, n: section.n + 1 }
+      // Only the row drawn right after a prompt, in its section, joins its card to the rail.
+      if (origin?.kind === 'composer') { prompts.add(e.requestId); lastRow = e.requestId }
+      else if (lastRow && prompts.has(lastRow)) lastRow = undefined
+    }
     // Text that arrives after the rows drawn below its message: those rows belong to its section, not the one before.
     const early = e.component === 'AssistantMessage' ? late.get(e.requestId) : undefined
     // Messages drawn empty before this one won't get text later; those drawn after it still may.
@@ -1249,6 +1263,7 @@ export const register: Register = on => {
     const frame = e.viewport?.isFullscreen ? { ...section } : undefined
     // A tool row, or a finish row folio draws, takes its frame here.
     const take = () => {
+      if (lastRow && prompts.has(lastRow)) promptBefore.set(e.requestId, lastRow)
       forkLast(redraw)
       if (frame) frames.set(e.requestId, frame)
       lastRow = e.requestId
@@ -1302,7 +1317,7 @@ export const register: Register = on => {
             <Text color="promptBorder">│</Text>
           </Box>
         ))}
-        <Text color="promptBorder">{'─'.repeat(columns)}</Text>
+        <Text color="promptBorder">{(framedAfter.has(e.requestId) ? '╭' : '─') + '─'.repeat(columns - 1)}</Text>
       </Box>
     )
   })
@@ -1434,7 +1449,7 @@ export const register: Register = on => {
             {c.del > 0 && <Text color="error">−{c.del}</Text>}
           </Text>]))}
         </Box>
-      ), bashEdit.length)
+      ), bashEdit.length, 1, undefined, e.requestId)
     }
     // Without a record, as after a reload, a write keeps one row and not the engine's block.
     const command = tool === 'Bash' && !bashEdits.has(e.requestId) && !shells.has(e.requestId) ? String((input as { command?: unknown } | undefined)?.command ?? '') : ''
@@ -1481,7 +1496,7 @@ export const register: Register = on => {
     }
     // A lone call's native row still sits on the rail, 2 columns in.
     // SendMessage's native row is empty: framed, it would leave a bare rail stub.
-    if (!summary && e.viewport?.isFullscreen && seg.ids.length === 1 && tool !== 'SendMessage') return framed($.ui.resolve(e), frameOf(e.requestId), native)
+    if (!summary && e.viewport?.isFullscreen && seg.ids.length === 1 && tool !== 'SendMessage') return framed($.ui.resolve(e), frameOf(e.requestId), native, 1, 1, undefined, e.requestId)
     if (!summary) return native
     const elements = $.ui.resolve(e)
     const { Box } = elements
@@ -1494,7 +1509,7 @@ export const register: Register = on => {
       <Box flexDirection="column">
         {row(`fold:${e.requestId}`, [...head('●', 'success', self.summary.isNew ? 'Created' : EDIT[tool]!), { text: ' (', color: 'promptBorder' }, ...namePieces(name(self.file)), { text: ')', color: 'promptBorder' }, ...countPieces(self.summary.add, self.summary.del, self.summary.isNew)])}
       </Box>
-    ))
+    ), 1, 1, undefined, e.requestId)
   })
 
   on('ui.message', async ($, e, next) => {
