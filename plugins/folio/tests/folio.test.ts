@@ -1228,6 +1228,32 @@ test('a notification the engine draws keeps the rail on the next gap', async ($,
   expect(await rail(fold, OWN)).toBe(1)
 })
 
+const sent = async ($: any, output: unknown, extra: object = {}, viewport: object = VIEW, id = 'm1') => {
+  await mountRow($, 'SendMessage', output, extra, '/p/a.txt', id, viewport)
+  return $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolResult', requestId: id,
+    props: { tool_use_id: id, tool: 'SendMessage', output, isErrored: false, ...extra }, viewport })
+}
+
+test('a SendMessage result sits on the rail', async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  await said($, 'a1')
+  const ui = await sent($, { success: true, message: 'Resuming agent ad74bb0' })
+  expect(await rail(ui, GAP)).toBe(1)
+  expect(await rail(ui, OWN)).toBe(1)
+  expect((await ui.find({ type: 'Text', text: /Resuming/ }))?.text).toBe('⎿  Resuming agent ad74bb0')
+})
+
+test('a failed, expanded or unplaced SendMessage, or one off the fullscreen layout, keeps the engine block', async ($, on) => {
+  native(on)
+  expect((await (await sent($, { success: true, message: 'Resuming agent x' }, { isExpanded: true }, VIEW, 'm3')).find({ type: 'Text' }))?.text).toBe('native block')
+  const early = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolResult', requestId: 'm4',
+    props: { tool_use_id: 'm4', tool: 'SendMessage', output: { success: true, message: 'Resuming agent x' }, isErrored: false }, viewport: VIEW })
+  expect((await early.find({ type: 'Text' }))?.text).toBe('native block')
+  expect((await (await sent($, { success: true, message: 'Resuming agent x' }, { isErrored: true })).find({ type: 'Text' }))?.text).toBe('native block')
+  expect((await (await sent($, { success: true, message: 'Resuming agent x' }, {}, { ...VIEW, isFullscreen: false }, 'm2')).find({ type: 'Text' }))?.text).toBe('native block')
+})
+
 for (const [tool, output] of [['Agent', { status: 'async_launched' }], ['Skill', { success: true }]] as const) {
   test(`${tool}: a row first drawn before its output keeps the rail on the next gap`, async ($, on) => {
     native(on)
