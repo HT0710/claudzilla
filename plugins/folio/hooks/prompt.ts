@@ -71,11 +71,12 @@ const scanMore = async (read: ReadText, path: string, scan: Scan, id: string, ch
     lines.pop()
     for (const line of lines) {
       scan.offset += bytes(line) + 1
-      if (!line.includes('"type":"user"')) continue
+      if (!line.includes('"type":"user"') && !line.includes('"queued_command"')) continue
       try {
         const row = JSON.parse(line)
         const ms = Date.parse(row.timestamp)
-        if (row.type === 'user' && typeof row.uuid === 'string' && Number.isFinite(ms)) scan.times.set(row.uuid, ms)
+        const sent = row.type === 'user' || (row.type === 'attachment' && row.attachment?.type === 'queued_command')
+        if (sent && typeof row.uuid === 'string' && Number.isFinite(ms)) scan.times.set(row.uuid.slice(0, ID_PREFIX), ms)
       } catch {}
     }
     if (!lines.length) {
@@ -88,8 +89,11 @@ const scanMore = async (read: ReadText, path: string, scan: Scan, id: string, ch
   }
 }
 
+// The engine renames a multi-block message id by zeroing its last 12 characters, so rows match on the first 24.
+export const ID_PREFIX = 24
+
 export function sentAt(read: ReadText, path: string, scan: Scan, id: string, chunk = 4 * 1024 * 1024): Promise<number | undefined> {
   if (!path) return Promise.resolve(undefined)
   scan.run = scan.run.then(() => scanMore(read, path, scan, id, chunk)).catch(() => {})
-  return scan.run.then(() => scan.times.get(id))
+  return scan.run.then(() => scan.times.get(id.slice(0, ID_PREFIX)))
 }
