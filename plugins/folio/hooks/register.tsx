@@ -1323,7 +1323,7 @@ export const register: Register = on => {
       }
     }
     return (
-      <Box flexDirection="column" width="100%" marginTop={2} marginBottom={-1}>
+      <Box flexDirection="column" width="100%" marginTop={2} marginBottom={time ? -1 : 0}>
         <Box paddingLeft={off}><Text color="promptBorder">{'╭' + '─'.repeat(w - 2) + '╮'}</Text></Box>
         {lines.map(l => (
           <Box flexDirection="row" paddingLeft={off}>
