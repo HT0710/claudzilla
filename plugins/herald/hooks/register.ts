@@ -120,6 +120,40 @@ export function contextToast(tokens: number, base: number, ctx: Ctx, nowMs: numb
   return { text: contextText(top), ctx: { level: top, at: nowMs } }
 }
 
+// One line per waiting event in the shared file: `<epoch s>\t<session id>\t<kind>\t<name>\t<branch>\t<detail>`.
+export type Wait = { at: number; session: string; kind: 'done' | 'wait'; name: string; branch: string; detail: string }
+
+const flat = (s: string) => s.replace(/[\t\n]/g, ' ')
+
+export function formatWait(w: Wait): string {
+  return [w.at, w.session, w.kind, flat(w.name), flat(w.branch), w.detail].join('\t')
+}
+
+export function parseWait(line: string): Wait | undefined {
+  const [at = '', session = '', kind = '', name = '', branch = '', ...detail] = line.split('\t')
+  if (!/^\d+$/.test(at) || (kind !== 'done' && kind !== 'wait') || !detail.length) return undefined
+  return { at: Number(at), session, kind, name, branch, detail: detail.join('\t') }
+}
+
+export function waitToast(w: Wait): string {
+  const where = w.branch ? ` · ⎇ ${w.branch}` : ''
+  return w.kind === 'wait' ? `! ${w.name} waits on you · ${w.detail}${where}` : `✓ ${w.name} done${where}`
+}
+
+// A run of permission prompts toasts once: the key leaves the detail out.
+export function waitRepeat(seen: Map<string, number>, w: Wait, nowMs: number): boolean {
+  const key = `${w.session}\t${w.kind}`
+  const last = seen.get(key)
+  if (last !== undefined && nowMs - last < 30_000) return false
+  seen.set(key, nowMs)
+  return true
+}
+
+// tail -F reads a trimmed file again from the top, so only fresh lines count.
+export function isOtherWait(w: Wait, ownId: string, nowMs: number): boolean {
+  return w.session !== ownId && nowMs - w.at * 1000 <= 10_000
+}
+
 // rules-guard's compactNudge and coldCompact, from the same files in the same order (loadConfig in claude/hooks/rules-guard.mjs).
 async function config($: EngineInterface, cwd: string): Promise<Config> {
   const dir = (await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined)) || `${(await $.env.get('HOME').catch(() => undefined)) ?? ''}/.claude`
