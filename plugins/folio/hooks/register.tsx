@@ -2,7 +2,7 @@ import type { Elements, EngineInterface, Register, RenderNode, Timer, ToolGroupC
 
 import { href, linked, mentions } from './mentions'
 import { DEFAULTS, readPalette } from './palette'
-import { cells as textCells, newScan, sentAt, stamp, tidy, widest, wrap } from './prompt'
+import { cells as textCells, ID_PREFIX, newScan, sentAt, stamp, tidy, widest, wrap } from './prompt'
 import type { ReadText, Scan } from './prompt'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
@@ -1315,7 +1315,7 @@ export const register: Register = on => {
     if (path) {
       let scan = scans.get(path)
       if (!scan) scans.set(path, scan = newScan())
-      const ms = scan.times.get(id)
+      const ms = scan.times.get(id.slice(0, ID_PREFIX))
       if (ms !== undefined) time = stamp(ms)
       else {
         const read: ReadText = (f, offset, length) => $.fs.read(f, { offset, length }) as Promise<string>

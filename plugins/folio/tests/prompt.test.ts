@@ -148,3 +148,13 @@ test('a call that stops mid-skip resumes in skip mode on the next call', async (
     }
   expect(cuts).toBe(0)
 })
+
+test('sentAt finds a renamed id by its uuid prefix', async () => {
+  const f = row('778317c7-902c-42ce-9edd-db2ad4ab8d62')
+  expect(await sentAt(fake(() => f), 'p', newScan(), '778317c7-902c-42ce-9edd-000000000000')).toBe(T)
+})
+
+test('sentAt finds a queued prompt by its queued_command attachment uuid', async () => {
+  const f = row('a') + '{"type":"attachment","uuid":"q1","timestamp":"2026-11-24T10:00:00Z","attachment":{"type":"queued_command","prompt":"oke"}}\n'
+  expect(await sentAt(fake(() => f), 'p', newScan(), 'q1')).toBe(T)
+})
