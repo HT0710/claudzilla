@@ -1227,6 +1227,7 @@ test('an empty transcript path gives no time row', async ($, on) => {
   transcript(on, '', [sentRow])
   const ui = await prompt($, 'hi')
   expect(await ui.find({ type: 'Text', text: stamp(0) })).toBeUndefined()
+  expect((await ui.find({ type: 'Box', props: { width: '100%' } }))?.props.marginBottom).toBe(0)
 })
 
 test('the card redraws once the lookup lands', async ($, on) => {
