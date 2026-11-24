@@ -13,14 +13,14 @@ export const tidy = (text: string) =>
   text.replace(/\t/g, ' ').replace(CONTROLS, '')
     .replace(/^(?:[ \t]*\n)+/, '').replace(/(?:\n[ \t]*)+$/, '').replace(/\n(?:[ \t]*\n){2,}/g, '\n\n')
 
-// Word wrap to `room` cells; a word longer than room is cut by grapheme, taking at least one per line.
+// Word wrap to `room` cells, keeping indentation and space runs; a word longer than room is cut by grapheme, taking at least one per line.
 export const wrap = (text: string, room: number) => text.split('\n').flatMap(para => {
   const out: string[] = []
   let line = ''
-  for (const word of para.split(/ +/)) {
-    const next = line ? `${line} ${word}` : word
-    if (cells(next) <= room) { line = next; continue }
-    if (line) out.push(line)
+  for (const word of para.split(/(?<= )/)) {
+    const next = line + word
+    if (cells(next.trimEnd()) <= room) { line = next; continue }
+    if (line) out.push(line.trimEnd())
     line = ''
     let width = 0
     for (const g of pieces(word)) {
@@ -30,7 +30,7 @@ export const wrap = (text: string, room: number) => text.split('\n').flatMap(par
       width += gw
     }
   }
-  if (line || !out.length) out.push(line)
+  if (line || !out.length) out.push(line.trimEnd())
   return out
 })
 
