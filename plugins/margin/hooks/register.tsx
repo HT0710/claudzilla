@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { CommitView, LogRow, Gh, Intent, Modal, PrView, Spawn, Step, Tab, Take } from '../types'
 import { parseCommitView, parsePrView, parsePrs, printable } from './git-data'
-import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, PAD, WHEEL_HOLD, applyPalette, basicGlyphs, configDir, clock, dim, drawnZones, fadeTree, fit, hoverOf, keepZones, modalOpen, readersOf, setZones } from './kit'
+import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, ICON, PAD, WHEEL_HOLD, applyPalette, basicGlyphs, configDir, clock, dim, drawnZones, fadeTree, fit, hoverOf, keepZones, modalOpen, readersOf, setZones } from './kit'
 import type { Prompt, Readers, TabCtx, TabDraw, UseEntry, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
@@ -14,7 +14,7 @@ import { draw as drawOverview, resetStepsHeld, same } from './tab-overview'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
-export { zoneWindow } from './kit'
+export { ICON, zoneWindow } from './kit'
 export { gitWeb } from './tab-git'
 export { dayLabel, inView, litPrompt } from './tab-history'
 export { hang, wrapLines } from './tab-overview'
@@ -31,7 +31,6 @@ export const RAIL: RailTab[] = ['Overview', 'History', 'Explorer', 'Git']
 const TABS = RAIL
 // The tabs with an alt key: each runs /margin-<tab>.
 const KEYS: Record<RailTab, string> = { Overview: 'o', History: 'h', Explorer: 'e', Git: 'g' }
-export const ICON: Record<RailTab | 'Guide' | 'Worlds', string> = { Overview: '\uEA70', History: '\uEA82', Explorer: '\uEAF0', Git: '\uE702', Guide: '\uEAA4', Worlds: '\uEB01' }
 // The Guide and Worlds buttons on the rail's bottom rows: primer's pane, not margin tabs.
 const GUIDE = /^(wide:)?(Guide|Worlds)$/
 const openGuide = async ($: EngineInterface, topic?: string) => {
