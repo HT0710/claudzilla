@@ -260,7 +260,7 @@ export function cutPath(path: string, max: number) {
 }
 
 // Same files in the same order as loadConfig in claude/hooks/rules-guard.mjs.
-async function readHideEditDiff($: EngineInterface, cwd: string) {
+async function readHideEditDiff($: EngineInterface, cwd: string): Promise<{ hide: boolean; top: string }> {
   const dir = (await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined)) || `${(await $.env.get('HOME').catch(() => undefined)) ?? ''}/.claude`
   const top = await $.process.run(['git', '-C', cwd, 'rev-parse', '--show-toplevel']).then(r => (r.exitCode === 0 ? r.stdout.trim() : ''), () => '')
   let hide = true
@@ -268,7 +268,7 @@ async function readHideEditDiff($: EngineInterface, cwd: string) {
     const value = await $.fs.read(f).then(text => JSON.parse(text)?.folio?.hideEditDiff).catch(() => undefined)
     if (typeof value === 'boolean') hide = value
   }
-  return hide
+  return { hide, top }
 }
 
 type Part = { text: string } | { rule: string } | { code: { lang: string; body: string } }
@@ -613,6 +613,8 @@ const files = new Set<string>()
 // Paths found missing, by when: a burst of redraws asks once, and a file made later links on a later draw.
 const misses = new Map<string, number>()
 const MISS_MS = 5_000
+// Repo root, else the start cwd: relative spans fall back to it once a `cd` moved the session cwd.
+let root = ''
 let toldNoPanel = false
 // shortcut: one cols-<session> file per session stays in TMPDIR ($.fs has no delete); clean it on session.end if $.fs gains one.
 let wroteColumns = 0
@@ -637,8 +639,13 @@ async function links($: EngineInterface, text: string): Promise<Map<string, Link
   try {
     const cwd = await $.session.cwd()
     const home = all.some(m => m.path.startsWith('~/')) ? await $.env.get('HOME') : undefined
-    const pathOf = (p: string) => (p.startsWith('/') ? p : p.startsWith('~/') ? `${home}${p.slice(1)}` : `${cwd}/${p}`)
-    const unknown = [...new Set(all.map(m => pathOf(m.path)).filter(p => !files.has(p)))]
+    const pathsOf = (p: string) => {
+      if (p.startsWith('/')) return [p]
+      if (p.startsWith('~/')) return [`${home}${p.slice(1)}`]
+      return root && root !== cwd ? [`${cwd}/${p}`, `${root}/${p}`] : [`${cwd}/${p}`]
+    }
+    // A span already known as a file asks nothing for its other candidate.
+    const unknown = [...new Set(all.flatMap(m => (pathsOf(m.path).some(p => files.has(p)) ? [] : pathsOf(m.path))))]
     if (unknown.length) {
       const now = await $.clock.now()
       const asked = unknown.filter(p => now - (misses.get(p) ?? -Infinity) >= MISS_MS)
@@ -655,8 +662,8 @@ async function links($: EngineInterface, text: string): Promise<Map<string, Link
       })
     }
     for (const m of all) {
-      const path = pathOf(m.path)
-      if (files.has(path)) found.set(m.span, { href: href(path, m.line), path, line: m.line })
+      const path = pathsOf(m.path).find(p => files.has(p))
+      if (path) found.set(m.span, { href: href(path, m.line), path, line: m.line })
     }
   } catch {
     return new Map()
@@ -671,7 +678,9 @@ export const register: Register = on => {
     LIT = shared.lit
     FAINT = shared.faint
     SKILL = hud.skill
-    hideEditDiff = await readHideEditDiff($, e.cwd)
+    const read = await readHideEditDiff($, e.cwd)
+    hideEditDiff = read.hide
+    root = read.top || e.cwd
     return next(e)
   })
 

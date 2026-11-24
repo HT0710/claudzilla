@@ -97,6 +97,34 @@ test('a chunk with an existing path draws a Markdown link with the bullet', asyn
   expect(await ui.find({ type: 'Text', text: 'more' })).toBeDefined()
 })
 
+test('a relative path missing from the cwd links from the repo root', async ($, on) => {
+  files(on, { '/repo/plugins/f.ts': 'file' })
+  configured(on, {})
+  await $.session.start(start)
+  const ui = await mount($, 'l0', { text: 'see `plugins/f.ts:4`', isFirstOfReply: true })
+  expect((await ui.find({ type: 'Markdown' }))?.props.pressableLinks).toEqual(['file:///repo/plugins/f.ts#L4'])
+})
+
+test('a cwd equal to the root asks one path, outside a repo too', async ($, on) => {
+  const w = files(on, { '/r/g.ts': 'file' })
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '' } }))
+  await $.session.start({ ...start, cwd: '/r' })
+  const ui = await mount($, 'l0b', { text: 'see `g.ts` and `h.ts`', isFirstOfReply: true })
+  expect((await ui.find({ type: 'Markdown' }))?.props.pressableLinks).toEqual(['file:///r/g.ts#L1'])
+  expect(w.stats.sort()).toEqual(['/r/g.ts', '/r/h.ts'])
+})
+
+test('a span linked from the cwd never asks the root again', async ($, on) => {
+  const w = files(on, { '/r/i.ts': 'file' })
+  configured(on, {})
+  await $.session.start(start)
+  const ui = await mount($, 'l0c', { text: 'see `i.ts`', isFirstOfReply: true })
+  w.now += 5_001
+  await ui.redraw()
+  expect(w.stats.filter(p => p === '/repo/i.ts')).toHaveLength(1)
+})
+
 test('directories and missing files stay plain', async ($, on) => {
   files(on, { '/r/src': 'dir' })
   const ui = await mount($, 'l2', { text: 'see `src` `src/b.ts`', isFirstOfReply: true })
