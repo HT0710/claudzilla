@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { cells, newScan, sentAt, stamp, tidy, wrap } from '../hooks/prompt'
+import { cells, newScan, sentAt, stamp, tidy, widest, wrap } from '../hooks/prompt'
 
 test('cells counts CJK and emoji as 2', () => {
   expect(cells('界a')).toBe(3)
@@ -42,6 +42,10 @@ test('wrap keeps indentation and space runs', () => {
 
 test('wrap fills each line to the room', () => {
   expect(wrap('one two three', 7)).toEqual(['one two', 'three'])
+})
+
+test('widest survives a very long list', () => {
+  expect(widest([...Array(300000).fill('a'), '界界'])).toBe(4)
 })
 
 test('stamp spells September as Sep', () => {
