@@ -2,8 +2,8 @@ export type Mention = { span: string; path: string; line: number }
 
 // A link Claude wrote, or a code span; the link is matched first so a span inside it stays the link's.
 const SPAN = /(\[[^\]\n]*\]\([^)\n]*\))|`([^`\n]+)`/g
-// `path`, `path:N` or `path:N-M`; the line is the first number.
-const PATH = /^([^\s:]+)(?::(\d+)(?:-\d+)?)?$/
+// `path`, `path:N`, `path:N-M` or `path:N:col`; the line is the first number.
+const PATH = /^([^\s:]+)(?::(\d+)(?:-\d+|:\d+)?)?$/
 const VERSION = /^v?\d+(\.\d+)+$/
 
 // Runs `fn` on each code span outside ``` / ~~~ fences and outside links; its answer replaces the span.
