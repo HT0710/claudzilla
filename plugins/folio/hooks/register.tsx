@@ -625,7 +625,7 @@ const INTENT_TOOL = 'mcp__margin__intent'
 // Tools another plugin hides with an empty row: folio never folds or counts them.
 const HIDDEN_TOOLS = new Set(['mcp__primer__compact_draft'])
 // Tools whose rows fold into a run; any mcp__ tool too.
-const FOLDED = new Set(['Read', 'Grep', 'Glob', 'Bash', 'Edit', 'Write', 'WebFetch', 'WebSearch', 'TaskStop'])
+const FOLDED = new Set(['Read', 'Grep', 'Glob', 'Bash', 'Edit', 'Write', 'WebFetch', 'WebSearch', 'TaskStop', 'SendMessage'])
 const isFolded = (tool: string) => FOLDED.has(tool) || (tool.startsWith('mcp__') && !HIDDEN_TOOLS.has(tool))
 // A lone call that folds as a 1-call group does; a failed or interrupted one keeps its own row.
 const isLoneFold = (tool: string, isErrored?: boolean, isInterrupted?: boolean) =>
@@ -977,6 +977,7 @@ export const register: Register = on => {
     Read: ['Read', 'Reading', 'file'], Grep: ['Searched', 'Searching', 'pattern'], Glob: ['Searched', 'Searching', 'pattern'], Bash: ['Ran', 'Running', 'command'],
     Edit: ['Edited', 'Editing', 'file'], Write: ['Wrote', 'Writing', 'file'],
     WebFetch: ['Fetched', 'Fetching', 'page'], WebSearch: ['Searched', 'Searching', 'query'], TaskStop: ['Stopped', 'Stopping', 'task'],
+    SendMessage: ['Sent', 'Sending', 'message'],
   }
   const kindOf = (tool: string) => GROUP_KINDS[tool] ?? (tool.startsWith('mcp__') ? ['Called', 'Calling', 'tool'] as const : [tool, tool, ''] as const)
   const isGoing = (c: ToolGroupCall) => c.isRunning && !c.isInterrupted && !c.isErrored
@@ -1135,6 +1136,11 @@ export const register: Register = on => {
       if (c.tool === 'Bash') return [{ pieces: [{ text: clip(String(args.command ?? '').split('\n')[0]!, room) }, ...tail] }, ...err()]
       // The stop's input holds only the task id; its output names the command.
       if (c.tool === 'TaskStop') return [{ pieces: [{ text: clip(String((c.output as { command?: unknown } | undefined)?.command || args.task_id || '').split('\n')[0]!, room) }, ...tail] }, ...err()]
+      if (c.tool === 'SendMessage') {
+        const text = String(typeof args.message === 'string' ? args.message : args.summary ?? '').split('\n')[0]!
+        const to = String(args.to ?? '')
+        return [{ pieces: [{ text: to }, ...(text ? [{ text: ' (', color: 'promptBorder' }, { text: clip(text, room - to.length - 3) }, { text: ')', color: 'promptBorder' }] : []), ...tail] }, ...err()]
+      }
       const key = ['file_path', 'pattern', 'path', 'command', 'url', 'query'].find(k => typeof args[k] === 'string')
       const arg = !key ? '' : key === 'file_path' || key === 'path' ? name(String(args[key])) : String(args[key]).split('\n')[0]!
       return [{ pieces: [{ text: c.tool, bold: true }, ...(arg ? [{ text: ' (', color: 'promptBorder' }, { text: clip(arg, room - c.tool.length - 3) }, { text: ')', color: 'promptBorder' }] : []), ...tail] }, ...err()]
@@ -1322,13 +1328,6 @@ export const register: Register = on => {
     const isFoldRow = !!seg && (seg.ids.length > 1 || isLoneRow)
     const isEdit = isFoldRow || (runs.has(e.requestId) && editSummary(e.props.tool, e.props.output, e.props.isErrored)) || (!!bashEdits.get(e.requestId)?.length && !e.props.isErrored && !scripts.has(e.requestId)) || lostWrites.has(e.requestId)
     const isScriptRow = scripts.has(e.requestId) && !e.props.isErrored && !!e.viewport?.isFullscreen
-    // SendMessage's own row is empty and its block an opaque engine node: folio redraws the line to put it on the rail.
-    const sentText = (e.props.output as { message?: unknown } | undefined)?.message
-    const sentFrame = frameOf(e.requestId)
-    if (e.props.tool === 'SendMessage' && isFolded && e.viewport?.isFullscreen && sentFrame && !e.props.isErrored && typeof sentText === 'string') {
-      const elements = $.ui.resolve(e)
-      return framed(elements, sentFrame, <elements.Text wrap="truncate-end"><elements.Text dimColor>⎿</elements.Text>  {sentText.split('\n')[0]}</elements.Text>)
-    }
     if (!hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || !(isEdit || isScriptRow || toolRow(e.props.tool, {}, e.props.output, e.props.isErrored))) return native
     const { Box } = $.ui.resolve(e)
 
@@ -1441,7 +1440,7 @@ export const register: Register = on => {
     if (e.viewport?.isFullscreen && isRunning && !isErrored && !isInterrupted && tool !== 'Bash' && !tool.startsWith('mcp__') && !(tool in EDIT) && !(tool in RUNNING)) {
       const liveLabel = kindOf(tool)[1]
       const args = (input ?? {}) as Record<string, unknown>
-      const key = ['file_path', 'pattern', 'path', 'url', 'query', 'task_id'].find(k => typeof args[k] === 'string')
+      const key = ['file_path', 'pattern', 'path', 'url', 'query', 'task_id', 'to'].find(k => typeof args[k] === 'string')
       const arg = !key ? '' : key === 'file_path' || key === 'path' ? namer(await $.session.root().catch(() => ''), e.viewport?.columns)(String(args[key])) : String(args[key]).split('\n')[0]!
       blinking.add(e.requestId)
       blink ??= $.clock.every(BLINK_MS, () => toggleBlink(() => $.ui.invalidate('ui.render')))
@@ -1450,7 +1449,8 @@ export const register: Register = on => {
       return textRow(elements, e.requestId, <Text color="inactive">{isLit ? '●' : ' '}</Text>, [liveLabel, arg, ''])
     }
     // A lone call's native row still sits on the rail, 2 columns in.
-    if (!summary && e.viewport?.isFullscreen && seg.ids.length === 1) return framed($.ui.resolve(e), frameOf(e.requestId), native)
+    // SendMessage's native row is empty: framed, it would leave a bare rail stub.
+    if (!summary && e.viewport?.isFullscreen && seg.ids.length === 1 && tool !== 'SendMessage') return framed($.ui.resolve(e), frameOf(e.requestId), native)
     if (!summary) return native
     const elements = $.ui.resolve(e)
     const { Box } = elements
