@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import type { On } from 'claude-code'
 
-import { AUTO_MS, CHECK_MS, coldText, contextToast, crossed, due, EVERY_MS, FILL_MS, HOUR, formatWait, isOtherWait, parse, parseWait, ttlOf, waitRepeat, waitToast } from '../hooks/register'
+import { AUTO_MS, CHECK_MS, coldText, contextToast, crossed, due, EVERY_MS, FILL_MS, FIND, HOUR, formatWait, isOtherWait, parse, parseWait, ttlOf, waitRepeat, waitToast } from '../hooks/register'
 import type { Wait } from '../hooks/register'
 
 const S = 1_000_000
@@ -19,14 +19,25 @@ const until = async (done: () => boolean) => {
 }
 
 // The test's `$` has no `process`, so the watch is driven the way a session drives it: through session.start.
-function session(on: On, pieces: Piece[], found = FOUND) {
-  const seen = { toasts: [] as string[], argv: [] as readonly string[], ran: false, spawned: false }
+// The update FIND gets `found`; other runs (git, the waiting append and trim) are recorded and answer `main`.
+// Spawns route by path: the waiting tail takes `wait`, any other the update `pieces`.
+function session(on: On, pieces: Piece[], opts: { found?: ReturnType<typeof ran>; wait?: Piece[] } = {}) {
+  const seen = { toasts: [] as string[], argv: [] as readonly string[], ran: false, spawned: false, runs: [] as (readonly string[])[], waitSpawns: 0, id: 's1' }
   on('clock.now', () => ({ value: S * 1000 }))
-  on('process.run', () => {
-    seen.ran = true
-    return found
+  on('process.run', (_, e) => {
+    if (e.argv[2] === FIND) {
+      seen.ran = true
+      return opts.found ?? FOUND
+    }
+    seen.runs.push(e.argv)
+    return ran(0, 'main\n')
   })
   on('process.spawn', async function* (_, e) {
+    if (e.argv.some(a => a.endsWith('waiting.events'))) {
+      seen.waitSpawns++
+      for (const piece of opts.wait ?? []) yield piece
+      return { value: { code: 0, signal: null } }
+    }
     seen.spawned = true
     seen.argv = e.argv
     for (const piece of pieces) yield piece
@@ -181,7 +192,7 @@ test('ignores stderr, such as tail waiting for a missing file', async ($, on) =>
 })
 
 test('does nothing when the repo is not found', async ($, on) => {
-  const seen = session(on, [{ stream: 'stdout', text: END }], ran(1, ''))
+  const seen = session(on, [{ stream: 'stdout', text: END }], { found: ran(1, '') })
   await $.session.start(start)
   await until(() => seen.ran)
   for (let i = 0; i < 10; i++) await tick()
@@ -889,3 +900,129 @@ for (const [name, drop] of [
     expect(cs(status)).toEqual([])
   })
 }
+
+// Waiting lines: a session with config dir /cfg, HOME /home/u, cwd /proj and the given files.
+function waitSession(on: On, files: Record<string, string> = {}, opts: { wait?: Piece[] } = {}) {
+  const seen = session(on, [], opts)
+  let lists = 0
+  on('env.get', (_, e: any) => ({ value: e.name === 'CLAUDE_CONFIG_DIR' ? '/cfg' : e.name === 'HOME' ? '/home/u' : undefined }) as any)
+  on('session.id', () => ({ value: seen.id }) as any)
+  on('session.cwd', () => ({ value: '/proj' }) as any)
+  on('fs.read', (_, e: any) => (e.path in files ? { value: files[e.path] } : { deny: 'ENOENT' }) as any)
+  on('fs.list', (_, e: any) => {
+    lists++
+    const names = Object.keys(files).filter(f => f.startsWith(`${e.path}/`)).map(f => f.slice(e.path.length + 1))
+    return (names.length ? { value: names.map(name => ({ name, kind: 'file', size: 0, mtimeMs: 0, isLink: false })) } : { deny: 'ENOENT' }) as any
+  })
+  on('turn.complete', () => ({ text: '' }))
+  on('classic.PermissionRequest', () => ({}) as any)
+  on('classic.SessionStart', () => ({}) as any)
+  on('tool.call', () => ({ result: '' }) as any)
+  return { ...seen, seen, lists: () => lists }
+}
+const appended = (seen: { runs: (readonly string[])[] }) => seen.runs.filter(a => a[0] === 'sh' && a.at(-2) === '/home/u/.cache/claudzilla/waiting.events').map(a => a.at(-1))
+const titled = ($: any, title = 'claudzilla-35') => $.classic.SessionStart({ hook_event_name: 'SessionStart', session_id: 's1', transcript_path: '', cwd: '/proj', source: 'startup', session_title: title })
+const done = ($: any, extra = {}) => $.turn.complete({ answer: '', durationMs: 0, isAborted: false, turnId: 't', reason: 'answer', ...extra })
+const perm = ($: any, tool = 'Bash', extra = {}) => $.classic.PermissionRequest({ hook_event_name: 'PermissionRequest', session_id: 's1', transcript_path: '', cwd: '/proj', tool_name: tool, tool_input: {}, ...extra })
+const ask = ($: any) => $.tool.call({ tool: 'AskUserQuestion', questions: [] })
+const DONE = `${S}\ts1\tdone\tclaudzilla-35\tmain\t`
+const WAIT = (detail: string) => `${S}\ts1\twait\tclaudzilla-35\tmain\t${detail}`
+
+test('a finished answer appends a done line', async ($, on) => {
+  const w = waitSession(on)
+  await $.session.start(start)
+  await titled($)
+  await done($)
+  await until(() => appended(w.seen).length > 0)
+  expect(appended(w.seen)).toEqual([DONE])
+})
+
+test('a subagent turn end and an aborted turn append nothing', async ($, on) => {
+  const w = waitSession(on)
+  await $.session.start(start)
+  await titled($)
+  await done($, { agentId: 'a1' })
+  await done($, { reason: 'aborted', isAborted: true })
+  await done($)
+  await until(() => appended(w.seen).length > 0)
+  for (let i = 0; i < 5; i++) await tick()
+  expect(appended(w.seen)).toEqual([DONE])
+})
+
+test('a permission request appends a wait line, a subagent one too', async ($, on) => {
+  const w = waitSession(on)
+  await $.session.start(start)
+  await titled($)
+  await perm($)
+  await perm($, 'Edit', { agent_id: 'a1' })
+  await until(() => appended(w.seen).length > 1)
+  expect(appended(w.seen)).toEqual([WAIT('Bash permission'), WAIT('Edit permission')])
+})
+
+test('a question appends once: its permission request is skipped', async ($, on) => {
+  const w = waitSession(on)
+  await $.session.start(start)
+  await titled($)
+  await perm($, 'AskUserQuestion')
+  await ask($)
+  await until(() => appended(w.seen).length > 0)
+  for (let i = 0; i < 5; i++) await tick()
+  expect(appended(w.seen)).toEqual([WAIT('question')])
+})
+
+test('a headless session appends nothing', async ($, on) => {
+  const w = waitSession(on)
+  await $.session.start({ ...start, isInteractive: false })
+  await titled($)
+  await done($)
+  await $.session.start(start)
+  await done($)
+  await until(() => appended(w.seen).length > 0)
+  for (let i = 0; i < 5; i++) await tick()
+  expect(appended(w.seen)).toEqual([DONE])
+})
+
+test('herald.waiting false appends nothing until it is on again', async ($, on) => {
+  const files: Record<string, string> = { '/cfg/claudzilla.json': '{"herald":{"waiting":false}}' }
+  const w = waitSession(on, files)
+  await $.session.start(start)
+  await titled($)
+  await done($)
+  files['/cfg/claudzilla.json'] = '{"herald":{"waiting":true}}'
+  await $.session.start(start)
+  await done($)
+  await until(() => appended(w.seen).length > 0)
+  for (let i = 0; i < 5; i++) await tick()
+  expect(appended(w.seen)).toEqual([DONE])
+})
+
+for (const bad of ['{"herald":{"waiting":"false"}}', '{not json']) {
+  test(`a bad herald.waiting (${bad}) keeps it on`, async ($, on) => {
+    const w = waitSession(on, { '/cfg/claudzilla.json': bad })
+    await $.session.start(start)
+    await titled($)
+    await done($)
+    await until(() => appended(w.seen).length > 0)
+    expect(appended(w.seen)).toEqual([DONE])
+  })
+}
+
+test('no title: the name comes from the matching sessions file, read once', async ($, on) => {
+  const w = waitSession(on, { '/cfg/sessions/x.json': '{"sessionId":"s1","name":"claudzilla-35"}', '/cfg/sessions/y.json': '{"sessionId":"s9","name":"other"}' })
+  await $.session.start(start)
+  await done($)
+  await until(() => appended(w.seen).length > 0)
+  await perm($)
+  await until(() => appended(w.seen).length > 1)
+  expect(appended(w.seen)).toEqual([DONE, WAIT('Bash permission')])
+  expect(w.lists()).toBe(1)
+})
+
+test('no title and no sessions file: the name is the id prefix', async ($, on) => {
+  const w = waitSession(on)
+  w.seen.id = 'abcdef1234'
+  await $.session.start(start)
+  await done($)
+  await until(() => appended(w.seen).length > 0)
+  expect(appended(w.seen)).toEqual([`${S}\tabcdef1234\tdone\tabcdef12\tmain\t`])
+})

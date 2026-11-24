@@ -13,7 +13,7 @@ export const CHECK_MS = 15 * 60 * 1000
 let checks: { cancel: () => void } | undefined
 // The update hook is linked into ~/.claude from the claudzilla clone; the mod itself runs from the plugin cache.
 // No link, no lookup: a git -C on an empty path would find the session's own repo.
-const FIND = 'f=$(readlink -f "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/claudzilla-update.sh") && [ -f "$f" ] && git -C "${f%/*}" rev-parse --show-toplevel --absolute-git-dir'
+export const FIND = 'f=$(readlink -f "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/claudzilla-update.sh") && [ -f "$f" ] && git -C "${f%/*}" rev-parse --show-toplevel --absolute-git-dir'
 
 export function parse(line: string): Event | undefined {
   const [at = '', kind = '', ...text] = line.split('\t')
@@ -154,13 +154,18 @@ export function isOtherWait(w: Wait, ownId: string, nowMs: number): boolean {
   return w.session !== ownId && nowMs - w.at * 1000 <= 10_000
 }
 
-// rules-guard's compactNudge and coldCompact, from the same files in the same order (loadConfig in claude/hooks/rules-guard.mjs).
+// Outside any one profile, so sessions under every config dir see each other.
+const waitPath = async ($: EngineInterface) => `${await $.env.get('HOME')}/.cache/claudzilla/waiting.events`
+
+// rules-guard's compactNudge and coldCompact, and herald.waiting, from the same files in the same order (loadConfig in claude/hooks/rules-guard.mjs).
 async function config($: EngineInterface, cwd: string): Promise<Config> {
   const dir = (await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined)) || `${(await $.env.get('HOME').catch(() => undefined)) ?? ''}/.claude`
   const top = await $.process.run(['git', '-C', cwd, 'rev-parse', '--show-toplevel']).then(r => (r.exitCode === 0 ? r.stdout.trim() : ''), () => '')
-  const cfg: Config = { dir, base: DEFAULT_BASE, cold: DEFAULT_COLD }
+  const cfg: Config = { dir, base: DEFAULT_BASE, cold: DEFAULT_COLD, waiting: true }
   for (const f of [`${dir}/claudzilla.json`, ...(top ? [`${top}/.claude/claudzilla.json`, `${top}/.claude/claudzilla.local.json`] : [])]) {
-    const rg: any = await $.fs.read(f).then(text => JSON.parse(text)?.rulesGuard).catch(() => undefined)
+    const json: any = await $.fs.read(f).then(text => JSON.parse(text)).catch(() => undefined)
+    const rg = json?.rulesGuard
+    if (typeof json?.herald?.waiting === 'boolean') cfg.waiting = json.herald.waiting
     if (Number.isInteger(rg?.compactNudge) && rg.compactNudge >= 0) cfg.base = rg.compactNudge
     if (typeof rg?.coldCompact === 'number' && rg.coldCompact >= 0) cfg.cold = rg.coldCompact
   }
@@ -175,7 +180,7 @@ export const AUTO_MS = HOUR - 5 * 60_000
 const DEFAULT_COLD = 2
 const FILL = '/claudzilla compact'
 export const HANDOFF = '/claudzilla handoff'
-type Config = { dir: string; base: number; cold: number }
+type Config = { dir: string; base: number; cold: number; waiting: boolean }
 
 // The TTL the newest main-chat cache write chose, as hud.pl reads it; a pure cache read keeps it.
 export function ttlOf(tail: string): number | undefined {
@@ -326,10 +331,45 @@ function stopIdle($: EngineInterface, live: Live, reset: boolean) {
   }
 }
 
+// What announce needs from the module: the session's mode, config and title, and the found names.
+type WaitCtx = { interactive: boolean; cfg: Promise<Config>; title?: string; names: Map<string, string> }
+
+async function nameOf($: EngineInterface, names: Map<string, string>, dir: string, id: string): Promise<string | undefined> {
+  if (names.has(id)) return names.get(id)
+  for (const f of await $.fs.list(`${dir}/sessions`).catch(() => [])) {
+    if (!f.name.endsWith('.json')) continue
+    const s: any = await $.fs.read(`${dir}/sessions/${f.name}`).then(text => JSON.parse(text)).catch(() => undefined)
+    if (s?.sessionId === id && typeof s.name === 'string') {
+      names.set(id, s.name)
+      return s.name
+    }
+  }
+  return undefined
+}
+
+// Appends one line to the shared file every session tails; $.fs.write would replace the whole file.
+async function announce($: EngineInterface, c: WaitCtx, kind: Wait['kind'], detail: string): Promise<void> {
+  if (!c.interactive) return
+  const { dir, waiting } = await c.cfg
+  if (!waiting) return
+  const id = await $.session.id()
+  const name = c.title || (await nameOf($, c.names, dir, id)) || id.slice(0, 8)
+  const git = await $.process.run(['git', '-C', await $.session.cwd(), 'branch', '--show-current']).catch(() => undefined)
+  const branch = git?.exitCode === 0 ? git.stdout.trim() : ''
+  const at = Math.floor((await $.clock.now()) / 1000)
+  // Path and line ride as arguments, never in the script text.
+  await $.process.run(['sh', '-c', 'mkdir -p "${1%/*}" && printf \'%s\\n\' "$2" >> "$1"', 'sh', await waitPath($), formatWait({ at, session: id, kind, name, branch, detail })])
+}
+
 export const register: Register = on => {
   let note: string | undefined
   let interactive = false
-  let cfg: Promise<Config> = Promise.resolve({ dir: '', base: 0, cold: 0 })
+  let cfg: Promise<Config> = Promise.resolve({ dir: '', base: 0, cold: 0, waiting: true })
+  let title: string | undefined
+  // Session id to the name in its sessions file; found names only, so a file written later is still found.
+  const names = new Map<string, string>()
+  const wrote = (err: unknown) => t.error('waiting.write.failed', err)
+  const ctx = (): WaitCtx => ({ interactive, cfg, title, names })
   // Module memory, not $.store: the store is shared by every open session, and context is this session's own.
   const live: Live = { ctx: { level: 0, at: 0 }, cold: [], pinned: false, endAt: 0, tokens: 0, coldShown: false, seeded: false, turns: 0 }
 
@@ -347,6 +387,27 @@ export const register: Register = on => {
     // session.start is awaited before the first prompt: the watch runs on detached, for the module's life.
     void watch($, startedS, text => (note = text)).catch(err => t.error('update.watch.failed', err))
     return started
+  })
+
+  on('classic.SessionStart', ($, e, next) => {
+    if (e.session_title) title = e.session_title
+    return next(e)
+  })
+
+  on('turn.complete', ($, e, next) => {
+    if (e.reason === 'answer' && !e.agentId) void announce($, ctx(), 'done', '').catch(wrote)
+    return next(e)
+  })
+
+  // A subagent's prompt blocks on the user too. AskUserQuestion is written by its tool call.
+  on('classic.PermissionRequest', ($, e, next) => {
+    if (e.tool_name !== 'AskUserQuestion') void announce($, ctx(), 'wait', `${e.tool_name} permission`).catch(wrote)
+    return next(e)
+  })
+
+  on('tool.call', { tool: 'AskUserQuestion' }, ($, e, next) => {
+    void announce($, ctx(), 'wait', 'question').catch(wrote)
+    return next(e)
   })
 
   on('prompt.submit', async ($, e, next) => {
