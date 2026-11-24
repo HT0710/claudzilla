@@ -155,7 +155,11 @@ export function isOtherWait(w: Wait, ownId: string, nowMs: number): boolean {
 }
 
 // Outside any one profile, so sessions under every config dir see each other.
-const waitPath = async ($: EngineInterface) => `${await $.env.get('HOME')}/.cache/claudzilla/waiting.events`
+// Empty without HOME, so nothing lands in the session's folder.
+const waitPath = async ($: EngineInterface) => {
+  const home = await $.env.get('HOME').catch(() => undefined)
+  return home ? `${home}/.cache/claudzilla/waiting.events` : ''
+}
 
 // rules-guard's compactNudge and coldCompact, and herald.waiting, from the same files in the same order (loadConfig in claude/hooks/rules-guard.mjs).
 async function config($: EngineInterface, cwd: string): Promise<Config> {
@@ -331,8 +335,40 @@ function stopIdle($: EngineInterface, live: Live, reset: boolean) {
   }
 }
 
-// What announce needs from the module: the session's mode, config and title, and the found names.
-type WaitCtx = { interactive: boolean; cfg: Promise<Config>; title?: string; names: Map<string, string> }
+// Module state, not per register: one tail per process.
+const waitSeen = new Map<string, number>()
+let tailing = false
+
+// Toasts other sessions' fresh waiting lines; the own id is read per line, as /clear changes it.
+async function watchWaiting($: EngineInterface): Promise<void> {
+  if (tailing) return
+  tailing = true
+  try {
+    if (!(await config($, await $.session.cwd())).waiting) return
+    const path = await waitPath($)
+    if (!path) return
+    // shortcut: a line appended during the trim is lost, a few lines at most, only at session start; upgrade to a lock if it shows up
+    await $.process.run(['sh', '-c', '[ "$(wc -l < "$1")" -gt "$2" ] && tail -n "$3" "$1" > "$1.$$" && mv "$1.$$" "$1"', 'sh', path, '400', '200']).catch(() => undefined)
+    let rest = ''
+    for await (const { stream, text } of $.process.spawn({ argv: ['tail', '-n', '0', '-F', path] })) {
+      if (stream !== 'stdout') continue
+      const lines = (rest + text).split('\n')
+      rest = lines.pop() ?? ''
+      for (const raw of lines) {
+        const w = parseWait(raw)
+        const now = await $.clock.now()
+        const skip = !w ? 'unparsed' : !isOtherWait(w, await $.session.id(), now) ? 'own or old' : !waitRepeat(waitSeen, w, now) ? 'repeat' : ''
+        t.event('waiting.line', { kind: w?.kind, toast: !skip, skip }, skip ? 'debug' : 'info')
+        if (w && !skip) $.ui.toast(waitToast(w), { timeoutMs: 5000 })
+      }
+    }
+  } finally {
+    tailing = false
+  }
+}
+
+// What announce needs from the module: the session's mode and config, and the found names.
+type WaitCtx = { interactive: boolean; cfg: Promise<Config>; names: Map<string, string> }
 
 async function nameOf($: EngineInterface, names: Map<string, string>, dir: string, id: string): Promise<string | undefined> {
   if (names.has(id)) return names.get(id)
@@ -352,24 +388,27 @@ async function announce($: EngineInterface, c: WaitCtx, kind: Wait['kind'], deta
   if (!c.interactive) return
   const { dir, waiting } = await c.cfg
   if (!waiting) return
+  const path = await waitPath($)
+  if (!path) return
   const id = await $.session.id()
-  const name = c.title || (await nameOf($, c.names, dir, id)) || id.slice(0, 8)
+  // The sessions file, not classic.SessionStart's session_title: cc-plugin-sec-default runs first and skips other plugins' classic.SessionStart.
+  const name = (await nameOf($, c.names, dir, id)) || id.slice(0, 8)
   const git = await $.process.run(['git', '-C', await $.session.cwd(), 'branch', '--show-current']).catch(() => undefined)
   const branch = git?.exitCode === 0 ? git.stdout.trim() : ''
   const at = Math.floor((await $.clock.now()) / 1000)
   // Path and line ride as arguments, never in the script text.
-  await $.process.run(['sh', '-c', 'mkdir -p "${1%/*}" && printf \'%s\\n\' "$2" >> "$1"', 'sh', await waitPath($), formatWait({ at, session: id, kind, name, branch, detail })])
+  const r = await $.process.run(['sh', '-c', 'mkdir -p "${1%/*}" && printf \'%s\\n\' "$2" >> "$1"', 'sh', path, formatWait({ at, session: id, kind, name, branch, detail })])
+  if (r.exitCode !== 0) throw new Error(`append exited ${r.exitCode}: ${r.stderr.trim()}`)
 }
 
 export const register: Register = on => {
   let note: string | undefined
   let interactive = false
   let cfg: Promise<Config> = Promise.resolve({ dir: '', base: 0, cold: 0, waiting: true })
-  let title: string | undefined
   // Session id to the name in its sessions file; found names only, so a file written later is still found.
   const names = new Map<string, string>()
   const wrote = (err: unknown) => t.error('waiting.write.failed', err)
-  const ctx = (): WaitCtx => ({ interactive, cfg, title, names })
+  const ctx = (): WaitCtx => ({ interactive, cfg, names })
   // Module memory, not $.store: the store is shared by every open session, and context is this session's own.
   const live: Live = { ctx: { level: 0, at: 0 }, cold: [], pinned: false, endAt: 0, tokens: 0, coldShown: false, seeded: false, turns: 0 }
 
@@ -386,12 +425,8 @@ export const register: Register = on => {
     const startedS = Math.floor((await $.clock.now()) / 1000)
     // session.start is awaited before the first prompt: the watch runs on detached, for the module's life.
     void watch($, startedS, text => (note = text)).catch(err => t.error('update.watch.failed', err))
+    void watchWaiting($).catch(err => t.error('waiting.watch.failed', err))
     return started
-  })
-
-  on('classic.SessionStart', ($, e, next) => {
-    if (e.session_title) title = e.session_title
-    return next(e)
   })
 
   on('turn.complete', ($, e, next) => {
