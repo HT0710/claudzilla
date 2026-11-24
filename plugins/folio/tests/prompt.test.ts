@@ -115,3 +115,18 @@ test('a skip read that starts mid-character keeps the offset exact', async () =>
   for (let chunk = 88; chunk <= 92; chunk++)
     expect(await sentAt(fake(() => f), 'p', newScan(), 'b', chunk)).toBe(T)
 })
+
+test('a call that stops mid-skip resumes in skip mode on the next call', async () => {
+  const a = row('a', `,"m":"${'界'.repeat(100)}"`)
+  const enc = new TextEncoder().encode(a)
+  let cuts = 0
+  for (let chunk = 90; chunk <= 200; chunk++)
+    for (let end = chunk + 1; end < 300; end += 7) {
+      let f = new TextDecoder().decode(enc.subarray(0, end))
+      const scan = newScan()
+      await sentAt(fake(() => f), 'p', scan, 'b', chunk)
+      f = a + row('b')
+      if ((await sentAt(fake(() => f), 'p', scan, 'b', chunk)) !== T) cuts++
+    }
+  expect(cuts).toBe(0)
+})

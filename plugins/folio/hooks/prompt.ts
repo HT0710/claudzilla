@@ -42,19 +42,18 @@ export const stamp = (ms: number, now = Date.now()) => {
 }
 
 export type ReadText = (path: string, offset: number, length: number) => Promise<string>
-export type Scan = { offset: number; times: Map<string, number>; run: Promise<unknown> }
-export const newScan = (): Scan => ({ offset: 0, times: new Map(), run: Promise.resolve() })
+export type Scan = { offset: number; times: Map<string, number>; run: Promise<unknown>; skipping: boolean }
+export const newScan = (): Scan => ({ offset: 0, times: new Map(), run: Promise.resolve(), skipping: false })
 
 const bytes = (s: string) => new TextEncoder().encode(s).length
 
 const scanMore = async (read: ReadText, path: string, scan: Scan, id: string, chunk: number) => {
-  let skipping = false
   while (!scan.times.has(id)) {
     let text = await read(path, scan.offset, chunk)
     if (!text) break
     const full = bytes(text) >= chunk
     let dropped = false
-    if (skipping) {
+    if (scan.skipping) {
       const i = text.indexOf('\n')
       if (i < 0) { if (!full) break; scan.offset += chunk; continue }
       const head = text.slice(0, i)
@@ -62,7 +61,7 @@ const scanMore = async (read: ReadText, path: string, scan: Scan, id: string, ch
       const cut = /^\uFFFD*/.exec(head)![0].length
       scan.offset += cut + bytes(head.slice(cut)) + 1
       text = text.slice(i + 1)
-      skipping = false
+      scan.skipping = false
       dropped = true
     }
     const lines = text.split('\n')
@@ -81,7 +80,7 @@ const scanMore = async (read: ReadText, path: string, scan: Scan, id: string, ch
       if (!full) break
       // shortcut: a prompt row longer than chunk gets no time; read on to its end if users paste that much
       scan.offset += chunk
-      skipping = true
+      scan.skipping = true
     }
   }
 }
