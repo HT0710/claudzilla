@@ -1269,6 +1269,8 @@ for (const [name, text, extra, surface, columns] of [
   ['too narrow', 'hi', {}, 'terminal', 6],
   ['a CJK glyph wider than the room', '日', {}, 'terminal', 7],
   ['blank', ' \n ', {}, 'terminal', 80],
+  ['a slash command', '/context', {}, 'terminal', 80],
+  ['a slash command with args', '/model opus', {}, 'terminal', 80],
 ] as const) {
   test(`${name} keeps the native prompt`, async ($, on) => {
     native(on)
@@ -1278,6 +1280,13 @@ for (const [name, text, extra, surface, columns] of [
     expect((await colored(ui, '#e0a878'))[0]).toBeUndefined()
   })
 }
+
+test('a prompt starting with a path still draws as a card', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  const ui = await prompt($, '/home/x/a.ts fails', 80)
+  expect((await colored(ui, '#e0a878'))[0]).toBeDefined()
+})
 
 test('shared.prompt follows claudzilla.json', async ($, on) => {
   native(on)
