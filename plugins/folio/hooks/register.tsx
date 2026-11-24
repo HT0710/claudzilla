@@ -706,7 +706,7 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     // A /clear or resume goes on under a new session id, which needs its own cols file.
     wroteColumns = 0
-    for (const rows of [runs, done, placed, agents, skills, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails, late, prompts, promptBefore, framedAfter, scans, queued]) rows.clear()
+    for (const rows of [runs, done, placed, agents, skills, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails, late, prompts, promptBefore, framedAfter, promptImages, joinRow, promptReply, scans, queued]) rows.clear()
     redrawAll = () => {}
     corners.clear()
     section = { open: false, n: 0 }
@@ -730,6 +730,11 @@ export const register: Register = on => {
   // Composer prompts, the row each folio row follows when that is a prompt, and the prompts a framed row follows: their card joins the rail.
   const prompts = new Set<string>()
   const promptBefore = new Map<string, string>()
+  // Per prompt id: its image count, and the row that first joined it.
+  const promptImages = new Map<string, number>()
+  const joinRow = new Map<string, string>()
+  // Prompt id to the reply text drawn right after it.
+  const promptReply = new Map<string, string>()
   const framedAfter = new Set<string>()
   const scans = new Map<string, Scan>()
   let redrawAll = () => {}
@@ -814,9 +819,12 @@ export const register: Register = on => {
     if (!frame.open) return <Box flexDirection="column" marginTop={margin} paddingLeft={2}>{content}</Box>
     const prompt = id && promptBefore.get(id)
     if (prompt && !framedAfter.has(prompt)) { framedAfter.add(prompt); redrawAll() }
+    // The first row after an image prompt reaches up over the engine's image rows, each drawn at column 0-1.
+    if (prompt && !joinRow.has(prompt)) joinRow.set(prompt, id)
+    const imgs = prompt && margin && joinRow.get(prompt) === id ? promptImages.get(prompt) ?? 0 : 0
     return (
-      <Box flexDirection="column">
-        {!!margin && <Text color="promptBorder">│</Text>}
+      <Box flexDirection="column" marginTop={imgs ? -imgs : undefined}>
+        {!!margin && Array.from({ length: imgs + 1 }, () => <Text color="promptBorder">│</Text>)}
         <Box>
           <Box width={2}>{typeof prefix === 'string' ? <Text color="promptBorder">{[prefix, ...Array(lines - 1).fill('│ ')].join('\n')}</Text> : prefix}</Box>
           <Box flexDirection="column" flexGrow={1}>{content}</Box>
@@ -1239,6 +1247,11 @@ export const register: Register = on => {
       if (e.viewport?.isFullscreen) frames.set(e.requestId, old)
       for (const [n, id] of tails) if (frameOf(id) === old) tails.set(n, e.requestId)
       if (lastRow && frameOf(lastRow) === old) lastRow = e.requestId
+      for (const [id, prompt] of [...promptBefore]) {
+        if (frameOf(id) !== old) continue
+        promptBefore.set(e.requestId, prompt)
+        if (joinRow.get(prompt) === id) joinRow.set(prompt, e.requestId)
+      }
       return
     }
     // A finished row of a call a run already holds stays in that run: as a run of its own it would cut the next live row off.
@@ -1248,7 +1261,10 @@ export const register: Register = on => {
       section = { open: true, n: section.n + 1 }
       // Only the row drawn right after a prompt, in its section, joins its card to the rail.
       if (origin?.kind === 'composer') { prompts.add(e.requestId); lastRow = e.requestId }
-      else if (lastRow && prompts.has(lastRow)) lastRow = undefined
+      else if (lastRow && prompts.has(lastRow)) {
+        if (e.component === 'AssistantMessage' && e.viewport?.isFullscreen && !promptReply.has(lastRow)) { promptReply.set(lastRow, e.requestId); redraw() }
+        lastRow = undefined
+      }
     }
     // Text that arrives after the rows drawn below its message: those rows belong to its section, not the one before.
     const early = e.component === 'AssistantMessage' ? late.get(e.requestId) : undefined
@@ -1260,7 +1276,7 @@ export const register: Register = on => {
     const n = section.n - 1
     if (early?.n === n) {
       let moved = 0
-      for (const id of early.rows) { const f = frameOf(id); if (f?.n === n) { f.n = section.n; moved++; framedAfter.delete(promptBefore.get(id) ?? ''); promptBefore.delete(id) } }
+      for (const id of early.rows) { const f = frameOf(id); if (f?.n === n) { f.n = section.n; moved++; framedAfter.delete(promptBefore.get(id) ?? ''); joinRow.delete(promptBefore.get(id) ?? ''); promptBefore.delete(id) } }
       if (moved) {
         for (const rest of late.values()) if (rest.n === n) rest.n = section.n
         const last = tails.get(n)
@@ -1330,6 +1346,8 @@ export const register: Register = on => {
         void sentAt(read, path, scan, id).then(v => { if (v !== undefined) $.ui.invalidate('ui.render') }, () => {})
       }
     }
+    // The engine draws one `⎿ [Image #N]` row per image under the card; the first framed row after it paints the rail over them.
+    promptImages.set(id, (p.text.match(/\[Image #\d+\]/g) ?? []).length)
     return (
       <Box flexDirection="column" width="100%" marginTop={2} marginBottom={time ? -1 : 0}>
         <Box paddingLeft={off}><Text color="promptBorder">{'╭' + '─'.repeat(w - 2) + '╮'}</Text></Box>
@@ -1340,7 +1358,7 @@ export const register: Register = on => {
             <Text color="promptBorder">│</Text>
           </Box>
         ))}
-        <Text color="promptBorder">{(framedAfter.has(e.requestId) ? '╭' : '─') + '─'.repeat(off - 1) + '┴' + '─'.repeat(w - 2) + '╯'}</Text>
+        <Text color="promptBorder">{(framedAfter.has(e.requestId) || (e.viewport?.isFullscreen && promptImages.get(id) && promptReply.has(id)) ? '╭' : '─') + '─'.repeat(off - 1) + '┴' + '─'.repeat(w - 2) + '╯'}</Text>
         {time && <Box paddingLeft={Math.max(0, columns - 1 - textCells(time))}><Text color={FAINT}>{time}</Text></Box>}
       </Box>
     )
@@ -1381,7 +1399,18 @@ export const register: Register = on => {
         }
       })
     }
-    return next(e)
+    const out = await next(e)
+    // The reply right after an image prompt reaches up over the engine's image rows, as the first framed row does.
+    const prompt = e.component === 'AssistantMessage' && e.surface === 'terminal' && e.viewport?.isFullscreen ? [...promptReply].find(([, r]) => r === e.requestId)?.[0] : undefined
+    const imgs = prompt ? promptImages.get(prompt) ?? 0 : 0
+    if (!imgs) return out
+    const { Box, Text } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="column" marginTop={-imgs}>
+        {Array.from({ length: imgs }, () => <Text color="promptBorder">│</Text>)}
+        {out}
+      </Box>
+    )
   })
 
   // Each hook runs next even when dropping it: margin tracks the row in view on this chain.

@@ -3660,6 +3660,132 @@ test('hideEditDiff off keeps ─', async ($, on) => {
   expect(await ruleOf(card)).toBe('─')
 })
 
+const flat = (n: any): string => (typeof n === 'string' ? n : (n.children ?? []).map(flat).join(''))
+const gaps = async (row: any) => {
+  const root = await row.find({ type: 'Box' })
+  return { marginTop: root.props.marginTop, gaps: root.children.filter((k: any) => k.type === 'Text' && flat(k) === '│').length }
+}
+
+test('the row after a one-image prompt paints its rail over the image row', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  await prompt($, 'look [Image #2]')
+  const row = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  expect(await gaps(row)).toEqual({ marginTop: -1, gaps: 2 })
+})
+
+test('two images: the row after paints over both', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  await prompt($, 'a [Image #1] [Image #2]')
+  const row = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  expect(await gaps(row)).toEqual({ marginTop: -2, gaps: 3 })
+})
+
+test('a row after a plain prompt keeps one gap line and no negative margin', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  await prompt($, 'hi')
+  const row = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  expect(await gaps(row)).toEqual({ marginTop: undefined, gaps: 1 })
+})
+
+test('a second framed row after an image prompt is unchanged', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  await prompt($, 'look [Image #2]')
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  const second = await mountRow($, 'Read', 'x', {}, '/p/b.txt', 'r2')
+  expect(await gaps(second)).toEqual({ marginTop: undefined, gaps: 0 })
+})
+
+test('a plain prompt followed only by reply text keeps ─', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  const card = await prompt($, 'hi')
+  await said($, 'a1')
+  expect(await ruleOf(card)).toBe('─')
+})
+
+test('an image prompt followed by reply text corners down', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  const card = await prompt($, 'look [Image #2]')
+  expect(await ruleOf(card)).toBe('─')
+  await said($, 'a1')
+  expect(await ruleOf(card)).toBe('╭')
+})
+
+test('a split reply and a reply whose text comes late draw the │ line once', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  await prompt($, 'look [Image #2]')
+  const empty = await said($, 'a0', '')
+  await empty.unmount()
+  const reply = await said($, 'a1', '━━━━\n\n**TL;DR** x\n\n──\n\nmore')
+  expect(await replyGaps(reply)).toEqual({ marginTop: -1, bars: 1 })
+})
+
+test('outside fullscreen the reply link gives no ╭ and no overlay', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  const full = await prompt($, 'look [Image #2]')
+  const fullReply = await said($, 'a1')
+  await full.unmount()
+  await fullReply.unmount()
+  const flat1 = { ...VIEW, isFullscreen: false }
+  const card = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'p1',
+    props: { text: 'look [Image #2]', origin: { kind: 'composer' } }, viewport: { columns: 80, rows: 20, isFullscreen: false } })
+  const reply = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'AssistantMessage', requestId: 'a1', props: { text: 'ok', isFirstOfReply: true }, viewport: flat1 })
+  expect(await ruleOf(card)).toBe('─')
+  expect((await reply.findAll({ type: 'Text', text: '│' })).length).toBe(0)
+  expect((await reply.find({ type: 'Box' }))?.props.marginTop).toBeUndefined()
+})
+
+test('a group the engine re-keys keeps the image overlay', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  await prompt($, 'look [Image #2]')
+  const live = await mountGroup($, 'collapsed-toolu_x000', [call('b1', 'Bash', { command: 'echo 1' }), call('b2', 'Bash', { command: 'echo 2' })])
+  await live.unmount()
+  const final = await mountGroup($, 'collapsed-uuid', [call('b1', 'Bash', { command: 'echo 1' }), call('b2', 'Bash', { command: 'echo 2' })])
+  expect(await gaps(final)).toEqual({ marginTop: -1, gaps: 2 })
+})
+
+const replyGaps = async (reply: any) => {
+  const root = await reply.find({ type: 'Box' })
+  return { marginTop: root.props.marginTop, bars: root.children.filter((k: any) => k.type === 'Text' && flat(k) === '│').length }
+}
+for (const [name, text, top, bars] of [
+  ['the reply after a one-image prompt paints │ over the image row', 'look [Image #2]', -1, 1],
+  ['two images: the reply paints over both', 'a [Image #1] [Image #2]', -2, 2],
+  ['a reply after a plain prompt is unchanged', 'hi', undefined, 0],
+] as const) {
+  test(name, async ($, on) => {
+    native(on)
+    nativePrompt(on)
+    on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+    await prompt($, text)
+    const reply = await said($, 'a1')
+    const root = await reply.find({ type: 'Box' }).catch(() => undefined)
+    if (!bars) expect(root === undefined || (await replyGaps(reply)).bars === 0).toBe(true)
+    else expect(await replyGaps(reply)).toEqual({ marginTop: top, bars })
+  })
+}
+
+test('an image prompt card draws no rail line under its rule', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  const card = await prompt($, 'look [Image #2]')
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  const outer = await card.find({ type: 'Box', props: { width: '100%' } })
+  expect(outer.children.map(flat).filter((k: string) => k === '│')).toEqual([])
+  expect((await ruleOf(card))).toBe('╭')
+})
+
 test("a prompt queued before the first tool row leaves ╭ to the turn's prompt", async ($, on) => {
   native(on)
   nativePrompt(on)
