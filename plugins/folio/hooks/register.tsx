@@ -2,7 +2,7 @@ import type { Elements, EngineInterface, Register, RenderNode, Timer, ToolGroupC
 
 import { href, linked, mentions } from './mentions'
 import { DEFAULTS, readPalette } from './palette'
-import { cells as textCells, newScan, sentAt, stamp, tidy, wrap } from './prompt'
+import { cells as textCells, newScan, sentAt, stamp, tidy, widest, wrap } from './prompt'
 import type { ReadText, Scan } from './prompt'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
@@ -1306,7 +1306,7 @@ export const register: Register = on => {
     const text = tidy(p.text)
     if (!text.trim() || room < 2) return native
     const lines = wrap(text, room)
-    const w = Math.max(...lines.map(textCells)) + 2 + 2 * PAD
+    const w = widest(lines) + 2 + 2 * PAD
     const off = Math.max(0, columns - w)
     const { Box, Text } = $.ui.resolve(e)
     let time: string | undefined
