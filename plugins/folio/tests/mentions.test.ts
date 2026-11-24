@@ -7,7 +7,7 @@ test('non-path spans stay plain', () => {
 })
 
 test('path, path:line, path:line-line', () => {
-  expect(mentions('`a/b.ts` `c.tsx:65` `d.md:3-9`').map(m => [m.path, m.line])).toEqual([['a/b.ts', 1], ['c.tsx', 65], ['d.md', 3]])
+  expect(mentions('`a/b.ts` `c.tsx:65` `d.md:3-9` `e.go:12:5`').map(m => [m.path, m.line])).toEqual([['a/b.ts', 1], ['c.tsx', 65], ['d.md', 3], ['e.go', 12]])
 })
 
 test('spans inside fences are skipped', () => {
