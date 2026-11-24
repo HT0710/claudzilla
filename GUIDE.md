@@ -437,7 +437,7 @@ If you installed them, three more plugins also run.
 
 **folio** draws the reply's frame and divider lines at your chat's width, so they never wrap, and links file paths to the margin.
 
-**herald** toasts claudzilla update progress, usage limits passing 50, 75 and 90%, and when to compact.
+**herald** toasts claudzilla update progress, usage limits passing 50, 75 and 90%, and when to compact. When another open session ends a turn or waits on a permission or a question, it toasts that for 5 seconds, such as `! claudzilla-35 waits on you · Bash permission · ⎇ main`. To turn that off, put `{"herald":{"waiting":false}}` in `~/.claude/claudzilla.json`.
 
 **ledger** pauses Claude's first edit of a file that another live session edited in the last 30 minutes, and tells that session.
 
