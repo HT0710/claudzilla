@@ -3660,6 +3660,33 @@ test('hideEditDiff off keeps ─', async ($, on) => {
   expect(await ruleOf(card)).toBe('─')
 })
 
+test("a prompt queued before the first tool row leaves ╭ to the turn's prompt", async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('prompt.submit', (_$: any, e: any) => ({ text: e.text }))
+  const card = await prompt($, 'hi')
+  await $.prompt.submit({ text: 'oke', turnId: 't1' } as any)
+  const q = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'q1',
+    props: { text: 'oke', origin: { kind: 'composer' } }, viewport: { columns: 80, rows: 20, isFullscreen: true } })
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  expect(await ruleOf(card)).toBe('╭')
+  expect(await ruleOf(q)).toBe('─')
+})
+
+test('a prompt queued in one turn opens its own section once the turn completes', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('prompt.submit', (_$: any, e: any) => ({ text: e.text }))
+  on('turn.complete', () => ({ text: '' }))
+  await prompt($, 'hi')
+  await $.prompt.submit({ text: 'oke', turnId: 't1' } as any)
+  await $.turn.complete({ turnId: 't1', reason: 'answer' } as any)
+  const next = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'q2',
+    props: { text: 'oke', origin: { kind: 'composer' } }, viewport: { columns: 80, rows: 20, isFullscreen: true } })
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  expect(await ruleOf(next)).toBe('╭')
+})
+
 test('a prompt keeps ─ outside fullscreen', async ($, on) => {
   native(on)
   nativePrompt(on)
