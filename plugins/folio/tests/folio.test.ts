@@ -1160,6 +1160,92 @@ test('a prompt heads a section: the rail runs through the gap under it', async (
   expect(await rail(fold, GAP)).toBe(1)
 })
 
+const nativePrompt = (on: any) => on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['native'] }))
+const prompt = ($: any, text: string, columns = 80, extra: object = {}, surface = 'terminal') =>
+  $.ui.mount({ plugin: 'folio', surface, component: 'UserMessage', requestId: 'p1',
+    props: { text, origin: { kind: 'composer' }, ...extra }, viewport: { columns, rows: 20, isFullscreen: true } })
+const colored = async (ui: any, color: string) => (await ui.findAll({ type: 'Text' })).filter((t: any) => t.props.color === color)
+const width = (s: string) => [...s].reduce((n, c) => n + (/[\u1100-\uffff]/.test(c) && c.charCodeAt(0) > 0x2e80 ? 2 : 1), 0)
+
+for (const columns of [62, 80]) {
+  test(`a prompt draws as a card at the right edge (${columns} cols)`, async ($, on) => {
+    native(on)
+    nativePrompt(on)
+    const ui = await prompt($, 'hello there '.repeat(12), columns)
+    const lines = await colored(ui, '#e0a878')
+    expect(lines.length).toBeGreaterThan(1)
+    for (const l of lines) expect(width(l.text) + 4).toBeLessThanOrEqual(Math.floor(0.8 * columns))
+    expect((await ui.find({ type: 'Text', text: /^─+$/ }))?.text.length).toBe(columns)
+  })
+}
+
+test('a long prompt shows in full', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  const words = Array.from({ length: 80 }, (_, i) => `w${i}`)
+  const ui = await prompt($, words.join(' '))
+  const got = (await colored(ui, '#e0a878')).map((t: any) => t.text).join(' ').split(/\s+/).filter(Boolean)
+  expect(got).toEqual(words)
+})
+
+test('CJK and tab lines keep the border aligned', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  const ui = await prompt($, '日本語のテキスト\n\tindented\nplain')
+  const rows = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props.flexDirection === 'row')
+  expect(rows.length).toBe(3)
+  expect(new Set(rows.map((b: any) => b.props.paddingLeft)).size).toBe(1)
+  const inner = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props.paddingX === 1)
+  expect(new Set(inner.map((b: any) => b.props.width)).size).toBe(1)
+})
+
+test('blank runs show once', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  const ui = await prompt($, 'a\n\n\n\nb')
+  expect((await colored(ui, '#e0a878')).map((t: any) => t.text.trim())).toEqual(['a', '', 'b'])
+})
+
+test('the card draws with hideEditDiff off', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  configured(on, { '/cfg/claudzilla.json': off })
+  await $.session.start(start)
+  expect((await colored(await prompt($, 'hi'), '#e0a878'))[0]).toBeDefined()
+})
+
+test('a row after the prompt is railed', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  await prompt($, 'hi')
+  const fold = await twoReads($)
+  expect(await rail(fold, GAP)).toBe(1)
+})
+
+for (const [name, text, extra, surface, columns] of [
+  ['ctrl+o', 'hi', { isExpanded: true }, 'terminal', 80],
+  ['non-composer', 'hi', { origin: { kind: 'plugin' } }, 'terminal', 80],
+  ['non-terminal', 'hi', {}, 'desktop', 80],
+  ['too narrow', 'hi', {}, 'terminal', 6],
+  ['blank', ' \n ', {}, 'terminal', 80],
+] as const) {
+  test(`${name} keeps the native prompt`, async ($, on) => {
+    native(on)
+    nativePrompt(on)
+    const ui = await prompt($, text, columns, extra, surface)
+    expect((await ui.find({ type: 'Text' }))?.text).toBe('native')
+    expect((await colored(ui, '#e0a878'))[0]).toBeUndefined()
+  })
+}
+
+test('shared.prompt follows claudzilla.json', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  configured(on, { '/cfg/claudzilla.json': JSON.stringify({ palette: { shared: { prompt: '#112233' } } }) })
+  await $.session.start(start)
+  expect((await colored(await prompt($, 'hi'), '#112233'))[0]).toBeDefined()
+})
+
 test("Claude's text opens a section: the rail runs through the gap above the row", async ($, on) => {
   native(on)
   on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
@@ -1781,7 +1867,7 @@ for (const [name, task, extra] of [
   ['no call id', { status: 'completed', toolUseId: undefined }, {}],
   ['an unknown agent id', { status: 'completed', toolUseId: undefined, id: 'g9' }, {}],
   ['an expanded row', { status: 'completed' }, { isExpanded: true }],
-  ['another origin', { status: 'completed' }, { origin: { kind: 'composer' } }],
+  ['another origin', { status: 'completed' }, { origin: { kind: 'user' } }],
   ['no task', { status: 'completed' }, { task: undefined }],
 ] as const) {
   test(`a notification with ${name} stays native`, async ($, on) => {
