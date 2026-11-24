@@ -100,6 +100,14 @@ The same three files hold one folio option, under its own key and read when a se
 
 `hideEditDiff` (default `true`): folio folds tool calls into one row with counts, such as `◼ Edited (1 file)  +12 −3`, and ctrl+o shows the full diffs. `false` keeps the diffs in the chat. A bad value is ignored without a message.
 
+And one herald option, under its own key:
+
+```json
+{"herald": {"waiting": false}}
+```
+
+`waiting` (default `true`): when a session ends a turn, asks for a permission or asks a question, every other open session toasts it for 5 seconds, such as `! claudzilla-35 waits on you · Bash permission · ⎇ main`. `false` stops this session from both sending and showing these toasts. A bad value is ignored without a message.
+
 ## Experimental features
 
 Experimental features are off until you turn them on, except Steward (agent routing), which is on by default. The key sits at the top level of `claudzilla.json`:
