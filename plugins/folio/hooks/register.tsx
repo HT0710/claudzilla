@@ -735,6 +735,15 @@ export const register: Register = on => {
   const joinRow = new Map<string, string>()
   // Prompt id to the reply text drawn right after it.
   const promptReply = new Map<string, string>()
+  // Image prompts only: which row carries the rail over the image rows, so a bare image row can be traced back.
+  const joinTraced = new Set<string>()
+  const joinNote = (step: string, prompt: string, data: { row?: string; joinRow?: string } & Record<string, unknown>) => {
+    const key = `${step}:${data.row}:${data.joinRow ?? ''}`
+    if (!promptImages.get(prompt) || joinTraced.has(key)) return
+    if (joinTraced.size > 500) joinTraced.clear()
+    joinTraced.add(key)
+    t.event('folio.join', { step, prompt, ...data })
+  }
   const framedAfter = new Set<string>()
   const scans = new Map<string, Scan>()
   let redrawAll = () => {}
@@ -822,6 +831,7 @@ export const register: Register = on => {
     // The first row after an image prompt reaches up over the engine's image rows, each drawn at column 0-1.
     if (prompt && !joinRow.has(prompt)) joinRow.set(prompt, id)
     const imgs = prompt && margin && joinRow.get(prompt) === id ? promptImages.get(prompt) ?? 0 : 0
+    if (prompt) joinNote(imgs ? 'join' : 'miss', prompt, imgs ? { row: id, imgs } : { row: id, joinRow: joinRow.get(prompt), margin })
     return (
       <Box flexDirection="column" marginTop={imgs ? -imgs : undefined}>
         {!!margin && Array.from({ length: imgs + 1 }, () => <Text color="promptBorder">│</Text>)}
@@ -1250,7 +1260,7 @@ export const register: Register = on => {
       for (const [id, prompt] of [...promptBefore]) {
         if (frameOf(id) !== old) continue
         promptBefore.set(e.requestId, prompt)
-        if (joinRow.get(prompt) === id) joinRow.set(prompt, e.requestId)
+        if (joinRow.get(prompt) === id) { joinRow.set(prompt, e.requestId); joinNote('move', prompt, { row: e.requestId, from: id }) }
       }
       return
     }
@@ -1276,7 +1286,7 @@ export const register: Register = on => {
     const n = section.n - 1
     if (early?.n === n) {
       let moved = 0
-      for (const id of early.rows) { const f = frameOf(id); if (f?.n === n) { f.n = section.n; moved++; framedAfter.delete(promptBefore.get(id) ?? ''); joinRow.delete(promptBefore.get(id) ?? ''); promptBefore.delete(id) } }
+      for (const id of early.rows) { const f = frameOf(id); if (f?.n === n) { f.n = section.n; moved++; joinNote('drop', promptBefore.get(id) ?? '', { row: id }); framedAfter.delete(promptBefore.get(id) ?? ''); joinRow.delete(promptBefore.get(id) ?? ''); promptBefore.delete(id) } }
       if (moved) {
         for (const rest of late.values()) if (rest.n === n) rest.n = section.n
         const last = tails.get(n)
@@ -1405,6 +1415,7 @@ export const register: Register = on => {
     const prompt = e.component === 'AssistantMessage' && e.surface === 'terminal' && e.viewport?.isFullscreen ? [...promptReply].find(([, r]) => r === e.requestId)?.[0] : undefined
     const imgs = prompt ? promptImages.get(prompt) ?? 0 : 0
     if (!imgs) return out
+    joinNote('reply', prompt!, { row: e.requestId, imgs })
     const { Box, Text } = $.ui.resolve(e)
     return (
       <Box flexDirection="column" marginTop={-imgs}>

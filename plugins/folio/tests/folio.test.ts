@@ -3764,6 +3764,37 @@ test('a group the engine re-keys keeps the image overlay', async ($, on) => {
   expect(await gaps(final)).toEqual({ marginTop: -1, gaps: 2 })
 })
 
+test('traces which row joins an image prompt card, and its re-key', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  const rows = sink(on, 'folio')
+  await prompt($, 'look [Image #2]')
+  const live = await mountGroup($, 'collapsed-toolu_x000', [call('b1', 'Bash', { command: 'echo 1' }), call('b2', 'Bash', { command: 'echo 2' })])
+  await live.unmount()
+  await mountGroup($, 'collapsed-uuid', [call('b1', 'Bash', { command: 'echo 1' }), call('b2', 'Bash', { command: 'echo 2' })])
+  await $.session.end({ reason: 'other' })
+  expect(rows().filter(r => r.event === 'folio.join').map(r => r.data)).toEqual([
+    { step: 'join', prompt: 'p1', row: 'collapsed-toolu_x000', imgs: 1 },
+    { step: 'move', prompt: 'p1', row: 'collapsed-uuid', from: 'collapsed-toolu_x000' },
+    { step: 'join', prompt: 'p1', row: 'collapsed-uuid', imgs: 1 },
+  ])
+})
+
+for (const [text, want] of [['look [Image #2]', [{ step: 'reply', prompt: 'p1', row: 'a1', imgs: 1 }]], ['hi', []]] as const) {
+  test(`a reply after "${text}" traces ${want.length ? 'its join' : 'nothing'}`, async ($, on) => {
+    native(on)
+    nativePrompt(on)
+    on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+    on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+    const rows = sink(on, 'folio')
+    await prompt($, text)
+    await said($, 'a1')
+    await $.session.end({ reason: 'other' })
+    expect(rows().filter(r => r.event === 'folio.join').map(r => r.data)).toEqual(want)
+  })
+}
+
 const replyGaps = async (reply: any) => {
   const root = await reply.find({ type: 'Box' })
   return { marginTop: root.props.marginTop, bars: root.children.filter((k: any) => k.type === 'Text' && flat(k) === '│').length }
