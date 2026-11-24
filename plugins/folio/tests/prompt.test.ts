@@ -16,6 +16,19 @@ test('wrap keeps lines within room and cuts by grapheme', () => {
   expect(cjk.every(l => cells(l) <= 5)).toBe(true)
   const emoji = wrap('😀'.repeat(6), 5)
   expect(emoji.join('')).toBe('😀'.repeat(6))
+  expect(emoji.every(l => l === l.toWellFormed() && cells(l) <= 5)).toBe(true)
+})
+
+test('cells counts VS16 emoji as 2', () => {
+  expect(cells('⚠️')).toBe(2)
+  expect(cells('😀')).toBe(2)
+})
+
+test('wrap cuts a long word fast', () => {
+  const start = performance.now()
+  const lines = wrap('a'.repeat(20000), 40)
+  expect(performance.now() - start).toBeLessThan(500)
+  expect(lines.every(l => cells(l) <= 40)).toBe(true)
 })
 
 test('wrap takes one grapheme when room is 1', () => {

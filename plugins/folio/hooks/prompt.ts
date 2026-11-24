@@ -6,7 +6,7 @@ const CONTROLS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g
 
 export const cells = (text: string) =>
   pieces(text).reduce((sum, g) =>
-    sum + (/\p{Emoji_Presentation}|[ᄀ-ᅟ⺀-꓏가-힣豈-﫿＀-｠￠-￦\u{1F000}-\u{1FAFF}\u{20000}-\u{3FFFF}]/u.test(g) ? 2 : 1), 0)
+    sum + (/\p{Emoji_Presentation}|[ᄀ-ᅟ⺀-꓏가-힣豈-﫿＀-｠￠-￦\u{1F000}-\u{1FAFF}\u{20000}-\u{3FFFF}\uFE0F]/u.test(g) ? 2 : 1), 0)
 
 // Display only: the sent text keeps its tabs, controls and blank lines.
 export const tidy = (text: string) =>
@@ -21,15 +21,13 @@ export const wrap = (text: string, room: number) => text.split('\n').flatMap(par
     const next = line ? `${line} ${word}` : word
     if (cells(next) <= room) { line = next; continue }
     if (line) out.push(line)
-    line = word
-    while (cells(line) > room) {
-      let head = ''
-      for (const g of pieces(line)) {
-        if (head && cells(head + g) > room) break
-        head += g
-      }
-      out.push(head)
-      line = line.slice(head.length)
+    line = ''
+    let width = 0
+    for (const g of pieces(word)) {
+      const gw = cells(g)
+      if (line && width + gw > room) { out.push(line); line = ''; width = 0 }
+      line += g
+      width += gw
     }
   }
   if (line || !out.length) out.push(line)
