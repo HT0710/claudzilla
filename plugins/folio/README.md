@@ -34,6 +34,8 @@ Folio finds a command's writes from its text, such as `sed -i` or `echo x > a.tx
 
 Off the fullscreen layout a printed row can't change, so nothing folds or opens. Each edit keeps its own row, `● Updated (a.txt)  +12 −3` or `● Created (a.txt)  +3` for a new file, a command that writes files keeps one row per file, and a fetch reads `● Fetched (example.com)  200 · 577 B`.
 
+In the fullscreen layout your typed prompt shows as a card at the right edge, with its send time under it. When a tool row follows, the card's bottom edge joins the rail. The `shared.prompt` colour sets the card's colour.
+
 Tool rows sit 2 columns in, and a `│` rail runs down the left edge from your prompt or Claude's text through the rows after it, until the next reply. An agent row forks off the rail with `├─`, or `╰─` when it is the last row under it; a background agent's launch row uses `├┄` and its finish row a solid `├─` or `╰─`. A skill loaded into the chat sits on the rail as a node, `✦ loaded   caveman-help (caveman)`, with the `✦` in place of the `│`; a skill that runs as its own agent draws like an agent row, `├─✦ done     review (superpowers)`. ctrl+o and `--verbose` still draw every diff. Set `hideEditDiff` to `false` to keep diffs in the chat ([CONFIGURATION.md](../../CONFIGURATION.md)).
 
 <img src="../../.github/assets/fold.png" alt="A turn on the rail: folded Ran, Read and Edited rows, a named subagent row marked done, and the reply between them" width="647">
