@@ -1306,6 +1306,21 @@ test("PR modal actions take the mockup's button accent", async ($, on) => {
   for (const text of ['\uf408 github', '\uf44c copy', '\uebc0 rerun']) expect((await ui.find({ type: 'Text', text }))?.props.color).toBe('claude')
 })
 
+test('basic-glyphs mode pads the pill with spaces', async ($, on) => {
+  quiet(on, 5 * MIN, true)
+  withGh(on, repoOn('a'), [prJson()])
+  const ui = await mount($)
+  expect((await piece(ui, 'pr', ' open '))?.props.backgroundColor).toBe('#1d3a2a')
+})
+
+test('basic-glyphs mode: plain PR modal actions', async ($, on) => {
+  quiet(on, 5 * MIN, true)
+  const failing = { ...checkRun('build', 'FAILURE'), detailsUrl: 'https://github.com/o/r/actions/runs/11/job/22' }
+  withPr(on, repoOn('a'), [prJson({ statusCheckRollup: [failing] })])
+  const ui = await openPr($)
+  for (const text of ['\u2197 github', '\u29c9 copy', '\u21bb rerun']) expect(await ui.find({ type: 'Text', text })).toBeDefined()
+})
+
 test('github opens the PR page; copy copies the PR URL', async ($, on) => {
   quiet(on)
   let copied = ''
