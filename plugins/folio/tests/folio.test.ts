@@ -1175,7 +1175,7 @@ for (const columns of [62, 80]) {
     const lines = await colored(ui, '#e0a878')
     expect(lines.length).toBeGreaterThan(1)
     for (const l of lines) expect(width(l.text) + 4).toBeLessThanOrEqual(Math.floor(0.8 * columns))
-    expect((await ui.find({ type: 'Text', text: /^─+$/ }))?.text.length).toBe(columns)
+    expect((await ui.find({ type: 'Text', text: /^─*┴─*╯$/ }))?.text.length).toBe(columns)
   })
 }
 
@@ -1194,7 +1194,7 @@ test('CJK and tab lines keep the border aligned', async ($, on) => {
   const ui = await prompt($, '日本語のテキスト\n\tindented\nplain')
   expect((await ui.find({ type: 'Text', text: /^╭─*╮$/ }))?.text).toBe('╭' + '─'.repeat(18) + '╮')
   expect((await colored(ui, '#e0a878')).map((t: any) => t.text)).toEqual(['日本語のテキスト', 'indented', 'plain'])
-  expect((await ui.find({ type: 'Text', text: /^─+$/ }))?.text).toBe('─'.repeat(80))
+  expect((await ui.find({ type: 'Text', text: /^─*┴─*╯$/ }))?.text).toBe('─'.repeat(60) + '┴' + '─'.repeat(18) + '╯')
   const rows = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props.flexDirection === 'row')
   expect(rows.map((b: any) => b.props.paddingLeft)).toEqual([60, 60, 60])
 })
@@ -3559,7 +3559,7 @@ test('a group led by a hidden tool between two edits joins their run', async ($,
   expect(await textOf(first, 'e1')).toBe('◼ Edited (2 files) · Read (1 file)  +2')
 })
 
-const RULE = /^[╭─]─+$/
+const RULE = /^[╭─]─*┴─*╯$/
 const ruleOf = async (ui: any) => (await ui.find({ type: 'Text', text: RULE }))?.text[0]
 
 for (const [name, tool, output, extra] of [
@@ -3616,5 +3616,28 @@ test('a prompt keeps ─ outside fullscreen', async ($, on) => {
   nativePrompt(on)
   const card = await prompt($, 'hi')
   await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1', { ...VIEW, isFullscreen: false })
+  expect(await ruleOf(card)).toBe('─')
+})
+
+test("Claude's text then a tool row keeps ─", async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  const card = await prompt($, 'hi')
+  await said($, 'a1')
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  expect(await ruleOf(card)).toBe('─')
+})
+
+test('a reply whose text comes after its tool row takes the join back: ─', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  const card = await prompt($, 'hi')
+  const empty = await said($, 'm1', '')
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  expect(await ruleOf(card)).toBe('╭')
+  await empty.unmount()
+  await said($, 'm1', 'later')
   expect(await ruleOf(card)).toBe('─')
 })
