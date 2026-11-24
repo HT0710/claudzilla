@@ -1216,7 +1216,7 @@ for (const columns of [62, 80]) {
     const time = stamp(0)
     await ui.find({ type: 'Text', text: time })
     const row = (await ui.findAll({ type: 'Box' })).find((b: any) => b.text.includes(time) && b.children.length === 1 && b.props.paddingLeft !== undefined)
-    expect(row?.props.paddingLeft).toBe(columns - 2 - cells(time))
+    expect(row?.props.paddingLeft).toBe(columns - 1 - cells(time))
   })
 }
 
