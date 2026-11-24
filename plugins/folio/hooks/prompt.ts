@@ -34,6 +34,9 @@ export const wrap = (text: string, room: number) => text.split('\n').flatMap(par
   return out
 })
 
+// A reduce, because Math.max(...lines) throws on a very long list.
+export const widest = (lines: string[]) => lines.reduce((m, l) => Math.max(m, cells(l)), 0)
+
 export const stamp = (ms: number, now = Date.now()) => {
   const d = new Date(ms)
   const hm = d.toTimeString().slice(0, 5)
