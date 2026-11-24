@@ -2,7 +2,8 @@ import type { Elements, EngineInterface, Register, RenderNode, Timer, ToolGroupC
 
 import { href, linked, mentions } from './mentions'
 import { DEFAULTS, readPalette } from './palette'
-import { cells as textCells, tidy, wrap } from './prompt'
+import { cells as textCells, newScan, sentAt, stamp, tidy, wrap } from './prompt'
+import type { ReadText, Scan } from './prompt'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
@@ -697,7 +698,7 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     // A /clear or resume goes on under a new session id, which needs its own cols file.
     wroteColumns = 0
-    for (const rows of [runs, done, placed, agents, skills, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails, late, prompts, promptBefore, framedAfter]) rows.clear()
+    for (const rows of [runs, done, placed, agents, skills, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails, late, prompts, promptBefore, framedAfter, scans]) rows.clear()
     redrawAll = () => {}
     corners.clear()
     section = { open: false, n: 0 }
@@ -722,6 +723,7 @@ export const register: Register = on => {
   const prompts = new Set<string>()
   const promptBefore = new Map<string, string>()
   const framedAfter = new Set<string>()
+  const scans = new Map<string, Scan>()
   let redrawAll = () => {}
   const frameOf = (id: string) => frames.get(id) ?? runs.get(id)?.frame
   // Each member's latest props, by tool_use_id, and the row that draws it: the fold's calls come from here.
@@ -1307,6 +1309,19 @@ export const register: Register = on => {
     const w = Math.max(...lines.map(textCells)) + 2 + 2 * PAD
     const off = Math.max(0, columns - w)
     const { Box, Text } = $.ui.resolve(e)
+    let time: string | undefined
+    const id = e.requestId
+    const path = id === 'placeholder' ? '' : await $.session.info().then(i => i.transcriptPath, () => '')
+    if (path) {
+      let scan = scans.get(path)
+      if (!scan) scans.set(path, scan = newScan())
+      const ms = scan.times.get(id)
+      if (ms !== undefined) time = stamp(ms)
+      else {
+        const read: ReadText = (f, offset, length) => $.fs.read(f, { offset, length }) as Promise<string>
+        void sentAt(read, path, scan, id).then(v => { if (v !== undefined) $.ui.invalidate('ui.render') }, () => {})
+      }
+    }
     return (
       <Box flexDirection="column" width="100%" marginTop={2} marginBottom={-1}>
         <Box paddingLeft={off}><Text color="promptBorder">{'╭' + '─'.repeat(w - 2) + '╮'}</Text></Box>
@@ -1318,6 +1333,7 @@ export const register: Register = on => {
           </Box>
         ))}
         <Text color="promptBorder">{(framedAfter.has(e.requestId) ? '╭' : '─') + '─'.repeat(off - 1) + '┴' + '─'.repeat(w - 2) + '╯'}</Text>
+        {time && <Box paddingLeft={Math.max(0, columns - 1 - PAD - textCells(time))}><Text color={FAINT}>{time}</Text></Box>}
       </Box>
     )
   })

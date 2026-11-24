@@ -1,5 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
+import { stamp, cells } from '../hooks/prompt'
 import { agentLabel, cutPath, diffRows, durationText, runText, split, writeTargets } from '../hooks/register'
 
 const text = '━━━━\n\n**TL;DR** x\n\n──\n\n## H\n\n┈┈\n\nmore\n\n```text\n━━━━\n```\n\n━━━━'
@@ -1197,6 +1198,44 @@ test('CJK and tab lines keep the border aligned', async ($, on) => {
   expect((await ui.find({ type: 'Text', text: /^─*┴─*╯$/ }))?.text).toBe('─'.repeat(60) + '┴' + '─'.repeat(18) + '╯')
   const rows = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props.flexDirection === 'row')
   expect(rows.map((b: any) => b.props.paddingLeft)).toEqual([60, 60, 60])
+})
+
+const transcript = (on: any, path: string, rows: object[]) => {
+  const file = rows.map(r => JSON.stringify(r)).join('\n') + '\n'
+  on('session.info', () => ({ value: { transcriptPath: path } }))
+  on('fs.read', (_: any, e: any) => (e.path === path ? { value: file.slice(e.offset ?? 0, (e.offset ?? 0) + (e.length ?? file.length)) } : { deny: 'ENOENT' }))
+}
+const sentRow = { type: 'user', uuid: 'p1', timestamp: '1970-01-01T00:00:00.000Z' }
+for (const columns of [62, 80]) {
+  test(`the card shows the time under its rule (${columns} cols)`, async ($, on) => {
+    native(on)
+    nativePrompt(on)
+    mock.clock(on, { now: 0 })
+    transcript(on, '/t/s.jsonl', [sentRow])
+    const ui = await prompt($, 'hi', columns)
+    const time = stamp(0)
+    await ui.find({ type: 'Text', text: time })
+    const row = (await ui.findAll({ type: 'Box' })).find((b: any) => b.text.includes(time) && b.children.length === 1 && b.props.paddingLeft !== undefined)
+    expect(row?.props.paddingLeft).toBe(columns - 2 - cells(time))
+  })
+}
+
+test('an empty transcript path gives no time row', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  mock.clock(on, { now: 0 })
+  transcript(on, '', [sentRow])
+  const ui = await prompt($, 'hi')
+  expect(await ui.find({ type: 'Text', text: stamp(0) })).toBeUndefined()
+})
+
+test('the card redraws once the lookup lands', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  mock.clock(on, { now: 0 })
+  transcript(on, '/t/s.jsonl', [sentRow])
+  const ui = await prompt($, 'hi')
+  expect(await ui.find({ type: 'Text', text: stamp(0) })).toBeDefined()
 })
 
 test('blank runs show once', async ($, on) => {
