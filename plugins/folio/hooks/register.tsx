@@ -1250,7 +1250,7 @@ export const register: Register = on => {
     const n = section.n - 1
     if (early?.n === n) {
       let moved = 0
-      for (const id of early.rows) { const f = frameOf(id); if (f?.n === n) { f.n = section.n; moved++ } }
+      for (const id of early.rows) { const f = frameOf(id); if (f?.n === n) { f.n = section.n; moved++; framedAfter.delete(promptBefore.get(id) ?? ''); promptBefore.delete(id) } }
       if (moved) {
         for (const rest of late.values()) if (rest.n === n) rest.n = section.n
         const last = tails.get(n)
@@ -1317,7 +1317,7 @@ export const register: Register = on => {
             <Text color="promptBorder">│</Text>
           </Box>
         ))}
-        <Text color="promptBorder">{(framedAfter.has(e.requestId) ? '╭' : '─') + '─'.repeat(columns - 1)}</Text>
+        <Text color="promptBorder">{(framedAfter.has(e.requestId) ? '╭' : '─') + '─'.repeat(off - 1) + '┴' + '─'.repeat(w - 2) + '╯'}</Text>
       </Box>
     )
   })
