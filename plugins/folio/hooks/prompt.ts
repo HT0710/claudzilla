@@ -40,3 +40,51 @@ export const stamp = (ms: number, now = Date.now()) => {
   return d.toDateString() === new Date(now).toDateString() ? hm
     : `${d.toLocaleDateString('en-GB', { weekday: 'short' })} ${d.getDate()} ${d.toLocaleDateString('en-GB', { month: 'short' })} ${hm}`
 }
+
+export type ReadText = (path: string, offset: number, length: number) => Promise<string>
+export type Scan = { offset: number; times: Map<string, number>; run: Promise<unknown> }
+export const newScan = (): Scan => ({ offset: 0, times: new Map(), run: Promise.resolve() })
+
+const bytes = (s: string) => new TextEncoder().encode(s).length
+
+const scanMore = async (read: ReadText, path: string, scan: Scan, id: string, chunk: number) => {
+  let skipping = false
+  while (!scan.times.has(id)) {
+    let text = await read(path, scan.offset, chunk)
+    if (!text) break
+    const full = bytes(text) >= chunk
+    let dropped = false
+    if (skipping) {
+      const i = text.indexOf('\n')
+      if (i < 0) { scan.offset += chunk; continue }
+      scan.offset += bytes(text.slice(0, i)) + 1
+      text = text.slice(i + 1)
+      skipping = false
+      dropped = true
+    }
+    const lines = text.split('\n')
+    lines.pop()
+    for (const line of lines) {
+      scan.offset += bytes(line) + 1
+      if (!line.includes('"type":"user"')) continue
+      try {
+        const row = JSON.parse(line)
+        const ms = Date.parse(row.timestamp)
+        if (row.type === 'user' && typeof row.uuid === 'string' && Number.isFinite(ms)) scan.times.set(row.uuid, ms)
+      } catch {}
+    }
+    if (!lines.length) {
+      if (dropped) continue
+      if (!full) break
+      // shortcut: a prompt row longer than chunk gets no time; read on to its end if users paste that much
+      scan.offset += chunk
+      skipping = true
+    }
+  }
+}
+
+export function sentAt(read: ReadText, path: string, scan: Scan, id: string, chunk = 4 * 1024 * 1024): Promise<number | undefined> {
+  if (!path) return Promise.resolve(undefined)
+  scan.run = scan.run.then(() => scanMore(read, path, scan, id, chunk)).catch(() => {})
+  return scan.run.then(() => scan.times.get(id))
+}
