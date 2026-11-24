@@ -56,8 +56,11 @@ const scanMore = async (read: ReadText, path: string, scan: Scan, id: string, ch
     let dropped = false
     if (skipping) {
       const i = text.indexOf('\n')
-      if (i < 0) { scan.offset += chunk; continue }
-      scan.offset += bytes(text.slice(0, i)) + 1
+      if (i < 0) { if (!full) break; scan.offset += chunk; continue }
+      const head = text.slice(0, i)
+      // a read that starts mid-character decodes each cut byte as one U+FFFD
+      const cut = /^\uFFFD*/.exec(head)![0].length
+      scan.offset += cut + bytes(head.slice(cut)) + 1
       text = text.slice(i + 1)
       skipping = false
       dropped = true
