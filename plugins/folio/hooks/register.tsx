@@ -1333,7 +1333,7 @@ export const register: Register = on => {
           </Box>
         ))}
         <Text color="promptBorder">{(framedAfter.has(e.requestId) ? '╭' : '─') + '─'.repeat(off - 1) + '┴' + '─'.repeat(w - 2) + '╯'}</Text>
-        {time && <Box paddingLeft={Math.max(0, columns - 1 - PAD - textCells(time))}><Text color={FAINT}>{time}</Text></Box>}
+        {time && <Box paddingLeft={Math.max(0, columns - 1 - textCells(time))}><Text color={FAINT}>{time}</Text></Box>}
       </Box>
     )
   })
