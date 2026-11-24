@@ -1194,7 +1194,7 @@ test('CJK and tab lines keep the border aligned', async ($, on) => {
   nativePrompt(on)
   const ui = await prompt($, '日本語のテキスト\n\tindented\nplain')
   expect((await ui.find({ type: 'Text', text: /^╭─*╮$/ }))?.text).toBe('╭' + '─'.repeat(18) + '╮')
-  expect((await colored(ui, '#e0a878')).map((t: any) => t.text)).toEqual(['日本語のテキスト', 'indented', 'plain'])
+  expect((await colored(ui, '#e0a878')).map((t: any) => t.text)).toEqual(['日本語のテキスト', ' indented', 'plain'])
   expect((await ui.find({ type: 'Text', text: /^─*┴─*╯$/ }))?.text).toBe('─'.repeat(60) + '┴' + '─'.repeat(18) + '╯')
   const rows = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props.flexDirection === 'row')
   expect(rows.map((b: any) => b.props.paddingLeft)).toEqual([60, 60, 60])

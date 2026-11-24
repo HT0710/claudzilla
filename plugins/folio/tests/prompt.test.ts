@@ -35,6 +35,11 @@ test('wrap takes one grapheme when room is 1', () => {
   expect(wrap('界界', 1)).toEqual(['界', '界'])
 })
 
+test('wrap keeps indentation and space runs', () => {
+  expect(wrap('    if x:\n        y', 40)).toEqual(['    if x:', '        y'])
+  expect(wrap('a  b', 40)).toEqual(['a  b'])
+})
+
 test('wrap fills each line to the room', () => {
   expect(wrap('one two three', 7)).toEqual(['one two', 'three'])
 })
