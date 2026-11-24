@@ -59,8 +59,12 @@ test('sentAt returns the row\'s time, also when a row is cut by a chunk edge (ch
 test('a CJK line cut at a chunk edge leaves the offset on that line\'s start', async () => {
   const f = row('a') + row('b', ',"m":"界界界界界界"') + row('c')
   const total = new TextEncoder().encode(f).length
+  const at = new TextEncoder().encode(row('a')).length
   for (let chunk = 110; chunk <= 140; chunk++) {
     const scan = newScan()
+    expect(await sentAt(fake(() => f.slice(0, f.indexOf('"m"') + 12)), 'p', scan, 'zz', chunk)).toBeUndefined()
+    expect(scan.offset).toBe(at)
+    scan.offset = 0
     expect(await sentAt(fake(() => f), 'p', scan, 'c', chunk)).toBe(T)
     expect(scan.offset).toBe(total)
   }
@@ -95,4 +99,19 @@ test('sentAt returns undefined for an empty path, with no read, and when a read 
   expect(await sentAt(bad, '', newScan(), 'a')).toBeUndefined()
   expect(calls).toBe(0)
   expect(await sentAt(bad, 'p', newScan(), 'a')).toBeUndefined()
+})
+
+test('a long line partly written then completed still resolves the next row', async () => {
+  const a = row('a', `,"m":"${'x'.repeat(200)}"`)
+  let f = a.slice(0, a.length - 3)
+  const scan = newScan()
+  expect(await sentAt(fake(() => f), 'p', scan, 'b', 100)).toBeUndefined()
+  f = a + row('b')
+  expect(await sentAt(fake(() => f), 'p', scan, 'b', 100)).toBe(T)
+})
+
+test('a skip read that starts mid-character keeps the offset exact', async () => {
+  const f = row('a', `,"m":"${'界'.repeat(60)}"`) + row('b')
+  for (let chunk = 88; chunk <= 92; chunk++)
+    expect(await sentAt(fake(() => f), 'p', newScan(), 'b', chunk)).toBe(T)
 })
