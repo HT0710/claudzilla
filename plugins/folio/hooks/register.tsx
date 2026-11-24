@@ -2,11 +2,14 @@ import type { Elements, EngineInterface, Register, RenderNode, Timer, ToolGroupC
 
 import { href, linked, mentions } from './mentions'
 import { DEFAULTS, readPalette } from './palette'
+import { cells as textCells, tidy, wrap } from './prompt'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
 
 let LIT = DEFAULTS.shared.lit
 let FAINT = DEFAULTS.shared.faint
+let CARD = DEFAULTS.shared.prompt
+const PAD = 1
 let SKILL = DEFAULTS.hud.skill
 
 type State = 'running' | 'working' | 'remote' | 'done' | 'failed' | 'stopped' | 'interrupted'
@@ -677,6 +680,7 @@ export const register: Register = on => {
     const { shared, hud } = (await readPalette($)).palette
     LIT = shared.lit
     FAINT = shared.faint
+    CARD = shared.prompt
     SKILL = hud.skill
     const read = await readHideEditDiff($, e.cwd)
     hideEditDiff = read.hide
@@ -1275,6 +1279,33 @@ export const register: Register = on => {
     }
     current = run
   }
+  on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
+    const p = e.props
+    if (e.surface !== 'terminal' || p.origin?.kind !== 'composer' || p.isExpanded) return next(e)
+    // The shared row hook below sees the row through next(e), so the prompt opens its rail section.
+    const native = await next(e)
+    const columns = e.viewport?.columns ?? 80
+    const room = Math.floor(0.8 * columns) - 2 - 2 * PAD
+    const text = tidy(p.text)
+    if (!text.trim() || room < 1) return native
+    const lines = wrap(text, room)
+    const w = Math.max(...lines.map(textCells)) + 2 + 2 * PAD
+    const off = Math.max(0, columns - w)
+    const { Box, Text } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="column" width="100%" marginTop={2} marginBottom={-1}>
+        <Box paddingLeft={off}><Text color="promptBorder">{'╭' + '─'.repeat(w - 2) + '╮'}</Text></Box>
+        {lines.map(l => (
+          <Box flexDirection="row" paddingLeft={off}>
+            <Text color="promptBorder">│</Text>
+            <Box width={w - 2} paddingX={PAD}><Text color={CARD}>{l}</Text></Box>
+            <Text color="promptBorder">│</Text>
+          </Box>
+        ))}
+        <Text color="promptBorder">{'─'.repeat(columns)}</Text>
+      </Box>
+    )
+  })
   on('ui.render', { component: ['UserMessage', 'AssistantMessage', 'ToolGroup', 'ToolUse'] }, async ($, e, next) => {
     // Before any row is placed: after a reload a finish row can draw in the same pass as its launch row.
     if (e.component === 'ToolUse' && e.props.tool === 'Agent') {
