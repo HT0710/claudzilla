@@ -1,6 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { cells } from '../hooks/prompt'
 import { agentLabel, cutPath, diffRows, durationText, runText, split, writeTargets } from '../hooks/register'
 
 const text = '━━━━\n\n**TL;DR** x\n\n──\n\n## H\n\n┈┈\n\nmore\n\n```text\n━━━━\n```\n\n━━━━'
@@ -1193,13 +1192,11 @@ test('CJK and tab lines keep the border aligned', async ($, on) => {
   native(on)
   nativePrompt(on)
   const ui = await prompt($, '日本語のテキスト\n\tindented\nplain')
-  const top = (await ui.find({ type: 'Text', text: /^╭─*╮$/ }))!.text
-  const w = cells(top)
-  const lines = (await colored(ui, '#e0a878')).map((t: any) => t.text)
-  expect(lines.length).toBe(3)
-  for (const l of lines) expect(cells(l)).toBeLessThanOrEqual(w - 4)
-  expect(Math.max(...lines.map(cells))).toBe(w - 4)
-  expect(cells((await ui.find({ type: 'Text', text: /^─+$/ }))!.text)).toBe(80)
+  expect((await ui.find({ type: 'Text', text: /^╭─*╮$/ }))?.text).toBe('╭' + '─'.repeat(18) + '╮')
+  expect((await colored(ui, '#e0a878')).map((t: any) => t.text)).toEqual(['日本語のテキスト', 'indented', 'plain'])
+  expect((await ui.find({ type: 'Text', text: /^─+$/ }))?.text).toBe('─'.repeat(80))
+  const rows = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props.flexDirection === 'row')
+  expect(rows.map((b: any) => b.props.paddingLeft)).toEqual([60, 60, 60])
 })
 
 test('blank runs show once', async ($, on) => {
