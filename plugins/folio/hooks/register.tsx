@@ -1322,6 +1322,13 @@ export const register: Register = on => {
     const isFoldRow = !!seg && (seg.ids.length > 1 || isLoneRow)
     const isEdit = isFoldRow || (runs.has(e.requestId) && editSummary(e.props.tool, e.props.output, e.props.isErrored)) || (!!bashEdits.get(e.requestId)?.length && !e.props.isErrored && !scripts.has(e.requestId)) || lostWrites.has(e.requestId)
     const isScriptRow = scripts.has(e.requestId) && !e.props.isErrored && !!e.viewport?.isFullscreen
+    // SendMessage's own row is empty and its block an opaque engine node: folio redraws the line to put it on the rail.
+    const sentText = (e.props.output as { message?: unknown } | undefined)?.message
+    const sentFrame = frameOf(e.requestId)
+    if (e.props.tool === 'SendMessage' && isFolded && e.viewport?.isFullscreen && sentFrame && !e.props.isErrored && typeof sentText === 'string') {
+      const elements = $.ui.resolve(e)
+      return framed(elements, sentFrame, <elements.Text wrap="truncate-end"><elements.Text dimColor>⎿</elements.Text>  {sentText.split('\n')[0]}</elements.Text>)
+    }
     if (!hideEditDiff || e.surface !== 'terminal' || e.props.isExpanded || !(isEdit || isScriptRow || toolRow(e.props.tool, {}, e.props.output, e.props.isErrored))) return native
     const { Box } = $.ui.resolve(e)
 
