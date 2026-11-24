@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { cells, stamp, tidy, wrap } from '../hooks/prompt'
+import { cells, newScan, sentAt, stamp, tidy, wrap } from '../hooks/prompt'
 
 test('cells counts CJK and emoji as 2', () => {
   expect(cells('界a')).toBe(3)
@@ -43,4 +43,56 @@ test('stamp gives the time on the send day, the day on another', () => {
   const sent = new Date(2026, 10, 23, 9, 56).getTime()
   expect(stamp(sent, new Date(2026, 10, 23, 18, 0).getTime())).toBe('09:56')
   expect(stamp(sent, new Date(2026, 10, 24, 8, 0).getTime())).toBe('Mon 23 Nov 09:56')
+})
+
+const row = (uuid: string, extra = '', parentUuid = 'null') =>
+  `{"type":"user","uuid":"${uuid}","parentUuid":${parentUuid === 'null' ? 'null' : `"${parentUuid}"`},"timestamp":"2026-11-24T10:00:00Z"${extra}}\n`
+const T = Date.parse('2026-11-24T10:00:00Z')
+const fake = (get: () => string) => async (_p: string, off: number, len: number) =>
+  new TextDecoder().decode(new TextEncoder().encode(get()).subarray(off, off + len))
+
+test('sentAt returns the row\'s time, also when a row is cut by a chunk edge (chunk 100)', async () => {
+  const f = row('a') + row('b') + row('c')
+  expect(await sentAt(fake(() => f), 'p', newScan(), 'c', 100)).toBe(T)
+})
+
+test('a CJK line cut at a chunk edge leaves the offset on that line\'s start', async () => {
+  const f = row('a') + row('b', ',"m":"界界界界界界"') + row('c')
+  const total = new TextEncoder().encode(f).length
+  for (let chunk = 110; chunk <= 140; chunk++) {
+    const scan = newScan()
+    expect(await sentAt(fake(() => f), 'p', scan, 'c', chunk)).toBe(T)
+    expect(scan.offset).toBe(total)
+  }
+})
+
+test('a line longer than chunk is skipped and the next row still resolves', async () => {
+  const f = row('a', `,"m":"${'x'.repeat(200)}"`) + row('b')
+  expect(await sentAt(fake(() => f), 'p', newScan(), 'b', 90)).toBe(T)
+})
+
+test('sentAt ignores a child row whose parentUuid is the id', async () => {
+  const f = row('child', '', 'a')
+  expect(await sentAt(fake(() => f), 'p', newScan(), 'a')).toBeUndefined()
+})
+
+test('sentAt reads only new bytes on a miss', async () => {
+  let f = row('a')
+  const offs: number[] = []
+  const r = fake(() => f)
+  const spy = async (p: string, o: number, l: number) => { offs.push(o); return r(p, o, l) }
+  const scan = newScan()
+  expect(await sentAt(spy, 'p', scan, 'b')).toBeUndefined()
+  const old = new TextEncoder().encode(f).length
+  f += row('b')
+  expect(await sentAt(spy, 'p', scan, 'b')).toBe(T)
+  expect(offs[offs.length - 1]).toBe(old)
+})
+
+test('sentAt returns undefined for an empty path, with no read, and when a read rejects', async () => {
+  let calls = 0
+  const bad = async () => { calls++; throw new Error('x') }
+  expect(await sentAt(bad, '', newScan(), 'a')).toBeUndefined()
+  expect(calls).toBe(0)
+  expect(await sentAt(bad, 'p', newScan(), 'a')).toBeUndefined()
 })
