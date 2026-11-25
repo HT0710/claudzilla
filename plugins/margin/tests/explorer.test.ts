@@ -10,7 +10,7 @@ import { iconOf, sortListing, treeRows } from '../hooks/explorer-tree'
 import { fieldPad, refOf } from '../hooks/tab-file'
 import { fileKey } from '../hooks/git-data'
 import { LIT } from '../hooks/kit'
-import { clock, disk, props, chevron, tapTree, treeRow, explorer, explorerRoot, failList, hold, lists, mountPane, launch, open, pathText, ran, reads, runs, lines, listed, setup, sets, store, textOf, tree, waitFor } from './explorer-helpers'
+import { clock, diffOut, gutterRows, disk, props, chevron, tapTree, treeRow, explorer, explorerRoot, failList, hold, lists, mountPane, launch, open, pathText, ran, reads, runs, lines, listed, setup, sets, store, textOf, tree, waitFor } from './explorer-helpers'
 
 test('tokenize: a keyword, a string, a comment and a number', () => {
   expect(tokenize('const s = "a" // x 42')).toEqual([
@@ -397,7 +397,7 @@ test('probe: the file atom place shows in the mounted pane', async ($, on) => {
 
 test('a file shows its lines numbered, the clicked line lit', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/src/a.ts', line: 65 }, lines(200))
-  expect((await ui.find({ key: 'explorer:gutter' }))?.props.props.rows.find((r: { line: number }) => r.line === 65)?.cell).toMatch(/65 $/)
+  expect((await ui.find({ key: 'explorer:gutter' }))?.props.props.rows.find((r: { line: number }) => r.line === 65)?.cell).toMatch(/65 {2}$/)
   expect((await ui.find({ key: 'row:65' }))?.props.backgroundColor).toBe('#0f1c28')
 })
 
@@ -2324,4 +2324,57 @@ test('gitDiff outside the root runs no git', async () => {
 test('cleanLine cuts at 2000 and turns control characters to spaces', () => {
   expect(cleanLine('x'.repeat(2500))).toHaveLength(2000)
   expect(cleanLine('\x01a')).toBe(' a')
+})
+
+const withDiff = async ($: any, on: any, out: string, at: { path: string; line?: number }, n = 3) => {
+  await setup($, on)
+  diffOut.out = out
+  disk.set(at.path, { text: lines(n), mtimeMs: 1 })
+  open(at)
+  return mountPane($)
+}
+
+test('a changed line draws a red row above its green row', async ($, on) => {
+  const ui = await withDiff($, on, '@@ -2 +2 @@\n-old\n+new\n', { path: '/repo/a.ts', line: 1 })
+  expect((await gutterRows(ui)).map(r => r.tone)).toEqual([undefined, 'del', 'add', undefined])
+})
+
+test('the gutter column is one cell wider', async ($, on) => {
+  const ui = await withDiff($, on, '@@ -2 +2 @@\n-old\n+new\n', { path: '/repo/a.ts', line: 1 })
+  const rows = await gutterRows(ui)
+  expect(rows[0]!.cell).toBe(' 1  ')
+  expect(rows[1]!.cell).toBe('  − ')
+  expect(rows[2]!.cell).toBe(' 2+ ')
+})
+
+test('a line under 30 red rows is centred, not cut off', async ($, on) => {
+  const out = `@@ -50,30 +49,0 @@\n${Array.from({ length: 30 }, (_, i) => `-gone ${i}`).join('\n')}\n`
+  const ui = await withDiff($, on, out, { path: '/repo/a.ts', line: 50 }, 100)
+  expect((await gutterRows(ui)).some(r => r.line === 50)).toBe(true)
+})
+
+test('find does not match removed text', async ($, on) => {
+  const ui = await withDiff($, on, '@@ -2 +2 @@\n-old\n+new\n', { path: '/repo/a.ts', line: 1 })
+  await search(ui, 'old')
+  expect((await barTexts(ui)).some(x => x.text === 'no matches')).toBe(true)
+})
+
+test('a file with no git answer draws no red rows', async ($, on) => {
+  await setup($, on)
+  diffOut.exit = 128
+  diffOut.out = '@@ -2 +2 @@\n-old\n+new\n'
+  disk.set('/repo/a.ts', { text: lines(3), mtimeMs: 1 })
+  open({ path: '/repo/a.ts', line: 1 })
+  const ui = await mountPane($)
+  expect((await gutterRows(ui)).map(r => r.tone)).toEqual([undefined, undefined, undefined])
+})
+
+test('the diff rows are still drawn after a folder page and back', async ($, on) => {
+  const ui = await withDiff($, on, '@@ -2 +2 @@\n-old\n+new\n', { path: '/repo/src/a.ts', line: 1 })
+  tree.set('/repo/src', [{ name: 'a.ts', kind: 'file' }])
+  open({ path: '/repo/src', kind: 'folder' })
+  await ui.redraw()
+  await ui.press({ key: 'back' })
+  await ui.redraw()
+  expect((await gutterRows(ui)).map(r => r.tone)).toEqual([undefined, 'del', 'add', undefined])
 })
