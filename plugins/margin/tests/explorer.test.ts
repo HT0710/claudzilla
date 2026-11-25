@@ -1,7 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 
-import { CUT, OPEN_EDITOR_SH, gitArgs, latestOf, listDir, listNames, loadFile, projectRoot, statOf } from '../hooks/explorer-load'
+import { CUT, OPEN_EDITOR_SH, cleanLine, gitArgs, gitDiff, gitStatus, latestOf, listDir, listNames, loadFile, projectRoot, statOf } from '../hooks/explorer-load'
 import { markCells } from '../hooks/explorer-find'
 import { cellsOf, expandTabs, fileWindow, layoutFor, layoutOf, lineAt, sliceTokens, thumbOf } from '../hooks/explorer-layout'
 import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '../hooks/explorer-nav'
@@ -2207,4 +2207,63 @@ test('opening the name field unpins the menu card', async ($, on) => {
   await ui.press({ key: 'explorer:search' })
   await ui.redraw()
   expect((await ui.find({ key: 'explorer:menu-card' }))?.props.display).toBe('none')
+})
+
+test('gitStatus asks for the -z status in the untracked mode', async () => {
+  const { $, on } = engine()
+  const argvs: string[][] = []
+  on('process.run', (_, e) => (argvs.push([...e.argv]), e.argv.includes('--get') ? ran(0, 'no\n') : ran(0, ' M a.ts\0')))
+  expect(await gitStatus($, '/repo')).toMatchObject([{ path: 'a.ts', xy: ' M' }])
+  const status = argvs.find(a => a.includes('status'))!
+  for (const f of ['--no-optional-locks', 'core.quotePath=false', '-C', '/repo', '--porcelain=v1', '-z', '--untracked-files=no']) expect(status).toContain(f)
+})
+
+test('gitStatus is undefined outside a repo', async () => {
+  const { $, on } = engine()
+  on('process.run', (_, e) => (e.argv.includes('status') ? ran(128) : ran(1)))
+  expect(await gitStatus($, '/repo')).toBeUndefined()
+})
+
+test('gitDiff runs diff with the three guard flags and -U0 HEAD on the path', async () => {
+  const { $, on } = engine()
+  let argv: string[] = []
+  on('process.run', (_, e) => ((argv = [...e.argv]), ran(0, 'd')))
+  expect(await gitDiff($, '/repo', '/repo/a.ts')).toBe('d')
+  for (const f of ['--no-color', '--no-ext-diff', '--no-textconv']) expect(argv.indexOf(f)).toBeGreaterThan(-1)
+  expect(argv.indexOf('--no-textconv')).toBeLessThan(argv.indexOf('-U0'))
+  expect(argv.slice(argv.indexOf('-U0'))).toEqual(['-U0', 'HEAD', '--', 'a.ts'])
+})
+
+test('gitDiff matches the path literally', async () => {
+  const { $, on } = engine()
+  let argv: string[] = []
+  on('process.run', (_, e) => ((argv = [...e.argv]), ran(0, 'd')))
+  await gitDiff($, '/repo', '/repo/a[1].ts')
+  expect(argv.indexOf('--literal-pathspecs')).toBeGreaterThan(-1)
+  expect(argv.indexOf('--literal-pathspecs')).toBeLessThan(argv.indexOf('diff'))
+})
+
+test('gitDiff with no commit yet is undefined', async () => {
+  const { $, on } = engine()
+  on('process.run', () => ran(128))
+  expect(await gitDiff($, '/repo', '/repo/a.ts')).toBeUndefined()
+})
+
+test('gitDiff of a cut answer is undefined', async () => {
+  const { $, on } = engine()
+  on('process.run', () => ran(0, 'x', true))
+  expect(await gitDiff($, '/repo', '/repo/a.ts')).toBeUndefined()
+})
+
+test('gitDiff outside the root runs no git', async () => {
+  const { $, on } = engine()
+  let n = 0
+  on('process.run', () => (n++, ran(0, 'x')))
+  expect(await gitDiff($, '/repo', '/elsewhere/a.ts')).toBeUndefined()
+  expect(n).toBe(0)
+})
+
+test('cleanLine cuts at 2000 and turns control characters to spaces', () => {
+  expect(cleanLine('x'.repeat(2500))).toHaveLength(2000)
+  expect(cleanLine('\x01a')).toBe(' a')
 })
