@@ -74,10 +74,23 @@ test('traces the split decision', async ($, on) => {
 
 // Answers beneath the mod: the engine's drawing, the working directory, the clock, and which paths are files.
 function files(on: any, kinds: Record<string, 'file' | 'dir'>) {
-  const w = { stats: [] as string[], cwds: 0, clocks: 0, now: 1_000_000 }
+  let timers: { at: number; fn: () => unknown }[] = []
+  const w = {
+    stats: [] as string[], cwds: 0, clocks: 0, now: 1_000_000,
+    // Moves the clock and fires the timers now due.
+    advance: async (ms: number) => {
+      w.now += ms
+      const due = timers.filter(t => t.at <= w.now)
+      timers = timers.filter(t => t.at > w.now)
+      for (const t of due) t.fn()
+      // The mod runs a timer's callback once the engine's answer reaches it.
+      if (due.length) await new Promise(r => setTimeout(r, 0))
+    },
+  }
   on('ui.render', { component: 'AssistantMessage' }, (_$: any, e: any) => ({ type: 'Text' as const, children: [e.props.text] }))
   on('session.cwd', () => (w.cwds++, { value: '/r' }))
   on('clock.now', () => (w.clocks++, { value: w.now }))
+  on('clock.after', (_: any, e: any) => new Promise(fire => timers.push({ at: w.now + e.ms, fn: () => fire({ value: undefined }) })))
   on('fs.stat', (_: any, e: any) => {
     w.stats.push(e.path)
     const kind = kinds[e.path]
@@ -121,7 +134,7 @@ test('a span linked from the cwd never asks the root again', async ($, on) => {
   configured(on, {})
   await $.session.start(start)
   const ui = await mount($, 'l0c', { text: 'see `i.ts`', isFirstOfReply: true })
-  w.now += 5_001
+  await w.advance(5_001)
   await ui.redraw()
   expect(w.stats.filter(p => p === '/repo/i.ts')).toHaveLength(1)
 })
@@ -231,7 +244,7 @@ test('a file missing at first links once it exists', async ($, on) => {
   const ui = await mount($, 'l11', { text: 'see `j.ts`', isFirstOfReply: true })
   expect(await ui.find({ type: 'Markdown' })).toBeUndefined()
   kinds['/r/j.ts'] = 'file'
-  w.now += 5_001
+  await w.advance(5_001)
   await ui.redraw()
   expect((await ui.find({ type: 'Markdown' }))?.props.text).toContain('](file:///r/j.ts#L1)')
 })
@@ -239,9 +252,28 @@ test('a file missing at first links once it exists', async ($, on) => {
 test('a missing path is asked once within 5 s', async ($, on) => {
   const w = files(on, {})
   const ui = await mount($, 'l12', { text: 'see `k.ts`', isFirstOfReply: true })
-  w.now += 4_000
+  await w.advance(4_000)
   await ui.redraw()
   expect(w.stats.filter(p => p === '/r/k.ts')).toHaveLength(1)
+})
+
+test('a redrawn linked chunk asks the engine nothing', async ($, on) => {
+  const w = files(on, { '/r/n.ts': 'file' })
+  const ui = await mount($, 'l12b', { text: 'see `n.ts`', isFirstOfReply: true })
+  const before = [w.cwds, w.clocks, w.stats.length]
+  await ui.redraw()
+  expect([w.cwds, w.clocks, w.stats.length]).toEqual(before)
+  expect((await ui.find({ type: 'Markdown' }))?.props.pressableLinks).toEqual(['file:///r/n.ts#L1'])
+})
+
+test('a redrawn chunk with a missing path asks the engine nothing within 5 s', async ($, on) => {
+  const w = files(on, { '/r/o.ts': 'file' })
+  const ui = await mount($, 'l12c', { text: 'see `o.ts` `p.ts`', isFirstOfReply: true })
+  const before = [w.cwds, w.clocks, w.stats.length]
+  await w.advance(4_000)
+  await ui.redraw()
+  expect([w.cwds, w.clocks, w.stats.length]).toEqual(before)
+  expect((await ui.find({ type: 'Markdown' }))?.props.pressableLinks).toEqual(['file:///r/o.ts#L1'])
 })
 
 test('a reply with no path-like span makes no engine calls', async ($, on) => {
