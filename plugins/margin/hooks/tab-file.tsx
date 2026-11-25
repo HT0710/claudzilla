@@ -7,7 +7,9 @@ import { cachedBar, mergeMarks, parseDiff, pressLine, redLit, reloadDiff, sameMa
 import type { BarCache, DiffMarks } from './explorer-diff'
 import { cellsOf, codeRow, fileWindow, hitsOf, layoutFor, layoutOf, lineAt, rowAt, sliceTokens, thumbOf, toneRows } from './explorer-layout'
 import type { Cached } from './explorer-layout'
-import { OPEN_EDITOR_SH, gitDiff, listDir, listNames, loadFile, latestOf, projectRoot, statOf } from './explorer-load'
+import { MIXED, treeMarks } from './explorer-status'
+import type { TreeMarks } from './explorer-status'
+import { OPEN_EDITOR_SH, gitDiff, gitStatus, listDir, listNames, loadFile, latestOf, projectRoot, statOf } from './explorer-load'
 import type { Loaded } from './explorer-load'
 import { back, current, forward, navStart, remember, visit } from './explorer-nav'
 import type { Nav } from './explorer-nav'
@@ -21,6 +23,9 @@ import type { TabCtx, TabDraw } from './kit'
 
 // The open place, so a change redraws the pane; the draw applies a place whose rev it has not seen.
 const file = atom({ plugin: 'margin', key: 'file' } as const, undefined as { rev: number; path: string; line?: number; kind?: 'file' | 'folder' } | undefined)
+
+// Bumped per tool call (register.tsx), so a folder page reads git status again after one.
+const toolCalls = atom({ plugin: 'margin', key: 'toolCalls' } as const, 0)
 
 // Matches by line, each with its index in the result.
 type Spans = Map<number, { start: number; end: number; index: number }[]>
@@ -81,6 +86,9 @@ const guard = latestOf()
 // Folder listings count apart from file loads, so folder work never drops a reload.
 const folders = latestOf()
 const finds = latestOf()
+const statuses = latestOf()
+// The last git status run, kept while the root and the tool-call count stay the same.
+let statusCache: { key: string; changes: Promise<{ path: string; xy: string }[] | undefined> } | undefined
 // Blank cells between the header's centre (path, field, notice) and its buttons.
 const GAP = 2
 // A row icon's colour name (explorer-tree.ts) to the colour the Git tab draws that name in.
@@ -185,7 +193,22 @@ export function openPlace($: EngineInterface, place: { path: string; line?: numb
 // Lists every folder again at the next draw, which reads only those on screen.
 async function relistPage($: EngineInterface): Promise<void> {
   state.listed.clear()
+  statusCache = undefined
   await update($, file, () => placeOf())
+}
+
+// Marks for the tree below `root`, with every listed folder known so a submodule takes a dot; none outside a repo.
+async function statusFor($: EngineInterface, root: string): Promise<TreeMarks | undefined> {
+  const key = `${root}:${await read($, toolCalls)}`
+  if (statusCache?.key !== key) {
+    const n = statuses.begin()
+    const run = gitStatus($, root).then(r => (statuses.isLatest(n) ? r : undefined))
+    statusCache = { key, changes: run }
+  }
+  const changes = await statusCache.changes
+  const dirs = new Set<string>()
+  for (const [folder, entries] of state.listed) for (const e of entries) if (e.kind === 'dir') dirs.add(`${folder}/${e.name}`)
+  return changes && treeMarks(root, changes, dirs)
 }
 
 export async function reloadPlace($: EngineInterface, edit?: { oldText: string; newText: string; replaceAll: boolean }): Promise<void> {
@@ -660,6 +683,15 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       if (stale()) return draw($, ctx)
       all = treeRows(place.path, state.expanded, state.listed)
     }
+    const inRoot = !!state.root && (place.path === state.root || place.path.startsWith(`${state.root}/`))
+    const marks = inRoot ? await statusFor($, state.root!) : undefined
+    if (stale()) return draw($, ctx)
+    // A file's letter, or a closed folder's dot.
+    const markOf = (path: string, kind: 'file' | 'dir', open = false): JSX.Element[] => {
+      const letter = kind === 'file' ? marks?.files.get(path) : open ? undefined : marks?.folders.get(path)
+      if (!letter) return []
+      return [kind === 'file' ? <Text color={STATUS[letter] ?? HUD.faint}>{letter}</Text> : <Text color={letter === MIXED ? 'text' : STATUS[letter] ?? HUD.faint}>●</Text>]
+    }
     const total = hits ? hits.length : all.length
     const lit = hits ? state.names?.lit : undefined
     // Only a step pulls the lit row into view, so the wheel and the bar still move the list.
@@ -670,18 +702,21 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     if (!total) body = [<Text key="empty" color={HUD.faint}>{hits ? (state.names?.loading ? 'listing…' : 'no match') : 'empty'}</Text>]
     rowHover.acts = {}
     const Client = 'Client' in ctx.el ? ctx.el.Client : undefined
-    const put = (path: string, left: JSX.Element[], press: () => unknown, lit = false) => {
+    const put = (path: string, left: JSX.Element[], right: JSX.Element[], press: () => unknown, lit = false) => {
       const key = `x:${fileKey(path)}`
       rowHover.acts[key] = press
       body.push(
         // Keyed, its own hover scope: unkeyed, it would light whenever the pointer is anywhere in the tree.
         <Box key={key} flexDirection="column" height={1} hover={{ backgroundColor: LIT }} backgroundColor={lit ? LIT : undefined}>
           {Client ? (
-            <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left: toPieces(left), right: [] }} />
+            <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left: toPieces(left), right: toPieces(right) }} />
           ) : (
-            <Button plain key={path} onPress={press}>
-              {left}
-            </Button>
+            <Box justifyContent="space-between" gap={2}>
+              <Button plain key={path} onPress={press}>
+                {left}
+              </Button>
+              {right.length ? <Box flexShrink={0}>{right}</Box> : null}
+            </Box>
           )}
         </Box>,
       )
@@ -690,6 +725,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       const name = hit.path.slice(hit.path.lastIndexOf('/') + 1)
       const parent = hit.path.slice(0, Math.max(0, hit.path.length - name.length - 1))
       const icon = iconOf(name, hit.kind, { open: false, empty: false })
+      const abs = `${place.path.replace(/\/$/, '')}/${hit.path}`
       put(
         hit.path,
         [
@@ -699,7 +735,8 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
           <Text>{printable(name)}</Text>,
           ...(parent ? [<Text color={HUD.faint}>{` ${printable(parent)}`}</Text>] : []),
         ],
-        () => openPlace($, { path: `${place.path.replace(/\/$/, '')}/${hit.path}`, kind: hit.kind === 'dir' ? 'folder' : undefined }),
+        markOf(abs, hit.kind),
+        () => openPlace($, { path: abs, kind: hit.kind === 'dir' ? 'folder' : undefined }),
         top + i === lit,
       )
     }
@@ -720,7 +757,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
         if (!state.expanded.delete(r.path)) state.expanded.add(r.path)
         return update($, file, () => placeOf())
       }
-      put(r.path, left, press)
+      put(r.path, left, markOf(r.path, r.kind, r.open), press)
     }
     zones.push({
       tab: 'Explorer',
