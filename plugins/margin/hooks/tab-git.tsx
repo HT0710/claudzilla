@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { Check, CheckState, CommitView, Counts, Gh, LogRow, Modal, ModalKey, Op, Pr, PrState, PrView, Stage, Word } from '../types'
-import { LOG_FORMAT, age, ago, branches, cutMiddle, fetchDue, fileKey, incomingPrs, ownPrs, parseHead, parseLog, parseMerge, parseNumstat, parseRebase, parseShortstat, parseStatusZ, printable, sortChecks, stashCount, syncMark, treeRows, worktrees, worst } from './git-data'
+import { LOG_FORMAT, age, ago, branches, cutMiddle, fetchDue, fileKey, incomingPrs, ownPrs, parseHead, parseLog, parseMerge, parseNumstat, parseRebase, parseShortstat, parseStatusZ, printable, sortChecks, stashCount, syncMark, treeRows, untrackedFlag, worktrees, worst } from './git-data'
 import { AHEAD, BEHIND, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, basicGlyphs, nf, capped, card as kitCard, clock, configDir, contentFrame, counted as kitCounted, cues, dayName, dim, drawLayer as kitDrawLayer, emptyNote, fade, fadeBg, fit, heading as kitHeading, kv as kitKv, line as kitLine, modalFrame, modalZone, nudge, readTheme, row as kitRow, rowHovers, stackFrame, toPieces, colWidth, zoneWindow } from './kit'
 import type { Frame, Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, Zone } from './kit'
 import { statOf } from './explorer-load'
@@ -98,7 +98,7 @@ function readGit($: EngineInterface) {
     $.process
       .run(['git', 'config', '--get', 'status.showUntrackedFiles'])
       .catch(() => undefined)
-      .then(config => $.process.run(['git', '--no-optional-locks', '-c', 'core.quotePath=false', 'status', '--porcelain', '-b', '-z', `--untracked-files=${/^(no|false|off|0)$/i.test(config?.stdout.trim() ?? '') ? 'no' : 'all'}`]))
+      .then(config => $.process.run(['git', '--no-optional-locks', '-c', 'core.quotePath=false', 'status', '--porcelain', '-b', '-z', `--untracked-files=${untrackedFlag(config?.stdout ?? '')}`]))
       .catch(() => undefined),
     // Staged and unstaged lines together, a rename under its new name.
     $.process.run(['git', '--no-optional-locks', 'diff', 'HEAD', '--numstat', '-z', '-M']).catch(() => undefined),

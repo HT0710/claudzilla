@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Check, CheckState, Pr, PrState } from '../types'
 
-import { age, ago, branches, changeOf, cutMiddle, fetchDue, incomingPrs, parseStatusZ, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows, worktrees } from '../hooks/git-data'
+import { age, ago, branches, changeOf, cutMiddle, fetchDue, incomingPrs, parseStatusZ, ownPrs, parseCommitView, parseHead, parseLog, parseNumstat, parseShortstat, parseMerge, parsePrView, parsePrs, parseRebase, sortChecks, stashCount, syncMark, treeRows, untrackedFlag, worktrees } from '../hooks/git-data'
 
 // A gh pr list row with every field the parser reads.
 const fixture = (over: Record<string, unknown> = {}) => ({
@@ -287,4 +287,12 @@ test('an auto fetch waits 15 minutes after the last fetch and the last try', () 
 test('an auto fetch skips a rebase, merge, cherry-pick or revert in progress', () => {
   for (const name of ['rebase-merge', 'rebase-apply', 'MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD'])
     expect(fetchDue({ fetchedAt: undefined, triedAt: 0, names: ['HEAD', name], now: 100 * 60e3 })).toBe(false)
+})
+
+test('untrackedFlag: no, false, off and 0 turn untracked files off', () => {
+  for (const v of ['no', 'false', 'off', '0', ' No\n']) expect(untrackedFlag(v)).toBe('no')
+})
+
+test('untrackedFlag: unset or any other value reads all', () => {
+  for (const v of ['', 'all', 'normal']) expect(untrackedFlag(v)).toBe('all')
 })
