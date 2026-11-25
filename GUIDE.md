@@ -437,7 +437,7 @@ If you installed them, three more plugins also run.
 
 **folio** draws the reply's frame and divider lines at your chat's width, so they never wrap, and links file paths to the margin.
 
-**herald** toasts claudzilla update progress, usage limits passing 50, 75 and 90%, and when to compact. When another open session ends a turn or waits on a permission or a question, it toasts that for 10 seconds, such as `! claudzilla-35 waits on you · Bash permission · ⎇ main`. To change how long a herald toast shows, or turn one off, put its kind under `herald` in `~/.claude/claudzilla.json`, such as `{"herald":{"waiting":0}}`. The kinds and their times are in [CONFIGURATION.md](https://github.com/HT0710/claudzilla/blob/main/CONFIGURATION.md#guard-hook-config).
+**herald** toasts claudzilla update progress, usage limits passing 50, 75 and 90%, and when to compact. When another open session ends a turn with no background agents still running, or waits on a permission or a question, it toasts that for 10 seconds, such as `! claudzilla-35 waits on you · Bash permission · ⎇ main`. To change how long a herald toast shows, or turn one off, put its kind under `herald` in `~/.claude/claudzilla.json`, such as `{"herald":{"waiting":0}}`. The kinds and their times are in [CONFIGURATION.md](https://github.com/HT0710/claudzilla/blob/main/CONFIGURATION.md#guard-hook-config).
 
 **ledger** pauses Claude's first edit of a file that another live session edited in the last 30 minutes, and tells that session.
 

@@ -960,6 +960,31 @@ test('a subagent turn end and an aborted turn append nothing', async ($, on) => 
   expect(appended(w.seen)).toEqual([DONE])
 })
 
+test('a turn end while a model-spawned agent runs appends nothing', async ($, on) => {
+  const w = waitSession(on)
+  let agents: any[] = [{ id: 'a1', status: 'running' }, { id: 'p1', status: 'running', spawnedBy: 'primer' }]
+  on('agent.list', () => ({ value: agents }) as any)
+  await $.session.start(start)
+  await done($)
+  for (let i = 0; i < 5; i++) await tick()
+  expect(appended(w.seen)).toEqual([])
+  agents = [{ id: 'a1', status: 'completed' }, { id: 'p1', status: 'running', spawnedBy: 'primer' }, { id: 'n1', status: 'running', parentId: 'a1' }]
+  await done($)
+  await until(() => appended(w.seen).length > 0)
+  expect(appended(w.seen)).toEqual([DONE])
+})
+
+test('a failing agent list still appends a done line', async ($, on) => {
+  const w = waitSession(on)
+  on('agent.list', () => {
+    throw new Error('no list')
+  })
+  await $.session.start(start)
+  await done($)
+  await until(() => appended(w.seen).length > 0)
+  expect(appended(w.seen)).toEqual([DONE])
+})
+
 test('a permission request appends a wait line, a subagent one too', async ($, on) => {
   const w = waitSession(on)
   await $.session.start(start)
