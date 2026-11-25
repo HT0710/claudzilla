@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { firstChangeLine, parseDiff } from '../hooks/explorer-diff'
+import { editDiff, firstChangeLine, lineDiff, parseDiff, reloadDiff } from '../hooks/explorer-diff'
 
 const added = (d: string) => [...parseDiff(d).added]
 
@@ -69,4 +69,92 @@ test('firstChangeLine: a hunk at new line 0 opens at line 1', () => {
 
 test('firstChangeLine: no hunk gives no line', () => {
   expect(firstChangeLine('')).toBeUndefined()
+})
+
+test('lineDiff: identical text has no marks', () => {
+  const m = lineDiff(['a', 'b'], ['a', 'b'])!
+  expect(m.added.size).toBe(0)
+  expect(m.removed.size).toBe(0)
+})
+
+test('lineDiff: an appended line is one green row', () => {
+  expect([...lineDiff(['a'], ['a', 'b'])!.added]).toEqual([2])
+})
+
+test('lineDiff: a removed line sits above the line that follows it', () => {
+  const m = lineDiff(['a', 'b', 'c'], ['a', 'c'])!
+  expect(m.removed.get(2)).toEqual(['b'])
+  expect(m.added.size).toBe(0)
+})
+
+test('lineDiff: one changed block shows its old rows, then its new rows', () => {
+  const m = lineDiff(['a', 'x', 'c'], ['a', 'y', 'c'])!
+  expect(m.removed.get(2)).toEqual(['x'])
+  expect([...m.added]).toEqual([2])
+})
+
+test('lineDiff: separate edits share one block (A6)', () => {
+  const m = lineDiff(['a', 'b', 'c', 'd', 'e'], ['A', 'b', 'c', 'd', 'E'])!
+  expect([...m.added]).toEqual([1, 2, 3, 4, 5])
+})
+
+test('lineDiff: a side over 20,000 lines is skipped', () => {
+  const big = Array.from({ length: 20001 }, (_, i) => String(i))
+  expect(lineDiff(big, ['x'])).toBeUndefined()
+  expect(lineDiff(['x'], big)).toBeUndefined()
+  expect(lineDiff(big.slice(1), ['x'])).toBeDefined()
+})
+
+test('editDiff: a unique newText marks its lines green and the old text red', () => {
+  const m = editDiff('a\nNEW\nc', 'OLD', 'NEW', false)!
+  expect(m.removed.get(2)).toEqual(['OLD'])
+  expect([...m.added]).toEqual([2])
+})
+
+test('editDiff: a partial-line edit shows the whole old line in red', () => {
+  const m = editDiff('a\nx = foo(2);\nc', 'foo(1)', 'foo(2)', false)!
+  expect(m.removed.get(2)).toEqual(['x = foo(1);'])
+  expect([...m.added]).toEqual([2])
+})
+
+test('editDiff: replaceAll, an empty newText, or a repeated newText falls back', () => {
+  expect(editDiff('a\nNEW\nc', 'OLD', 'NEW', true)).toBeUndefined()
+  expect(editDiff('a\nc', 'OLD', '', false)).toBeUndefined()
+  expect(editDiff('NEW\nNEW', 'OLD', 'NEW', false)).toBeUndefined()
+  expect(editDiff('a', 'OLD', 'NEW', false)).toBeUndefined()
+})
+
+test('reloadDiff: no earlier text gives no marks', () => {
+  expect(reloadDiff(undefined, ['a'])).toBeUndefined()
+})
+
+test('reloadDiff: an Edit uses its strings, and any other change uses the line diff', () => {
+  const edit = { oldText: 'OLD', newText: 'NEW', replaceAll: false }
+  const m = reloadDiff(['a', 'OLD', 'c', 'd', 'e'], ['a', 'NEW', 'c', 'd', 'E'], edit)!
+  expect([...m.added]).toEqual([2])
+  expect(m.removed.get(2)).toEqual(['OLD'])
+  expect(reloadDiff(['a', 'x'], ['a', 'y'], { ...edit, replaceAll: true })!.removed.get(2)).toEqual(['x'])
+  expect([...reloadDiff(['a'], ['a', 'b'])!.added]).toEqual([2])
+})
+
+test('lineDiff: removed rows are cleaned', () => {
+  expect(lineDiff(['\x01a'], ['x'])!.removed.get(1)).toEqual([' a'])
+})
+
+test('editDiff: a newText ending in a newline does not mark the next line', () => {
+  const m = editDiff('a\nNEW\nc', 'OLD\n', 'NEW\n', false)!
+  expect([...m.added]).toEqual([2])
+  expect(m.removed.get(2)).toEqual(['OLD'])
+})
+
+test('editDiff: a newText starting with a newline at the start marks line 1', () => {
+  const m = editDiff('\nNEW\nc', '\nOLD', '\nNEW', false)!
+  expect([...m.added]).toEqual([1, 2])
+  expect(m.removed.get(1)).toEqual(['', 'OLD'])
+})
+
+test('editDiff: a newText ending in a newline mid-line keeps the rest of its line', () => {
+  const m = editDiff('a\nxNEW\n y\nc', 'OLD', 'NEW\n', false)!
+  expect([...m.added]).toEqual([2, 3])
+  expect(m.removed.get(2)).toEqual(['xOLD y'])
 })
