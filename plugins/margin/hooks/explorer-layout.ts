@@ -2,8 +2,12 @@ import type { Token } from './explorer-tokens'
 
 export const TAB_STOP = 4
 
-export type Layout = { width: number; wrap: boolean; starts: Uint32Array; rows: number; widest: number }
-export type Cached = { loaded: object; width: number; wrap: boolean; layout: Layout }
+export type Removed = ReadonlyMap<number, readonly string[]>
+// above[i]: red rows drawn above code line i. starts[i]: first row of line i's block, red rows included. starts[n] ends the code rows and above[n] counts the trailing red rows, n = lines.length.
+export type Layout = { width: number; wrap: boolean; starts: Uint32Array; rows: number; widest: number; removed: Removed; above: Uint32Array }
+// before: the 1-based line the red row sits above; the trailing block gives lines.length + 1.
+export type RowAt = { kind: 'code'; index: number; seg: number } | { kind: 'del'; before: number; text: string; seg: number }
+export type Cached = { loaded: object; width: number; wrap: boolean; removed: Removed | undefined; layout: Layout }
 
 // Unicode 16.0.0 East Asian Width W and F ranges, generated with unicodedata.
 const WIDE: [number, number][] = [
@@ -222,28 +226,62 @@ export function sliceTokens(tokens: Token[], from: number, width: number, hits?:
   return out
 }
 
-/** One row per line, or with wrap the rows each line needs at width; starts holds each line's first row. */
-export function layoutOf(lines: readonly string[], width: number, wrap: boolean): Layout {
-  const starts = new Uint32Array(lines.length + 1)
-  let widest = 0
-  for (let i = 0; i < lines.length; i++) {
-    const cells = cellsOf(expandTabs(lines[i]))
-    if (cells > widest) widest = cells
-    starts[i + 1] = starts[i] + (wrap ? Math.max(1, Math.ceil(cells / width)) : 1)
-  }
-  return { width, wrap, starts, rows: starts[lines.length], widest }
+function rowsIn(text: string, width: number, wrap: boolean): number {
+  return wrap ? Math.max(1, Math.ceil(cellsOf(expandTabs(text)) / Math.max(1, width))) : 1
 }
 
-/** Index of the line holding row. */
+/** One row per line, or with wrap the rows each line needs at width; red rows sit above their line. Keys outside 1..lines.length + 1 are ignored. */
+export function layoutOf(lines: readonly string[], width: number, wrap: boolean, removed: Removed = new Map()): Layout {
+  const n = lines.length
+  const starts = new Uint32Array(n + 1)
+  const above = new Uint32Array(n + 1)
+  let widest = 0
+  const rowsOf = (text: string) => {
+    const cells = cellsOf(expandTabs(text))
+    if (cells > widest) widest = cells
+    return rowsIn(text, width, wrap)
+  }
+  let row = 0
+  for (let i = 0; i <= n; i++) {
+    starts[i] = row
+    for (const t of removed.get(i + 1) ?? []) above[i] += rowsOf(t)
+    row += above[i]
+    if (i < n) row += rowsOf(lines[i])
+  }
+  return { width, wrap, starts, rows: row, widest, removed, above }
+}
+
+/** Index of the line holding row; a red row maps to the line below it, the trailing block to the last line. */
 export function lineAt(layout: Layout, row: number): number {
   let lo = 0
-  let hi = layout.starts.length - 1
+  let hi = Math.max(0, layout.starts.length - 2)
   while (lo < hi) {
     const mid = (lo + hi + 1) >> 1
     if (layout.starts[mid] <= row) lo = mid
     else hi = mid - 1
   }
   return lo
+}
+
+/** First row of line index's code, below its red rows. */
+export function codeRow(layout: Layout, index: number): number {
+  return layout.starts[index]! + layout.above[index]!
+}
+
+export function rowAt(layout: Layout, row: number): RowAt {
+  const n = layout.starts.length - 1
+  const i = lineAt(layout, row)
+  const trailing = row >= layout.starts[n]!
+  const block = trailing ? n : i
+  const into = row - layout.starts[block]!
+  if (into >= layout.above[block]!) return { kind: 'code', index: i, seg: row - codeRow(layout, i) }
+  let at = 0
+  for (const text of layout.removed.get(block + 1) ?? []) {
+    const size = rowsIn(text, layout.width, layout.wrap)
+    if (into < at + size) return { kind: 'del', before: block + 1, text, seg: into - at }
+    at += size
+  }
+  return { kind: 'code', index: i, seg: 0 }
 }
 
 export function fileWindow(total: number, top: number, room: number): { top: number; last: number } {
@@ -257,7 +295,7 @@ export function thumbOf(total: number, shown: number, top: number, cells: number
   return { from, to: Math.min(cells, Math.max(from + 1, Math.ceil(((top + shown) * cells) / total))) }
 }
 
-export function layoutFor(prev: Cached | undefined, loaded: object, width: number, wrap: boolean, lines: readonly string[]): Cached {
-  if (prev && prev.loaded === loaded && prev.width === width && prev.wrap === wrap) return prev
-  return { loaded, width, wrap, layout: layoutOf(lines, width, wrap) }
+export function layoutFor(prev: Cached | undefined, loaded: object, width: number, wrap: boolean, lines: readonly string[], removed?: Removed): Cached {
+  if (prev && prev.loaded === loaded && prev.width === width && prev.wrap === wrap && prev.removed === removed) return prev
+  return { loaded, width, wrap, removed, layout: layoutOf(lines, width, wrap, removed) }
 }

@@ -672,7 +672,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   } else if (loaded?.unreadable) {
     body = [emptyNote(ctx.el, codeRows, "Can't show this file", <Text color={HUD.faint}>{loaded.missing ? 'It no longer exists.' : 'It is binary, unreadable or over 4 MiB.'}</Text>)]
   } else if (loaded) {
-    state.layout = layoutFor(state.layout, loaded, C, state.wrap, lines)
+    state.layout = layoutFor(state.layout, loaded, C, state.wrap, lines, undefined)
     const { layout } = state.layout
     const Client = 'Client' in ctx.el ? ctx.el.Client : undefined
     const hbar = !!Client && !state.wrap && layout.widest > C
