@@ -3,13 +3,13 @@ import { expect, test } from 'claude-code/testing'
 
 import { CUT, OPEN_EDITOR_SH, cleanLine, gitArgs, gitDiff, gitStatus, latestOf, listDir, listNames, loadFile, projectRoot, statOf } from '../hooks/explorer-load'
 import { markCells } from '../hooks/explorer-find'
-import { cellsOf, codeRow, expandTabs, fileWindow, layoutFor, layoutOf, lineAt, rowAt, sliceTokens, thumbOf } from '../hooks/explorer-layout'
+import { cellsOf, codeRow, expandTabs, fileWindow, layoutFor, layoutOf, lineAt, rowAt, sliceTokens, thumbOf, toneRows } from '../hooks/explorer-layout'
 import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '../hooks/explorer-nav'
 import { tokenize } from '../hooks/explorer-tokens'
 import { iconOf, sortListing, treeRows } from '../hooks/explorer-tree'
 import { fieldPad, refOf } from '../hooks/tab-file'
 import { fileKey } from '../hooks/git-data'
-import { LIT } from '../hooks/kit'
+import { LIT, STATUS } from '../hooks/kit'
 import { clock, diffOut, gutterRows, disk, props, chevron, tapTree, treeRow, explorer, explorerRoot, failList, hold, lists, mountPane, launch, open, pathText, ran, reads, runs, lines, listed, setup, sets, store, textOf, tree, waitFor } from './explorer-helpers'
 
 test('tokenize: a keyword, a string, a comment and a number', () => {
@@ -2565,4 +2565,34 @@ test('a reload that deletes the block under the top lands on the line after it',
   // The 31 red rows sit above the new line 50, so the view starts on the first of them.
   expect((await gutterRows(ui))[0]?.tone).toBe('del')
   expect(textOf(await ui.find({ key: 'code:0' }))).toContain('line 50;')
+})
+
+test('toneRows: a red row and an added line each get their rows', () => {
+  const removed = new Map([[2, ['old']]])
+  const layout = layoutOf(['a', 'b', 'c'], 20, false, removed)
+  expect(toneRows(layout, { added: new Set([2]), removed })).toEqual([{ row: 1, tone: 'del' }, { row: 2, tone: 'add' }])
+  expect(toneRows(layout, undefined)).toEqual([])
+})
+
+test('the scroll bar marks a changed line in its cell', async ($, on) => {
+  const ui = await withDiff($, on, '@@ -2 +2 @@\n-old\n+new\n', { path: '/repo/a.ts', line: 1 }, 200)
+  const bar = await barOf(ui, 'explorer:vbar')
+  const at = bar.marks.findIndex((m: string | null) => m)
+  expect(at).toBe(Math.floor((1 * bar.cells) / bar.total))
+  expect(bar.marks[at]).toBe(STATUS.M)
+})
+
+test('a wheel tick reuses the bar cells', async ($, on) => {
+  const ui = await withDiff($, on, '@@ -2 +2 @@\n-old\n+new\n', { path: '/repo/a.ts', line: 1 }, 200)
+  const before = (await barOf(ui, 'explorer:vbar')).marks
+  await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 1, bodyRows: 19, contentRows: 19, origin: { kind: 'person' }, pointer: { column: 0, row: 6 } })
+  await ui.redraw()
+  const after = (await barOf(ui, 'explorer:vbar')).marks
+  expect(after).toEqual(before)
+})
+
+test('toneRows: the trailing red block counts its rows', () => {
+  const removed = new Map([[3, ['old']]])
+  const layout = layoutOf(['a', 'b'], 20, false, removed)
+  expect(toneRows(layout, { added: new Set(), removed })).toEqual([{ row: 2, tone: 'del' }])
 })
