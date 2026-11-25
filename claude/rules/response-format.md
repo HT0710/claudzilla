@@ -31,6 +31,7 @@ Goal: the reader follows it, understands it, and is convinced. Lazy reader scans
   - Decisions: heading `Decision <n> — <topic>`, options `A, B`; referenced as `<n><letter>` (`1B`). Lone decision → heading `Decision — <topic>`, options `A, B`.
   - Refer by table name: "Finding 2", "Fix 2", "Group 2", "1B".
 - List otherwise: `**label** — sentence` bullets, or a numbered list. One idea per bullet, one line if possible.
+  - Nest only for a parent's own details or steps, never as decoration. Numbers only when order matters (steps), at any level; else bullets. Each level picks its own marker; a numbered parent's children are bullets unless they run in order.
 - End with **Next:** — single action. Nothing pending → omit.
   - Asks for a reply → one sentence: `say "<word>" and I'll <act>.` Word: `go` unless another fits. Condition first: `once CI passes, say "merge" and I'll merge PR #105.`
   - User must write their own words (what they saw, an open choice) → ask it plainly, no `say`.
