@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { CUT, OPEN_EDITOR_SH, cleanLine, gitArgs, gitDiff, gitStatus, latestOf, listDir, listNames, loadFile, projectRoot, statOf } from '../hooks/explorer-load'
 import { markCells } from '../hooks/explorer-find'
-import { cellsOf, expandTabs, fileWindow, layoutFor, layoutOf, lineAt, sliceTokens, thumbOf } from '../hooks/explorer-layout'
+import { cellsOf, codeRow, expandTabs, fileWindow, layoutFor, layoutOf, lineAt, rowAt, sliceTokens, thumbOf } from '../hooks/explorer-layout'
 import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '../hooks/explorer-nav'
 import { tokenize } from '../hooks/explorer-tokens'
 import { iconOf, sortListing, treeRows } from '../hooks/explorer-tree'
@@ -113,6 +113,64 @@ test('the layout cache returns the same layout while its inputs are unchanged', 
   expect(layoutFor(first, loaded, 5, false, lines)).not.toBe(first)
   expect(layoutFor(first, loaded, 10, true, lines)).not.toBe(first)
   expect(layoutFor(first, {}, 10, false, lines)).not.toBe(first)
+})
+
+test('layoutOf: a red block takes rows above its line', () => {
+  const l = layoutOf(['a', 'b'], 40, false, new Map([[2, ['x', 'y']]]))
+  expect(l.rows).toBe(4)
+  expect(codeRow(l, 1)).toBe(3)
+  expect(l.starts[1]).toBe(1)
+})
+
+test('layoutOf: red rows wrap like code rows', () => {
+  expect(layoutOf(['a'], 3, true, new Map([[1, ['abcd']]])).rows).toBe(3)
+})
+
+test('layoutOf: red text counts toward widest', () => {
+  expect(layoutOf(['a'], 40, false, new Map([[1, ['x'.repeat(12)]]])).widest).toBe(12)
+})
+
+test('layoutOf: a red block after the last line takes the last rows', () => {
+  const l = layoutOf(['a', 'b'], 40, false, new Map([[3, ['x']]]))
+  expect(l.rows).toBe(3)
+  expect(rowAt(l, l.rows - 1)).toEqual({ kind: 'del', before: 3, text: 'x', seg: 0 })
+})
+
+test('lineAt: the trailing block gives the last line', () => {
+  const l = layoutOf(['a', 'b'], 40, false, new Map([[3, ['x']]]))
+  expect(lineAt(l, l.rows - 1)).toBe(1)
+})
+
+test('layoutOf: keys past the end are ignored', () => {
+  const l = layoutOf(['a', 'b'], 40, false, new Map([[5, ['x']], [0, ['y']]]))
+  expect(l.rows).toBe(2)
+  expect(rowAt(l, 1)).toEqual({ kind: 'code', index: 1, seg: 0 })
+})
+
+test('rowAt: a red row reports the line it sits above', () => {
+  const l = layoutOf(['a', 'b'], 40, false, new Map([[2, ['x']]]))
+  expect(rowAt(l, 1)).toEqual({ kind: 'del', before: 2, text: 'x', seg: 0 })
+  expect(rowAt(l, 2)).toEqual({ kind: 'code', index: 1, seg: 0 })
+  expect(lineAt(l, 1)).toBe(1)
+})
+
+test('layoutFor: a new removed map rebuilds the layout', () => {
+  const loaded = {}
+  const lines = ['abc']
+  const a = new Map([[1, ['x']]])
+  const first = layoutFor(undefined, loaded, 10, false, lines, a)
+  expect(layoutFor(first, loaded, 10, false, lines, a)).toBe(first)
+  expect(layoutFor(first, loaded, 10, false, lines, new Map(a))).not.toBe(first)
+})
+
+test('rowAt: a wrapped red row reports its segment', () => {
+  const l = layoutOf(['a'], 3, true, new Map([[1, ['abcd']]]))
+  expect(rowAt(l, 0)).toEqual({ kind: 'del', before: 1, text: 'abcd', seg: 0 })
+  expect(rowAt(l, 1)).toEqual({ kind: 'del', before: 1, text: 'abcd', seg: 1 })
+})
+
+test('layoutOf: width 0 with wrap still gives finite rows', () => {
+  expect(Number.isFinite(layoutOf(['a', ''], 0, true).rows)).toBe(true)
 })
 
 const file = (path: string, line?: number) => ({ kind: 'file' as const, path, line })
