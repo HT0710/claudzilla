@@ -287,6 +287,8 @@ export const parseStatusZ = (z: string): { head?: string; changes: Change[] } =>
   return { head, changes }
 }
 
+export const untrackedFlag = (config: string): 'no' | 'all' => (/^(no|false|off|0)$/i.test(config.trim()) ? 'no' : 'all')
+
 export const parseNumstat = (z: string) => {
   const out = new Map<string, Counts>()
   const parts = z.split('\0')
