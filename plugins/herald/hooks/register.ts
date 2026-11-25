@@ -454,8 +454,14 @@ export const register: Register = on => {
     return started
   })
 
+  // A background agent's report starts another main turn, so done waits for the last one. A plugin's or a nested agent reports to no main turn.
   on('turn.complete', ($, e, next) => {
-    if (e.reason === 'answer' && !e.agentId) void announce($, ctx(), 'done', '').catch(wrote)
+    if (e.reason === 'answer' && !e.agentId)
+      void $.agent
+        .list()
+        .catch(() => [])
+        .then(agents => agents.some(a => !a.spawnedBy && !a.parentId && ['pending', 'running', 'waiting'].includes(a.status)) || announce($, ctx(), 'done', ''))
+        .catch(wrote)
     return next(e)
   })
 
