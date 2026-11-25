@@ -50,11 +50,18 @@ type StepLine = { key: string; left: JSX.Element[]; word?: string; mark?: string
 const WORKING = ['running', 'waiting']
 export const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 // Agents under each step: by the description Claude listed, never by position, as a redraft reorders steps.
-// An earlier turn's agent fills a listed entry only while it works: a finished one would show old work as new.
+// An earlier turn's agent fills a listed entry by description only while it works: a finished one would show old
+// work as new. By name it fills from any turn: names are never reused, and a resumed agent's record keeps its turn.
 export const hang = (steps: Step[], spawns: Spawn[], turn: number): AgentRow[][] => {
   const left = spawns.filter(one => one.turn === turn || (one.turn < turn && WORKING.includes(one.status)))
+  const named = spawns.filter(one => one.name && !left.includes(one))
   const rows = steps.map(step =>
     (step.agents ?? []).map(description => {
+      const old = named.findIndex(one => same(one.name!, description))
+      if (old >= 0) {
+        const [one] = named.splice(old, 1)
+        return { id: one.id, name: one.name, description: one.description, status: one.status }
+      }
       const byName = left.findIndex(one => one.name && same(one.name, description))
       const i = byName >= 0 ? byName : left.findIndex(one => same(one.description, description))
       if (i < 0) return { description, status: 'planned' as const }
