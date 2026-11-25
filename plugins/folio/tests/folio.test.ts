@@ -3887,6 +3887,36 @@ test("a prompt queued before the first tool row leaves ╭ to the turn's prompt"
   expect(await ruleOf(q)).toBe('╌')
 })
 
+test('a prompt queued after the turn joined its rail takes ╭ for the rows below it', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('prompt.submit', (_$: any, e: any) => ({ text: e.text }))
+  const card = await prompt($, 'hi')
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  await $.prompt.submit({ text: 'oke', turnId: 't1' } as any)
+  const q = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'q1',
+    props: { text: 'oke', origin: { kind: 'composer' } }, viewport: { columns: 80, rows: 20, isFullscreen: true } })
+  await mountRow($, 'Read', 'y', {}, '/p/b.txt', 'r2')
+  expect(await ruleOf(card)).toBe('╭')
+  expect(await ruleOf(q)).toBe('╭')
+})
+
+test('of two prompts queued in a row, only the later one takes ╭', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('prompt.submit', (_$: any, e: any) => ({ text: e.text }))
+  await prompt($, 'hi')
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  await $.prompt.submit({ text: 'oke', turnId: 't1' } as any)
+  await $.prompt.submit({ text: 'also', turnId: 't1' } as any)
+  const view = { columns: 80, rows: 20, isFullscreen: true }
+  const q1 = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'q1', props: { text: 'oke', origin: { kind: 'composer' } }, viewport: view })
+  const q2 = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'q2', props: { text: 'also', origin: { kind: 'composer' } }, viewport: view })
+  await mountRow($, 'Read', 'y', {}, '/p/b.txt', 'r2')
+  expect(await ruleOf(q1)).toBe('╌')
+  expect(await ruleOf(q2)).toBe('╭')
+})
+
 test('a prompt queued in one turn opens its own section once the turn completes', async ($, on) => {
   native(on)
   nativePrompt(on)

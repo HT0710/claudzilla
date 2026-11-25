@@ -724,7 +724,7 @@ export const register: Register = on => {
     // A /clear or resume goes on under a new session id, which needs its own cols file.
     wroteColumns = 0
     transcriptPath = ''
-    for (const rows of [runs, done, placed, agents, skills, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails, late, prompts, promptBefore, framedAfter, promptImages, joinRow, promptReply, scans, queued]) rows.clear()
+    for (const rows of [runs, done, placed, agents, skills, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails, late, prompts, promptBefore, framedAfter, promptImages, joinRow, promptReply, scans, queued, queuedRows]) rows.clear()
     redrawAll = () => {}
     corners.clear()
     section = { open: false, n: 0 }
@@ -747,6 +747,8 @@ export const register: Register = on => {
   let lastRow: string | undefined
   // Composer prompts, the row each folio row follows when that is a prompt, and the prompts a framed row follows: their card joins the rail.
   const prompts = new Set<string>()
+  // Queued prompt rows: a later one takes the join over from them, never from the turn's own prompt.
+  const queuedRows = new Set<string>()
   const promptBefore = new Map<string, string>()
   // Per prompt id: its image count, and the row that first joined it.
   const promptImages = new Map<string, number>()
@@ -1322,7 +1324,10 @@ export const register: Register = on => {
     // A finished row of a call a run already holds stays in that run: as a run of its own it would cut the next live row off.
     if (e.component === 'ToolUse' && runs.has(e.requestId)) return
     const origin = e.component === 'UserMessage' ? e.props.origin : undefined
-    if (!(origin?.kind === 'composer' && queued.has(e.props.text)) && (e.component === 'AssistantMessage' || origin?.kind === 'composer' || (origin?.kind === 'plugin' && origin.asUser))) {
+    const isQueued = origin?.kind === 'composer' && queued.has(e.props.text)
+    // A queued prompt drawn once the turn's prompt has its join starts the rail again below it, so its card takes the join.
+    if (isQueued && !(lastRow && prompts.has(lastRow) && !queuedRows.has(lastRow))) { prompts.add(e.requestId); queuedRows.add(e.requestId); lastRow = e.requestId }
+    if (!isQueued && (e.component === 'AssistantMessage' || origin?.kind === 'composer' || (origin?.kind === 'plugin' && origin.asUser))) {
       section = { open: true, n: section.n + 1 }
       // Only the row drawn right after a prompt, in its section, joins its card to the rail.
       if (origin?.kind === 'composer') { prompts.add(e.requestId); lastRow = e.requestId }
