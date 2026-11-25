@@ -780,7 +780,7 @@ test('a tab body too short for the card opens it at the top, left of the menu bu
   await setup($, on)
   disk.set('/repo/src/a.ts', { text: lines(3), mtimeMs: 1 })
   open({ path: '/repo/src/a.ts' })
-  // 8 pane rows less the rule leave the tab 7, one short of the card's 8 at top 2.
+  // 8 pane rows less the rule leave the tab 7. The card is 9 rows, and at top 2 it needs 11.
   const short = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props: { ...props, scroll: { offset: 0, bodyRows: 8 } }, requestId: 'margin' })
   await short.press({ key: 'menu' })
   await short.redraw()
@@ -2400,6 +2400,53 @@ const diffRuns = () => runs.filter(a => a.includes('diff')).length
 test('an Edit with a unique old_string marks its new line green and the old text red', async ($, on) => {
   hostOk(on)
   const ui = await explorer($, on, { path: '/repo/a.ts', line: 1 }, lines(3))
+  disk.set('/repo/a.ts', { text: 'line 1\nline 2 new\nline 3', mtimeMs: 2 })
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts', old_string: 'line 2', new_string: 'line 2 new', replace_all: false } as any)
+  await ui.redraw()
+  expect(await tones(ui)).toEqual([undefined, 'del', 'add', undefined])
+})
+
+test('Show git diff is on by default and draws the git red and green rows', async ($, on) => {
+  const ui = await withDiff($, on, '@@ -2 +2 @@\n-old\n+new\n', { path: '/repo/a.ts', line: 1 })
+  await ui.press({ key: 'menu' })
+  await ui.redraw()
+  expect(textOf(await ui.find({ key: 'explorer:menu-card' }))).toContain('Show git diff')
+  expect(await ui.find({ key: 'show-diff' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: CHECK })).toBeDefined()
+  expect(await tones(ui)).toEqual([undefined, 'del', 'add', undefined])
+})
+
+test('turning Show git diff off removes its git rows, keeps the scroll on the same source line, and keeps the menu pinned', async ($, on) => {
+  const ui = await withDiff($, on, '@@ -2 +2 @@\n-old\n+new\n', { path: '/repo/a.ts', line: 1 }, 60)
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'show-diff' })
+  await ui.redraw()
+  expect((await ui.find({ key: 'explorer:menu-card' }))?.props.display).toBe('flex')
+  expect((await tones(ui)).every(t => t === undefined)).toBe(true)
+  expect(await ui.find({ type: 'Text', text: CHECK })).toBeUndefined()
+  await ui.press({ key: 'show-diff' })
+  await ui.redraw()
+  expect(await tones(ui)).toContain('del')
+})
+
+test('turning Show git diff off keeps the first visible line when red rows sit above the view', async ($, on) => {
+  const out = '@@ -5,4 +5 @@\n-a\n-b\n-c\n-d\n+new\n'
+  const ui = await withDiff($, on, out, { path: '/repo/a.ts', line: 50 }, 100)
+  const first = async () => (await gutterRows(ui)).find(r => r.tone === undefined)?.line
+  const before = await first()
+  expect(before).toBeGreaterThan(10)
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'show-diff' })
+  await ui.redraw()
+  expect(await first()).toBe(before)
+})
+
+test("with Show git diff off, a reload's own red and green rows still show, and no git row does", async ($, on) => {
+  hostOk(on)
+  const ui = await withDiff($, on, '@@ -1 +1 @@\n-gitold\n+gitnew\n', { path: '/repo/a.ts', line: 1 })
+  expect(await tones(ui)).toEqual(['del', 'add', undefined, undefined])
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'show-diff' })
   disk.set('/repo/a.ts', { text: 'line 1\nline 2 new\nline 3', mtimeMs: 2 })
   await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts', old_string: 'line 2', new_string: 'line 2 new', replace_all: false } as any)
   await ui.redraw()
