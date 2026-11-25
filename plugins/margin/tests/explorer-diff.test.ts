@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { editDiff, firstChangeLine, lineDiff, parseDiff, reloadDiff } from '../hooks/explorer-diff'
+import { codeLineAt, editDiff, firstChangeLine, lineDiff, mergeMarks, parseDiff, pressLine, redLit, reloadDiff, sameMarks } from '../hooks/explorer-diff'
 
 const added = (d: string) => [...parseDiff(d).added]
 
@@ -157,4 +157,41 @@ test('editDiff: a newText ending in a newline mid-line keeps the rest of its lin
   const m = editDiff('a\nxNEW\n y\nc', 'OLD', 'NEW\n', false)!
   expect([...m.added]).toEqual([2, 3])
   expect(m.removed.get(2)).toEqual(['xOLD y'])
+})
+
+test('mergeMarks: git and reload marks union, and git\'s red rows win at one key', () => {
+  const git = { added: new Set([1]), removed: new Map([[2, ['g']]]) }
+  const reload = { added: new Set([3]), removed: new Map([[2, ['r']], [5, ['s']]]) }
+  const m = mergeMarks(git, reload)!
+  expect([...m.added]).toEqual([1, 3])
+  expect([...m.removed]).toEqual([[2, ['g']], [5, ['s']]])
+  expect(mergeMarks(undefined, undefined)).toBeUndefined()
+  expect(mergeMarks(git, undefined)).toBe(git)
+})
+
+test('codeLineAt: a red row gives the last line, and a code row gives its own', () => {
+  const rows = [{ line: 1 }, { line: 0, tone: 'del' as const }, { line: 2 }]
+  expect(codeLineAt(rows, 1, 1)).toBe(1)
+  expect(codeLineAt(rows, 2)).toBe(2)
+  expect(codeLineAt(rows, 1)).toBeUndefined()
+})
+
+test('redLit: a red row needs the lines on both sides in the range', () => {
+  expect(redLit(5, 4, 5)).toBe(true)
+  expect(redLit(5, 5, 9)).toBe(false)
+  expect(redLit(5, 1, 4)).toBe(false)
+  expect(redLit(1, 1, 9)).toBe(false)
+  expect(redLit(11, 1, 10)).toBe(false)
+})
+
+test('sameMarks: equal contents match, and undefined counts as empty', () => {
+  const d = '@@ -2 +2 @@\n-old\n+new\n'
+  expect(sameMarks(parseDiff(d), parseDiff(d))).toBe(true)
+  expect(sameMarks(parseDiff(d), parseDiff('@@ -2 +3 @@\n-old\n+new\n'))).toBe(false)
+  expect(sameMarks(undefined, { added: new Set(), removed: new Map() })).toBe(true)
+})
+
+test('pressLine: a red row gives no line, and a code row gives its own', () => {
+  expect(pressLine({ line: 0, tone: 'del' })).toBeUndefined()
+  expect(pressLine({ line: 4 })).toBe(4)
 })

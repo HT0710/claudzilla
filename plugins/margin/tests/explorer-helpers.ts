@@ -17,6 +17,8 @@ export const runs: string[][] = []
 export const launch = { exit: 0 }
 // What `git ls-files` answers, NUL-separated.
 export const listed = { out: '', cut: false }
+// What `git diff` answers: the exit code and the diff text.
+export const diffOut = { exit: 0, out: '' }
 // The clock the plugin's timers run on; a test advances it.
 export let clock: ReturnType<typeof mock.clock>
 // A test sets failList to make every fs.list fail.
@@ -47,6 +49,8 @@ export const setup = async ($: Body[0], on: Body[1]) => {
   hold.names = undefined
   launch.exit = 0
   listed.out = ''
+  diffOut.exit = 0
+  diffOut.out = ''
   listed.cut = false
   lists.length = 0
   reads.length = 0
@@ -62,7 +66,7 @@ export const setup = async ($: Body[0], on: Body[1]) => {
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('session.cwd', () => ({ value: '/repo' }))
-  on('process.run', (_, e) => (runs.push([...e.argv]), e.argv.includes('rev-parse') ? ran(0, '/repo\n') : e.argv.includes('ls-files') ? (hold.names ? new Promise(done => hold.names!.push(() => done(ran(0, listed.out, listed.cut)))) : ran(0, listed.out, listed.cut)) : ran(e.argv.some(x => x.includes('xdg-open')) ? launch.exit : 0)) as any)
+  on('process.run', (_, e) => (runs.push([...e.argv]), e.argv.includes('rev-parse') ? ran(0, '/repo\n') : e.argv.includes('diff') ? ran(diffOut.exit, diffOut.out) : e.argv.includes('ls-files') ? (hold.names ? new Promise(done => hold.names!.push(() => done(ran(0, listed.out, listed.cut)))) : ran(0, listed.out, listed.cut)) : ran(e.argv.some(x => x.includes('xdg-open')) ? launch.exit : 0)) as any)
   on('fs.stat', (_, e) => (tree.has(e.path) ? { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } : disk.has(e.path) ? { value: { kind: 'file', size: disk.get(e.path)!.text.length, mtimeMs: disk.get(e.path)!.mtimeMs, isLink: false } } : { deny: 'ENOENT' }) as any)
   on('fs.read', (_, e) => {
     reads.push(e.path)
@@ -118,3 +122,5 @@ export const chevron = async (ui: { drawn: () => Promise<any> }, text: string) =
   walk(await ui.drawn())
   return hit
 }
+// The gutter Client's rows as drawn.
+export const gutterRows = async (ui: { find: (q: any) => Promise<any> }): Promise<{ row: number; line: number; before?: number; cell: string; lit: boolean; tone?: 'add' | 'del' }[]> => (await ui.find({ key: 'explorer:gutter' }))?.props.props.rows

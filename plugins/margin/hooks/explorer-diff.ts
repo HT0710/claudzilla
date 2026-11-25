@@ -70,3 +70,36 @@ export function reloadDiff(
   if (!before) return undefined
   return (edit && editDiff(after.join('\n'), edit.oldText, edit.newText, edit.replaceAll)) || lineDiff(before, after)
 }
+
+// Union. git's red rows win at one key.
+export function mergeMarks(git: DiffMarks | undefined, reload: DiffMarks | undefined): DiffMarks | undefined {
+  if (!git || !reload) return git ?? reload
+  return { added: new Set([...git.added, ...reload.added]), removed: new Map([...reload.removed, ...git.removed]) }
+}
+
+// A red row gives `last`, so a drag keeps its last current line.
+export function codeLineAt(rows: readonly { line: number; tone?: 'add' | 'del' }[], y: number, last?: number): number | undefined {
+  const r = rows[Math.max(0, Math.min(y, rows.length - 1))]
+  return r?.tone === 'del' ? last : r?.line
+}
+
+// A red row above line `before` is lit when lines before - 1 and before are both in [lo, hi]. The trailing block is never lit.
+export function redLit(before: number, lo: number, hi: number): boolean {
+  return before - 1 >= lo && before <= hi
+}
+
+export function sameMarks(a: DiffMarks | undefined, b: DiffMarks | undefined): boolean {
+  const x = a ?? { added: new Set<number>(), removed: new Map<number, string[]>() }
+  const y = b ?? { added: new Set<number>(), removed: new Map<number, string[]>() }
+  if (x.added.size !== y.added.size || x.removed.size !== y.removed.size) return false
+  for (const n of x.added) if (!y.added.has(n)) return false
+  for (const [k, v] of x.removed) {
+    const w = y.removed.get(k)
+    if (!w || w.length !== v.length || v.some((t, i) => t !== w[i])) return false
+  }
+  return true
+}
+
+export function pressLine(row: { line: number; tone?: 'add' | 'del' }): number | undefined {
+  return row.tone === 'del' ? undefined : row.line
+}

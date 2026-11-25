@@ -3,9 +3,11 @@ import type { EngineInterface, RenderSurface } from 'claude-code'
 
 import { FIND_WAIT, filterNames, findIn, leavesField, markCells } from './explorer-find'
 import type { FindResult, NameEntry } from './explorer-find'
-import { cellsOf, fileWindow, hitsOf, layoutFor, layoutOf, lineAt, sliceTokens, thumbOf } from './explorer-layout'
+import { mergeMarks, parseDiff, pressLine, redLit } from './explorer-diff'
+import type { DiffMarks } from './explorer-diff'
+import { cellsOf, codeRow, fileWindow, hitsOf, layoutFor, layoutOf, lineAt, rowAt, sliceTokens, thumbOf } from './explorer-layout'
 import type { Cached } from './explorer-layout'
-import { OPEN_EDITOR_SH, listDir, listNames, loadFile, latestOf, projectRoot, statOf } from './explorer-load'
+import { OPEN_EDITOR_SH, gitDiff, listDir, listNames, loadFile, latestOf, projectRoot, statOf } from './explorer-load'
 import type { Loaded } from './explorer-load'
 import { back, current, forward, navStart, remember, visit } from './explorer-nav'
 import type { Nav } from './explorer-nav'
@@ -39,6 +41,12 @@ type State = {
   cwd?: string
   lastFile?: string
   loaded?: Loaded
+  // Marks from `git diff HEAD`, set at each load.
+  diff?: DiffMarks
+  reloadMarks?: DiffMarks
+  // The marks drawn; the layout reads only this, and only showMarks() sets it.
+  marks?: DiffMarks
+  showDiff: boolean
   afterFolder?: boolean
   layout?: Cached
   tokens: Map<number, Token[]>
@@ -62,7 +70,7 @@ type State = {
   noticeVerb?: string
 }
 
-const fresh = (): State => ({ nav: navStart(''), tokens: new Map(), expanded: new Set(), listed: new Map(), col: 0, wrap: false, menuPinned: false, toggles: { matchCase: false, word: false, regex: false }, rev: 0, applied: 0 })
+const fresh = (): State => ({ nav: navStart(''), showDiff: true, tokens: new Map(), expanded: new Set(), listed: new Map(), col: 0, wrap: false, menuPinned: false, toggles: { matchCase: false, word: false, regex: false }, rev: 0, applied: 0 })
 const state = fresh()
 const rowHover = rowHovers.Explorer
 const guard = latestOf()
@@ -110,10 +118,23 @@ function moveTo(change: (nav: Nav) => Nav): boolean {
   if (entry === current(remembered)) return false
   endFind()
   endNames()
+  if (entry.kind === 'file' && entry.path !== state.loaded?.path) {
+    state.diff = state.reloadMarks = undefined
+    showMarks()
+  }
   state.top = entry.top
   state.lit = entry.kind === 'file' && entry.line !== undefined ? { from: entry.line, to: entry.line } : undefined
   state.col = 0
   return true
+}
+
+async function gitMarks($: EngineInterface, root: string, abs: string): Promise<DiffMarks | undefined> {
+  const diff = await gitDiff($, root, abs)
+  return diff === undefined ? undefined : parseDiff(diff)
+}
+
+function showMarks(): void {
+  state.marks = mergeMarks(state.showDiff ? state.diff : undefined, state.reloadMarks)
 }
 
 // The open place at a new revision the draw has already taken.
@@ -153,9 +174,12 @@ export async function reloadPlace($: EngineInterface): Promise<void> {
   const place = current(state.nav)
   if (place.kind === 'folder') return relistPage($)
   const n = guard.begin()
-  const loaded = await loadFile($, place.path)
+  const root = state.root ?? (state.root = await projectRoot($))
+  const [loaded, diff] = await Promise.all([loadFile($, place.path), gitMarks($, root, place.path)])
   if (guard.isLatest(n)) {
     state.loaded = loaded
+    state.diff = diff
+    showMarks()
     state.tokens = new Map()
     rerunFind()
   }
@@ -555,10 +579,12 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   if (wanted.kind === 'file') state.afterFolder = false
   if (wanted.kind === 'file' && wanted.path !== state.loaded?.path) {
     const n = guard.begin()
-    const loaded = await loadFile($, wanted.path)
+    const [loaded, diff] = await Promise.all([loadFile($, wanted.path), gitMarks($, state.root, wanted.path)])
     const here = current(state.nav)
     if (guard.isLatest(n) && here.kind === 'file' && here.path === wanted.path) {
       state.loaded = loaded
+      state.diff = diff
+      showMarks()
       state.tokens = new Map()
     }
   }
@@ -575,7 +601,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const loaded = place.kind === 'file' && state.loaded?.path === place.path ? state.loaded : undefined
   const lines = loaded?.lines ?? []
   const digits = String(lines.length).length
-  const G = digits + 2
+  const G = digits + 3
   const C = W - G - 1
   let body: JSX.Element[] = []
   const zones: TabDraw['zones'] = []
@@ -672,30 +698,39 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   } else if (loaded?.unreadable) {
     body = [emptyNote(ctx.el, codeRows, "Can't show this file", <Text color={HUD.faint}>{loaded.missing ? 'It no longer exists.' : 'It is binary, unreadable or over 4 MiB.'}</Text>)]
   } else if (loaded) {
-    state.layout = layoutFor(state.layout, loaded, C, state.wrap, lines, undefined)
+    state.layout = layoutFor(state.layout, loaded, C, state.wrap, lines, state.marks?.removed)
     const { layout } = state.layout
     const Client = 'Client' in ctx.el ? ctx.el.Client : undefined
     const hbar = !!Client && !state.wrap && layout.widest > C
     if (hbar) codeRows = Math.max(0, codeRows - 1)
     state.col = state.wrap ? 0 : Math.max(0, Math.min(state.col, layout.widest - C))
     const line = state.lit?.from
-    const asked = state.top ?? (line === undefined ? 0 : Math.max(0, (layout.starts[Math.max(0, Math.min(line, lines.length) - 1)] ?? 0) - Math.floor(codeRows / 2)))
+    const asked = state.top ?? (line === undefined ? 0 : Math.max(0, codeRow(layout, Math.max(0, Math.min(line, lines.length) - 1)) - Math.floor(codeRows / 2)))
     const win = fileWindow(layout.rows, asked, codeRows)
     state.top = win.top
-    const drawn: { row: number; line: number; cell: string; lit: boolean; hit?: boolean }[] = []
+    const drawn: { row: number; line: number; before?: number; cell: string; lit: boolean; hit?: boolean; tone?: 'add' | 'del' }[] = []
     const code: JSX.Element[] = []
+    const kindColor = (t: Token) => (t.kind === 'keyword' ? HUD.label : t.kind === 'string' ? TYPES.feat : t.kind === 'number' ? TYPES.perf : t.kind === 'comment' ? HUD.faint : undefined)
     for (let r = win.top; r < win.last; r++) {
-      const i = lineAt(layout, r)
-      const seg = r - layout.starts[i]!
-      const n = i + 1
-      let tokens = state.tokens.get(i)
-      if (!tokens) state.tokens.set(i, (tokens = tokenize(lines[i]!)))
-      const on = findOpen ? state.find!.spans.get(n) : undefined
-      const slice = sliceTokens(tokens, state.wrap ? seg * C : state.col, C, on && hitsOf(lines[i]!, on.map(m => ({ ...m, current: m.index === state.find!.current }))))
-      const lit = !!state.lit && n >= state.lit.from && n <= state.lit.to
-      drawn.push({ row: r, line: n, cell: seg ? ' '.repeat(G) : ` ${String(n).padStart(digits)} `, lit, hit: !seg && !!on })
+      const at = rowAt(layout, r)
+      const seg = at.seg
+      const del = at.kind === 'del'
+      const n = del ? 0 : at.index + 1
+      let tokens: Token[] | undefined
+      if (del) tokens = tokenize(at.text)
+      else {
+        tokens = state.tokens.get(at.index)
+        if (!tokens) state.tokens.set(at.index, (tokens = tokenize(lines[at.index]!)))
+      }
+      const on = !del && findOpen ? state.find!.spans.get(n) : undefined
+      const slice = sliceTokens(tokens, state.wrap ? seg * C : state.col, C, on && hitsOf(lines[n - 1]!, on.map(m => ({ ...m, current: m.index === state.find!.current }))))
+      const tone = del ? 'del' : state.marks?.added.has(n) ? 'add' : undefined
+      const lit = !!state.lit && (del ? redLit(at.before, state.lit.from, state.lit.to) : n >= state.lit.from && n <= state.lit.to)
+      const diffBg = tone === 'add' ? 'diffAddedDimmed' : tone === 'del' ? 'diffRemovedDimmed' : undefined
+      const cell = seg ? ' '.repeat(G) : del ? `${' '.repeat(digits + 1)}− ` : ` ${String(n).padStart(digits)}${tone === 'add' ? '+' : ' '} `
+      drawn.push({ row: r, line: n, ...(del && { before: at.before }), cell, lit, hit: !seg && !!on, ...(tone && { tone }) })
       code.push(
-        <Box key={seg ? `row:${n}:${seg}` : `row:${n}`} backgroundColor={lit ? LIT : undefined}>
+        <Box key={del ? `del:${r}` : seg ? `row:${n}:${seg}` : `row:${n}`} backgroundColor={lit ? LIT : diffBg}>
           <Box width={C} flexShrink={0}>
             <Button
               key={`code:${r - win.top}`}
@@ -705,13 +740,13 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
                 return update($, file, () => placeOf())
               }}
             >
-              {slice.length || lit ? slice.map((t, k) => (
-                <Text key={k} backgroundColor={t.hit === 'current' ? 'warning' : t.hit ? PILL_BG.yellow : lit ? LIT : undefined} color={t.hit === 'current' ? 'inverseText' : t.hit ? STATUS.M : t.kind === 'keyword' ? HUD.label : t.kind === 'string' ? TYPES.feat : t.kind === 'number' ? TYPES.perf : t.kind === 'comment' ? HUD.faint : undefined}>
+              {slice.length || lit || diffBg ? slice.map((t, k) => (
+                <Text key={k} backgroundColor={t.hit === 'current' ? 'warning' : t.hit ? PILL_BG.yellow : lit ? LIT : diffBg} color={t.hit === 'current' ? 'inverseText' : t.hit ? STATUS.M : kindColor(t)}>
                   {t.text}
                 </Text>
               )) : <Text> </Text>}
-              {/* The row Box's background does not reach under its Texts, so a lit row paints its own cells. */}
-              {lit && <Text backgroundColor={LIT}>{' '.repeat(Math.max(0, C - cellsOf(slice.map(t => t.text).join(''))))}</Text>}
+              {/* The row Box's background does not reach under its Texts, so a lit or diff row paints its own cells. */}
+              {(lit || diffBg) && <Text backgroundColor={lit ? LIT : diffBg}>{' '.repeat(Math.max(0, C - cellsOf(slice.map(t => t.text).join(''))))}</Text>}
             </Button>
           </Box>
           {!Client && <Text color={HUD.faint}>│</Text>}
@@ -731,17 +766,17 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     const matched: number[] = []
     if (findOpen)
       for (const n of state.find!.spans.keys())
-        for (let r = layout.starts[n - 1]!; r < layout.starts[n]!; r++) matched.push(r)
+        for (let r = codeRow(layout, n - 1); r < layout.starts[n]!; r++) matched.push(r)
     const marks = markCells(layout.rows, codeRows, matched).map(m => (m ? 'warning' : null))
     body.push(
       <Box key="view">
         <Box width={G} flexShrink={0} flexDirection="column">
           {Client ? (
-            <Client key="explorer:gutter" module="./explorer-gutter.tsx" height={codeRows} props={{ rows: drawn, colors: { lit: LIT, faint: HUD.faint, claude: 'claude', warning: 'warning' } }} />
+            <Client key="explorer:gutter" module="./explorer-gutter.tsx" height={codeRows} props={{ rows: drawn, colors: { lit: LIT, faint: HUD.faint, claude: 'claude', warning: 'warning', add: STATUS.A, del: STATUS.D, addBg: 'diffAddedDimmed', delBg: 'diffRemovedDimmed' } }} />
           ) : (
             drawn.map(r => (
-              <Button key={`gutter:${r.row}`} plain onPress={press => copyLines($, r.line, r.line, press.surface)}>
-                <Text color={r.hit ? 'warning' : HUD.faint} backgroundColor={r.lit ? LIT : undefined}>
+              <Button key={`gutter:${r.row}`} plain onPress={press => (pressLine(r) !== undefined ? copyLines($, r.line, r.line, press.surface) : undefined)}>
+                <Text color={r.hit ? 'warning' : r.tone === 'add' ? STATUS.A : r.tone === 'del' ? STATUS.D : HUD.faint} backgroundColor={r.lit ? LIT : r.tone === 'add' ? 'diffAddedDimmed' : r.tone === 'del' ? 'diffRemovedDimmed' : undefined}>
                   {r.cell}
                 </Text>
               </Button>
@@ -945,7 +980,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
         onPress={() => {
           const old = state.layout?.layout
           state.wrap = !state.wrap
-          if (old && place.kind === 'file') state.top = layoutOf(lines, C, state.wrap).starts[lineAt(old, state.top ?? 0)]
+          if (old && place.kind === 'file') state.top = codeRow(layoutOf(lines, C, state.wrap, state.marks?.removed), lineAt(old, state.top ?? 0))
           return update($, file, () => placeOf())
         }}
       >
