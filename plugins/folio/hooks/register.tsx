@@ -755,11 +755,11 @@ export const register: Register = on => {
   const joinRow = new Map<string, string>()
   // Prompt id to the reply text drawn right after it.
   const promptReply = new Map<string, string>()
-  // Image or mention prompts only: which row carries the rail over the engine rows, so a bare one can be traced back.
+  // Which row joins each prompt card to the rail, and the corner the card drew, so a card left unjoined can be traced back.
   const joinTraced = new Set<string>()
   const joinNote = (step: string, prompt: string, data: { row?: string; joinRow?: string } & Record<string, unknown>) => {
-    const key = `${step}:${data.row}:${data.joinRow ?? ''}`
-    if (!promptImages.get(prompt) || joinTraced.has(key)) return
+    const key = `${step}:${prompt}:${JSON.stringify(data)}`
+    if (joinTraced.has(key)) return
     if (joinTraced.size > 500) joinTraced.clear()
     joinTraced.add(key)
     t.event('folio.join', { step, prompt, ...data })
@@ -852,8 +852,9 @@ export const register: Register = on => {
     if (prompt && !framedAfter.has(prompt)) { framedAfter.add(prompt); redrawAll() }
     // The first row after an image or mention prompt reaches up over the engine's rows, each drawn at column 0-1.
     if (prompt && !joinRow.has(prompt)) joinRow.set(prompt, id)
-    const imgs = prompt && margin && joinRow.get(prompt) === id ? promptImages.get(prompt) ?? 0 : 0
-    if (prompt) joinNote(imgs ? 'join' : 'miss', prompt, imgs ? { row: id, imgs } : { row: id, joinRow: joinRow.get(prompt), margin })
+    const joins = prompt && margin && joinRow.get(prompt) === id
+    const imgs = joins ? promptImages.get(prompt) ?? 0 : 0
+    if (prompt) joinNote(joins ? 'join' : 'miss', prompt, joins ? { row: id, imgs } : { row: id, joinRow: joinRow.get(prompt), margin })
     return (
       <Box flexDirection="column" marginTop={imgs ? -imgs : undefined}>
         {!!margin && Array.from({ length: imgs + 1 }, () => <Text color="promptBorder">│</Text>)}
@@ -1346,7 +1347,7 @@ export const register: Register = on => {
     const n = section.n - 1
     if (early?.n === n) {
       let moved = 0
-      for (const id of early.rows) { const f = frameOf(id); if (f?.n === n) { f.n = section.n; moved++; joinNote('drop', promptBefore.get(id) ?? '', { row: id }); framedAfter.delete(promptBefore.get(id) ?? ''); joinRow.delete(promptBefore.get(id) ?? ''); promptBefore.delete(id) } }
+      for (const id of early.rows) { const f = frameOf(id); if (f?.n === n) { f.n = section.n; moved++; if (promptBefore.has(id)) joinNote('drop', promptBefore.get(id)!, { row: id }); framedAfter.delete(promptBefore.get(id) ?? ''); joinRow.delete(promptBefore.get(id) ?? ''); promptBefore.delete(id) } }
       if (moved) {
         for (const rest of late.values()) if (rest.n === n) rest.n = section.n
         const last = tails.get(n)
@@ -1359,7 +1360,7 @@ export const register: Register = on => {
     const frame = e.viewport?.isFullscreen ? { ...section } : undefined
     // A tool row, or a finish row folio draws, takes its frame here.
     const take = () => {
-      if (lastRow && prompts.has(lastRow)) promptBefore.set(e.requestId, lastRow)
+      if (lastRow && prompts.has(lastRow)) { promptBefore.set(e.requestId, lastRow); joinNote('take', lastRow, { row: e.requestId, frame: !!frame?.open }) }
       forkLast(redraw)
       if (frame) frames.set(e.requestId, frame)
       lastRow = e.requestId
@@ -1428,6 +1429,8 @@ export const register: Register = on => {
     // a missing file or CLAUDE_CODE_DISABLE_FILE_MENTIONS over-counts; read the engine's rows if a render site ever exposes them.
     const paths = (p.text.match(/(?<=^|\s)@\S+/g) ?? []).map(m => m.replace(/[^\w/]+$/, '')).filter(m => /[./]/.test(m.slice(1)))
     promptImages.set(id, (p.text.match(/\[Image #\d+\]/g) ?? []).length + new Set(paths).size)
+    const corner = framedAfter.has(id) || (e.viewport?.isFullscreen && promptImages.get(id) && promptReply.has(id)) ? '╭' : '╌'
+    joinNote('card', id, { row: id, corner })
     return (
       <Box flexDirection="column" width="100%" marginTop={2} marginBottom={time ? -1 : 0}>
         <Box paddingLeft={off}><Text color="promptBorder">{'╭' + '─'.repeat(w - 2) + '╮'}</Text></Box>
@@ -1438,7 +1441,7 @@ export const register: Register = on => {
             <Text color="promptBorder">│</Text>
           </Box>
         ))}
-        <Text color="promptBorder">{(framedAfter.has(e.requestId) || (e.viewport?.isFullscreen && promptImages.get(id) && promptReply.has(id)) ? '╭' : '╌') + '╌'.repeat(off - 1) + '┴' + '─'.repeat(w - 2) + '╯'}</Text>
+        <Text color="promptBorder">{corner + '╌'.repeat(off - 1) + '┴' + '─'.repeat(w - 2) + '╯'}</Text>
         {time && <Box paddingLeft={Math.max(0, columns - 1 - textCells(time))}><Text color={FAINT}>{time}</Text></Box>}
       </Box>
     )
