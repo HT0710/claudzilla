@@ -3739,6 +3739,21 @@ test('two images: the row after paints over both', async ($, on) => {
   expect(await gaps(row)).toEqual({ marginTop: -2, gaps: 3 })
 })
 
+for (const [text, top, n] of [
+  ['@README.md @.git/ look', -2, 3],
+  ['@a.md look [Image #1]', -2, 3],
+  ['@claudzilla-4e and me@x.com look', undefined, 1],
+  ['ask @peer. see @a.md and @a.md.', -1, 2],
+] as const) {
+  test(`the row after "${text}" paints over ${n - 1} engine rows`, async ($, on) => {
+    native(on)
+    nativePrompt(on)
+    await prompt($, text)
+    const row = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+    expect(await gaps(row)).toEqual({ marginTop: top, gaps: n })
+  })
+}
+
 test('a row after a plain prompt keeps one gap line and no negative margin', async ($, on) => {
   native(on)
   nativePrompt(on)
