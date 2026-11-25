@@ -917,10 +917,10 @@ for (const [name, drop] of [
 
 // Waiting lines: a session with config dir /cfg, HOME /home/u, cwd /proj and the given files.
 const SESS = { '/cfg/sessions/s1.json': '{"sessionId":"s1","name":"claudzilla-35"}' }
-function waitSession(on: On, files: Record<string, string> = { ...SESS }, opts: { wait?: (Piece | Promise<unknown>)[]; pieces?: Piece[]; home?: string } = {}) {
+function waitSession(on: On, files: Record<string, string> = { ...SESS }, opts: { wait?: (Piece | Promise<unknown>)[]; pieces?: Piece[]; home?: string; probe?: string } = {}) {
   const seen = session(on, opts.pieces ?? [], opts)
   let lists = 0
-  on('env.get', (_, e: any) => ({ value: e.name === 'CLAUDE_CONFIG_DIR' ? '/cfg' : e.name === 'HOME' ? ('home' in opts ? opts.home : '/home/u') : undefined }) as any)
+  on('env.get', (_, e: any) => ({ value: e.name === 'CLAUDE_CONFIG_DIR' ? '/cfg' : e.name === 'HOME' ? ('home' in opts ? opts.home : '/home/u') : e.name === 'CLAUDZILLA_PROBE' ? opts.probe : undefined }) as any)
   on('session.id', () => ({ value: seen.id }) as any)
   on('session.cwd', () => ({ value: '/proj' }) as any)
   on('fs.read', (_, e: any) => (e.path in files ? { value: files[e.path] } : { deny: 'ENOENT' }) as any)
@@ -947,6 +947,15 @@ test('a finished answer appends a done line', async ($, on) => {
   await done($)
   await until(() => appended(w.seen).length > 0)
   expect(appended(w.seen)).toEqual([DONE])
+})
+
+test('a probe session appends nothing', async ($, on) => {
+  const w = waitSession(on, undefined, { probe: '1' })
+  await $.session.start(start)
+  await done($)
+  await perm($)
+  for (let i = 0; i < 5; i++) await tick()
+  expect(appended(w.seen)).toEqual([])
 })
 
 test('a subagent turn end and an aborted turn append nothing', async ($, on) => {

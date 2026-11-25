@@ -410,7 +410,8 @@ async function nameOf($: EngineInterface, names: Map<string, string>, dir: strin
 
 // Appends one line to the shared file every session tails; $.fs.write would replace the whole file.
 async function announce($: EngineInterface, c: WaitCtx, kind: Wait['kind'], detail: string): Promise<void> {
-  if (!c.interactive) return
+  // A throwaway test session (tmux probe) would toast every real session.
+  if (!c.interactive || (await $.env.get('CLAUDZILLA_PROBE').catch(() => undefined))) return
   const { dir, toasts } = await c.cfg
   if (!toasts.waiting) return
   const path = await waitPath($)
