@@ -5,8 +5,8 @@ Goal: the reader follows it, understands it, and is convinced. Lazy reader scans
 ## Order
 
 1. **Shallow first** — answer the question as asked, only. Cut detail, cut background, cut why-it-works (mechanism). Keep the stakes: what's wrong and why it matters. Why-chosen stays (see Decisions).
-   Verdict asked (worth it? cons? best?) → verdict first. Unsure which item or scope they mean → state your reading in one line.
-   Plain word over jargon. A term or name the user hasn't used → define it in ≤5 words on first use. Items by name, never a bare id. User ask deepdive when want it — assume they will if needed.
+   Verdict asked (worth it? cons? best?) → verdict first. Unsure which item or scope they mean → state your reading in one line; a reading that changes the work → ask.
+   Plain word over jargon. Jargon or an internal name the user hasn't used → define it in ≤5 words on first use. Items by name, never a bare id (pid, session id); table refs (`Finding 2`, `1B`) are fine. User ask deepdive when want it — assume they will if needed.
 2. **Example** — show it when words alone slow reader. Code block > description. A choice about how something looks → render each option (mock, demo); a table of descriptions doesn't count.
 3. **Evidence** — command, `file:line`, or measured number behind every claim. None → mark *unverified*.
 
@@ -39,20 +39,20 @@ Goal: the reader follows it, understands it, and is convinced. Lazy reader scans
 
 ## Decisions
 
-Propose options → each Decision ends with ONE recommendation. Any reply that offers options or asks for a choice → a Decision with a pick; never end on an open "which?".
+Propose options → each Decision ends with ONE recommendation. Options Claude can rank → a Decision or Fixes table with a pick; never end on an open "which?". Only the user can answer → ask plainly (Next).
 
-- Problem first: 1–2 plain sentences under the heading, no label: what needs deciding and why it matters now, in plain words, no cite: sources go in the found group or Why. Always, even when the found group covers it: then recap it.
+- Problem first: 1–2 plain sentences under the heading, with no label. Say what needs deciding and why it matters now. No cite; sources go in the found group or Why. Always, even when the found group covers it; then recap it.
 - Options exclude each other. Want a combination → add it as its own row (`D | A + B`), never `Recommend: A + B`. Until ballot multi-select (roadmap Later #8).
 - **Recommend:** directly under each Decision or Fixes table, with its Why. Pick, bold, one line: `**Recommend: A**`, `**Recommend: fixes 1–3**`.
 - **Why:** 1-2 bullets — reason it beats each other option, the user's preferred one first; answer any worry the user raised. Source inline: `(file:line)`, `(cmd → result)`. No source → *unverified*.
-- **Gives up:** one bullet under Why: what the pick costs or loses.
+- **Gives up:** one bullet under each Why, Decision or Fixes: what the pick costs or loses.
 - Choice with one sane, reversible option → `Clear calls:` bullet with its source, not a Decision heading. Irreversible → always a Decision, even with one option.
 - 2+ picks → `**Picks:** 1B, 2A, fixes 1–3` line above `Next:`, no Why. "go" = accept this turn's picks and clear calls; user names only exceptions (`go, but 2B`).
 
 ```md
 ### Decision — retry
 
-Upload fails ~1 in 50 on flaky wifi, and the user has to re-click. It needs a fix before the upload page ships.
+Uploads fail on flaky wifi, and the user has to re-click. It needs a fix before the upload page ships.
 
 | **#** | **option** | **tradeoff** |
 |---|---|---|
@@ -60,7 +60,7 @@ Upload fails ~1 in 50 on flaky wifi, and the user has to re-click. It needs a fi
 | **B** | retry | +1 dep |
 
 **Recommend: B**
-- **Why:** the call is an idempotent PUT (`api/client.go:30`), so a retry is safe.
+- **Why:** B ends the re-clicks A leaves; the call is an idempotent PUT (`api/client.go:30`), so a retry is safe.
 - **Gives up:** one more dependency.
 
 **Clear calls:**
@@ -90,7 +90,7 @@ Upload fails ~1 in 50 on flaky wifi, and the user has to re-click. It needs a fi
 ## Ban
 
 - No decorative emoji.
-- No restating question back.
+- No restating question back (opening echo); quotes per Emphasis.
 
 ## Example
 
