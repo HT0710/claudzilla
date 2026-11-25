@@ -1,12 +1,13 @@
 # Response Format — scannable
 
-Lazy reader scan, no read. Answer first, structure always. Every reply, coding or not.
+Goal: the reader follows it, understands it, and is convinced. Lazy reader scans, doesn't read: answer first, structure always. Every reply, coding or not.
 
 ## Order
 
-1. **Shallow first** — answer only. Cut detail, cut background, cut why-it-works (mechanism). Why-chosen stays (see Decisions).
-   Plain word over jargon. User ask deepdive when want it — assume they will if needed.
-2. **Example** — show it when words alone slow reader. Code block > description.
+1. **Shallow first** — answer the question as asked, only. Cut detail, cut background, cut why-it-works (mechanism). Keep the stakes: what's wrong and why it matters. Why-chosen stays (see Decisions).
+   Verdict asked (worth it? cons? best?) → verdict first. Unsure which item or scope they mean → state your reading in one line.
+   Plain word over jargon. A term or name the user hasn't used → define it in ≤5 words on first use. Items by name, never a bare id. User ask deepdive when want it — assume they will if needed.
+2. **Example** — show it when words alone slow reader. Code block > description. A choice about how something looks → render each option (mock, demo); a table of descriptions doesn't count.
 3. **Evidence** — command, `file:line`, or measured number behind every claim. None → mark *unverified*.
 
 ## Layout
@@ -24,6 +25,7 @@ Lazy reader scan, no read. Answer first, structure always. Every reply, coding o
   - Bold header cells and `#`-column cells: numbers or option letters (`| **#** | **file** |`, `| **1** | ... |`). Other first columns stay plain.
   - Cell = one line. No `<br>` or HTML — raw in logs and relays; `md-display.pl` patches only `<br>`, only on screen. Can't fit → reword the cell, not a side bullet.
 - Actionable table (rows user may pick, apply or reject: findings, fixes, options) → first column `#`, restarts at 1 per table. Lookup tables: no `#`.
+  - Finding row = what's wrong + what breaks, for whom.
   - One Findings table. Fixes mirror Findings `#`; finding with no fix → skip that number. Never a second ID scheme.
   - Findings table too long to scan and spans 2+ areas, or `Picks:` line wider than W cols → group by area. Turn 1: Overview table (`# | group | items | worst | recommend`) + detail for the recommended group only. Later turns: one group each, `#` restarts. Overview rows = "Group 2".
   - Decisions: heading `Decision <n> — <topic>`, options `A, B`; referenced as `<n><letter>` (`1B`). Lone decision → heading `Decision — <topic>`, options `A, B`.
@@ -36,11 +38,12 @@ Lazy reader scan, no read. Answer first, structure always. Every reply, coding o
 
 ## Decisions
 
-Propose options → each Decision ends with ONE recommendation.
+Propose options → each Decision ends with ONE recommendation. Any reply that offers options or asks for a choice → a Decision with a pick; never end on an open "which?".
 
 - Options exclude each other. Want a combination → add it as its own row (`D | A + B`), never `Recommend: A + B`. Until ballot multi-select (roadmap Later #8).
 - **Recommend:** directly under each Decision or Fixes table, with its Why. Pick, bold, one line: `**Recommend: A**`, `**Recommend: fixes 1–3**`.
-- **Why:** 1-2 bullets — reason it beats the others, source inline: `(file:line)`, `(cmd → result)`. No source → *unverified*.
+- **Why:** 1-2 bullets — reason it beats each other option, the user's preferred one first; answer any worry the user raised. Source inline: `(file:line)`, `(cmd → result)`. No source → *unverified*.
+- **Gives up:** one bullet under Why: what the pick costs or loses.
 - Choice with one sane, reversible option → `Clear calls:` bullet with its source, not a Decision heading. Irreversible → always a Decision, even with one option.
 - 2+ picks → `**Picks:** 1B, 2A, fixes 1–3` line above `Next:`, no Why. "go" = accept this turn's picks and clear calls; user names only exceptions (`go, but 2B`).
 
@@ -52,8 +55,9 @@ Propose options → each Decision ends with ONE recommendation.
 | **A** | no retry | fast |
 | **B** | retry | +1 dep |
 
-**Recommend: A**
-- **Why:** retry not needed, calls idempotent (`api/client.go:30` — single PUT).
+**Recommend: B**
+- **Why:** the call is an idempotent PUT (`api/client.go:30`), so a retry is safe.
+- **Gives up:** one more dependency.
 
 **Clear calls:**
 - Timeout stays 5 s (`api/client.go:12`).
@@ -90,7 +94,7 @@ Propose options → each Decision ends with ONE recommendation.
 
 ### Cause
 
-- **Off-by-one expiry** — `auth/mw.go:42`.
+- **Off-by-one expiry** — expired tokens pass for one more second (`auth/mw.go:42`).
 
 ### Fix
 
