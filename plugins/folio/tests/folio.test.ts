@@ -3936,6 +3936,23 @@ test('a prompt queued after the turn joined its rail takes ╭ for the rows belo
   expect(await ruleOf(q)).toBe('╭')
 })
 
+test('a queued prompt the engine re-keys twice takes ╭ on its last key', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('prompt.submit', (_$: any, e: any) => ({ text: e.text }))
+  await prompt($, 'hi')
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  const view = { columns: 80, rows: 20, isFullscreen: true }
+  const mount = (requestId: string) => $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId, props: { text: 'oke', origin: { kind: 'composer' } }, viewport: view })
+  // Drawn once before its submit lands in `queued`, then twice more under new keys.
+  await mount('q1')
+  await $.prompt.submit({ text: 'oke', turnId: 't1' } as any)
+  await mount('q2')
+  const q3 = await mount('q3')
+  await mountRow($, 'Read', 'y', {}, '/p/b.txt', 'r2')
+  expect(await ruleOf(q3)).toBe('╭')
+})
+
 test('of two prompts queued in a row, only the later one takes ╭', async ($, on) => {
   native(on)
   nativePrompt(on)
