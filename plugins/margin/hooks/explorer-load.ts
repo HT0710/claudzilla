@@ -2,6 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import { walkNames } from './explorer-find'
 import type { NameEntry } from './explorer-find'
+import { parseStatusZ, untrackedFlag } from './git-data'
 import type { Listing } from './explorer-tree'
 
 export type Loaded = { path: string; lines: string[]; unreadable: boolean; missing: boolean; mtimeMs: number; size: number }
@@ -23,6 +24,8 @@ export function statOf($: EngineInterface, path: string): Promise<{ kind: 'file'
   return $.fs.stat(path).then(s => s, () => undefined)
 }
 
+export const cleanLine = (text: string): string => text.slice(0, CUT).replace(/[\x00-\x08\x0b-\x1f\x7f]/g, ' ')
+
 export async function loadFile($: EngineInterface, path: string): Promise<Loaded> {
   const st = await statOf($, path)
   if (!st) return { path, lines: [], unreadable: true, missing: true, mtimeMs: 0, size: 0 }
@@ -31,7 +34,7 @@ export async function loadFile($: EngineInterface, path: string): Promise<Loaded
   const text = await $.fs.read(path).then(String, () => undefined)
   if (text === undefined || text.includes('\0')) return { ...base, lines: [], unreadable: true }
   const lines = text === '' ? [] : text.replace(/\r?\n$/, '').split(/\r?\n/)
-  return { ...base, unreadable: false, lines: lines.map(l => l.slice(0, CUT).replace(/[\x00-\x08\x0b-\x1f\x7f]/g, ' ')) }
+  return { ...base, unreadable: false, lines: lines.map(cleanLine) }
 }
 
 export async function listDir($: EngineInterface, dir: string): Promise<Listing[]> {
@@ -85,4 +88,18 @@ export async function listNames($: EngineInterface, folder: string, onCap?: () =
   for (const f of [...files, ...subs]) for (let i = f.indexOf('/'); i >= 0; i = f.indexOf('/', i + 1)) dirs.add(f.slice(0, i))
   for (const s of subs) dirs.add(s)
   return [...dirs].map((path): NameEntry => ({ path, kind: 'dir' })).concat([...files].map((path): NameEntry => ({ path, kind: 'file' })))
+}
+
+export async function gitStatus($: EngineInterface, root: string): Promise<{ path: string; xy: string }[] | undefined> {
+  const config = await $.process.run(gitArgs('-C', root, 'config', '--get', 'status.showUntrackedFiles')).catch(() => undefined)
+  const mode = untrackedFlag(config?.exitCode === 0 ? config.stdout : '')
+  const run = await $.process.run(gitArgs('-C', root, 'status', '--porcelain=v1', '-z', `--untracked-files=${mode}`)).catch(() => undefined)
+  if (run?.exitCode !== 0) return undefined
+  return parseStatusZ(run.stdout).changes
+}
+
+export async function gitDiff($: EngineInterface, root: string, abs: string): Promise<string | undefined> {
+  if (!abs.startsWith(`${root}/`)) return undefined
+  const run = await $.process.run(gitArgs('--literal-pathspecs', '-C', root, 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '-U0', 'HEAD', '--', abs.slice(root.length + 1))).catch(() => undefined)
+  return run?.exitCode === 0 && !run.isStdoutTruncated ? run.stdout : undefined
 }
