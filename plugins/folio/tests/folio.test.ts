@@ -3838,14 +3838,34 @@ test('traces which row joins an image prompt card, and its re-key', async ($, on
   await mountGroup($, 'collapsed-uuid', [call('b1', 'Bash', { command: 'echo 1' }), call('b2', 'Bash', { command: 'echo 2' })])
   await $.session.end({ reason: 'other' })
   expect(rows().filter(r => r.event === 'folio.join').map(r => r.data)).toEqual([
+    { step: 'card', prompt: 'p1', row: 'p1', corner: '╌' },
+    { step: 'take', prompt: 'p1', row: 'collapsed-toolu_x000', frame: true },
     { step: 'join', prompt: 'p1', row: 'collapsed-toolu_x000', imgs: 1 },
+    { step: 'card', prompt: 'p1', row: 'p1', corner: '╭' },
     { step: 'move', prompt: 'p1', row: 'collapsed-uuid', from: 'collapsed-toolu_x000' },
     { step: 'join', prompt: 'p1', row: 'collapsed-uuid', imgs: 1 },
   ])
 })
 
+test('traces a plain prompt card, the row that joins it, and its corner', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  const rows = sink(on, 'folio')
+  await prompt($, 'hi')
+  await mountGroup($, 'collapsed-toolu_x000', [call('b1', 'Bash', { command: 'echo 1' }), call('b2', 'Bash', { command: 'echo 2' })])
+  await $.session.end({ reason: 'other' })
+  const steps = rows().filter(r => r.event === 'folio.join').map(r => r.data)
+  expect(steps.slice(0, 3)).toEqual([
+    { step: 'card', prompt: 'p1', row: 'p1', corner: '╌' },
+    { step: 'take', prompt: 'p1', row: 'collapsed-toolu_x000', frame: true },
+    { step: 'join', prompt: 'p1', row: 'collapsed-toolu_x000', imgs: 0 },
+  ])
+  expect(steps).toContainEqual({ step: 'card', prompt: 'p1', row: 'p1', corner: '╭' })
+})
+
 for (const [text, want] of [['look [Image #2]', [{ step: 'reply', prompt: 'p1', row: 'a1', imgs: 1 }]], ['hi', []]] as const) {
-  test(`a reply after "${text}" traces ${want.length ? 'its join' : 'nothing'}`, async ($, on) => {
+  test(`a reply after "${text}" traces ${want.length ? 'its join' : 'no reply join'}`, async ($, on) => {
     native(on)
     nativePrompt(on)
     on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
@@ -3854,7 +3874,7 @@ for (const [text, want] of [['look [Image #2]', [{ step: 'reply', prompt: 'p1', 
     await prompt($, text)
     await said($, 'a1')
     await $.session.end({ reason: 'other' })
-    expect(rows().filter(r => r.event === 'folio.join').map(r => r.data)).toEqual(want)
+    expect(rows().filter(r => r.event === 'folio.join' && r.data.step === 'reply').map(r => r.data)).toEqual(want)
   })
 }
 
