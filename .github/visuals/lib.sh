@@ -24,7 +24,7 @@ start() {
   tm kill-session -t "$SHOT" 2>/dev/null
   COLS=$2 ROWS=$3
   tm new-session -d -s "$SHOT" -x "$COLS" -y "$ROWS" -c "$dir" \
-    "env CLAUDE_CODE_NO_FLICKER=1 COLORTERM=truecolor TZ=UTC claude --dangerously-skip-permissions" \; \
+    "env CLAUDZILLA_PROBE=1 CLAUDE_CODE_NO_FLICKER=1 COLORTERM=truecolor TZ=UTC claude --dangerously-skip-permissions" \; \
     set -g status off \; set -g focus-events on \; set -g mouse on || return 1
   trap finish EXIT
   LIVE=1
