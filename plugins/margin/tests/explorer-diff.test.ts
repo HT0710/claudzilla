@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-import { codeLineAt, editDiff, firstChangeLine, lineDiff, mergeMarks, parseDiff, pressLine, redLit, reloadDiff, sameMarks } from '../hooks/explorer-diff'
+import { layoutOf } from '../hooks/explorer-layout'
+import { barCells, cachedBar, codeLineAt, editDiff, firstChangeLine, lineDiff, mergeMarks, parseDiff, pressLine, redLit, reloadDiff, sameMarks } from '../hooks/explorer-diff'
 
 const added = (d: string) => [...parseDiff(d).added]
 
@@ -194,4 +195,30 @@ test('sameMarks: equal contents match, and undefined counts as empty', () => {
 test('pressLine: a red row gives no line, and a code row gives its own', () => {
   expect(pressLine({ line: 0, tone: 'del' })).toBeUndefined()
   expect(pressLine({ line: 4 })).toBe(4)
+})
+
+const COL = { add: 'a', del: 'd', mixed: 'm' }
+
+test('barCells: a cell with added and removed rows is mixed', () => {
+  expect(barCells(10, 5, [{ row: 2, tone: 'add' }, { row: 3, tone: 'del' }], COL)).toEqual([null, 'm', null, null, null])
+})
+
+test('barCells: one kind keeps its colour, and rows map to cells the way thumbOf does', () => {
+  expect(barCells(10, 5, [{ row: 3, tone: 'del' }, { row: 8, tone: 'add' }], COL)).toEqual([null, 'd', null, null, 'a'])
+  expect(barCells(3, 5, [{ row: 1, tone: 'add' }], COL)).toEqual([null, 'a', null, null, null])
+})
+
+test('barCells: no cells gives no marks', () => {
+  expect(barCells(10, 0, [{ row: 3, tone: 'del' }], COL)).toEqual([])
+})
+
+test('cachedBar: the same key returns the same cells, and any changed part builds new ones', () => {
+  const layout = layoutOf(['a', 'b', 'c'], 20, false)
+  const diff = { added: new Set([2]), removed: new Map<number, string[]>() }
+  const key = { layout, reload: undefined, diff, showDiff: true, cells: 3 }
+  const first = cachedBar(undefined, key, COL)
+  expect(first.marks).toEqual([null, 'a', null])
+  expect(cachedBar(first, { ...key }, COL)).toBe(first)
+  for (const change of [{ layout: layoutOf(['a', 'b', 'c'], 20, false) }, { reload: { added: new Set<number>(), removed: new Map<number, string[]>() } }, { diff: { ...diff } }, { showDiff: false }, { cells: 2 }])
+    expect(cachedBar(first, { ...key, ...change }, COL)).not.toBe(first)
 })

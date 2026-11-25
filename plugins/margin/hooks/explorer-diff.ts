@@ -1,3 +1,5 @@
+import type { Layout } from './explorer-layout'
+import { toneRows } from './explorer-layout'
 import { cleanLine } from './explorer-load'
 
 export type DiffMarks = { added: Set<number>; removed: Map<number, string[]> }
@@ -102,4 +104,23 @@ export function sameMarks(a: DiffMarks | undefined, b: DiffMarks | undefined): b
 
 export function pressLine(row: { line: number; tone?: 'add' | 'del' }): number | undefined {
   return row.tone === 'del' ? undefined : row.line
+}
+
+export function barCells(total: number, cells: number, rows: readonly { row: number; tone: 'add' | 'del' }[], colours: { add: string; del: string; mixed: string }): (string | null)[] {
+  if (cells <= 0) return []
+  const seen = Array.from({ length: cells }, () => ({ add: false, del: false }))
+  for (const { row, tone } of rows) if (row >= 0 && row < total) seen[total <= cells ? row : Math.floor((row * cells) / total)]![tone] = true
+  return seen.map(c => (c.add && c.del ? colours.mixed : c.add ? colours.add : c.del ? colours.del : null))
+}
+
+export type BarKey = { layout: Layout; reload?: DiffMarks; diff?: DiffMarks; showDiff: boolean; cells: number }
+export type BarCache = BarKey & { marks: (string | null)[] }
+
+// Reload marks win a cell over git marks. The same key returns prev itself.
+export function cachedBar(prev: BarCache | undefined, key: BarKey, colours: { add: string; del: string; mixed: string }): BarCache {
+  if (prev && prev.layout === key.layout && prev.reload === key.reload && prev.diff === key.diff && prev.showDiff === key.showDiff && prev.cells === key.cells) return prev
+  const { layout, cells } = key
+  const reloadCells = barCells(layout.rows, cells, toneRows(layout, key.reload), colours)
+  const gitCells = barCells(layout.rows, cells, key.showDiff ? toneRows(layout, key.diff) : [], colours)
+  return { ...key, marks: reloadCells.map((r, i) => r ?? gitCells[i]!) }
 }

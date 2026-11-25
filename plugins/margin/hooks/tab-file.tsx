@@ -3,9 +3,9 @@ import type { EngineInterface, RenderSurface } from 'claude-code'
 
 import { FIND_WAIT, filterNames, findIn, leavesField, markCells } from './explorer-find'
 import type { FindResult, NameEntry } from './explorer-find'
-import { mergeMarks, parseDiff, pressLine, redLit, reloadDiff, sameMarks } from './explorer-diff'
-import type { DiffMarks } from './explorer-diff'
-import { cellsOf, codeRow, fileWindow, hitsOf, layoutFor, layoutOf, lineAt, rowAt, sliceTokens, thumbOf } from './explorer-layout'
+import { cachedBar, mergeMarks, parseDiff, pressLine, redLit, reloadDiff, sameMarks } from './explorer-diff'
+import type { BarCache, DiffMarks } from './explorer-diff'
+import { cellsOf, codeRow, fileWindow, hitsOf, layoutFor, layoutOf, lineAt, rowAt, sliceTokens, thumbOf, toneRows } from './explorer-layout'
 import type { Cached } from './explorer-layout'
 import { OPEN_EDITOR_SH, gitDiff, listDir, listNames, loadFile, latestOf, projectRoot, statOf } from './explorer-load'
 import type { Loaded } from './explorer-load'
@@ -51,6 +51,8 @@ type State = {
   showDiff: boolean
   afterFolder?: boolean
   layout?: Cached
+  // Change cells of the bar, kept while the layout, marks, Show git diff and cell count stay the same.
+  bar?: BarCache
   tokens: Map<number, Token[]>
   expanded: Set<string>
   listed: Map<string, Listing[]>
@@ -779,7 +781,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       const slice = sliceTokens(tokens, state.wrap ? seg * C : state.col, C, on && hitsOf(lines[n - 1]!, on.map(m => ({ ...m, current: m.index === state.find!.current }))))
       const tone = del ? 'del' : state.marks?.added.has(n) ? 'add' : undefined
       const lit = !!state.lit && (del ? redLit(at.before, state.lit.from, state.lit.to) : n >= state.lit.from && n <= state.lit.to)
-      const diffBg = tone === 'add' ? 'diffAddedDimmed' : tone === 'del' ? 'diffRemovedDimmed' : undefined
+      const diffBg = tone === 'add' ? 'diffAdded' : tone === 'del' ? 'diffRemoved' : undefined
       const cell = seg ? ' '.repeat(G) : del ? `${' '.repeat(digits + 1)}− ` : ` ${String(n).padStart(digits)}${tone === 'add' ? '+' : ' '} `
       drawn.push({ row: r, line: n, ...(del && { before: at.before }), cell, lit, hit: !seg && !!on, ...(tone && { tone }) })
       code.push(
@@ -795,7 +797,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
               }}
             >
               {slice.length || lit || diffBg ? slice.map((t, k) => (
-                <Text key={k} backgroundColor={t.hit === 'current' ? 'warning' : t.hit ? PILL_BG.yellow : lit ? LIT : diffBg} color={t.hit === 'current' ? 'inverseText' : t.hit ? STATUS.M : kindColor(t)}>
+                <Text key={k} backgroundColor={t.hit === 'current' ? 'warning' : t.hit ? PILL_BG.yellow : lit ? LIT : diffBg} color={t.hit === 'current' ? 'inverseText' : t.hit ? STATUS.M : del ? HUD.faint : kindColor(t)}>
                   {t.text}
                 </Text>
               )) : <Text> </Text>}
@@ -821,16 +823,18 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     if (findOpen)
       for (const n of state.find!.spans.keys())
         for (let r = codeRow(layout, n - 1); r < layout.starts[n]!; r++) matched.push(r)
-    const marks = markCells(layout.rows, codeRows, matched).map(m => (m ? 'warning' : null))
+    const b = (state.bar = cachedBar(state.bar, { layout, reload: state.reloadMarks, diff: state.diff, showDiff: state.showDiff, cells: codeRows }, { add: STATUS.A, del: STATUS.D, mixed: STATUS.M }))
+    const found = markCells(layout.rows, codeRows, matched)
+    const marks = matched.length ? b.marks.map((m, i) => m ?? (found[i] ? 'warning' : null)) : b.marks
     body.push(
       <Box key="view">
         <Box width={G} flexShrink={0} flexDirection="column">
           {Client ? (
-            <Client key="explorer:gutter" module="./explorer-gutter.tsx" height={codeRows} props={{ rows: drawn, colors: { lit: LIT, faint: HUD.faint, claude: 'claude', warning: 'warning', add: STATUS.A, del: STATUS.D, addBg: 'diffAddedDimmed', delBg: 'diffRemovedDimmed' } }} />
+            <Client key="explorer:gutter" module="./explorer-gutter.tsx" height={codeRows} props={{ rows: drawn, colors: { lit: LIT, faint: HUD.faint, claude: 'claude', warning: 'warning', add: STATUS.A, del: STATUS.D, addBg: 'diffAdded', delBg: 'diffRemoved' } }} />
           ) : (
             drawn.map(r => (
               <Button key={`gutter:${r.row}`} plain onPress={press => (pressLine(r) !== undefined ? (clearReload(), copyLines($, r.line, r.line, press.surface)) : undefined)}>
-                <Text color={r.hit ? 'warning' : r.tone === 'add' ? STATUS.A : r.tone === 'del' ? STATUS.D : HUD.faint} backgroundColor={r.lit ? LIT : r.tone === 'add' ? 'diffAddedDimmed' : r.tone === 'del' ? 'diffRemovedDimmed' : undefined}>
+                <Text color={r.hit ? 'warning' : r.tone === 'add' ? STATUS.A : r.tone === 'del' ? STATUS.D : HUD.faint} backgroundColor={r.lit ? LIT : r.tone === 'add' ? 'diffAdded' : r.tone === 'del' ? 'diffRemoved' : undefined}>
                   {r.cell}
                 </Text>
               </Button>
