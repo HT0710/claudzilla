@@ -2164,6 +2164,29 @@ test('History rereads at most once a second while the chat scrolls', async ($, o
   await row.redraw({ ...reply, onScreen: null })
 })
 
+test("a tool call's command and output rows, at different places, settle after one redraw", async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000_000 })
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('process.run', () => ran(''))
+  let draws = 0
+  // Stands for the engine's own drawing of the rows.
+  on('ui.render', { component: ['ToolUse', 'ToolResult'] }, () => {
+    draws++
+    return { type: 'Text' as const, children: ['row'] }
+  })
+  const call = { tool: 'Bash', input: { command: 'ls' }, output: 'a', isRunning: false, isErrored: false, isInterrupted: false, isExpanded: false }
+  // Both rows of one call carry its tool_use_id.
+  await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_1',
+    props: { ...call, onScreen: { first: 0, last: 1, of: 2 } } })
+  await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'ToolResult', requestId: 'toolu_1',
+    props: { ...call, onScreen: { first: 0, last: 11, of: 12 } } })
+  await clock.advance(1_000)
+  const settled = draws
+  await clock.advance(1_000)
+  expect(draws).toBe(settled)
+})
+
 test('chat moves redraw the panel once, 100 ms later', async ($, on) => {
   const start = Date.now() - 60_000
   const history = ['a', 'b', 'c']
