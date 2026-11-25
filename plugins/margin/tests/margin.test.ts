@@ -4414,6 +4414,12 @@ test("hang: a listed name matches the spawn's name before its description", () =
   expect(hang([S('a', 'in_progress', ['sleepy-lynx'])], spawns, 1)[0]).toEqual([{ id: '1', name: 'sleepy-lynx', description: 'Read code', status: 'running' }])
 })
 
+test("hang: a listed name fills from an earlier turn once finished, as a resumed agent's record keeps its turn", () => {
+  const spawns = [{ ...sp('1', 'Probe', 'a', 1, 'idle'), name: 'pixel-marmot' }]
+  expect(hang([S('a', 'completed', ['pixel-marmot'])], spawns, 2)[0][0].status).toBe('idle')
+  expect(hang([S('a', 'completed', ['Probe'])], spawns, 2)[0]).toEqual([{ description: 'Probe', status: 'planned' }])
+})
+
 test('hang: a name match beats an earlier spawn\'s description match', () => {
   const spawns = [sp('1', 'Read code', 'a', 1), { ...sp('2', 'Other', 'a', 1), name: 'Read code' }]
   expect(hang([S('a', 'in_progress', ['Read code'])], spawns, 1)[0][0].id).toBe('2')
