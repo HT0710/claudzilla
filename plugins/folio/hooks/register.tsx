@@ -634,6 +634,8 @@ const files = new Set<string>()
 // Paths found missing, by when: a burst of redraws asks once, and a file made later links on a later draw.
 const misses = new Map<string, number>()
 const MISS_MS = 5_000
+// Each chunk's links by text, so a redraw asks the engine nothing; a chunk with a missed span drops out after MISS_MS to ask again.
+const linksOf = new Map<string, Map<string, Link>>()
 // Repo root, else the start cwd: relative spans fall back to it once a `cd` moved the session cwd.
 let root = ''
 let toldNoPanel = false
@@ -657,6 +659,8 @@ async function links($: EngineInterface, text: string): Promise<Map<string, Link
   const found = new Map<string, Link>()
   const all = mentions(text)
   if (!all.length) return found
+  const hit = linksOf.get(text)
+  if (hit) return hit
   try {
     const cwd = await $.session.cwd()
     const home = all.some(m => m.path.startsWith('~/')) ? await $.env.get('HOME') : undefined
@@ -686,6 +690,9 @@ async function links($: EngineInterface, text: string): Promise<Map<string, Link
       const path = pathsOf(m.path).find(p => files.has(p))
       if (path) found.set(m.span, { href: href(path, m.line), path, line: m.line })
     }
+    if (linksOf.size > 500) linksOf.clear()
+    linksOf.set(text, found)
+    if (!all.every(m => found.has(m.span))) void $.clock.after(MISS_MS, () => linksOf.delete(text))
   } catch {
     return new Map()
   }
@@ -703,6 +710,7 @@ export const register: Register = on => {
     const read = await readHideEditDiff($, e.cwd)
     hideEditDiff = read.hide
     root = read.top || e.cwd
+    linksOf.clear()
     return next(e)
   })
 
