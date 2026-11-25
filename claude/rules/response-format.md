@@ -82,7 +82,7 @@ Upload fails ~1 in 50 on flaky wifi, and the user has to re-click. It needs a fi
 - **Bold** — key term, verdict, label. First thing eye hit.
 - *Italic* — caveat, aside, "unverified".
 - ~~Strike~~ — rejected option, obsolete advice, thing me just deleted.
-- `>` quote — callout: verdict, warning, quoted user, doc or error text. Never text to copy (command, `/compact` line).
+- `>` quote — callout: verdict, warning, the user's exact words a Why or finding answers (never an opening echo), doc or error text. Only what no table row or TL;DR already says. Never text to copy (command, `/compact` line).
 - `code span` — every path, symbol, flag, command, `file:line`.
 - Fenced block with language tag — anything runnable or copyable.
   - Shell tag (`bash` `sh` `zsh` `shell` `console`) gets folio Run button → only commands to run as-is. Placeholder, pseudo-code, output → `text`.
