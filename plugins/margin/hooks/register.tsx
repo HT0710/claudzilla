@@ -1552,7 +1552,8 @@ export const register: Register = (on, options) => {
 
   // A long reply fills the screen with no prompt row: its rows say whose turn is in view.
   on('ui.render', { component: ['AssistantMessage', 'ToolUse', 'ToolResult'] }, async ($, e, next) => {
-    await see($, e.requestId, e.props.onScreen)
+    // A call's output row shares its command row's id: one slot for both reads every redraw as a move.
+    await see($, e.component === 'ToolResult' ? `${e.requestId}:result` : e.requestId, e.props.onScreen, e.requestId)
     // The intent report shows in the panel, not as a chat row.
     if (e.component !== 'AssistantMessage' && e.props.tool === INTENT_TOOL) {
       const { Box } = $.ui.resolve(e)
