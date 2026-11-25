@@ -3,7 +3,7 @@ import type { EngineInterface, RenderSurface } from 'claude-code'
 
 import { FIND_WAIT, filterNames, findIn, leavesField, markCells } from './explorer-find'
 import type { FindResult, NameEntry } from './explorer-find'
-import { mergeMarks, parseDiff, pressLine, redLit } from './explorer-diff'
+import { mergeMarks, parseDiff, pressLine, redLit, reloadDiff, sameMarks } from './explorer-diff'
 import type { DiffMarks } from './explorer-diff'
 import { cellsOf, codeRow, fileWindow, hitsOf, layoutFor, layoutOf, lineAt, rowAt, sliceTokens, thumbOf } from './explorer-layout'
 import type { Cached } from './explorer-layout'
@@ -46,6 +46,8 @@ type State = {
   reloadMarks?: DiffMarks
   // The marks drawn; the layout reads only this, and only showMarks() sets it.
   marks?: DiffMarks
+  // Set when the shown marks changed: the next draw keeps the top source line. 'text': the reload changed the text, so lines the reload added do not count.
+  remapTop?: boolean | 'text'
   showDiff: boolean
   afterFolder?: boolean
   layout?: Cached
@@ -122,6 +124,7 @@ function moveTo(change: (nav: Nav) => Nav): boolean {
     state.diff = state.reloadMarks = undefined
     showMarks()
   }
+  state.remapTop = false
   state.top = entry.top
   state.lit = entry.kind === 'file' && entry.line !== undefined ? { from: entry.line, to: entry.line } : undefined
   state.col = 0
@@ -135,6 +138,19 @@ async function gitMarks($: EngineInterface, root: string, abs: string): Promise<
 
 function showMarks(): void {
   state.marks = mergeMarks(state.showDiff ? state.diff : undefined, state.reloadMarks)
+}
+
+// Like showMarks, and the next draw keeps the top source line when the shown marks changed.
+function showMarksRemap(): void {
+  const before = state.marks
+  showMarks()
+  if (!sameMarks(before, state.marks)) state.remapTop = true
+}
+
+function clearReload(): void {
+  if (!state.reloadMarks) return
+  state.reloadMarks = undefined
+  showMarksRemap()
 }
 
 // The open place at a new revision the draw has already taken.
@@ -170,16 +186,20 @@ async function relistPage($: EngineInterface): Promise<void> {
   await update($, file, () => placeOf())
 }
 
-export async function reloadPlace($: EngineInterface): Promise<void> {
+export async function reloadPlace($: EngineInterface, edit?: { oldText: string; newText: string; replaceAll: boolean }): Promise<void> {
   const place = current(state.nav)
   if (place.kind === 'folder') return relistPage($)
   const n = guard.begin()
   const root = state.root ?? (state.root = await projectRoot($))
+  const prev = state.loaded?.path === place.path && !state.loaded.unreadable ? state.loaded.lines : undefined
   const [loaded, diff] = await Promise.all([loadFile($, place.path), gitMarks($, root, place.path)])
   if (guard.isLatest(n)) {
     state.loaded = loaded
     state.diff = diff
-    showMarks()
+    const same = prev && prev.length === loaded.lines.length && prev.every((t, i) => t === loaded.lines[i])
+    if (!same) state.reloadMarks = loaded.unreadable ? undefined : reloadDiff(prev, loaded.lines, edit)
+    showMarksRemap()
+    if (!same && state.reloadMarks && state.remapTop) state.remapTop = 'text'
     state.tokens = new Map()
     rerunFind()
   }
@@ -211,11 +231,13 @@ function litFind(find: NonNullable<State['find']>, m: { line: number } | undefin
 }
 
 // Reloads the open file when its stamp changed or it is gone.
-export async function checkOpenFile($: EngineInterface): Promise<void> {
+export async function checkOpenFile($: EngineInterface): Promise<boolean> {
   const place = current(state.nav)
-  if (place.kind !== 'file' || state.loaded?.path !== place.path) return
+  if (place.kind !== 'file' || state.loaded?.path !== place.path) return false
   const st = await statOf($, place.path)
-  if (st ? st.mtimeMs !== state.loaded.mtimeMs || st.size !== state.loaded.size : !state.loaded.missing) await reloadPlace($)
+  if (!(st ? st.mtimeMs !== state.loaded.mtimeMs || st.size !== state.loaded.size : !state.loaded.missing)) return false
+  await reloadPlace($)
+  return true
 }
 
 export async function changedOnDisk($: EngineInterface, call: { tool: string } & Record<string, unknown>): Promise<void> {
@@ -224,9 +246,20 @@ export async function changedOnDisk($: EngineInterface, call: { tool: string } &
   const target = call.tool === 'NotebookEdit' ? call.notebook_path : call.file_path
   // Listings kept for other pages go stale too; the next folder draw relists only what is on screen.
   if (call.tool === 'Write' || call.tool === 'NotebookEdit' || call.tool === 'Bash') state.listed.clear()
-  if (here.kind === 'file' && (call.tool === 'Edit' || call.tool === 'Write' || call.tool === 'NotebookEdit') && target === here.path) return reloadPlace($)
+  if (here.kind === 'file' && (call.tool === 'Edit' || call.tool === 'Write' || call.tool === 'NotebookEdit') && target === here.path) {
+    const edit = call.tool === 'Edit' && typeof call.old_string === 'string' && typeof call.new_string === 'string' ? { oldText: call.old_string, newText: call.new_string, replaceAll: call.replace_all === true } : undefined
+    return reloadPlace($, edit)
+  }
   if (here.kind === 'folder' && (call.tool === 'Write' || call.tool === 'Bash')) await relistPage($)
-  if (call.tool === 'Bash') await checkOpenFile($)
+  if (call.tool === 'Bash' && !(await checkOpenFile($)) && here.kind === 'file' && current(state.nav).path === here.path && state.loaded?.path === here.path) {
+    // A commit or checkout moves no mtime but changes the git marks.
+    const n = guard.begin()
+    const diff = await gitMarks($, state.root, here.path)
+    if (!guard.isLatest(n) || current(state.nav).path !== here.path || sameMarks(diff, state.diff)) return
+    state.diff = diff
+    showMarksRemap()
+    await update($, file, () => placeOf())
+  }
 }
 
 const FIELD = 'explorer:find'
@@ -553,7 +586,10 @@ export async function explorerPost($: EngineInterface, e: { element: string; dat
     await update($, file, () => placeOf())
     return
   }
-  if (e.element === 'explorer:gutter' && typeof d?.first === 'number' && typeof d.last === 'number') await copyLines($, d.first, d.last, e.surface)
+  if (e.element === 'explorer:gutter' && typeof d?.first === 'number' && typeof d.last === 'number') {
+    clearReload()
+    await copyLines($, d.first, d.last, e.surface)
+  }
 }
 
 export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
@@ -584,6 +620,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     if (guard.isLatest(n) && here.kind === 'file' && here.path === wanted.path) {
       state.loaded = loaded
       state.diff = diff
+      state.reloadMarks = undefined
       showMarks()
       state.tokens = new Map()
     }
@@ -698,8 +735,24 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   } else if (loaded?.unreadable) {
     body = [emptyNote(ctx.el, codeRows, "Can't show this file", <Text color={HUD.faint}>{loaded.missing ? 'It no longer exists.' : 'It is binary, unreadable or over 4 MiB.'}</Text>)]
   } else if (loaded) {
+    const was = state.layout?.layout
     state.layout = layoutFor(state.layout, loaded, C, state.wrap, lines, state.marks?.removed)
     const { layout } = state.layout
+    if (state.remapTop && state.top !== undefined && was) {
+      let at = lineAt(was, state.top)
+      if (state.remapTop === 'text') {
+        const marks = state.reloadMarks
+        for (let n = 1, old = -1, found = !marks; !found && n <= lines.length; n++) {
+          const cut = marks!.removed.get(n)?.length ?? 0
+          // A top line inside a removed block lands on the line after it.
+          if (at > old && at <= old + cut) [at, found] = [n - 1, true]
+          else if (!marks!.added.has(n) && (old += cut + 1) === at) [at, found] = [n - 1, true]
+          else if (marks!.added.has(n)) old += cut
+        }
+      }
+      state.top = layout.starts[Math.max(0, Math.min(at, lines.length - 1))] ?? 0
+    }
+    state.remapTop = false
     const Client = 'Client' in ctx.el ? ctx.el.Client : undefined
     const hbar = !!Client && !state.wrap && layout.widest > C
     if (hbar) codeRows = Math.max(0, codeRows - 1)
@@ -737,6 +790,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
               plain
               onPress={() => {
                 state.lit = undefined
+                clearReload()
                 return update($, file, () => placeOf())
               }}
             >
@@ -775,7 +829,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
             <Client key="explorer:gutter" module="./explorer-gutter.tsx" height={codeRows} props={{ rows: drawn, colors: { lit: LIT, faint: HUD.faint, claude: 'claude', warning: 'warning', add: STATUS.A, del: STATUS.D, addBg: 'diffAddedDimmed', delBg: 'diffRemovedDimmed' } }} />
           ) : (
             drawn.map(r => (
-              <Button key={`gutter:${r.row}`} plain onPress={press => (pressLine(r) !== undefined ? copyLines($, r.line, r.line, press.surface) : undefined)}>
+              <Button key={`gutter:${r.row}`} plain onPress={press => (pressLine(r) !== undefined ? (clearReload(), copyLines($, r.line, r.line, press.surface)) : undefined)}>
                 <Text color={r.hit ? 'warning' : r.tone === 'add' ? STATUS.A : r.tone === 'del' ? STATUS.D : HUD.faint} backgroundColor={r.lit ? LIT : r.tone === 'add' ? 'diffAddedDimmed' : r.tone === 'del' ? 'diffRemovedDimmed' : undefined}>
                   {r.cell}
                 </Text>
@@ -815,6 +869,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       fallback: true,
       wheel: by => {
         state.top = fileWindow(layout.rows, (state.top ?? 0) + by, codeRows).top
+        clearReload()
         return update($, file, () => placeOf())
       },
     })

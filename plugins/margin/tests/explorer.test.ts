@@ -2378,3 +2378,144 @@ test('the diff rows are still drawn after a folder page and back', async ($, on)
   await ui.redraw()
   expect((await gutterRows(ui)).map(r => r.tone)).toEqual([undefined, 'del', 'add', undefined])
 })
+
+test('a file shown again after a folder page and a change draws no old reload marks', async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/src/a.ts', line: 1 }, lines(3), { '/repo/src': [{ name: 'a.ts', kind: 'file' }] })
+  disk.set('/repo/src/a.ts', { text: 'line 1\nline two\nline 3', mtimeMs: 2 })
+  await $.tool.call({ tool: 'Write', file_path: '/repo/src/a.ts' } as any)
+  await ui.redraw()
+  expect(await tones(ui)).toEqual([undefined, 'del', 'add', undefined])
+  await ui.press({ key: '/repo/src' })
+  await ui.redraw()
+  disk.set('/repo/src/a.ts', { text: 'line 1\nline two\nline 3\nline 4', mtimeMs: 3 })
+  await ui.press({ key: 'back' })
+  await ui.redraw()
+  expect((await tones(ui)).every(t => t === undefined)).toBe(true)
+})
+
+const tones = async (ui: any) => (await gutterRows(ui)).map(r => r.tone)
+const diffRuns = () => runs.filter(a => a.includes('diff')).length
+
+test('an Edit with a unique old_string marks its new line green and the old text red', async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 1 }, lines(3))
+  disk.set('/repo/a.ts', { text: 'line 1\nline 2 new\nline 3', mtimeMs: 2 })
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts', old_string: 'line 2', new_string: 'line 2 new', replace_all: false } as any)
+  await ui.redraw()
+  expect(await tones(ui)).toEqual([undefined, 'del', 'add', undefined])
+})
+
+test('a Write marks the changed lines by a line diff', async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 1 }, lines(3))
+  disk.set('/repo/a.ts', { text: 'line 1\nline two\nline 3', mtimeMs: 2 })
+  await $.tool.call({ tool: 'Write', file_path: '/repo/a.ts' } as any)
+  await ui.redraw()
+  expect(await tones(ui)).toEqual([undefined, 'del', 'add', undefined])
+})
+
+test('a Write to a 20,001-line untracked file draws with no marks', async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 1 }, lines(20001))
+  disk.set('/repo/a.ts', { text: `${lines(20001)}\nmore`, mtimeMs: 2 })
+  await $.tool.call({ tool: 'Write', file_path: '/repo/a.ts' } as any)
+  await ui.redraw()
+  expect((await gutterRows(ui)).every(r => r.tone === undefined)).toBe(true)
+  expect(await ui.find({ key: 'row:1' })).toBeDefined()
+})
+
+test("an untracked file's reload marks show only the lines the last reload changed", async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 1 }, lines(3))
+  disk.set('/repo/a.ts', { text: 'line 1\nline two\nline 3', mtimeMs: 2 })
+  await $.tool.call({ tool: 'Write', file_path: '/repo/a.ts' } as any)
+  disk.set('/repo/a.ts', { text: 'line 1\nline two\nline three', mtimeMs: 3 })
+  await $.tool.call({ tool: 'Write', file_path: '/repo/a.ts' } as any)
+  await ui.redraw()
+  expect(await tones(ui)).toEqual([undefined, undefined, 'del', 'add'])
+})
+
+test('an unchanged reload keeps the marks it had', async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 1 }, lines(3))
+  disk.set('/repo/a.ts', { text: 'line 1\nline two\nline 3', mtimeMs: 2 })
+  await $.tool.call({ tool: 'Write', file_path: '/repo/a.ts' } as any)
+  disk.set('/repo/a.ts', { text: 'line 1\nline two\nline 3', mtimeMs: 3 })
+  await $.tool.call({ tool: 'Write', file_path: '/repo/a.ts' } as any)
+  await ui.redraw()
+  expect(await tones(ui)).toEqual([undefined, 'del', 'add', undefined])
+})
+
+test('a reload that adds rows above the view keeps its top source line', async ($, on) => {
+  hostOk(on)
+  const text = Array.from({ length: 60 }, (_, i) => `line ${i + 1};`).join('\n')
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 50 }, text)
+  const before = textOf(await ui.find({ key: 'code:0' }))
+  disk.set('/repo/a.ts', { text: text.replace('line 3;', 'line 3a;\nline 3b;\nline 3c;'), mtimeMs: 2 })
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts', old_string: 'line 3;', new_string: 'line 3a;\nline 3b;\nline 3c;', replace_all: false } as any)
+  await ui.redraw()
+  expect(textOf(await ui.find({ key: 'code:0' }))).toBe(before)
+})
+
+test('a wheel tick clears reload marks and keeps git marks', async ($, on) => {
+  hostOk(on)
+  const ui = await withDiff($, on, '@@ -3 +3 @@\n-old\n+new\n', { path: '/repo/a.ts', line: 1 })
+  disk.set('/repo/a.ts', { text: 'line 1\nline two\nline 3', mtimeMs: 2 })
+  await $.tool.call({ tool: 'Write', file_path: '/repo/a.ts' } as any)
+  await ui.redraw()
+  expect((await tones(ui)).filter(Boolean).length).toBe(4)
+  await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 1, bodyRows: 19, contentRows: 19, origin: { kind: 'person' }, pointer: { column: 0, row: 6 } })
+  await ui.redraw()
+  expect(await tones(ui)).toEqual([undefined, undefined, 'del', 'add'])
+})
+
+test('a Bash call re-runs git diff for the open file', async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  runs.length = 0
+  await $.tool.call({ tool: 'Bash', command: 'git commit -qm x' } as any)
+  await ui.redraw()
+  expect(diffRuns()).toBe(1)
+})
+
+test('a Bash call that leaves the git diff as it was keeps the rows', async ($, on) => {
+  hostOk(on)
+  const ui = await withDiff($, on, '@@ -2 +2 @@\n-old\n+new\n', { path: '/repo/a.ts', line: 1 })
+  await $.tool.call({ tool: 'Bash', command: 'git status' } as any)
+  await $.tool.call({ tool: 'Bash', command: 'git status' } as any)
+  await ui.redraw()
+  expect(await tones(ui)).toEqual([undefined, 'del', 'add', undefined])
+})
+
+test('a Bash call that moves the mtime runs git diff once, in its reload', async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  disk.set('/repo/a.ts', { text: 'b\n', mtimeMs: 2 })
+  runs.length = 0
+  await $.tool.call({ tool: 'Bash', command: 'sed -i s/a/b/ a.ts' } as any)
+  await ui.redraw()
+  expect(diffRuns()).toBe(1)
+})
+
+const numbered = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1};`)
+
+test('a reload that cuts the file below the old top still draws code', async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 50 }, numbered(60).join('\n'))
+  disk.set('/repo/a.ts', { text: numbered(10).join('\n'), mtimeMs: 2 })
+  await $.tool.call({ tool: 'Write', file_path: '/repo/a.ts' } as any)
+  await ui.redraw()
+  expect(await ui.find({ key: 'code:0' })).toBeDefined()
+})
+
+test('a reload that deletes the block under the top lands on the line after it', async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 60 }, numbered(100).join('\n'))
+  disk.set('/repo/a.ts', { text: [...numbered(100).slice(0, 49), ...numbered(100).slice(80)].join('\n'), mtimeMs: 2 })
+  await $.tool.call({ tool: 'Write', file_path: '/repo/a.ts' } as any)
+  await ui.redraw()
+  // The 31 red rows sit above the new line 50, so the view starts on the first of them.
+  expect((await gutterRows(ui))[0]?.tone).toBe('del')
+  expect(textOf(await ui.find({ key: 'code:0' }))).toContain('line 50;')
+})
