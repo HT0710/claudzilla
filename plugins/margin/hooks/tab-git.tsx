@@ -5,7 +5,8 @@ import type { Check, CheckState, CommitView, Counts, Gh, LogRow, Modal, ModalKey
 import { LOG_FORMAT, age, ago, branches, cutMiddle, fetchDue, fileKey, incomingPrs, ownPrs, parseHead, parseLog, parseMerge, parseNumstat, parseRebase, parseShortstat, parseStatusZ, printable, sortChecks, stashCount, syncMark, treeRows, untrackedFlag, worktrees, worst } from './git-data'
 import { AHEAD, BEHIND, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, basicGlyphs, nf, capped, card as kitCard, clock, configDir, contentFrame, counted as kitCounted, cues, dayName, dim, drawLayer as kitDrawLayer, emptyNote, fade, fadeBg, fit, heading as kitHeading, kv as kitKv, line as kitLine, modalFrame, modalZone, nudge, readTheme, row as kitRow, rowHovers, stackFrame, toPieces, colWidth, zoneWindow } from './kit'
 import type { Frame, Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, Zone } from './kit'
-import { statOf } from './explorer-load'
+import { firstChangeLine } from './explorer-diff'
+import { gitDiff, statOf } from './explorer-load'
 import { mdRows } from './markdown'
 import { openPlace } from './tab-file'
 
@@ -392,18 +393,23 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
   const lineCounts = untrackedShown.length ? await wcRead!.run : new Map<string, Counts>()
   // Opens `path` (from the repo's top) in the Explorer tab. A file no longer in the working tree, as a commit's may be,
   // says so instead of opening.
-  const openFile = async (path: string) => {
+  // `firstChange` only for CHANGES rows: a commit's or PR's file is not a working-tree change.
+  const openFile = async (path: string, firstChange = false) => {
     const abs = `${root}/${path}`
     const st = await statOf($, abs)
     if (!st) return void $.ui.toast(`Not in the working tree: ${printable(path)}`)
-    await openPlace($, st.kind === 'dir' ? { path: abs, kind: 'folder' } : { path: abs })
+    if (st.kind === 'dir') await openPlace($, { path: abs, kind: 'folder' })
+    else {
+      const diff = firstChange ? await gitDiff($, root, abs) : undefined
+      await openPlace($, firstChange ? { path: abs, line: (diff ? firstChangeLine(diff) : undefined) ?? 1 } : { path: abs })
+    }
     await ctx.pick('Explorer')
   }
   rowHover.acts = dimmed
     ? { [openRow!]: () => ctx.setModal(() => null) }
     : {
         branch: () => openModal('branch'), fetch: () => !isFetching && fetchNow(), rebase: () => openModal('rebase'), pr: () => openModal('pr'), prs: () => openModal('prs'),
-        ...Object.fromEntries(shownChanges.filter(c => !c.words.includes('deleted')).map(c => [fileKey(c.path), () => openFile(c.path)])),
+        ...Object.fromEntries(shownChanges.filter(c => !c.words.includes('deleted')).map(c => [fileKey(c.path), () => openFile(c.path, true)])),
         ...Object.fromEntries(shownCommits.map(c => [commitKey(c.full), () => openModal('commit', c)])),
       }
   // A top row: a row Client where the surface draws one, else a Button whose card shows on hover. `width`: a row

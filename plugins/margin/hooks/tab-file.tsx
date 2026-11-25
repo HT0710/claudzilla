@@ -6,7 +6,7 @@ import type { FindResult, NameEntry } from './explorer-find'
 import { cachedBar, mergeMarks, parseDiff, pressLine, redLit, reloadDiff, sameMarks } from './explorer-diff'
 import type { BarCache, DiffMarks } from './explorer-diff'
 import { cellsOf, codeRow, fileWindow, hitsOf, layoutFor, layoutOf, lineAt, rowAt, sliceTokens, thumbOf, toneRows } from './explorer-layout'
-import type { Cached } from './explorer-layout'
+import type { Cached, Layout } from './explorer-layout'
 import { MIXED, treeMarks } from './explorer-status'
 import type { TreeMarks } from './explorer-status'
 import { OPEN_EDITOR_SH, gitDiff, gitStatus, listDir, listNames, loadFile, latestOf, projectRoot, statOf } from './explorer-load'
@@ -148,6 +148,11 @@ async function gitMarks($: EngineInterface, root: string, abs: string): Promise<
 
 function showMarks(): void {
   state.marks = mergeMarks(state.showDiff ? state.diff : undefined, state.reloadMarks)
+}
+
+// Moves the top to the row of its source line after a layout change.
+function keepTop(old: Layout, lines: readonly string[], C: number): void {
+  state.top = codeRow(layoutOf(lines, C, state.wrap, state.marks?.removed), lineAt(old, state.top ?? 0))
 }
 
 // Like showMarks, and the next draw keeps the top source line when the shown marks changed.
@@ -1076,7 +1081,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
         onPress={() => {
           const old = state.layout?.layout
           state.wrap = !state.wrap
-          if (old && place.kind === 'file') state.top = codeRow(layoutOf(lines, C, state.wrap, state.marks?.removed), lineAt(old, state.top ?? 0))
+          if (old && place.kind === 'file' && loaded && !loaded.unreadable) keepTop(old, lines, C)
           return update($, file, () => placeOf())
         }}
       >
@@ -1090,7 +1095,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
           const old = state.layout?.layout
           state.showDiff = !state.showDiff
           showMarks()
-          if (old && place.kind === 'file') state.top = codeRow(layoutOf(lines, C, state.wrap, state.marks?.removed), lineAt(old, state.top ?? 0))
+          if (old && place.kind === 'file' && loaded && !loaded.unreadable) keepTop(old, lines, C)
           return update($, file, () => placeOf())
         }}
       >
