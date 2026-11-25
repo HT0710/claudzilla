@@ -377,7 +377,7 @@ async function writeHandoff($: EngineInterface, ask: string): Promise<{ text: st
         return lost()
       }
       // Inline, because a plugin's prompt does not expand @file.
-      const sent = await $.prompt.submit({ text: ask ? `${note}\n## User's ask\n\n${ask}` : note, asUser: true }).then(r => !r.drop, () => false)
+      const sent = await $.prompt.submit({ text: ask ? `${note}\n\n## User's ask\n\n${ask}` : note, asUser: true }).then(r => !r.drop, () => false)
       if (sent) return
       const { isFilled } = await $.prompt.fill({ text: `@${file} ${ask}` }).catch(() => ({ isFilled: false }))
       if (!isFilled) lost()

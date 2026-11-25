@@ -3404,7 +3404,7 @@ test('TOPICS reads a prompt that starts with a path, not a command', async ($, o
 
 // A mod's prompt sent as the user (primer's handoff) lands in the chat file only, not in the history file.
 test('TOPICS reads a prompt a mod sent as the user from the chat file', async ($, on) => {
-  const handoff = `# Handoff from chat-0\n\nWritten 2026-11-16. Its transcript: ${'x'.repeat(300)}\n\n## Where we were\n\nWatch CI on PR #321\n\n${'y'.repeat(4000)}\n## User's ask\n\nadd a dark theme`
+  const handoff = `# Handoff from chat-0\n\nWritten 2026-11-16. Its transcript: ${'x'.repeat(300)}\n\n## Where we were\n\nWatch CI on PR #321\n\n${'y'.repeat(4000)}\n\n## User's ask\n\nadd a dark theme`
   const rows = [
     { type: 'user', isMeta: true, origin: { kind: 'plugin', name: 'primer' }, timestamp: '2026-11-16T08:45:51Z', message: { content: '<command-name>/clear</command-name>' } },
     { type: 'user', origin: { kind: 'plugin', name: 'primer', asUser: true }, timestamp: '2026-11-16T08:45:52Z', message: { content: handoff } },
