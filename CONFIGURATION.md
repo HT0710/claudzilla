@@ -100,13 +100,25 @@ The same three files hold one folio option, under its own key and read when a se
 
 `hideEditDiff` (default `true`): folio folds tool calls into one row with counts, such as `◼ Edited (1 file)  +12 −3`, and ctrl+o shows the full diffs. `false` keeps the diffs in the chat. A bad value is ignored without a message.
 
-And one herald option, under its own key:
+And herald's toast times, under its own key:
 
 ```json
-{"herald": {"waiting": false}}
+{"herald": {"default": 8, "cacheCold": 60, "usage": 0}}
 ```
 
-`waiting` (default `true`): when a session ends a turn, asks for a permission or asks a question, every other open session toasts it for 5 seconds, such as `! claudzilla-35 waits on you · Bash permission · ⎇ main`. `false` stops this session from both sending and showing these toasts. A bad value is ignored without a message.
+Each key is a toast kind, and its value is how many seconds the toast shows, up to 60; larger values count as 60. `0` turns that toast off. A kind without its own key takes `default`, and with no `default` its built-in time. A bad value is ignored without a message.
+
+| key | toast | built-in |
+|---|---|---|
+| `update` | claudzilla update progress | 10 |
+| `usage` | a usage limit passing 50, 75 or 90% | 10 |
+| `context` | context passing `compactNudge` | 10 |
+| `cacheCold` | the prompt cache goes cold in 15 minutes | 60 |
+| `waiting` | another open session ended a turn or waits on you | 10 |
+
+`waiting`: when a session ends a turn, asks for a permission or asks a question, every other open session toasts it, such as `! claudzilla-35 waits on you · Bash permission · ⎇ main`. `0` stops this session from both sending and showing these toasts, also when it comes from `default`. `false` still works as `0`.
+
+`cacheCold` `0` hides only the toast: the prompt box still gets `/claudzilla compact`. `context` `0` also hides only the toast: the reminder under the prompt after 30 idle minutes still shows.
 
 ## Experimental features
 
