@@ -1,3 +1,4 @@
+import type { DiffMarks } from './explorer-diff'
 import type { Token } from './explorer-tokens'
 
 export const TAB_STOP = 4
@@ -266,6 +267,19 @@ export function lineAt(layout: Layout, row: number): number {
 /** First row of line index's code, below its red rows. */
 export function codeRow(layout: Layout, index: number): number {
   return layout.starts[index]! + layout.above[index]!
+}
+
+/** Rows of each red line and each added line's code. */
+export function toneRows(layout: Layout, marks: DiffMarks | undefined): { row: number; tone: 'add' | 'del' }[] {
+  const out: { row: number; tone: 'add' | 'del' }[] = []
+  if (!marks) return out
+  const n = layout.starts.length - 1
+  for (const k of marks.removed.keys()) {
+    if (k < 1 || k > n + 1) continue
+    for (let r = layout.starts[k - 1]!; r < (k <= n ? codeRow(layout, k - 1) : layout.rows); r++) out.push({ row: r, tone: 'del' })
+  }
+  for (const k of marks.added) if (k >= 1 && k <= n) for (let r = codeRow(layout, k - 1); r < layout.starts[k]!; r++) out.push({ row: r, tone: 'add' })
+  return out
 }
 
 export function rowAt(layout: Layout, row: number): RowAt {
