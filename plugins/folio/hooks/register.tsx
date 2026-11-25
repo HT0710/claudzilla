@@ -746,7 +746,7 @@ export const register: Register = on => {
   let section: Frame = { open: false, n: 0 }
   let lastRow: string | undefined
   // Composer prompts, the row each folio row follows when that is a prompt, and the prompts a framed row follows: their card joins the rail.
-  const prompts = new Set<string>()
+  const prompts = new Map<string, string>()
   // Queued prompt rows: a later one takes the join over from them, never from the turn's own prompt.
   const queuedRows = new Set<string>()
   const promptBefore = new Map<string, string>()
@@ -1325,13 +1325,21 @@ export const register: Register = on => {
     // A finished row of a call a run already holds stays in that run: as a run of its own it would cut the next live row off.
     if (e.component === 'ToolUse' && runs.has(e.requestId)) return
     const origin = e.component === 'UserMessage' ? e.props.origin : undefined
+    // The engine re-keys a queued prompt's row as it moves into the chat: the new key takes the old one's place.
+    // shortcut: a prompt queued with the same text as the turn's own prompt, before any row, takes its join; needs the engine's queue id to tell apart.
+    if (origin?.kind === 'composer' && lastRow && prompts.get(lastRow) === e.props.text) {
+      prompts.set(e.requestId, e.props.text)
+      if (queuedRows.has(lastRow)) queuedRows.add(e.requestId)
+      lastRow = e.requestId
+      return
+    }
     const isQueued = origin?.kind === 'composer' && queued.has(e.props.text)
     // A queued prompt drawn once the turn's prompt has its join starts the rail again below it, so its card takes the join.
-    if (isQueued && !(lastRow && prompts.has(lastRow) && !queuedRows.has(lastRow))) { prompts.add(e.requestId); queuedRows.add(e.requestId); lastRow = e.requestId }
+    if (isQueued && !(lastRow && prompts.has(lastRow) && !queuedRows.has(lastRow))) { prompts.set(e.requestId, e.props.text); queuedRows.add(e.requestId); lastRow = e.requestId }
     if (!isQueued && (e.component === 'AssistantMessage' || origin?.kind === 'composer' || (origin?.kind === 'plugin' && origin.asUser))) {
       section = { open: true, n: section.n + 1 }
       // Only the row drawn right after a prompt, in its section, joins its card to the rail.
-      if (origin?.kind === 'composer') { prompts.add(e.requestId); lastRow = e.requestId }
+      if (origin?.kind === 'composer') { prompts.set(e.requestId, e.props.text); lastRow = e.requestId }
       else if (lastRow && prompts.has(lastRow)) {
         if (e.component === 'AssistantMessage' && e.viewport?.isFullscreen && !promptReply.has(lastRow)) { promptReply.set(lastRow, e.requestId); redraw() }
         lastRow = undefined
