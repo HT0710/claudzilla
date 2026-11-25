@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import type { On } from 'claude-code'
 
-import { AUTO_MS, CHECK_MS, coldText, contextToast, crossed, due, EVERY_MS, FILL_MS, FIND, HOUR, formatWait, isOtherWait, parse, parseWait, ttlOf, waitRepeat, waitToast } from '../hooks/register'
+import { AUTO_MS, CHECK_MS, coldText, contextToast, crossed, due, EVERY_MS, FILL_MS, FIND, HOUR, formatWait, isOtherWait, parse, parseWait, toastTimes, ttlOf, waitRepeat, waitToast } from '../hooks/register'
 import type { Wait } from '../hooks/register'
 
 const S = 1_000_000
@@ -482,6 +482,17 @@ test('15 min before a 1h cache goes cold, past 1x: toast and fill /claudzilla co
   expect(fills).toEqual(['/claudzilla compact'])
   expect(cold(toasts)).toEqual([[COLD, 60000]])
 })
+
+for (const [cfg, want] of [['{"herald":{"cacheCold":20}}', [[COLD, 20000]]], ['{"herald":{"default":0}}', []]] as const) {
+  test(`${cfg}: the cold fill keeps its prompt, the toast follows the config`, async ($, on) => {
+    const { clock, toasts, fills } = idle(on, { cfg })
+    await $.session.start(start)
+    await ctxMeasure($, L1)
+    await clock.advance(FILL_MS)
+    expect(fills).toEqual(['/claudzilla compact'])
+    expect(cold(toasts)).toEqual(want)
+  })
+}
 
 for (const [name, opts, tokens] of [
   ['a 5m TTL', { transcript: reply(M5) }, L2],
@@ -1031,12 +1042,26 @@ const gate = () => {
   return { shut, open }
 }
 
-test('another session\'s wait line toasts for 5 s', async ($, on) => {
+test('another session\'s wait line toasts for 10 s', async ($, on) => {
   const w = waitSession(on, {}, { wait: [other(S)] })
   await $.session.start(start)
   await until(() => w.seen.toasts.length > 0)
   expect(w.seen.toasts).toEqual(['! claudzilla-35 waits on you · Bash permission · ⎇ main'])
-  expect(w.seen.timeouts).toEqual([5000])
+  expect(w.seen.timeouts).toEqual([10000])
+})
+
+test('herald.waiting in seconds sets the wait toast time', async ($, on) => {
+  const w = waitSession(on, { '/cfg/claudzilla.json': '{"herald":{"waiting":8}}' }, { wait: [other(S)] })
+  await $.session.start(start)
+  await until(() => w.seen.toasts.length > 0)
+  expect(w.seen.timeouts).toEqual([8000])
+})
+
+test('herald.waiting 0 starts no waiting tail', async ($, on) => {
+  const w = waitSession(on, { '/cfg/claudzilla.json': '{"herald":{"waiting":0}}' }, { wait: [sentinel], pieces: [{ stream: 'stdout', text: END }] })
+  await $.session.start(start)
+  await until(() => w.seen.toasts.includes('end'))
+  expect(w.seen.waitSpawns).toBe(0)
 })
 
 test('a line from the own session is skipped', async ($, on) => {
@@ -1158,4 +1183,28 @@ test('a failed append is traced', async ($, on) => {
   for (let i = 0; i < 5; i++) await tick()
   await $.session.end({ reason: 'other' })
   expect(rows().some(r => r.event === 'waiting.write.failed')).toBe(true)
+})
+
+const T = { update: 10000, usage: 10000, context: 10000, cacheCold: 60000, waiting: 10000 }
+
+test('toastTimes: built-in times with no keys', () => {
+  expect(toastTimes([])).toEqual(T)
+  expect(toastTimes([undefined, 'x', 3])).toEqual(T)
+})
+
+test('toastTimes: a kind\'s own key beats default, default beats the built-in time', () => {
+  expect(toastTimes([{ default: 8, cacheCold: 30, usage: 0 }])).toEqual({ update: 8000, usage: 0, context: 8000, cacheCold: 30000, waiting: 8000 })
+})
+
+test('toastTimes: over 60 caps at 60; a bad value is skipped', () => {
+  expect(toastTimes([{ update: 600, usage: -1, context: '5', waiting: null }])).toEqual({ ...T, update: 60000 })
+})
+
+test('toastTimes: waiting false is off and true is its built-in time', () => {
+  expect(toastTimes([{ waiting: false }]).waiting).toBe(0)
+  expect(toastTimes([{ default: 0, waiting: true }]).waiting).toBe(10000)
+})
+
+test('toastTimes: a later file wins per key, and its bad value keeps the earlier one', () => {
+  expect(toastTimes([{ usage: 20, update: 3 }, { usage: 0, update: 'x' }])).toEqual({ ...T, usage: 0, update: 3000 })
 })

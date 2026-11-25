@@ -27,7 +27,7 @@ export function due(ev: Event, startedS: number): boolean {
   return ev.kind === 'start' ? Math.abs(ev.at - startedS) <= 30 : ev.at >= startedS - 5
 }
 
-export async function watch($: EngineInterface, startedS: number, onFail: (note: string) => void): Promise<void> {
+export async function watch($: EngineInterface, startedS: number, onFail: (note: string) => void, ms: () => Promise<number>): Promise<void> {
   const found = await $.process.run(['sh', '-c', FIND])
   const [repo, gd] = found.exitCode === 0 ? found.stdout.trim().split('\n') : []
   t.event('update.watch', { found: !!repo && !!gd, exitCode: found.exitCode }, repo && gd ? 'info' : 'debug')
@@ -58,7 +58,8 @@ export async function watch($: EngineInterface, startedS: number, onFail: (note:
       }
       t.event('update.line', { kind: ev.kind, toast: true, at: ev.at })
       shown.add(raw)
-      $.ui.toast(ev.text, { timeoutMs: 10000 })
+      const timeoutMs = await ms()
+      if (timeoutMs) $.ui.toast(ev.text, { timeoutMs })
       if (ev.kind === 'fail') {
         // The hook names its target, the newest release tag: retry to that, not the branch tip.
         const to = /auto-update to (\S+) failed/.exec(ev.text)?.[1] ?? '@{u}'
@@ -161,18 +162,41 @@ const waitPath = async ($: EngineInterface) => {
   return home ? `${home}/.cache/claudzilla/waiting.events` : ''
 }
 
-// rules-guard's compactNudge and coldCompact, and herald.waiting, from the same files in the same order (loadConfig in claude/hooks/rules-guard.mjs).
+// Built-in toast seconds per herald kind.
+export const TOASTS = { update: 10, usage: 10, context: 10, cacheCold: 60, waiting: 10 }
+type Kind = keyof typeof TOASTS
+type Toasts = Record<Kind, number>
+
+// Toast ms per kind from each file's herald object, a later file winning per key: own key, then default, then built-in. 0 = off.
+export function toastTimes(heralds: unknown[]): Toasts {
+  const kinds = Object.keys(TOASTS) as Kind[]
+  const set: Record<string, number> = {}
+  for (const h of heralds) {
+    if (!h || typeof h !== 'object') continue
+    for (const k of ['default', ...kinds]) {
+      const v = (h as any)[k]
+      if (typeof v === 'number' && Number.isFinite(v) && v >= 0) set[k] = Math.min(v, 60)
+      // The old on/off switch: false is off, true the kind's built-in time.
+      else if (typeof v === 'boolean' && k !== 'default') set[k] = v ? TOASTS[k as Kind] : 0
+    }
+  }
+  return Object.fromEntries(kinds.map(k => [k, (set[k] ?? set.default ?? TOASTS[k]) * 1000])) as Toasts
+}
+
+// rules-guard's compactNudge and coldCompact, and the herald toast times, from the same files in the same order (loadConfig in claude/hooks/rules-guard.mjs).
 async function config($: EngineInterface, cwd: string): Promise<Config> {
   const dir = (await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined)) || `${(await $.env.get('HOME').catch(() => undefined)) ?? ''}/.claude`
   const top = await $.process.run(['git', '-C', cwd, 'rev-parse', '--show-toplevel']).then(r => (r.exitCode === 0 ? r.stdout.trim() : ''), () => '')
-  const cfg: Config = { dir, base: DEFAULT_BASE, cold: DEFAULT_COLD, waiting: true }
+  const cfg: Config = { dir, base: DEFAULT_BASE, cold: DEFAULT_COLD, toasts: toastTimes([]) }
+  const heralds: unknown[] = []
   for (const f of [`${dir}/claudzilla.json`, ...(top ? [`${top}/.claude/claudzilla.json`, `${top}/.claude/claudzilla.local.json`] : [])]) {
     const json: any = await $.fs.read(f).then(text => JSON.parse(text)).catch(() => undefined)
     const rg = json?.rulesGuard
-    if (typeof json?.herald?.waiting === 'boolean') cfg.waiting = json.herald.waiting
+    heralds.push(json?.herald)
     if (Number.isInteger(rg?.compactNudge) && rg.compactNudge >= 0) cfg.base = rg.compactNudge
     if (typeof rg?.coldCompact === 'number' && rg.coldCompact >= 0) cfg.cold = rg.coldCompact
   }
+  cfg.toasts = toastTimes(heralds)
   return cfg
 }
 
@@ -184,7 +208,7 @@ export const AUTO_MS = HOUR - 5 * 60_000
 const DEFAULT_COLD = 2
 const FILL = '/claudzilla compact'
 export const HANDOFF = '/claudzilla handoff'
-type Config = { dir: string; base: number; cold: number; waiting: boolean }
+type Config = { dir: string; base: number; cold: number; toasts: Toasts }
 
 // The TTL the newest main-chat cache write chose, as hud.pl reads it; a pure cache read keeps it.
 export function ttlOf(tail: string): number | undefined {
@@ -245,13 +269,13 @@ async function skip($: EngineInterface, dir: string, late = true, tail?: string)
 }
 
 // Stage 1, 15 min before the cache goes cold: the person can still compact on the warm cache.
-async function coldFill($: EngineInterface, dir: string, auto: boolean) {
+async function coldFill($: EngineInterface, dir: string, auto: boolean, timeoutMs: number) {
   const why = await skip($, dir)
   if (why) return t.event('cold.fill', { skip: why }, 'debug')
   const box = await $.prompt.read()
   const filled = !box.text.trim() && (await $.prompt.fill({ text: FILL }).catch(() => ({ isFilled: false }))).isFilled
   t.event('cold.fill', { filled })
-  $.ui.toast(`Cache goes cold in 15 min: ${filled ? 'press Enter to draft a compact' : FILL}${auto && filled ? ', or it compacts itself in 10 min' : ''}`, { timeoutMs: 60000 })
+  if (timeoutMs) $.ui.toast(`Cache goes cold in 15 min: ${filled ? 'press Enter to draft a compact' : FILL}${auto && filled ? ', or it compacts itself in 10 min' : ''}`, { timeoutMs })
 }
 
 // Stage 2, past coldCompact times compactNudge: still away 5 min before cold, compact on the warm cache with the generic summary.
@@ -344,7 +368,8 @@ async function watchWaiting($: EngineInterface): Promise<void> {
   if (tailing) return
   tailing = true
   try {
-    if (!(await config($, await $.session.cwd())).waiting) return
+    const timeoutMs = (await config($, await $.session.cwd())).toasts.waiting
+    if (!timeoutMs) return
     const path = await waitPath($)
     if (!path) return
     // shortcut: a line appended during the trim is lost, a few lines at most, only at session start; upgrade to a lock if it shows up
@@ -359,7 +384,7 @@ async function watchWaiting($: EngineInterface): Promise<void> {
         const now = await $.clock.now()
         const skip = !w ? 'unparsed' : !isOtherWait(w, await $.session.id(), now) ? 'own or old' : !waitRepeat(waitSeen, w, now) ? 'repeat' : ''
         t.event('waiting.line', { kind: w?.kind, toast: !skip, skip }, skip ? 'debug' : 'info')
-        if (w && !skip) $.ui.toast(waitToast(w), { timeoutMs: 5000 })
+        if (w && !skip) $.ui.toast(waitToast(w), { timeoutMs })
       }
     }
   } finally {
@@ -386,8 +411,8 @@ async function nameOf($: EngineInterface, names: Map<string, string>, dir: strin
 // Appends one line to the shared file every session tails; $.fs.write would replace the whole file.
 async function announce($: EngineInterface, c: WaitCtx, kind: Wait['kind'], detail: string): Promise<void> {
   if (!c.interactive) return
-  const { dir, waiting } = await c.cfg
-  if (!waiting) return
+  const { dir, toasts } = await c.cfg
+  if (!toasts.waiting) return
   const path = await waitPath($)
   if (!path) return
   const id = await $.session.id()
@@ -404,7 +429,7 @@ async function announce($: EngineInterface, c: WaitCtx, kind: Wait['kind'], deta
 export const register: Register = on => {
   let note: string | undefined
   let interactive = false
-  let cfg: Promise<Config> = Promise.resolve({ dir: '', base: 0, cold: 0, waiting: true })
+  let cfg: Promise<Config> = Promise.resolve({ dir: '', base: 0, cold: 0, toasts: toastTimes([]) })
   // Session id to the name in its sessions file; found names only, so a file written later is still found.
   const names = new Map<string, string>()
   const wrote = (err: unknown) => t.error('waiting.write.failed', err)
@@ -424,7 +449,7 @@ export const register: Register = on => {
     cfg = config($, e.cwd)
     const startedS = Math.floor((await $.clock.now()) / 1000)
     // session.start is awaited before the first prompt: the watch runs on detached, for the module's life.
-    void watch($, startedS, text => (note = text)).catch(err => t.error('update.watch.failed', err))
+    void watch($, startedS, text => (note = text), async () => (await cfg).toasts.update).catch(err => t.error('update.watch.failed', err))
     void watchWaiting($).catch(err => t.error('waiting.watch.failed', err))
     return started
   })
@@ -465,14 +490,15 @@ export const register: Register = on => {
     if (interactive && e.changed.includes('rateLimits')) {
       const { toasts, marks } = crossed(e.rateLimits, ((await $.store.get('usage')) ?? {}) as Record<string, Mark>, await $.clock.now())
       if (marks) await $.store.set('usage', marks)
+      const timeoutMs = (await cfg).toasts.usage
       for (const text of toasts) {
         t.event('usage.toast', { text })
-        $.ui.toast(text, { timeoutMs: 10000 })
+        if (timeoutMs) $.ui.toast(text, { timeoutMs })
       }
     }
     const tokens = e.context.tokens
     if (interactive && e.changed.includes('context') && tokens) {
-      const { dir, base: b, cold } = await cfg
+      const { dir, base: b, cold, toasts } = await cfg
       const shown = contextToast(tokens, b, live.ctx, await $.clock.now())
       live.ctx = shown.ctx
       live.endAt = await $.clock.now()
@@ -480,7 +506,7 @@ export const register: Register = on => {
       live.seeded = true
       if (shown.text) {
         t.event('context.toast', { level: live.ctx.level, idle: false })
-        $.ui.toast(shown.text, { timeoutMs: 10000 })
+        if (toasts.context) $.ui.toast(shown.text, { timeoutMs: toasts.context })
       }
       stopIdle($, live, false)
       // session.measure comes only after a turn: away from the keyboard, a timer pins the reminder under the prompt
@@ -498,7 +524,7 @@ export const register: Register = on => {
         }
         const auto = cold > 0 && tokens >= cold * b
         try {
-          live.cold = [$.clock.after(FILL_MS, () => void coldFill($, dir, auto).catch(err => t.error('cold.fill.failed', err)))]
+          live.cold = [$.clock.after(FILL_MS, () => void coldFill($, dir, auto, toasts.cacheCold).catch(err => t.error('cold.fill.failed', err)))]
           if (auto) live.cold.push($.clock.after(AUTO_MS, () => void coldCompact($, dir, live).catch(err => t.error('cold.compact.failed', err))))
           // A compact sent once the cache is cold reads it all back: past the hour the offer is a handoff.
           live.cold.push($.clock.after(HOUR, () => void coldHandoff($, dir).catch(err => t.error('cold.handoff.failed', err))))
