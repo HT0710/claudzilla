@@ -991,8 +991,8 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     )
   }
   const target = () => relOf(place.path)
-  // The card is 8 rows at top 2; a shorter body lifts it beside the menu button and drops the divider.
-  const short = rows < 10
+  // The card is 9 rows at top 2; a shorter body lifts it beside the menu button and drops the divider.
+  const short = rows < 11
   const card = (
     <Box
       key="explorer:menu-card"
@@ -1041,6 +1041,20 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       >
         <Text>{'Wrap lines'.padEnd(LABEL)}</Text>
         <Text color="claude">{state.wrap ? (basic ? '✓' : String.fromCharCode(0xeab2)) : ' '}</Text>
+      </Button>
+      <Button
+        key="show-diff"
+        plain
+        onPress={() => {
+          const old = state.layout?.layout
+          state.showDiff = !state.showDiff
+          showMarks()
+          if (old && place.kind === 'file') state.top = codeRow(layoutOf(lines, C, state.wrap, state.marks?.removed), lineAt(old, state.top ?? 0))
+          return update($, file, () => placeOf())
+        }}
+      >
+        <Text>{'Show git diff'.padEnd(LABEL)}</Text>
+        <Text color="claude">{state.showDiff ? (basic ? '✓' : String.fromCharCode(0xeab2)) : ' '}</Text>
       </Button>
     </Box>
   )
