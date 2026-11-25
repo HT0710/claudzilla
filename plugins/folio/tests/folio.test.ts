@@ -1220,6 +1220,27 @@ for (const columns of [62, 80]) {
   })
 }
 
+test('a handoff from primer draws as a card labelled handoff', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  mock.clock(on, { now: 0 })
+  transcript(on, '/t/s.jsonl', [sentRow])
+  const ui = await prompt($, '# Handoff from s0', 80, { origin: { kind: 'plugin', name: 'primer', asUser: true } })
+  const tag = `handoff · ${stamp(0)}`
+  await ui.find({ type: 'Text', text: tag })
+  expect((await colored(ui, '#e0a878')).map((t: any) => t.text)).toEqual(['# Handoff from s0'])
+  const row = (await ui.findAll({ type: 'Box' })).find((b: any) => b.text.includes(tag) && b.children.length === 1 && b.props.paddingLeft !== undefined)
+  expect(row?.props.paddingLeft).toBe(80 - 1 - cells(tag))
+})
+
+test('another plugin sent as the user is labelled sent, even before its time is read', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  const ui = await prompt($, 'hi', 80, { origin: { kind: 'plugin', name: 'other', asUser: true } })
+  expect(await ui.find({ type: 'Text', text: /^╭─*╮$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'sent' })).toBeDefined()
+})
+
 test('an empty transcript path gives no time row', async ($, on) => {
   native(on)
   nativePrompt(on)
@@ -1297,7 +1318,8 @@ test('a row after the prompt is railed', async ($, on) => {
 
 for (const [name, text, extra, surface, columns] of [
   ['ctrl+o', 'hi', { isExpanded: true }, 'terminal', 80],
-  ['non-composer', 'hi', { origin: { kind: 'plugin' } }, 'terminal', 80],
+  ['a plugin prompt not sent as the user', 'hi', { origin: { kind: 'plugin', name: 'primer' } }, 'terminal', 80],
+  ['a peer message', 'hi', { origin: { kind: 'peer' } }, 'terminal', 80],
   ['non-terminal', 'hi', {}, 'desktop', 80],
   ['too narrow', 'hi', {}, 'terminal', 6],
   ['a CJK glyph wider than the room', '日', {}, 'terminal', 7],
@@ -3717,6 +3739,17 @@ test('hideEditDiff off keeps ─', async ($, on) => {
   expect(await ruleOf(card)).toBe('╌')
 })
 
+const handoff = { origin: { kind: 'plugin', name: 'primer', asUser: true } }
+
+test('a tool row after a handoff card gives ╭', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  const card = await prompt($, '# Handoff from s0', 80, handoff)
+  expect(await ruleOf(card)).toBe('╌')
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  expect(await ruleOf(card)).toBe('╭')
+})
+
 const flat = (n: any): string => (typeof n === 'string' ? n : (n.children ?? []).map(flat).join(''))
 const gaps = async (row: any) => {
   const root = await row.find({ type: 'Box' })
@@ -3753,6 +3786,14 @@ for (const [text, top, n] of [
     expect(await gaps(row)).toEqual({ marginTop: top, gaps: n })
   })
 }
+
+test('a handoff quoting @a.md and [Image #1] paints over no engine rows: a plugin prompt expands neither', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  await prompt($, '- You: see @a.md [Image #1]', 80, handoff)
+  const row = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  expect(await gaps(row)).toEqual({ marginTop: undefined, gaps: 1 })
+})
 
 test('a row after a plain prompt keeps one gap line and no negative margin', async ($, on) => {
   native(on)

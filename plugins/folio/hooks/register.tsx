@@ -1339,7 +1339,7 @@ export const register: Register = on => {
     if (!isQueued && (e.component === 'AssistantMessage' || origin?.kind === 'composer' || (origin?.kind === 'plugin' && origin.asUser))) {
       section = { open: true, n: section.n + 1 }
       // Only the row drawn right after a prompt, in its section, joins its card to the rail.
-      if (origin?.kind === 'composer') { prompts.set(e.requestId, e.props.text); lastRow = e.requestId }
+      if (origin?.kind === 'composer' || (origin?.kind === 'plugin' && origin.asUser)) { prompts.set(e.requestId, e.props.text); lastRow = e.requestId }
       else if (lastRow && prompts.has(lastRow)) {
         if (e.component === 'AssistantMessage' && e.viewport?.isFullscreen && !promptReply.has(lastRow)) { promptReply.set(lastRow, e.requestId); redraw() }
         lastRow = undefined
@@ -1402,7 +1402,9 @@ export const register: Register = on => {
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     const p = e.props
     // A slash command's echo is the engine's own row once it runs; a card would flash in its place.
-    if (e.surface !== 'terminal' || p.origin?.kind !== 'composer' || p.isExpanded || /^\/[\w:-]+(\s|$)/.test(p.text)) return next(e)
+    // A plugin's prompt sent as the user (primer's handoff) is a prompt too, labelled so it reads as not typed.
+    const sent = p.origin?.kind === 'plugin' && p.origin.asUser === true ? (p.origin.name === 'primer' ? 'handoff' : 'sent') : undefined
+    if (e.surface !== 'terminal' || (p.origin?.kind !== 'composer' && !sent) || p.isExpanded || /^\/[\w:-]+(\s|$)/.test(p.text)) return next(e)
     // The shared row hook below sees the row through next(e), so the prompt opens its rail section.
     const native = await next(e)
     const { Box, Text } = $.ui.resolve(e)
@@ -1436,11 +1438,13 @@ export const register: Register = on => {
     // shortcut: a path needs `/` or `.` and is not checked to exist; `@Makefile`, `@"a b.md"` and `@` after CJK marks are missed,
     // a missing file or CLAUDE_CODE_DISABLE_FILE_MENTIONS over-counts; read the engine's rows if a render site ever exposes them.
     const paths = (p.text.match(/(?<=^|\s)@\S+/g) ?? []).map(m => m.replace(/[^\w/]+$/, '')).filter(m => /[./]/.test(m.slice(1)))
-    promptImages.set(id, (p.text.match(/\[Image #\d+\]/g) ?? []).length + new Set(paths).size)
+    // A plugin's prompt expands no image or @path, so the engine draws no rows under it.
+    promptImages.set(id, sent ? 0 : (p.text.match(/\[Image #\d+\]/g) ?? []).length + new Set(paths).size)
+    const tag = sent && time ? `${sent} · ${time}` : sent ?? time
     const corner = framedAfter.has(id) || (e.viewport?.isFullscreen && promptImages.get(id) && promptReply.has(id)) ? '╭' : '╌'
     joinNote('card', id, { row: id, corner })
     return (
-      <Box flexDirection="column" width="100%" marginTop={2} marginBottom={time ? -1 : 0}>
+      <Box flexDirection="column" width="100%" marginTop={2} marginBottom={tag ? -1 : 0}>
         <Box paddingLeft={off}><Text color="promptBorder">{'╭' + '─'.repeat(w - 2) + '╮'}</Text></Box>
         {lines.map(l => (
           <Box flexDirection="row" paddingLeft={off}>
@@ -1450,7 +1454,7 @@ export const register: Register = on => {
           </Box>
         ))}
         <Text color="promptBorder">{corner + '╌'.repeat(off - 1) + '┴' + '─'.repeat(w - 2) + '╯'}</Text>
-        {time && <Box paddingLeft={Math.max(0, columns - 1 - textCells(time))}><Text color={FAINT}>{time}</Text></Box>}
+        {tag && <Box paddingLeft={Math.max(0, columns - 1 - textCells(tag))}><Text color={FAINT}>{tag}</Text></Box>}
       </Box>
     )
   })
