@@ -2394,6 +2394,20 @@ test('a file shown again after a folder page and a change draws no old reload ma
   expect((await tones(ui)).every(t => t === undefined)).toBe(true)
 })
 
+test('Wrap lines on an unreadable file leaves a finite top for the text that replaces it', async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/a.ts', line: 1 }, lines(30))
+  disk.set('/repo/a.bin', { text: 'ab\0cd', mtimeMs: 1 })
+  open({ path: '/repo/a.bin' })
+  await ui.redraw()
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'wrap' })
+  disk.set('/repo/a.bin', { text: lines(30), mtimeMs: 2 })
+  await $.tool.call({ tool: 'Write', file_path: '/repo/a.bin' } as any)
+  await ui.redraw()
+  expect(textOf(await ui.find({ key: 'row:1' }))).toContain('line 1')
+})
+
 const tones = async (ui: any) => (await gutterRows(ui)).map(r => r.tone)
 const diffRuns = () => runs.filter(a => a.includes('diff')).length
 

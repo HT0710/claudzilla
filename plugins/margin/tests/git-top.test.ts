@@ -1791,6 +1791,64 @@ test('file click opens the path from the top level', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'CHANGES' })).toBeUndefined()
 })
 
+const tenLines = Array.from({ length: 10 }, (_, i) => `line ${i + 1}`).join('\n')
+// The lit row's number: the opened line.
+const litRow = async (ui: Ui) => {
+  for (let n = 1; n <= 10; n++) if ((await ui.find({ key: `row:${n}` }))?.props.backgroundColor === '#0f1c28') return n
+}
+const clickChange = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], diff: { exit: number; out: string }, dir: Record<string, string | null> = {}, status = ' M a.ts\n M sub\n') => {
+  quiet(on, 5 * MIN, false, { '/repo/a.ts': tenLines, ...dir })
+  const diffs: string[][] = []
+  on('process.run', (_, e) => {
+    if (e.argv.includes('-U0')) {
+      diffs.push([...e.argv])
+      return ran(diff.out, diff.exit)
+    }
+    return ran(git(changesRepo(status, '', { '--absolute-git-dir': '/repo/.git\n/repo/.git\n/repo\n' }))(e.argv) ?? '')
+  })
+  const ui = await mount($)
+  await tap(ui, fileKey(dir['/repo/sub'] === DIR ? 'sub' : 'a.ts'))
+  return { diffs, line: await litRow(ui), ui }
+}
+
+test('a CHANGES row opens the file at its first changed line', async ($, on) => {
+  const { line } = await clickChange($, on, { exit: 0, out: '@@ -3 +3 @@\n-x\n+y\n' })
+  expect(line).toBe(3)
+})
+
+test('an untracked CHANGES row opens at line 1', async ($, on) => {
+  const { line } = await clickChange($, on, { exit: 0, out: '' }, {}, '?? a.ts\n')
+  expect(line).toBe(1)
+})
+
+test('a CHANGES row with no commit yet opens at line 1', async ($, on) => {
+  const { line } = await clickChange($, on, { exit: 128, out: '' })
+  expect(line).toBe(1)
+})
+
+test('a CHANGES row for a submodule opens its folder page', async ($, on) => {
+  const { diffs, line, ui } = await clickChange($, on, { exit: 0, out: '@@ -3 +3 @@\n' }, { '/repo/sub': DIR })
+  expect(await pathText(ui)).toBe('repo/sub')
+  expect(line).toBeUndefined()
+  expect(diffs).toEqual([])
+})
+
+test("a commit's file row opens with no line", async ($, on) => {
+  quiet(on, 5 * MIN, false, { '/repo/a.ts': tenLines })
+  const diffs: string[][] = []
+  on('process.run', (_, e) => {
+    if (e.argv.includes('-U0')) diffs.push([...e.argv])
+    return ran(showRepo([A], undefined, 'M\0a.ts\0', '1\t0\ta.ts\0')(e.argv) ?? '')
+  })
+  const ui = await mount($)
+  await tap(ui, `c:${A}`)
+  await tap(ui, `mf:${fileKey('a.ts')}`)
+  expect(await pathText(ui)).toBe('repo/a.ts')
+  expect(await litRow(ui)).toBeUndefined()
+  // The file view's own marks read: one run, where a CHANGES click adds its own.
+  expect(diffs).toHaveLength(1)
+})
+
 test('a folder row (a submodule) opens a folder page, not an unreadable file', async ($, on) => {
   quiet(on, 5 * MIN, false, { '/repo/sub': DIR })
   on('process.run', (_, e) => ran(git(changesRepo(' M sub\n', '', { '--absolute-git-dir': '/repo/.git\n/repo/.git\n/repo\n' }))(e.argv) ?? ''))
