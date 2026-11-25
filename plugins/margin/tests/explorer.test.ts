@@ -10,7 +10,7 @@ import { iconOf, sortListing, treeRows } from '../hooks/explorer-tree'
 import { fieldPad, refOf } from '../hooks/tab-file'
 import { fileKey } from '../hooks/git-data'
 import { LIT, STATUS } from '../hooks/kit'
-import { clock, diffOut, gutterRows, disk, props, chevron, tapTree, treeRow, explorer, explorerRoot, failList, hold, lists, mountPane, launch, open, pathText, ran, reads, runs, lines, listed, setup, sets, store, textOf, tree, waitFor } from './explorer-helpers'
+import { clock, diffOut, statusOut, gutterRows, disk, props, chevron, tapTree, treeRow, explorer, explorerRoot, failList, hold, lists, mountPane, launch, open, pathText, ran, reads, runs, lines, listed, setup, sets, store, textOf, tree, waitFor } from './explorer-helpers'
 
 test('tokenize: a keyword, a string, a comment and a number', () => {
   expect(tokenize('const s = "a" // x 42')).toEqual([
@@ -2595,4 +2595,102 @@ test('toneRows: the trailing red block counts its rows', () => {
   const removed = new Map([[3, ['old']]])
   const layout = layoutOf(['a', 'b'], 20, false, removed)
   expect(toneRows(layout, { added: new Set(), removed })).toEqual([{ row: 2, tone: 'del' }])
+})
+
+const marked = async ($: any, on: any, trees: Record<string, { name: string; kind: 'file' | 'dir' }[]>, out: string) => {
+  await setup($, on)
+  for (const [path, list] of Object.entries(trees)) tree.set(path, list)
+  statusOut.out = out
+  runs.length = 0
+  return mountPane($)
+}
+const rightOf = async (ui: any, name: string) => ((await treeRow(ui, name)).props.props.right as { text: string; color?: string }[])
+const statusRuns = () => runs.filter(a => a.includes('status') && a.includes('--porcelain=v1')).length
+
+test('a changed file shows its letter at the far right of its row', async ($, on) => {
+  const ui = await marked($, on, { '/repo': [{ name: 'a.ts', kind: 'file' }, { name: 'b.ts', kind: 'file' }] }, ' M a.ts\0')
+  expect(await rightOf(ui, 'a.ts')).toEqual([{ text: 'M', color: STATUS.M }])
+  expect(await rightOf(ui, 'b.ts')).toEqual([])
+})
+
+test('a collapsed folder shows a dot in its change colour, and white when mixed', async ($, on) => {
+  const ui = await marked($, on, { '/repo': [{ name: 'src', kind: 'dir' }, { name: 'lib', kind: 'dir' }], '/repo/src': [], '/repo/lib': [] }, ' M src/a.ts\0 M src/b.ts\0 M lib/a.ts\0A  lib/b.ts\0')
+  expect(await rightOf(ui, 'src')).toEqual([{ text: '●', color: STATUS.M }])
+  expect(await rightOf(ui, 'lib')).toEqual([{ text: '●', color: 'text' }])
+})
+
+test('an open folder shows no dot', async ($, on) => {
+  const ui = await marked($, on, { '/repo': [{ name: 'src', kind: 'dir' }], '/repo/src': [{ name: 'a.ts', kind: 'file' }] }, ' M src/a.ts\0')
+  expect(await rightOf(ui, 'src')).toHaveLength(1)
+  await tapTree(ui, 'src')
+  await ui.drawn()
+  expect(await rightOf(ui, 'src')).toEqual([])
+  expect(await rightOf(ui, 'a.ts')).toEqual([{ text: 'M', color: STATUS.M }])
+})
+
+test('a submodule listed as a folder shows a dot, not a letter', async ($, on) => {
+  const ui = await marked($, on, { '/repo': [{ name: 'sub', kind: 'dir' }], '/repo/sub': [] }, ' M sub\0')
+  expect(await rightOf(ui, 'sub')).toEqual([{ text: '●', color: STATUS.M }])
+})
+
+test('a Claude Edit reruns the status once the count changes', async ($, on) => {
+  hostOk(on)
+  const ui = await marked($, on, { '/repo': [{ name: 'a.ts', kind: 'file' }] }, '')
+  await ui.redraw()
+  expect(statusRuns()).toBe(1)
+  statusOut.out = ' M a.ts\0'
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts' } as any)
+  await ui.redraw()
+  expect(statusRuns()).toBe(2)
+  expect(await rightOf(ui, 'a.ts')).toEqual([{ text: 'M', color: STATUS.M }])
+})
+
+test('outside a repo the tree shows no letters', async ($, on) => {
+  await setup($, on)
+  tree.set('/repo', [{ name: 'a.ts', kind: 'file' }])
+  statusOut.out = ' M a.ts\0'
+  statusOut.exit = 128
+  const ui = await mountPane($)
+  expect(await rightOf(ui, 'a.ts')).toEqual([])
+})
+
+test('a folder page outside the root runs no status', async ($, on) => {
+  const ui = await marked($, on, { '/repo': [], '/other': [{ name: 'a.ts', kind: 'file' }] }, ' M a.ts\0')
+  runs.length = 0
+  open({ path: '/other', kind: 'folder' })
+  await ui.redraw()
+  expect(await rightOf(ui, 'a.ts')).toEqual([])
+  expect(statusRuns()).toBe(0)
+})
+
+test('a name search result shows its letter', async ($, on) => {
+  hostOk(on)
+  const ui = await nameRoot($, on)
+  statusOut.out = ' M ab.ts\0'
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/ab.ts' } as any)
+  await ui.redraw()
+  await nameOpen(ui, 'ab')
+  const row = (await pieces(ui)).length
+  expect(row).toBeGreaterThan(0)
+  const found: any[] = []
+  const walk = (n: any) => {
+    if (!n || typeof n !== 'object') return
+    if (Array.isArray(n)) return n.forEach(walk)
+    if (n.props?.module && Array.isArray(n.props?.props?.left)) found.push(n.props.props)
+    walk([n.children, n.props?.children])
+  }
+  walk(await ui.drawn())
+  expect(found.find(p => p.left.some((x: any) => x.text === 'ab.ts')).right).toEqual([{ text: 'M', color: STATUS.M }])
+})
+
+test('status with untracked files off leaves an untracked file unmarked', async ($, on) => {
+  await setup($, on)
+  tree.set('/repo', [{ name: 'n.ts', kind: 'file' }])
+  statusOut.config = 'no\n'
+  runs.length = 0
+  const ui = await mountPane($)
+  await ui.redraw()
+  const status = runs.find(a => a.includes('--porcelain=v1'))!
+  expect(status).toContain('--untracked-files=no')
+  expect(await rightOf(ui, 'n.ts')).toEqual([])
 })
