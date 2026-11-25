@@ -911,7 +911,7 @@ test('/claudzilla handoff <ask> sends the note then the ask; the note file stays
   await $.command.run({ command: 'claudzilla', args: 'Handoff  fix the folio test ', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })
   expect(seen.writes[0]![1]).not.toContain('fix the folio test')
   await clock.advance(500)
-  expect(seen.submits[0].text).toBe(`${seen.writes[0]![1]}\n## User's ask\n\nfix the folio test`)
+  expect(seen.submits[0].text).toBe(`${seen.writes[0]![1]}\n\n## User's ask\n\nfix the folio test`)
 })
 
 test('/claudzilla-handoff <ask> keeps the ask in the @note fallback', async ($, on) => {
