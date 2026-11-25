@@ -40,6 +40,7 @@ Goal: the reader follows it, understands it, and is convinced. Lazy reader scans
 
 Propose options → each Decision ends with ONE recommendation. Any reply that offers options or asks for a choice → a Decision with a pick; never end on an open "which?".
 
+- Problem first: 1–2 plain sentences under the heading, no label: what needs deciding and why it matters now, in plain words, no cite: sources go in the found group or Why. Always, even when the found group covers it: then recap it.
 - Options exclude each other. Want a combination → add it as its own row (`D | A + B`), never `Recommend: A + B`. Until ballot multi-select (roadmap Later #8).
 - **Recommend:** directly under each Decision or Fixes table, with its Why. Pick, bold, one line: `**Recommend: A**`, `**Recommend: fixes 1–3**`.
 - **Why:** 1-2 bullets — reason it beats each other option, the user's preferred one first; answer any worry the user raised. Source inline: `(file:line)`, `(cmd → result)`. No source → *unverified*.
@@ -49,6 +50,8 @@ Propose options → each Decision ends with ONE recommendation. Any reply that o
 
 ```md
 ### Decision — retry
+
+Upload fails ~1 in 50 on flaky wifi, and the user has to re-click. It needs a fix before the upload page ships.
 
 | **#** | **option** | **tradeoff** |
 |---|---|---|
