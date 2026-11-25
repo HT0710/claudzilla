@@ -750,12 +750,12 @@ export const register: Register = on => {
   // Queued prompt rows: a later one takes the join over from them, never from the turn's own prompt.
   const queuedRows = new Set<string>()
   const promptBefore = new Map<string, string>()
-  // Per prompt id: its image count, and the row that first joined it.
+  // Per prompt id: its image and mention row count, and the row that first joined it.
   const promptImages = new Map<string, number>()
   const joinRow = new Map<string, string>()
   // Prompt id to the reply text drawn right after it.
   const promptReply = new Map<string, string>()
-  // Image prompts only: which row carries the rail over the image rows, so a bare image row can be traced back.
+  // Image or mention prompts only: which row carries the rail over the engine rows, so a bare one can be traced back.
   const joinTraced = new Set<string>()
   const joinNote = (step: string, prompt: string, data: { row?: string; joinRow?: string } & Record<string, unknown>) => {
     const key = `${step}:${data.row}:${data.joinRow ?? ''}`
@@ -850,7 +850,7 @@ export const register: Register = on => {
     if (!frame.open) return <Box flexDirection="column" marginTop={margin} paddingLeft={2}>{content}</Box>
     const prompt = id && promptBefore.get(id)
     if (prompt && !framedAfter.has(prompt)) { framedAfter.add(prompt); redrawAll() }
-    // The first row after an image prompt reaches up over the engine's image rows, each drawn at column 0-1.
+    // The first row after an image or mention prompt reaches up over the engine's rows, each drawn at column 0-1.
     if (prompt && !joinRow.has(prompt)) joinRow.set(prompt, id)
     const imgs = prompt && margin && joinRow.get(prompt) === id ? promptImages.get(prompt) ?? 0 : 0
     if (prompt) joinNote(imgs ? 'join' : 'miss', prompt, imgs ? { row: id, imgs } : { row: id, joinRow: joinRow.get(prompt), margin })
@@ -1422,8 +1422,12 @@ export const register: Register = on => {
         void sentAt(read, path, scan, id).then(v => { if (v !== undefined) $.ui.invalidate('ui.render') }, () => {})
       }
     }
-    // The engine draws one `⎿ [Image #N]` row per image under the card; the first framed row after it paints the rail over them.
-    promptImages.set(id, (p.text.match(/\[Image #\d+\]/g) ?? []).length)
+    // The engine draws one `⎿` row per image and per `@path` under the card; the first framed row after it paints the rail over them.
+    // A peer `@name` draws none. The engine trims trailing punctuation off a mention, so `@peer.` is no path.
+    // shortcut: a path needs `/` or `.` and is not checked to exist; `@Makefile`, `@"a b.md"` and `@` after CJK marks are missed,
+    // a missing file or CLAUDE_CODE_DISABLE_FILE_MENTIONS over-counts; read the engine's rows if a render site ever exposes them.
+    const paths = (p.text.match(/(?<=^|\s)@\S+/g) ?? []).map(m => m.replace(/[^\w/]+$/, '')).filter(m => /[./]/.test(m.slice(1)))
+    promptImages.set(id, (p.text.match(/\[Image #\d+\]/g) ?? []).length + new Set(paths).size)
     return (
       <Box flexDirection="column" width="100%" marginTop={2} marginBottom={time ? -1 : 0}>
         <Box paddingLeft={off}><Text color="promptBorder">{'╭' + '─'.repeat(w - 2) + '╮'}</Text></Box>
