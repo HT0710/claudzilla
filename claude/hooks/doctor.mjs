@@ -3,7 +3,8 @@
 //   node doctor.mjs                every check, human lines
 //   node doctor.mjs --quick        state checks only; prints nothing when all pass
 //   node doctor.mjs --json         every check as JSON; with --quick, state checks only
-import { accessSync, constants, existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+//   node doctor.mjs --hook         SessionStart hook: quick checks, one JSON line on a problem; notes the session's plugin commits
+import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -44,6 +45,35 @@ function baseFor(base, parts, on) {
   return { hooks, statusLine: on.has("hud") ? base.statusLine : undefined };
 }
 
+// The temp state dir hud.pl uses (hud.pl:142-148): only when it is ours and private.
+export function stateDir(env, uid) {
+  const dir = join(env.TMPDIR || "/tmp", `claudzilla-rules-${uid}`);
+  try { mkdirSync(dir, { mode: 0o700 }); } catch { /* exists */ }
+  try { const st = lstatSync(dir); return st.isDirectory() && st.uid === uid && (st.mode & 0o077) === 0 ? dir : undefined; } catch { return undefined; }
+}
+
+export function readHookInput(stdin) {
+  return new Promise((resolve) => {
+    let buf = "";
+    const done = () => { clearTimeout(t); stdin.destroy(); let j; try { j = JSON.parse(buf); } catch { j = {}; } resolve({ sid: typeof j?.session_id === "string" ? j.session_id : undefined, cwd: typeof j?.cwd === "string" ? j.cwd : undefined }); };
+    const t = setTimeout(done, 1000);
+    stdin.setEncoding("utf8");
+    stdin.on("data", (d) => { buf += d; });
+    stdin.on("end", done);
+    stdin.on("error", done);
+  });
+}
+
+export function records(config) {
+  const installed = readJson(join(config, "plugins/installed_plugins.json"), [])?.plugins ?? {};
+  return Object.entries(installed).filter(([id, e]) => id.endsWith("@claudzilla") && Array.isArray(e))
+    .flatMap(([id, e]) => e.filter((x) => x?.gitCommitSha).map((x) => ({ id, scope: x.scope, ...(x.projectPath ? { projectPath: x.projectPath } : {}), sha: x.gitCommitSha })));
+}
+
+const SID = /^[A-Za-z0-9_-]{1,128}$/;
+const notePath = (ctx) => (ctx.state && ctx.sid && SID.test(ctx.sid) ? join(ctx.state, `doctor-${ctx.sid}.json`) : undefined);
+const known = (ctx, sha) => run("git", ["-C", ctx.clone, "cat-file", "-e", `${sha}^{commit}`]).status === 0;
+
 function commitState(ctx, name, sha) {
   if (!existsSync(join(ctx.clone, "plugins", name))) return "missing";
   if (!sha || run("git", ["-C", ctx.clone, "cat-file", "-e", `${sha}^{commit}`]).status !== 0) return "unknown";
@@ -83,6 +113,18 @@ export function checks(ctx) {
           : { check: "project", label: name, ok: false, text: `project install at ${short} for ${path}, clone at ${head}`, fix: { kind: "uninstall-project", id, scope: "project", cwd: path } });
       }
     }
+  }
+
+  const note = notePath(ctx) && readJson(notePath(ctx), []);
+  if (Array.isArray(note)) {
+    const now = records(ctx.config);
+    const changed = note.filter((n) => {
+      const cur = now.find((c) => c.id === n.id && c.scope === n.scope && c.projectPath === n.projectPath);
+      return cur && cur.sha !== n.sha && known(ctx, n.sha) && known(ctx, cur.sha)
+        && run("git", ["-C", ctx.clone, "diff", "--quiet", n.sha, cur.sha, "--", `plugins/${n.id.split("@")[0]}`]).status === 1;
+    });
+    for (const n of changed) { const label = n.id.split("@")[0]; results.push({ check: "restart", label, ok: false, text: `${label} changed since this session started`, fix: { kind: "restart" } }); }
+    if (!changed.length) results.push({ check: "restart", label: "restart", ok: true, text: "no plugin changed since this session started" });
   }
 
   const root = real(join(ctx.clone, "claude"));
@@ -146,19 +188,34 @@ export function render(results, ctx) {
 if (process.argv[1] && real(process.argv[1]) === real(fileURLToPath(import.meta.url))) {
   try {
     const flags = new Set(process.argv.slice(2));
+    const hook = flags.has("--hook");
+    const input = hook ? await readHookInput(process.stdin) : { sid: process.env.CLAUDE_CODE_SESSION_ID };
     const ctx = {
       config: process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
       clone: join(dirname(fileURLToPath(import.meta.url)), "../.."),
       home: homedir(),
-      cwd: process.cwd(),
-      quick: flags.has("--quick"),
+      cwd: (hook && input.cwd) || process.cwd(),
+      sid: input.sid,
+      state: stateDir(process.env, process.getuid()),
+      quick: hook || flags.has("--quick"),
       json: flags.has("--json"),
+      hook,
     };
     const results = checks(ctx);
-    if (ctx.json) console.log(JSON.stringify(results));
+    if (hook) {
+      const path = notePath(ctx);
+      if (path) { try { writeFileSync(path, JSON.stringify(records(ctx.config)), { flag: "wx", mode: 0o600 }); } catch { /* kept from session start */ } }
+      const bad = results.filter((r) => !r.ok);
+      if (bad.length) {
+        const plugin = bad.find((r) => r.check === "plugin");
+        const what = plugin ? `${plugin.label} out of date` : `${bad.length} problem${bad.length > 1 ? "s" : ""} found`;
+        console.log(JSON.stringify({ systemMessage: `claudzilla: ${what}. Run /claudzilla-doctor, or ask Claude to fix claudzilla.`, hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: "claudzilla doctor found problems. If the user asks to fix claudzilla, run the claudzilla-doctor skill." } }));
+      }
+    } else if (ctx.json) console.log(JSON.stringify(results));
     else if (!ctx.quick || results.some((r) => !r.ok)) console.log(render(results, ctx));
   } catch (e) {
     console.error(`claudzilla doctor: ${e.message}`);
     process.exit(1);
   }
+  process.exit(0);
 }
