@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { costArgs, draft, openSlug, experimentalArgs, featureLines, find, fit, handoffNote, parse, reportArgs, rows } from '../hooks/register'
+import { costArgs, doctorArgs, draft, openSlug, experimentalArgs, featureLines, find, fit, handoffNote, parse, reportArgs, rows } from '../hooks/register'
 
 const MD = '# claudzilla guide\n\n## Basics\n\n### What claudzilla is\n<!-- topic: start -->\n\nIntro.\n\n### Talk to Claude\n<!-- topic: talk -->\n\nSay it.\n\n## Screen\n\n### The picks card\n<!-- topic: picks -->\n\nDigits.\n'
 
@@ -77,10 +77,10 @@ async function open($: Parameters<TestBody>[0], args = '', columns = 100, bodyRo
 const wheel = ($: Parameters<TestBody>[0], by: number, pointer?: { column: number; row: number }) =>
   $.ui.scroll({ component: 'Pane', requestId: 'primer', offset: 0, by, bodyRows: 6, contentRows: 6, origin: { kind: 'person' }, ...(pointer ? { pointer } : {}) })
 
-test('registers /claudzilla with the experimental hint', async ($, on) => {
+test('registers /claudzilla with the doctor hint', async ($, on) => {
   const seen = host(on)
   await $.session.start(start)
-  expect(seen.registered).toContainEqual(expect.objectContaining({ name: 'claudzilla', argumentHint: '[topic | report [what happened] | compact | handoff [ask] | experimental [id on|off] | cost [session-id | all [--since d] [--until d] [--project p]]]' }))
+  expect(seen.registered).toContainEqual(expect.objectContaining({ name: 'claudzilla', argumentHint: '[topic | report [what happened] | compact | doctor [fix] | handoff [ask] | experimental [id on|off] | cost [session-id | all [--since d] [--until d] [--project p]]]' }))
 })
 
 test('bare /claudzilla toggles the guide; a topic opens it either way', async ($, on) => {
@@ -1133,4 +1133,41 @@ test('/claudzilla-guide <topic> opens that topic, and its words are only a topic
   await quick($, 'claudzilla-guide', 'compact')
   expect((await ui.findAll({ type: 'Text' })).map(t => t.text).join(' ')).toContain('No topic "compact"')
   expect(seen.toasts).toEqual([])
+})
+
+test('doctorArgs: exact doctor or doctor fix, any case', () => {
+  expect(doctorArgs(' Doctor ')).toBe('check')
+  expect(doctorArgs('doctor FIX')).toBe('fix')
+  expect(doctorArgs('doctors')).toBeUndefined()
+  expect(doctorArgs('doctor fix now')).toBeUndefined()
+})
+
+function doctor(on: Parameters<TestBody>[1], res: ReturnType<typeof ran>) {
+  const calls: string[] = []
+  on('env.get', (_, e: any) => ({ value: e.name === 'CLAUDE_CONFIG_DIR' ? '/cfg' : undefined }) as any)
+  const seen = host(on, { guide: LABS, proc: c => (c.includes('doctor.mjs') ? (calls.push(c), res) : ran(0, '/repo\nv1.4.0\n')) })
+  return { calls, seen }
+}
+
+test('/claudzilla doctor runs the clone\'s doctor and shows its output', async ($, on) => {
+  const { calls } = doctor(on, ran(0, 'claudzilla doctor  @ cee0f89\n✓ links 19/19'))
+  const shown = await texts(await open($, 'doctor'))
+  expect(calls).toEqual(['node /cfg/hooks/doctor.mjs'])
+  expect(shown).toContain('✓ links 19/19')
+})
+
+test('/claudzilla doctor with a failed run says so', async ($, on) => {
+  doctor(on, ran(1, ''))
+  expect(await texts(await open($, 'doctor'))).toContain('Could not run the doctor.')
+})
+
+test('/claudzilla doctor fix hands off to claudzilla-doctor', async ($, on) => {
+  const timers: number[] = []
+  const { calls, seen } = doctor(on, ran(0, 'x'))
+  on('clock.after', (_, e: any) => { timers.push(e.ms); return { value: undefined } as any })
+  await $.session.start(start)
+  await run($, 'doctor fix')
+  expect(timers).toContain(500)
+  expect(calls).toEqual([])
+  expect(seen.opened).toHaveLength(0)
 })
