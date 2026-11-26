@@ -131,4 +131,46 @@ EOF
 $2
 EOF2' _ "$TMP/home/u2/p" "$out"
 
+SD="$TMP/tmp/claudzilla-rules-$(id -u)"
+hook() { ( cd "$TMP/home/proj" && HOME="$TMP/home" CLAUDE_CONFIG_DIR="$CFG" TMPDIR="$TMP/tmp" node "$D" --hook <<<"$1" ); }
+sid() { ( cd "$TMP/home/proj" && HOME="$TMP/home" CLAUDE_CONFIG_DIR="$CFG" TMPDIR="$TMP/tmp" CLAUDE_CODE_SESSION_ID="$1" node "$D" "${@:2}" </dev/null ); }
+bump_margin() { stale_margin; edit "$(IP)" "j.plugins['margin@claudzilla'][0].gitCommitSha='$(git -C "$CL" rev-parse HEAD)'"; }
+
+fixture; hook '{"session_id":"s1"}' >/dev/null
+check "note: --hook writes doctor-<sid>.json with one record per claudzilla entry" js "$(cat "$SD/doctor-s1.json")" 'r.length==7&&r.every(x=>x.id.endsWith("@claudzilla")&&x.sha)'
+cp "$SD/doctor-s1.json" "$TMP/note1"; bump_margin; hook '{"session_id":"s1"}' >/dev/null
+check "note: a second run keeps the first record" cmp -s "$SD/doctor-s1.json" "$TMP/note1"
+out=$(sid s1 --json)
+check "restart: a plugin changed after the note gives restart" row "$out" 'x.check=="restart"&&!x.ok&&x.fix.kind=="restart"&&x.text=="margin changed since this session started"'
+check "restart: the margin plugin row is ok" row "$out" 'x.check=="plugin"&&x.label=="margin"&&x.ok'
+check "restart: CLAUDE_CODE_SESSION_ID is read in --quick and --json" row "$(sid s1 --quick --json)" 'x.check=="restart"&&!x.ok'
+check "restart: no note gives no restart row" js "$(sid s2 --json)" '!r.some(x=>x.check=="restart")'
+check "restart: no session id gives no restart row" js "$(run --json)" '!r.some(x=>x.check=="restart")'
+
+fixture; hook '{"session_id":"s3"}' >/dev/null
+edit "$SD/doctor-s3.json" "j.find(x=>x.id=='margin@claudzilla').sha='0000000000000000000000000000000000000000'"
+check "restart: noted sha unknown to the clone gives no restart row" js "$(sid s3 --json)" '!r.some(x=>x.check=="restart"&&!x.ok)'
+
+fixture; rm -rf "$SD"
+out=$(hook '{"session_id":"s4"}'); rc=$?
+check "hook: all ok prints nothing and exits 0" [ -z "$out" -a "$rc" -eq 0 ]
+stale_margin; out=$(hook '{"session_id":"s4"}')
+check "hook: a failure prints one JSON line" js "$out" 'r.systemMessage&&r.hookSpecificOutput.hookEventName=="SessionStart"&&r.hookSpecificOutput.additionalContext=="claudzilla doctor found problems. If the user asks to fix claudzilla, run the claudzilla-doctor skill."'
+check "hook: one line only" [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 1 ]
+check "hook: systemMessage names the failing plugin" js "$out" 'r.systemMessage=="claudzilla: margin out of date. Run /claudzilla-doctor, or ask Claude to fix claudzilla."'
+
+fixture; rm -rf "$SD"; hook '{"session_id":"../x"}' >/dev/null; rc=$?
+check "hook: session id with a slash or .. writes no file" [ "$rc" -eq 0 -a -z "$(ls -A "$SD" 2>/dev/null)" -a ! -e "$TMP/tmp/x.json" ]
+
+fixture; rm -rf "$SD"; mkdir -m 0755 "$SD"; hook '{"session_id":"s5"}' >/dev/null; rc=$?
+check "hook: state dir with mode 0755 writes no note and skips restart" [ "$rc" -eq 0 -a ! -e "$SD/doctor-s5.json" ]
+chmod 700 "$SD"
+
+fixture; start=$(date +%s)
+( cd "$TMP/home/proj" && HOME="$TMP/home" CLAUDE_CONFIG_DIR="$CFG" TMPDIR="$TMP/tmp" node "$D" --hook < <(sleep 6) >/dev/null ); rc=$?
+check "hook: stdin held open exits within 3 s" [ "$rc" -eq 0 -a $(( $(date +%s) - start )) -lt 4 ]
+
+fixture; stale_margin
+check "hook: stdin without session_id still runs the state checks" js "$(hook '{}')" 'r.systemMessage.includes("margin")'
+
 echo "pass=$pass fail=$fail"; [ "$fail" -eq 0 ]
