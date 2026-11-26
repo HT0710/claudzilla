@@ -7,7 +7,7 @@ import { cachedBar, firstChangeLine, mergeMarks, parseDiff, pressLine, redLit, r
 import type { BarCache, DiffMarks } from './explorer-diff'
 import { cellsOf, codeRow, fileWindow, hitsOf, layoutFor, layoutOf, lineAt, rowAt, sliceTokens, thumbOf, toneRows } from './explorer-layout'
 import type { Cached, Layout } from './explorer-layout'
-import { markViewed, recentSplit, viewedList } from './explorer-recent'
+import { ageText, markViewed, recentSplit, viewedList } from './explorer-recent'
 import { MIXED, treeMarks } from './explorer-status'
 import type { TreeMarks } from './explorer-status'
 import { OPEN_EDITOR_SH, cleanLine, gitDiff, gitStatus, listDir, listNames, loadFile, latestOf, projectRoot, statOf } from './explorer-load'
@@ -75,7 +75,7 @@ type State = {
   // `lit`: the result Down and Up have lit, an index into `rows`.
   names?: { text: string; entries: NameEntry[]; rows: NameEntry[]; loading?: boolean; capped?: boolean; tree?: number; lit?: number; follow?: boolean }
   // `lit`: the row Down and Up have lit, an index into the filtered list.
-  recent?: { text: string; lit?: number }
+  recent?: { text: string; lit?: number; shown?: number }
   toggles: { matchCase: boolean; word: boolean; regex: boolean }
   rev: number
   // The last atom rev the module state has taken.
@@ -434,6 +434,8 @@ const findKey = (): string => (gen ? `${FIELD}:${gen}` : FIELD)
 
 // Closes the find or name field when it has no text; with `e`, only when focus left it.
 export async function closeEmptyField($: EngineInterface, e?: { element?: string }): Promise<boolean> {
+  // A Recent row's own press opens the file, which closes the field; closing first would drop the row.
+  if (e?.element?.startsWith('row:x:recent:')) return false
   if (state.find?.open && !state.find.text && (!e || leavesField(e, findKey()))) {
     state.find = undefined
     blankOnce.next = true
@@ -534,7 +536,7 @@ async function recentRows($: EngineInterface, text: string): Promise<string[]> {
 export async function stepRecent($: EngineInterface, element: string | undefined): Promise<boolean> {
   const by = element === RECENT_DOWN ? 1 : element === RECENT_UP ? -1 : 0
   if (!by || !state.recent) return false
-  const lit = Math.min((state.recent.lit ?? -1) + by, (await recentRows($, state.recent.text)).length - 1)
+  const lit = Math.min((state.recent.lit ?? -1) + by, Math.min((await recentRows($, state.recent.text)).length, state.recent.shown ?? Infinity) - 1)
   if (state.recent) state.recent.lit = lit < 0 ? undefined : lit
   await update($, file, () => placeOf())
   return true
@@ -543,7 +545,8 @@ export async function stepRecent($: EngineInterface, element: string | undefined
 // Opens the lit row, or the top one; the open file is the top row, so it only closes the field.
 async function submitRecent($: EngineInterface): Promise<void> {
   recentGen++
-  const path = (await recentRows($, state.recent?.text ?? ''))[state.recent?.lit ?? 0]
+  const at = state.recent?.lit ?? 0
+  const path = at < (state.recent?.shown ?? Infinity) ? (await recentRows($, state.recent?.text ?? ''))[at] : undefined
   if (!path) return $.ui.invalidate('ui.render')
   if (path !== current(state.nav).path) return openPlace($, { path })
   endRecent()
@@ -910,6 +913,62 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
         return update($, file, () => placeOf())
       },
     })
+  } else if (state.recent && place.kind === 'file') {
+    const now = await $.clock.now()
+    const { today, earlier } = recentSplit(viewedList(), now, state.recent.text)
+    const inRoot = !!state.root && place.path.startsWith(`${state.root}/`)
+    const marks = inRoot ? await statusFor($, state.root!) : undefined
+    const open = current(state.nav).path
+    rowHover.acts = {}
+    const Client = 'Client' in ctx.el ? ctx.el.Client : undefined
+    const putRecent = (path: string, at: number, lit: boolean) => {
+      const key = `x:recent:${fileKey(path)}`
+      const press = () => {
+        if (path !== open) return openPlace($, { path })
+        endRecent()
+        return update($, file, () => placeOf())
+      }
+      rowHover.acts[key] = press
+      const name = path.slice(path.lastIndexOf('/') + 1)
+      const folder = path.slice(0, Math.max(0, path.length - name.length - 1))
+      const icon = iconOf(name, 'file', { open: false, empty: false })
+      const here = path === open
+      const letter = marks?.files.get(path)
+      const left = [
+        <Text> </Text>,
+        <Text> </Text>,
+        ...(basic ? [] : [<Text color={ICON_COLORS()[icon.color] ?? HUD.faint}>{icon.glyph}</Text>, <Text> </Text>]),
+        <Text bold={here || undefined} color={here ? 'claude' : undefined}>{printable(name)}</Text>,
+        ...(folder ? [<Text color={HUD.faint}>{` ${printable(folder)}`}</Text>] : []),
+      ]
+      const right = [<Text color={letter ? STATUS[letter] ?? HUD.faint : undefined}>{letter ?? ' '}</Text>, <Text>{'  '}</Text>, <Text>{ageText(here ? now : at, now)}</Text>]
+      body.push(
+        <Box key={key} flexDirection="column" height={1} hover={{ backgroundColor: LIT }} backgroundColor={lit ? LIT : undefined}>
+          {Client ? (
+            <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left: toPieces(left), right: toPieces(right) }} />
+          ) : (
+            <Box justifyContent="space-between" gap={2}>
+              <Button plain key={path} onPress={press}>
+                {left}
+              </Button>
+              <Box flexShrink={0}>{right}</Box>
+            </Box>
+          )}
+        </Box>,
+      )
+    }
+    let n = 0
+    let room = codeRows
+    for (const [label, group] of [['today', today], ['earlier', earlier]] as const) {
+      if (!group.length || room < 2) continue
+      body.push(<Text key={`recent:${label}`} color={HUD.faint}>{label}</Text>)
+      room--
+      for (const r of group.slice(0, room)) putRecent(r.path, r.at, n++ === state.recent.lit)
+      room -= Math.min(group.length, room)
+    }
+    // Down and Enter reach only the rows drawn.
+    state.recent.shown = n
+    if (!n) body = [<Text key="empty" color={HUD.faint}>no match</Text>]
   } else if (loaded?.unreadable) {
     body = [emptyNote(ctx.el, codeRows, "Can't show this file", <Text color={HUD.faint}>{loaded.missing ? 'It no longer exists.' : 'It is binary, unreadable or over 4 MiB.'}</Text>)]
   } else if (loaded) {
