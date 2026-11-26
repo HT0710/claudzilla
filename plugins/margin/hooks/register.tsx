@@ -7,6 +7,7 @@ import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, ICON, PAD, WHEEL_HOLD, applyP
 import type { Prompt, Readers, TabCtx, TabDraw, UseEntry, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
+import { markEdited } from './explorer-recent'
 import { blankOnce, changedOnDisk, checkOpenFile, draw as drawFile, closeEmptyField, closeOnEscape, resetSeeds, explorerPost, escapeSent, fieldOpen, fieldTakesEscape, fieldText, menuPinned, paneBase, showPlace, stepName, stepRecent, unpinMenu } from './tab-file'
 import { autoFetch, draw as drawGit, resetGitReads } from './tab-git'
 import { draw as drawHistory } from './tab-history'
@@ -53,6 +54,7 @@ const RULE = 1
 const MAX_PROMPTS = 100
 // Built-in tools that never change files: their calls leave the Git tab's reads standing.
 const READ_ONLY = new Set(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'])
+const EDITS = new Set(['Edit', 'Write', 'NotebookEdit'])
 
 const OWN_PLUGINS = ['ballot', 'byline', 'folio', 'herald', 'ledger', 'margin', 'primer']
 const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined)
@@ -1554,6 +1556,11 @@ export const register: Register = (on, options) => {
   // A tool call may change the repo; the built-in read-only ones never do, and each reread is 5 git runs.
   on('tool.call', async ($, e, next) => {
     const result = await next(e)
+    if (EDITS.has(e.tool) && !('deny' in result) && !result.isError) {
+      const at = e as { file_path?: unknown; notebook_path?: unknown }
+      const path = at.file_path ?? at.notebook_path
+      if (typeof path === 'string') markEdited(path, await $.clock.now())
+    }
     if (!READ_ONLY.has(e.tool)) await update($, toolCalls, n => n + 1)
     await changedOnDisk($, e as Record<string, unknown> & { tool: string }).catch(() => undefined)
 

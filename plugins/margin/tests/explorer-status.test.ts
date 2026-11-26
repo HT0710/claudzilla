@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { MIXED, statusLetter, treeMarks } from '../hooks/explorer-status'
+import { MIXED, statusLetter, treeMarks, wordOf } from '../hooks/explorer-status'
 
 test('statusLetter: the worktree side wins when both sides are set', () => {
   expect(statusLetter('MM')).toBe('M')
@@ -52,4 +52,8 @@ test('treeMarks: a clean tree has no marks', () => {
   const m = treeMarks('/r', [])
   expect(m.files.size).toBe(0)
   expect(m.folders.size).toBe(0)
+})
+
+test('wordOf: M modified, A added, D deleted, R renamed, ? untracked, U conflict', () => {
+  expect(['M', 'A', 'D', 'R', '?', 'U'].map(wordOf)).toEqual(['modified', 'added', 'deleted', 'renamed', 'untracked', 'conflict'])
 })

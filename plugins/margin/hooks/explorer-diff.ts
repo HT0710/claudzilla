@@ -178,3 +178,9 @@ export function cachedBar(prev: BarCache | undefined, key: BarKey, colours: { ad
   const gitCells = barCells(layout.rows, cells, key.showDiff ? toneRows(layout, key.diff) : [], colours)
   return { ...key, marks: reloadCells.map((r, i) => r ?? gitCells[i]!) }
 }
+
+export function churnText(marks: DiffMarks | undefined): string {
+  if (!marks) return 'none'
+  const del = [...marks.removed.values()].reduce((n, r) => n + r.length, 0)
+  return marks.added.size || del ? `+${marks.added.size} −${del}` : 'none'
+}

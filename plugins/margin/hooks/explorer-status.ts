@@ -9,6 +9,12 @@ export function statusLetter(xy: string): string {
   return y !== ' ' ? y : x
 }
 
+const WORDS: Record<string, string> = { M: 'modified', A: 'added', D: 'deleted', R: 'renamed', '?': 'untracked', U: 'conflict' }
+
+export function wordOf(letter: string): string {
+  return WORDS[letter] ?? letter
+}
+
 export function treeMarks(root: string, changes: readonly { path: string; xy: string }[], dirs: ReadonlySet<string> = new Set()): TreeMarks {
   const files = new Map<string, string>()
   const folders = new Map<string, string>()
