@@ -1409,7 +1409,7 @@ export const register: Register = (on, options) => {
     // A press off the field leaves it, which the ring alone does not report when the prompt takes the keys.
     await closeEmptyField($, e).catch(() => undefined)
     // A press off the pinned menu card unpins it; Wrap lines and Show git diff are settings that keep it.
-    if (e.element !== 'menu' && e.element !== 'wrap' && e.element !== 'show-diff') await unpinMenu($).catch(() => undefined)
+    if (e.element !== 'menu' && e.element !== 'info' && e.element !== 'wrap' && e.element !== 'show-diff') await unpinMenu($).catch(() => undefined)
     // An open modal takes every press: its own act; any other closes the top layer and does nothing else.
     // A tab press closes it whole and switches.
     // The open row's own Button (`open:`) closes the whole modal through its onPress.

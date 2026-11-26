@@ -70,6 +70,7 @@ type State = {
   wrap: boolean
   lit?: { from: number; to: number }
   menuPinned: boolean
+  infoPinned: boolean
   // `lit`: the lit line find set, so a lit line from elsewhere outlives a find that leaves it.
   find?: { open: boolean; text: string; pending: boolean; result: FindResult; spans: Spans; current: number; lit?: { from: number; to: number } }
   // `lit`: the result Down and Up have lit, an index into `rows`.
@@ -84,7 +85,7 @@ type State = {
   noticeVerb?: string
 }
 
-const fresh = (): State => ({ nav: navStart(''), showDiff: true, tokens: new Map(), expanded: new Set(), listed: new Map(), col: 0, wrap: false, menuPinned: false, toggles: { matchCase: false, word: false, regex: false }, rev: 0, applied: 0 })
+const fresh = (): State => ({ nav: navStart(''), showDiff: true, tokens: new Map(), expanded: new Set(), listed: new Map(), col: 0, wrap: false, menuPinned: false, infoPinned: false, toggles: { matchCase: false, word: false, regex: false }, rev: 0, applied: 0 })
 const state = fresh()
 const rowHover = rowHovers.Explorer
 const guard = latestOf()
@@ -280,7 +281,7 @@ async function relistPage($: EngineInterface): Promise<void> {
 
 // Marks for the tree below `root`, with every listed folder known so a submodule takes a dot; none outside a repo.
 async function statusFor($: EngineInterface, root: string): Promise<TreeMarks | undefined> {
-  const key = `${root}:${await read($, toolCalls)}`
+  const key = `${root}:${await read($, toolCalls)}:${state.loaded?.mtimeMs}`
   if (statusCache?.key !== key) {
     const n = statuses.begin()
     const run = gitStatus($, root).then(r => (statuses.isLatest(n) ? r : undefined))
@@ -415,13 +416,13 @@ export const fieldText = (): string => (state.find?.open ? state.find.text : (st
 // Whether Escape closes the open field: the name and Recent fields always, the find field only while empty.
 export const fieldTakesEscape = (): boolean => (state.find?.open ? !state.find.text : !!(state.names || state.recent))
 
-// Whether the menu card is pinned.
-export const menuPinned = (): boolean => state.menuPinned
+// Whether the menu or info card is pinned.
+export const menuPinned = (): boolean => state.menuPinned || state.infoPinned
 
-// Unpins the menu card; false when it was not pinned.
+// Unpins the menu and info cards; false when neither was pinned.
 export async function unpinMenu($: EngineInterface): Promise<boolean> {
-  if (!state.menuPinned) return false
-  state.menuPinned = false
+  if (!state.menuPinned && !state.infoPinned) return false
+  state.menuPinned = state.infoPinned = false
   await update($, file, () => placeOf())
   return true
 }
@@ -459,7 +460,7 @@ export async function closeOnEscape($: EngineInterface): Promise<boolean> {
 }
 
 async function openNames($: EngineInterface): Promise<void> {
-  state.menuPinned = false
+  state.menuPinned = state.infoPinned = false
   const folder = current(state.nav).path
   let capped = false
   const listing = listNames($, folder, () => (capped = true))
@@ -513,7 +514,7 @@ async function submitName($: EngineInterface): Promise<void> {
 }
 
 async function openRecent($: EngineInterface): Promise<void> {
-  state.menuPinned = false
+  state.menuPinned = state.infoPinned = false
   state.recent ??= { text: '' }
   await update($, file, () => placeOf())
   await takeKeys($, recentKey())
@@ -556,7 +557,7 @@ async function submitRecent($: EngineInterface): Promise<void> {
 async function openFind($: EngineInterface): Promise<void> {
   state.find ??= { open: true, text: '', pending: false, result: { matches: [], bad: false, capped: false }, spans: new Map(), current: 0 }
   state.find.open = true
-  state.menuPinned = false
+  state.menuPinned = state.infoPinned = false
   await update($, file, () => placeOf())
   await takeKeys($, findKey())
 }
@@ -798,12 +799,19 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const findOpen = !!state.find?.open && place.kind === 'file'
   let codeRows = Math.max(0, rows - 2 - (findOpen ? 2 : 0))
   const W = props.bodyColumns - 2 * PAD
-  // The header centre's room: the width less the buttons (5 left, 3 right) and a 2-cell gap on each side.
-  const MID = W - 8 - 2 * GAP
+  // The header's right buttons: search, info and menu on a file page, search and menu on a folder page.
+  const hdrRight = place.kind === 'file' ? 5 : 3
+  // The header centre's room: the width less the buttons (5 left, hdrRight right) and a 2-cell gap on each side.
+  const MID = W - 5 - hdrRight - 2 * GAP
   const home = await $.env.get('HOME').catch(() => undefined)
   const basic = await basicGlyphs($)
   const loaded = place.kind === 'file' && state.loaded?.path === place.path ? state.loaded : undefined
   const lines = loaded?.lines ?? []
+  let fileMark: string | undefined
+  if (place.kind === 'file' && state.root && place.path.startsWith(`${state.root}/`)) {
+    fileMark = (await statusFor($, state.root))?.files.get(place.path)
+    if (current(state.nav).path !== place.path) return draw($, ctx)
+  }
   const digits = String(lines.length).length
   const G = digits + 3
   const C = W - G - 1
@@ -1245,19 +1253,34 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const target = () => relOf(place.path)
   // The card is 9 rows at top 2; a shorter body lifts it beside the menu button and drops the divider.
   const short = rows < 11
+  const infoCard = (
+    <Box
+      key="explorer:info-card"
+      position="absolute"
+      top={short ? 0 : 2}
+      right={short ? 5 : 2}
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="promptBorder"
+      backgroundColor={CARD}
+      paddingX={1}
+      display={state.infoPinned ? 'flex' : 'none'}
+      hover={state.infoPinned || state.menuPinned ? undefined : { scope: 'explorer:info', display: 'flex' }}
+    />
+  )
   const card = (
     <Box
       key="explorer:menu-card"
       position="absolute"
       top={short ? 0 : 2}
-      right={short ? 3 : 0}
+      right={short ? hdrRight : 0}
       flexDirection="column"
       borderStyle="round"
       borderColor="promptBorder"
       backgroundColor={CARD}
       paddingX={1}
       display={state.menuPinned ? 'flex' : 'none'}
-      hover={state.menuPinned ? undefined : { scope: 'explorer:menu', display: 'flex' }}
+      hover={state.menuPinned || state.infoPinned ? undefined : { scope: 'explorer:menu', display: 'flex' }}
     >
       {item('copy-path', 'Copy path', async () => {
         const rel = target()
@@ -1316,8 +1339,8 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const stepping = !!(state.names || state.recent)
   // A closed field reopens under the same key, so it seeds afresh.
   if (!editing) seeds.clear()
-  // A field's room: the path's, plus the 3 cells of the search and menu buttons it hides.
-  const ROOM = MID + 3
+  // A field's room: the path's, plus the cells of the right buttons it hides.
+  const ROOM = MID + hdrRight
   // The label gives way once the text no longer fits beside it.
   const labelFor = (text: string, label: string, placeholder: string) => (!text ? `${placeholder} ` : cellsOf(text) > ROOM - cellsOf(label) - 9 ? '' : label)
   const findLabel = labelFor(state.find?.text ?? '', 'lines with ', PLACEHOLDER)
@@ -1383,10 +1406,20 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
             )}
           </Box>
           {!editing && (
-            <Box key="explorer:header-right" width={3} flexShrink={0} gap={1} justifyContent="flex-end">
+            <Box key="explorer:header-right" width={hdrRight} flexShrink={0} gap={1} justifyContent="flex-end">
               {glyph('explorer:search', '/', 0xea6d, () => (place.kind === 'file' ? openFind($) : openNames($)))}
-              <Button key="menu" plain hover={{ scope: 'explorer:menu' }} onPress={() => {
+              {place.kind === 'file' && (
+                <Button key="info" plain hover={state.menuPinned ? undefined : { scope: 'explorer:info' }} onPress={() => {
+                  state.infoPinned = !state.infoPinned
+                  state.menuPinned = false
+                  return update($, file, () => placeOf())
+                }}>
+                  <Text color={fileMark ? STATUS[fileMark] ?? 'claude' : 'claude'} inverse={state.infoPinned}>{basic ? 'i' : String.fromCharCode(0xea74)}</Text>
+                </Button>
+              )}
+              <Button key="menu" plain hover={state.infoPinned ? undefined : { scope: 'explorer:menu' }} onPress={() => {
                 state.menuPinned = !state.menuPinned
+                state.infoPinned = false
                 return update($, file, () => placeOf())
               }}>
                 <Text color="claude" inverse={state.menuPinned}>{basic ? '≡' : String.fromCharCode(0xeb94)}</Text>
@@ -1405,6 +1438,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
         )}
         {findBar}
         {card}
+        {infoCard}
       </Box>
     ),
     zones,
