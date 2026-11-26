@@ -29,3 +29,6 @@ test('merging leaves DEFAULTS as they were', () => {
   mergePalette({ shared: { label: '#112233' }, margin: { types: { fix: '#112233' } } })
   expect([DEFAULTS.shared.label, DEFAULTS.margin.types.fix]).toEqual(['#a396d2', '#e06c75'])
 })
+test('shared.flash is a palette key', () => {
+  expect(mergePalette({ shared: { flash: '#123456' } }).palette.shared.flash).toBe('#123456')
+})

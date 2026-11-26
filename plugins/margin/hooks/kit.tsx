@@ -74,6 +74,8 @@ export let LIT: string
 export let DIMMED: string
 // A faded background: each colour at half, as an opacity over the black pane; one with no hex to scale, a dark grey.
 export let FADED: string
+// The first colour of a row flash; it fades to the row's diff colour, or drops at the end when that has no hex.
+export let FLASH: string
 // A pill's background by its colour's name.
 export const PILL_BG = {} as Palette['margin']['pill']
 // Fills the holders above from a palette; DIM and chore follow its final colours.
@@ -90,6 +92,7 @@ export function applyPalette(p: Palette): void {
   LIT = p.shared.lit
   DIMMED = p.margin.hairline
   FADED = p.margin.faded
+  FLASH = p.shared.flash
   Object.assign(PILL_BG, p.margin.pill)
 }
 // The active custom theme's colours by key (claude/themes/<name>.json), read once a session, so a theme key fades by
@@ -103,6 +106,11 @@ export function readTheme($: EngineInterface): Promise<unknown> {
     if (typeof theme !== 'string' || !theme.startsWith('custom:')) return
     themeColors = JSON.parse(String(await $.fs.read(`${await configDir($)}/themes/${theme.slice(7)}.json`))).overrides ?? {}
   })().catch(() => undefined))
+}
+export const themeHex = (key: string): string | undefined => (/^#[0-9a-f]{6}$/i.test(themeColors[key] ?? '') ? themeColors[key] : undefined)
+export function mixHex(a: string, b: string, t: number): string {
+  const ch = (i: number) => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - t) + parseInt(b.slice(i, i + 2), 16) * t).toString(16).padStart(2, '0')
+  return `#${ch(1)}${ch(3)}${ch(5)}`
 }
 export const fade = (_color?: unknown) => DIMMED
 // Rail icons; register.tsx swaps them for key letters in basic glyphs.

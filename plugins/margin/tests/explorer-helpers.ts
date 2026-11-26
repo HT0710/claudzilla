@@ -128,4 +128,4 @@ export const chevron = async (ui: { drawn: () => Promise<any> }, text: string) =
   return hit
 }
 // The gutter Client's rows as drawn.
-export const gutterRows = async (ui: { find: (q: any) => Promise<any> }): Promise<{ row: number; line: number; before?: number; cell: string; lit: boolean; tone?: 'add' | 'del' }[]> => (await ui.find({ key: 'explorer:gutter' }))?.props.props.rows
+export const gutterRows = async (ui: { find: (q: any) => Promise<any> }): Promise<{ row: number; line: number; before?: number; cell: string; lit: boolean; tone?: 'add' | 'del'; bg?: string }[]> => (await ui.find({ key: 'explorer:gutter' }))?.props.props.rows

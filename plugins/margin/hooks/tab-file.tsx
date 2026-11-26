@@ -3,13 +3,13 @@ import type { EngineInterface, RenderSurface } from 'claude-code'
 
 import { FIND_WAIT, filterNames, findIn, leavesField, markCells } from './explorer-find'
 import type { FindResult, NameEntry } from './explorer-find'
-import { cachedBar, mergeMarks, parseDiff, pressLine, redLit, reloadDiff, sameMarks } from './explorer-diff'
+import { cachedBar, firstChangeLine, mergeMarks, parseDiff, pressLine, redLit, relocateEdit, reloadDiff, sameMarks } from './explorer-diff'
 import type { BarCache, DiffMarks } from './explorer-diff'
 import { cellsOf, codeRow, fileWindow, hitsOf, layoutFor, layoutOf, lineAt, rowAt, sliceTokens, thumbOf, toneRows } from './explorer-layout'
 import type { Cached, Layout } from './explorer-layout'
 import { MIXED, treeMarks } from './explorer-status'
 import type { TreeMarks } from './explorer-status'
-import { OPEN_EDITOR_SH, gitDiff, gitStatus, listDir, listNames, loadFile, latestOf, projectRoot, statOf } from './explorer-load'
+import { OPEN_EDITOR_SH, cleanLine, gitDiff, gitStatus, listDir, listNames, loadFile, latestOf, projectRoot, statOf } from './explorer-load'
 import type { Loaded } from './explorer-load'
 import { back, current, forward, navStart, remember, visit } from './explorer-nav'
 import type { Nav } from './explorer-nav'
@@ -18,7 +18,7 @@ import type { Token } from './explorer-tokens'
 import { iconOf, treeRows } from './explorer-tree'
 import type { Listing } from './explorer-tree'
 import { fileKey, printable } from './git-data'
-import { CARD, HUD, LIT, PAD, PILL_BG, STATUS, TYPES, basicGlyphs, emptyNote, rowHovers, toPieces } from './kit'
+import { CARD, FLASH, HUD, LIT, PAD, PILL_BG, STATUS, TYPES, basicGlyphs, emptyNote, mixHex, readTheme, rowHovers, themeHex, toPieces } from './kit'
 import type { TabCtx, TabDraw } from './kit'
 
 // The open place, so a change redraws the pane; the draw applies a place whose rev it has not seen.
@@ -49,6 +49,8 @@ type State = {
   // Marks from `git diff HEAD`, set at each load.
   diff?: DiffMarks
   reloadMarks?: DiffMarks
+  // The pressed edit, waiting for its file's text.
+  editDiff?: { path: string; diff: string }
   // The marks drawn; the layout reads only this, and only showMarks() sets it.
   marks?: DiffMarks
   // Set when the shown marks changed: the next draw keeps the top source line. 'text': the reload changed the text, so lines the reload added do not count.
@@ -87,6 +89,8 @@ const guard = latestOf()
 const folders = latestOf()
 const finds = latestOf()
 const statuses = latestOf()
+// Edit reads count apart from loads, so a press never drops a load.
+const edits = latestOf()
 // The last git status run, kept while the root and the tool-call count stay the same.
 let statusCache: { key: string; changes: Promise<{ path: string; xy: string }[] | undefined> } | undefined
 // Blank cells between the header's centre (path, field, notice) and its buttons.
@@ -128,10 +132,11 @@ function moveTo(change: (nav: Nav) => Nav): boolean {
   state.nav = change(remembered)
   const entry = current(state.nav)
   if (entry === current(remembered)) return false
+  endFlash()
   endFind()
   endNames()
   if (entry.kind === 'file' && entry.path !== state.loaded?.path) {
-    state.diff = state.reloadMarks = undefined
+    state.diff = state.reloadMarks = state.editDiff = undefined
     showMarks()
   }
   state.remapTop = false
@@ -168,14 +173,74 @@ function clearReload(): void {
   showMarksRemap()
 }
 
+const FLASH_MS = 1500
+const FLASH_STEPS = 12
+// The rows flashing now: each step mixes the flash colour toward the row's diff colour. gen drops the timers of a flash that ended or restarted.
+let flashing: { path: string; lines: ReadonlySet<number>; step: number } | undefined
+let flashGen = 0
+
+// Flashes the given new-side lines (1-based) of a file; an empty list ends the flash. Called from a draw, so the first frame is that draw's own (a draw may not write state).
+export async function flashRows($: EngineInterface, path: string, lines: readonly number[]): Promise<void> {
+  const gen = ++flashGen
+  await readTheme($)
+  if (gen !== flashGen) return
+  if (!lines.length) return endFlash()
+  flashing = { path, lines: new Set(lines), step: 0 }
+  const tick = async () => {
+    if (gen !== flashGen || !flashing) return
+    if (++flashing.step < FLASH_STEPS) $.clock.after(FLASH_MS / FLASH_STEPS, tick)
+    else flashing = undefined
+    await update($, file, () => placeOf())
+  }
+  $.clock.after(FLASH_MS / FLASH_STEPS, tick)
+}
+
+export function endFlash(): void {
+  flashing = undefined
+  flashGen++
+}
+
 // The open place at a new revision the draw has already taken.
 function placeOf() {
   const here = current(state.nav)
   return { rev: (state.applied = ++state.rev), path: here.path, line: state.lit?.from, kind: here.kind }
 }
 
-export function showPlace(place: { path: string; line?: number; kind?: 'file' | 'folder' }): number {
-  moveTo(nav => visit(nav, { ...place, kind: place.kind ?? 'file' }))
+// Reads the file fresh and flashes the pressed edit's added rows; a file changed since its load waits for the poll's reload. Returns the line to centre on.
+async function applyEdit($: EngineInterface): Promise<number | undefined> {
+  const mine = state.editDiff!
+  if (state.loaded!.unreadable) return void (state.editDiff = undefined)
+  const n = edits.begin()
+  const text = await $.fs.read(mine.path).then(String, () => undefined)
+  if (!edits.isLatest(n) || state.editDiff !== mine || current(state.nav).path !== mine.path || state.loaded?.path !== mine.path) return
+  if (text === undefined) {
+    state.editDiff = undefined
+    endFlash()
+    return
+  }
+  const lines = text === '' ? [] : text.replace(/\r?\n$/, '').split(/\r?\n/)
+  const seen = state.loaded.lines
+  if (lines.length !== seen.length || lines.some((t, i) => cleanLine(t) !== seen[i])) return
+  state.editDiff = undefined
+  state.top = state.lit = undefined
+  const found = relocateEdit(mine.diff, lines)
+  if (!found) {
+    $.ui.toast('The file changed since this edit, so its rows are not flashed')
+    endFlash()
+    return firstChangeLine(mine.diff) ?? 1
+  }
+  const added = [...found.marks.added]
+  await flashRows($, mine.path, added)
+  return added.length ? Math.min(...added) : found.first
+}
+
+export function showPlace(place: { path: string; line?: number; kind?: 'file' | 'folder'; diff?: string }): number {
+  const { diff, ...at } = place
+  moveTo(nav => visit(nav, { ...at, kind: at.kind ?? 'file' }))
+  if (diff !== undefined) {
+    state.editDiff = { path: place.path, diff }
+    endFlash()
+  }
   state.lastFile = place.path
   return (state.applied = ++state.rev)
 }
@@ -228,6 +293,7 @@ export async function reloadPlace($: EngineInterface, edit?: { oldText: string; 
     state.diff = diff
     const same = prev && prev.length === loaded.lines.length && prev.every((t, i) => t === loaded.lines[i])
     if (!same) state.reloadMarks = loaded.unreadable ? undefined : reloadDiff(prev, loaded.lines, edit)
+    if (!same) endFlash()
     showMarksRemap()
     if (!same && state.reloadMarks && state.remapTop) state.remapTop = 'text'
     state.tokens = new Map()
@@ -611,13 +677,16 @@ export async function explorerPost($: EngineInterface, e: { element: string; dat
   const d = e.data as { first?: unknown; last?: unknown; top?: unknown } | undefined
   if ((e.element === 'explorer:vbar' || e.element === 'explorer:hbar') && typeof d?.top === 'number') {
     // The next draw clamps the spot to the file.
-    if (e.element === 'explorer:vbar') state.top = d.top
-    else state.col = d.top
+    if (e.element === 'explorer:vbar') {
+      endFlash()
+      state.top = d.top
+    } else state.col = d.top
     await update($, file, () => placeOf())
     return
   }
   if (e.element === 'explorer:gutter' && typeof d?.first === 'number' && typeof d.last === 'number') {
     clearReload()
+    endFlash()
     await copyLines($, d.first, d.last, e.surface)
   }
 }
@@ -640,7 +709,9 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   // A file shown again after a folder page may have changed meanwhile.
   if (wanted.kind === 'file' && state.afterFolder && state.loaded?.path === wanted.path) {
     const st = await statOf($, wanted.path)
-    if (!st || st.mtimeMs !== state.loaded.mtimeMs || st.size !== state.loaded.size) state.loaded = undefined
+    if (!st || st.mtimeMs !== state.loaded.mtimeMs || st.size !== state.loaded.size) {
+      state.loaded = undefined
+    }
   }
   if (wanted.kind === 'file') state.afterFolder = false
   if (wanted.kind === 'file' && wanted.path !== state.loaded?.path) {
@@ -655,6 +726,8 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       state.tokens = new Map()
     }
   }
+  let focus: number | undefined
+  if (state.editDiff && state.loaded?.path === state.editDiff.path) focus = await applyEdit($)
   const place = current(state.nav)
   if (place.kind === 'folder') state.afterFolder = true
   const rows = Math.max(0, props.scroll.bodyRows)
@@ -801,11 +874,11 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     const hbar = !!Client && !state.wrap && layout.widest > C
     if (hbar) codeRows = Math.max(0, codeRows - 1)
     state.col = state.wrap ? 0 : Math.max(0, Math.min(state.col, layout.widest - C))
-    const line = state.lit?.from
+    const line = state.lit?.from ?? focus
     const asked = state.top ?? (line === undefined ? 0 : Math.max(0, codeRow(layout, Math.max(0, Math.min(line, lines.length) - 1)) - Math.floor(codeRows / 2)))
     const win = fileWindow(layout.rows, asked, codeRows)
     state.top = win.top
-    const drawn: { row: number; line: number; before?: number; cell: string; lit: boolean; hit?: boolean; tone?: 'add' | 'del' }[] = []
+    const drawn: { row: number; line: number; before?: number; cell: string; lit: boolean; hit?: boolean; tone?: 'add' | 'del'; bg?: string }[] = []
     const code: JSX.Element[] = []
     const kindColor = (t: Token) => (t.kind === 'keyword' ? HUD.label : t.kind === 'string' ? TYPES.feat : t.kind === 'number' ? TYPES.perf : t.kind === 'comment' ? HUD.faint : undefined)
     for (let r = win.top; r < win.last; r++) {
@@ -824,10 +897,13 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       const tone = del ? 'del' : state.marks?.added.has(n) ? 'add' : undefined
       const lit = !!state.lit && (del ? redLit(at.before, state.lit.from, state.lit.to) : n >= state.lit.from && n <= state.lit.to)
       const diffBg = tone === 'add' ? 'diffAdded' : tone === 'del' ? 'diffRemoved' : undefined
+      const end = diffBg === undefined ? undefined : themeHex(diffBg)
+      const flash = !del && flashing?.path === place.path && flashing.lines.has(n) ? (end ? mixHex(FLASH, end, flashing.step / FLASH_STEPS) : FLASH) : undefined
+      const bg = flash ?? diffBg
       const cell = seg ? ' '.repeat(G) : del ? `${' '.repeat(digits + 1)}− ` : ` ${String(n).padStart(digits)}${tone === 'add' ? '+' : ' '} `
-      drawn.push({ row: r, line: n, ...(del && { before: at.before }), cell, lit, hit: !seg && !!on, ...(tone && { tone }) })
+      drawn.push({ row: r, line: n, ...(del && { before: at.before }), cell, lit, hit: !seg && !!on, ...(tone && { tone }), ...(flash && { bg: flash }) })
       code.push(
-        <Box key={del ? `del:${r}` : seg ? `row:${n}:${seg}` : `row:${n}`} backgroundColor={lit ? LIT : diffBg}>
+        <Box key={del ? `del:${r}` : seg ? `row:${n}:${seg}` : `row:${n}`} backgroundColor={lit ? LIT : bg}>
           <Box width={C} flexShrink={0}>
             <Button
               key={`code:${r - win.top}`}
@@ -835,16 +911,18 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
               onPress={() => {
                 state.lit = undefined
                 clearReload()
+                endFlash()
+                state.editDiff = undefined
                 return update($, file, () => placeOf())
               }}
             >
-              {slice.length || lit || diffBg ? slice.map((t, k) => (
-                <Text key={k} backgroundColor={t.hit === 'current' ? 'warning' : t.hit ? PILL_BG.yellow : lit ? LIT : diffBg} color={t.hit === 'current' ? 'inverseText' : t.hit ? STATUS.M : del ? HUD.faint : kindColor(t)}>
+              {slice.length || lit || bg ? slice.map((t, k) => (
+                <Text key={k} backgroundColor={t.hit === 'current' ? 'warning' : t.hit ? PILL_BG.yellow : lit ? LIT : bg} color={t.hit === 'current' ? 'inverseText' : t.hit ? STATUS.M : del ? HUD.faint : kindColor(t)}>
                   {t.text}
                 </Text>
               )) : <Text> </Text>}
               {/* The row Box's background does not reach under its Texts, so a lit or diff row paints its own cells. */}
-              {(lit || diffBg) && <Text backgroundColor={lit ? LIT : diffBg}>{' '.repeat(Math.max(0, C - cellsOf(slice.map(t => t.text).join(''))))}</Text>}
+              {(lit || bg) && <Text backgroundColor={lit ? LIT : bg}>{' '.repeat(Math.max(0, C - cellsOf(slice.map(t => t.text).join(''))))}</Text>}
             </Button>
           </Box>
           {!Client && <Text color={HUD.faint}>│</Text>}
@@ -875,8 +953,8 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
             <Client key="explorer:gutter" module="./explorer-gutter.tsx" height={codeRows} props={{ rows: drawn, colors: { lit: LIT, faint: HUD.faint, claude: 'claude', warning: 'warning', add: STATUS.A, del: STATUS.D, addBg: 'diffAdded', delBg: 'diffRemoved' } }} />
           ) : (
             drawn.map(r => (
-              <Button key={`gutter:${r.row}`} plain onPress={press => (pressLine(r) !== undefined ? (clearReload(), copyLines($, r.line, r.line, press.surface)) : undefined)}>
-                <Text color={r.hit ? 'warning' : r.tone === 'add' ? STATUS.A : r.tone === 'del' ? STATUS.D : HUD.faint} backgroundColor={r.lit ? LIT : r.tone === 'add' ? 'diffAdded' : r.tone === 'del' ? 'diffRemoved' : undefined}>
+              <Button key={`gutter:${r.row}`} plain onPress={press => (pressLine(r) !== undefined ? (clearReload(), endFlash(), copyLines($, r.line, r.line, press.surface)) : undefined)}>
+                <Text color={r.hit ? 'warning' : r.tone === 'add' ? STATUS.A : r.tone === 'del' ? STATUS.D : HUD.faint} backgroundColor={r.lit ? LIT : r.bg ?? (r.tone === 'add' ? 'diffAdded' : r.tone === 'del' ? 'diffRemoved' : undefined)}>
                   {r.cell}
                 </Text>
               </Button>
@@ -902,6 +980,8 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
         offset: 0,
         wheel: by => {
           state.col = Math.max(0, Math.min(state.col + 4 * by, layout.widest - C))
+          endFlash()
+          state.editDiff = undefined
           return update($, file, () => placeOf())
         },
       })
@@ -916,6 +996,8 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       wheel: by => {
         state.top = fileWindow(layout.rows, (state.top ?? 0) + by, codeRows).top
         clearReload()
+        endFlash()
+        state.editDiff = undefined
         return update($, file, () => placeOf())
       },
     })
