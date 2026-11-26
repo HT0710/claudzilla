@@ -6,7 +6,7 @@ import { markCells } from '../hooks/explorer-find'
 import { cellsOf, codeRow, expandTabs, fileWindow, layoutFor, layoutOf, lineAt, rowAt, sliceTokens, thumbOf, toneRows } from '../hooks/explorer-layout'
 import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '../hooks/explorer-nav'
 import { tokenize } from '../hooks/explorer-tokens'
-import { iconOf, itemsText, langOf, sortListing, treeRows } from '../hooks/explorer-tree'
+import { guideFolders, iconOf, itemsText, langOf, rowScopeOf, scopeOf, sortListing, treeRows } from '../hooks/explorer-tree'
 import { fieldPad, refOf } from '../hooks/tab-file'
 import { resetRecent } from '../hooks/explorer-recent'
 import { fileKey } from '../hooks/git-data'
@@ -3525,4 +3525,58 @@ test('a scan of another page never makes a pending scan stale', async ($, on) =>
 test('a folder holding a file edited a minute ago reads now or 1m', async ($, on) => {
   const ui = await aged($, on, srcTree, '950 src/b.ts\n')
   expect(['now', ' 1m']).toContain(await ageCell(ui, 'src'))
+})
+
+test('scopeOf: stable per folder, and at most 64 characters', () => {
+  expect(scopeOf('/repo/src')).toBe(scopeOf('/repo/src'))
+  expect(scopeOf('/repo/src')).not.toBe(scopeOf('/repo/lib'))
+  expect(scopeOf('/repo/' + 'x'.repeat(500)).length).toBeLessThanOrEqual(64)
+  expect(rowScopeOf('/repo/src')).not.toBe(scopeOf('/repo/src'))
+})
+
+test('guideFolders: a file in src/lib lists src and src/lib, outermost first', () => {
+  expect(guideFolders('/repo/src/lib/a.ts', '/repo')).toEqual(['/repo/src', '/repo/src/lib'])
+  expect(guideFolders('/repo/a.ts', '/repo/')).toEqual([])
+  expect(guideFolders('/other/a.ts', '/repo')).toEqual([])
+})
+
+// The drawn guide cells of a tree row: the Boxes before its Client, by hover scope.
+const guideBoxes = async (ui: any, name: string) => {
+  const row = await treeRow(ui, name)
+  const found: any[] = []
+  const walk = (n: any, up: any[]) => {
+    if (!n || typeof n !== 'object') return
+    if (Array.isArray(n)) return n.forEach(x => walk(x, up))
+    if (n.props?.key === row.props.key) return void found.push(...up)
+    walk([n.children, n.props?.children], [...up, n])
+  }
+  walk(await ui.drawn(), [])
+  const parent = found.at(-1)
+  return (parent?.children ?? parent?.props?.children ?? []).flat().filter((c: any) => c?.hover?.scope?.startsWith('g:'))
+}
+
+test('a guide cell carries its folder scope, and unlit it is blank', async ($, on) => {
+  const ui = await explorerRoot($, on, { '/repo': [{ name: 'src', kind: 'dir' }], '/repo/src': [{ name: 'a.ts', kind: 'file' }] })
+  await tapTree(ui, 'src')
+  await ui.drawn()
+  const [cell] = await guideBoxes(ui, 'a.ts')
+  expect(cell.hover.scope).toBe(scopeOf('/repo/src'))
+  const inner = (cell.children ?? cell.props.children).flat()[0]
+  expect(inner.props.display).toBe('none')
+  expect(inner.hover).toEqual({ scope: scopeOf('/repo/src'), display: 'flex' })
+  expect(await guideBoxes(ui, 'src')).toEqual([])
+  // Guide cells float over the Client, which owns the whole row including the indent, so a press on an indent cell is a row press.
+  expect(cell.props.position).toBe('absolute')
+  const row = await treeRow(ui, 'a.ts')
+  expect(row.props.props.left[0].text).toBe('  ')
+})
+
+test('a press on a lit guide cell runs the row press', async ($, on) => {
+  const ui = await explorerRoot($, on, { '/repo': [{ name: 'src', kind: 'dir' }], '/repo/src': [{ name: 'a.ts', kind: 'file' }] })
+  disk.set('/repo/src/a.ts', { text: 'x\n', mtimeMs: 1 })
+  await tapTree(ui, 'src')
+  await ui.drawn()
+  await ui.press({ key: `lead:x:${fileKey('/repo/src/a.ts')}:0` })
+  await waitFor(() => reads.includes('/repo/src/a.ts'))
+  expect(await pathText(ui)).toContain('a.ts')
 })

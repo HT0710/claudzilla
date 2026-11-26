@@ -18,10 +18,10 @@ import { back, current, forward, navStart, remember, visit } from './explorer-na
 import type { Nav } from './explorer-nav'
 import { tokenize } from './explorer-tokens'
 import type { Token } from './explorer-tokens'
-import { iconOf, itemsText, langOf, treeRows } from './explorer-tree'
+import { guideFolders, iconOf, itemsText, langOf, rowScopeOf, scopeOf, treeRows } from './explorer-tree'
 import type { Listing } from './explorer-tree'
 import { fileKey, printable } from './git-data'
-import { CARD, FLASH, HUD, LIT, PAD, PILL_BG, STATUS, TYPES, basicGlyphs, clock, emptyNote, mixHex, readTheme, rowHovers, themeHex, toPieces } from './kit'
+import { CARD, DIMMED, FLASH, HUD, LIT, PAD, PILL_BG, STATUS, TYPES, basicGlyphs, clock, emptyNote, mixHex, readTheme, rowHovers, themeHex, toPieces } from './kit'
 import type { TabCtx, TabDraw } from './kit'
 
 // The open place, so a change redraws the pane; the draw applies a place whose rev it has not seen.
@@ -888,22 +888,40 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     if (!total) body = [<Text key="empty" color={HUD.faint}>{hits ? (state.names?.loading ? 'listing…' : 'no match') : 'empty'}</Text>]
     rowHover.acts = {}
     const Client = 'Client' in ctx.el ? ctx.el.Client : undefined
-    const put = (path: string, left: JSX.Element[], right: JSX.Element[], press: () => unknown, lit = false) => {
+    // `lead`: one guide scope per indent column, null for a blank; `group`: the guide line the pointer on this row lights.
+    // Guide cells are absolute, so a pointer on one reaches the Client below and a press in the indent hits the row.
+    const put = (path: string, left: JSX.Element[], right: JSX.Element[], press: () => unknown, lit = false, lead: (string | null)[] = [], group?: string) => {
       const key = `x:${fileKey(path)}`
       rowHover.acts[key] = press
       body.push(
-        // Keyed, its own hover scope: unkeyed, it would light whenever the pointer is anywhere in the tree.
-        <Box key={key} flexDirection="column" height={1} hover={{ backgroundColor: LIT }} backgroundColor={lit ? LIT : undefined}>
-          {Client ? (
-            <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left: toPieces(left), right: toPieces(right) }} />
-          ) : (
-            <Box justifyContent="space-between" gap={2}>
-              <Button plain key={path} onPress={press}>
-                {left}
-              </Button>
-              {right.length ? <Box flexShrink={0}>{right}</Box> : null}
-            </Box>
-          )}
+        // Keyed: the guide group is its own scope, and the row's highlight has another on the inner Box, so a lit guide never lights a row.
+        <Box key={key} flexDirection="column" height={1} hover={group ? { scope: group } : undefined} backgroundColor={lit ? LIT : undefined}>
+          <Box flexDirection="column" height={1} hover={{ scope: rowScopeOf(path), backgroundColor: LIT }}>
+            {Client ? (
+              <Box flexDirection="column" height={1}>
+                <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left: toPieces([<Text>{' '.repeat(lead.length)}</Text>, ...left]), right: toPieces(right) }} />
+                {lead.map((scope, c) =>
+                  scope ? (
+                    <Box position="absolute" left={c} top={0} width={1} hover={{ scope }}>
+                      <Box display="none" hover={{ scope, display: 'flex' }}>
+                        {/* A lit │ takes the press the Client below would get, so it runs the row's press itself. */}
+                        <Button plain key={`lead:${key}:${c}`} onPress={press}>
+                          <Text color={DIMMED}>│</Text>
+                        </Button>
+                      </Box>
+                    </Box>
+                  ) : null,
+                )}
+              </Box>
+            ) : (
+              <Box justifyContent="space-between" gap={2}>
+                <Button plain key={path} onPress={press}>
+                  {[<Text>{' '.repeat(lead.length)}</Text>, ...left]}
+                </Button>
+                {right.length ? <Box flexShrink={0}>{right}</Box> : null}
+              </Box>
+            )}
+          </Box>
         </Box>,
       )
     }
@@ -931,8 +949,11 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       const icon = iconOf(r.name, r.kind, r)
       const faint = r.dim || r.broken
       const tone = (name: string) => (faint ? HUD.faint : ICON_COLORS()[name] ?? HUD.faint)
+      const folders = guideFolders(r.path, place.path)
+      // One cell per indent column: the line of the open folder above it there, else a blank.
+      const lead = Array.from({ length: r.x }, (_, c) => (c < folders.length ? scopeOf(folders[c]!) : null))
+      const group = r.kind === 'dir' && r.open ? scopeOf(r.path) : folders.length ? scopeOf(folders[folders.length - 1]!) : undefined
       const left = [
-        <Text>{' '.repeat(r.x)}</Text>,
         <Text color={HUD.faint}>{r.kind === 'dir' && !r.empty ? (r.open ? '▾' : '▸') : ' '}</Text>,
         <Text> </Text>,
         ...(basic ? [] : [<Text color={tone(icon.color)}>{icon.glyph}</Text>, <Text> </Text>]),
@@ -949,7 +970,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       const at = ageOf(scan, r.path)
       // Count, 2 spaces, age (3 cells, blank without scan data), 2 spaces, then the mark cell: one blank cell when the row has no mark.
       const right = [<Text color={HUD.faint}>{(n === undefined ? '' : itemsText(n)).padEnd(countW)}</Text>, <Text>{'  '}</Text>, <Text color={HUD.faint}>{at === undefined ? '   ' : ageText(at, now)}</Text>, <Text>{'  '}</Text>, ...(mark.length ? mark : [<Text> </Text>])]
-      put(r.path, left, right, press)
+      put(r.path, left, right, press, false, lead, group)
     }
     zones.push({
       tab: 'Explorer',
