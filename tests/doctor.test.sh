@@ -35,10 +35,10 @@ for(const p of Object.values(JSON.parse(fs.readFileSync(cl+"/parts.json","utf8")
   const d=cfg+"/"+l;fs.mkdirSync(require("path").dirname(d),{recursive:true});fs.symlinkSync(cl+"/claude/"+l,d)}' "$CL" "$CFG" "$head"
 }
 IP() { echo "$CFG/plugins/installed_plugins.json"; }
-run() { ( cd "${CWD:-$TMP/home/proj}" && HOME="${H:-$TMP/home}" CLAUDE_CONFIG_DIR="$CFG" TMPDIR="$TMP/tmp" node "$D" "$@" </dev/null ); }
+run() { ( cd "${CWD:-$TMP/home/proj}" && HOME="${H:-$TMP/home}" CLAUDE_CONFIG_DIR="$CFG" TMPDIR="$TMP/tmp" node "${DD:-$D}" "$@" </dev/null ); }
 row() { js "$1" "r.some(x=>$2)"; }
 stale_margin() { echo x >>"$CL/plugins/margin/README.md"; git -C "$CL" commit -qam change; }
-proj_entry() { edit "$(IP)" "j.plugins['margin@claudzilla'].push({scope:'project',projectPath:'$1',gitCommitSha:j.plugins['margin@claudzilla'][0].gitCommitSha})"; }
+proj_entry() { P="$1" edit "$(IP)" "j.plugins['margin@claudzilla'].push({scope:'project',projectPath:process.env.P,gitCommitSha:j.plugins['margin@claudzilla'][0].gitCommitSha})"; }
 
 fixture
 check "healthy: plain --quick prints nothing" [ -z "$(run --quick)" ]
@@ -78,6 +78,8 @@ check "project: symlinked cwd matches its real path" row "$(CWD="$TMP/home/link"
 
 fixture; proj_entry "$TMP/home/proj"; stale_margin; mkdir -p "$TMP/home/proj/.claude"
 printf '{"enabledPlugins":{"margin@claudzilla":true}}' >"$TMP/home/proj/.claude/settings.json"
+check "project: a project settings file alone still gives uninstall-project" row "$(run --json)" 'x.check=="project"&&x.fix?.kind=="uninstall-project"'
+mkdir -p "$TMP/home/proj/.claude/plugins"; printf '{"version":2,"plugins":{}}' >"$TMP/home/proj/.claude/plugins/installed_plugins.json"
 out=$(run --json)
 check "project: profile overlap gives no fix" row "$out" "x.check=='project'&&!x.ok&&!('fix' in x)&&x.why==\"removing it edits that profile's settings\"&&x.text.includes('also a profile')"
 check "render: no automatic fix line" grep -qxF "  no automatic fix: removing it edits that profile's settings" <<<"$(run)"
@@ -214,5 +216,28 @@ check "anti-goal: no claude call in any mode" [ ! -e "$TMP/claude-called" ]
 diff -r "$CFG" "$TMP/cfg.before" >"$TMP/cfgdiff" 2>&1; cat "$TMP/cfgdiff" >&2; check "anti-goal: config unchanged" [ ! -s "$TMP/cfgdiff" ]
 check "anti-goal: clone unchanged" diff -r --exclude=index "$CL" "$TMP/clone.before"
 check "anti-goal: only the session note is written" [ "$(ls -A "$TMP/tmp")" = "claudzilla-rules-$(id -u)" -a "$(ls -A "$SD")" = doctor-s1.json ]
+
+fixture; git -C "$CL" worktree add -q "$TMP/wt" 2>/dev/null
+out=$(DD="$TMP/wt/claude/hooks/doctor.mjs" run --json)
+check "worktree: no install fix, says why" row "$out" 'x.check=="links"&&!x.ok&&!("fix" in x)&&x.why.includes("worktree")'
+check "worktree: no row offers install" js "$out" '!r.some(x=>x.fix?.kind=="install")'
+
+pidfile() { mkdir -p "$CFG/sessions"; printf '{"pid":123,"sessionId":"%s"}' "$1" >"$CFG/sessions/123.json"; }
+fixture; rm -rf "$SD"; pidfile s1; hook '{"session_id":"s1","source":"startup"}' >/dev/null
+bump_margin; pidfile s2; hook '{"session_id":"s2","source":"clear"}' >/dev/null
+check "note: /clear keeps the startup note" [ "$(ls "$SD")" = doctor-p123.json ]
+check "restart: still flagged after /clear" row "$(sid s2 --json)" 'x.check=="restart"&&!x.ok'
+hook '{"session_id":"s2","source":"resume"}' >/dev/null
+check "note: resume rewrites the note" js "$(sid s2 --json)" '!r.some(x=>x.check=="restart"&&!x.ok)'
+
+fixture; printf '{"version":2,"plugins":{"margin@claudzilla":{}}}' >"$(IP)"; out=$(run --json); rc=$?
+check "shape: plugin entry not an array, rc 0" [ "$rc" -eq 0 ]
+check "shape: plugin entry not an array still reports" js "$out" 'Array.isArray(r)'
+fixture; edit "$CFG/settings.json" "j.hooks.SessionStart={}"; out=$(run --json); rc=$?
+check "shape: hooks event not an array, rc 0" [ "$rc" -eq 0 ]
+check "shape: hooks event not an array gives settings row" row "$out" 'x.check=="settings"&&!x.ok'
+
+fixture; mkdir -p "$TMP/home/it's"; proj_entry "$TMP/home/it's"; stale_margin
+check "quote: a project path with ' gets no fix" row "$(CWD="$TMP/home/it's" run --json)" 'x.check=="project"&&!("fix" in x)&&x.why.includes("quote")'
 
 echo "pass=$pass fail=$fail"; [ "$fail" -eq 0 ]

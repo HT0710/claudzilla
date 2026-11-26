@@ -4,10 +4,10 @@
 //   node doctor.mjs --quick        state checks only; prints nothing when all pass
 //   node doctor.mjs --json         every check as JSON; with --quick, state checks only
 //   node doctor.mjs --hook         SessionStart hook: quick checks, one JSON line on a problem; notes the session's plugin commits
-import { accessSync, constants, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const real = (p) => { try { return realpathSync(p); } catch { return undefined; } };
@@ -55,7 +55,7 @@ export function stateDir(env, uid) {
 export function readHookInput(stdin) {
   return new Promise((resolve) => {
     let buf = "";
-    const done = () => { clearTimeout(t); stdin.destroy(); let j; try { j = JSON.parse(buf); } catch { j = {}; } resolve({ sid: typeof j?.session_id === "string" ? j.session_id : undefined, cwd: typeof j?.cwd === "string" ? j.cwd : undefined }); };
+    const done = () => { clearTimeout(t); stdin.destroy(); let j; try { j = JSON.parse(buf); } catch { j = {}; } resolve({ sid: typeof j?.session_id === "string" ? j.session_id : undefined, cwd: typeof j?.cwd === "string" ? j.cwd : undefined, source: typeof j?.source === "string" ? j.source : undefined }); };
     const t = setTimeout(done, 1000);
     stdin.setEncoding("utf8");
     stdin.on("data", (d) => { buf += d; });
@@ -71,7 +71,17 @@ export function records(config) {
 }
 
 const SID = /^[A-Za-z0-9_-]{1,128}$/;
-const notePath = (ctx) => (ctx.state && ctx.sid && SID.test(ctx.sid) ? join(ctx.state, `doctor-${ctx.sid}.json`) : undefined);
+// Keyed by the Claude process, found through <config>/sessions/<pid>.json, because /clear gives the same process a new session id.
+function noteKey(ctx) {
+  try {
+    for (const f of readdirSync(join(ctx.config, "sessions"))) {
+      const j = readJson(join(ctx.config, "sessions", f), []);
+      if (j?.sessionId === ctx.sid && Number.isInteger(j?.pid)) return `p${j.pid}`;
+    }
+  } catch { /* no sessions dir */ }
+  return ctx.sid;
+}
+const notePath = (ctx) => (ctx.state && ctx.sid && SID.test(ctx.sid) ? join(ctx.state, `doctor-${noteKey(ctx)}.json`) : undefined);
 const known = (ctx, sha) => run("git", ["-C", ctx.clone, "cat-file", "-e", `${sha}^{commit}`]).status === 0;
 
 function commitState(ctx, name, sha) {
@@ -108,8 +118,7 @@ export function checks(ctx) {
       } else if (e?.scope === "project" && typeof e.projectPath === "string" && here.has(real(e.projectPath))) {
         if (commitState(ctx, name, sha) === "ok") continue;
         const path = e.projectPath.replace(/\/+$/, "");
-        const prof = readJson(join(path, ".claude/settings.json"), []);
-        results.push(prof?.enabledPlugins ? { check: "project", label: name, ok: false, text: `project install at ${short} for ${path}, whose .claude is also a profile`, why: "removing it edits that profile's settings" }
+        results.push(existsSync(join(path, ".claude/plugins/installed_plugins.json")) ? { check: "project", label: name, ok: false, text: `project install at ${short} for ${path}, whose .claude is also a profile`, why: "removing it edits that profile's settings" }
           : { check: "project", label: name, ok: false, text: `project install at ${short} for ${path}, clone at ${head}`, fix: { kind: "uninstall-project", id, scope: "project", cwd: path } });
       }
     }
@@ -133,7 +142,7 @@ export function checks(ctx) {
   results.push(badLinks.length ? { check: "links", label: "links", ok: false, text: `missing or outside the clone: ${badLinks.join(", ")}`, fix: install } : { check: "links", label: "links", ok: true, text: `${links.length}/${links.length}` });
 
   const want = [...on].flatMap((p) => parts[p]?.plugins ?? []);
-  const off = want.filter((id) => !(installed[id] ?? []).some((e) => e?.scope === "user") || settings.enabledPlugins?.[id] !== true);
+  const off = want.filter((id) => !(Array.isArray(installed[id]) && installed[id].some((e) => e?.scope === "user")) || settings.enabledPlugins?.[id] !== true);
   results.push(off.length ? { check: "plugins", label: "plugins", ok: false, text: `not installed or not enabled: ${off.join(", ")}`, fix: install } : { check: "plugins", label: "plugins", ok: true, text: `${want.length}/${want.length} installed and enabled` });
 
   results.push(markets.claudzilla ? { check: "marketplace", label: "marketplace", ok: true, text: "claudzilla registered" } : { check: "marketplace", label: "marketplace", ok: false, text: "claudzilla marketplace is not registered", fix: install });
@@ -141,7 +150,8 @@ export function checks(ctx) {
   const b = baseFor(base, parts, on);
   const missing = [];
   for (const [ev, entries] of Object.entries(b.hooks)) {
-    const have = new Set((settings.hooks?.[ev] ?? []).flatMap((e) => (e?.hooks ?? []).map((h) => h?.command)));
+    const list = settings.hooks?.[ev];
+    const have = new Set((Array.isArray(list) ? list : []).flatMap((e) => (Array.isArray(e?.hooks) ? e.hooks : []).map((h) => h?.command)));
     for (const e of entries) for (const h of e.hooks) if (!have.has(h.command)) missing.push(`${ev} hook`);
   }
   if (b.statusLine && settings.statusLine?.command !== b.statusLine.command) missing.push("statusLine");
@@ -151,7 +161,15 @@ export function checks(ctx) {
   const gone = tools.filter((t) => !onPath(t));
   results.push(gone.length ? { check: "tools", label: "tools", ok: false, text: `not on PATH: ${gone.join(", ")}`, why: `install ${gone.join(", ")}` } : { check: "tools", label: "tools", ok: true, text: tools.join(", ") });
 
-  if (!ctx.quick) results.push(...fullChecks(ctx, [...on].flatMap((p) => parts[p]?.links ?? [])));
+  if (!ctx.quick) results.push(...fullChecks(ctx, links));
+  // install.sh run from a worktree relinks ~/.claude to it; a quote would break out of the skill's quoting.
+  const gd = run("git", ["-C", ctx.clone, "rev-parse", "--absolute-git-dir"]).out;
+  const common = resolve(ctx.clone, run("git", ["-C", ctx.clone, "rev-parse", "--git-common-dir"]).out || ".");
+  const worktree = gd && real(gd) !== real(common);
+  for (const r of results) {
+    if (r.fix?.kind === "install" && worktree) { delete r.fix; r.why = "this is a git worktree; run install.sh in the main clone"; }
+    else if (r.fix?.cwd?.includes("'")) { delete r.fix; r.why = "the path has a quote; fix it by hand"; }
+  }
   return results;
 }
 
@@ -244,7 +262,8 @@ if (process.argv[1] && real(process.argv[1]) === real(fileURLToPath(import.meta.
     const results = checks(ctx);
     if (hook) {
       const path = notePath(ctx);
-      if (path) { try { writeFileSync(path, JSON.stringify(records(ctx.config)), { flag: "wx", mode: 0o600 }); } catch { /* kept from session start */ } }
+      const fresh = input.source === "startup" || input.source === "resume";
+      if (path) { try { writeFileSync(path, JSON.stringify(records(ctx.config)), { flag: fresh ? "w" : "wx", mode: 0o600 }); } catch { /* kept from session start */ } }
       const bad = results.filter((r) => !r.ok);
       if (bad.length) {
         const plugin = bad.find((r) => r.check === "plugin");
