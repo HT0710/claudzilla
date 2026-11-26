@@ -8,9 +8,6 @@ const historyTop = atom({ plugin: 'margin', key: 'historyTop' } as const, 0)
 
 // \u00a0: the toast wraps at spaces; ↻ keeps to its word.
 const GONE = "Can't jump: rewound or compacted out of the chat. ↻\u00a0reuses it."
-// A move redraws every row, each saying where it is now; rows a long jump unmounted say nothing
-// again, so only the rows reported with the newest count.
-const FRESH = 100
 
 // By local calendar day: "Today", else "Sat 10 Oct".
 export const dayLabel = (ms: number, now: Date) =>
@@ -36,6 +33,8 @@ export type HistoryCtx = TabCtx & {
   rowIds: Map<string, string>
   awaited: Set<string>
   shown: Map<string, { where: string; key: string; at: number }>
+  // Rows reported before this are left over from a screen the chat has moved off.
+  settledAt: () => number
   // Read at the moment the draw reads it.
   pin: () => { timestamp: number; after: number } | undefined
   flat: (text: string) => string
@@ -68,8 +67,7 @@ export async function draw($: EngineInterface, ctx: HistoryCtx): Promise<TabDraw
   // The prompt being read lights even if compacted: it is on screen.
   const times = await ctx.rowTimes([...new Set([...shown.values()].map(row => row.key))])
   const known = [...shown.values()].filter(row => times.has(row.key))
-  const newest = Math.max(...known.map(row => row.at))
-  const lit = litPrompt(prompts, known.filter(row => row.at >= newest - FRESH).map(row => times.get(row.key)!), ctx.pin())
+  const lit = litPrompt(prompts, known.filter(row => row.at >= ctx.settledAt()).map(row => times.get(row.key)!), ctx.pin())
   // `line` left and right of " label ", across the row (room + 9 columns).
   const flanks = (label: string, line: string) => {
     const fill = Math.max(0, room + 7 - label.length)
