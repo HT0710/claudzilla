@@ -42,7 +42,7 @@ check "prompt: quoted bug word is silent" [ -z "$out" ]
 new_session; out=$(hook UserPromptSubmit prompt='rename `error` field')
 check "prompt: code-span bug word is silent" [ -z "$out" ]
 for p in "how far can we customize without broken every update" "make sure it never crashes" "this is not a bug"; do
-  new_session; check "prompt: negated bug word is silent (${p:0:14})" [ -z "$(hook UserPromptSubmit "prompt=$p")" ]
+  new_session; check "prompt: negated bug word is silent (${p:0:14})" silent hook UserPromptSubmit "prompt=$p"
 done
 for p in "no it crashes" "no error message, just a blank page" $'it does not compile\n\nerror[E0308]: mismatched types'; do
   new_session; check "prompt: report after no/not still triggers (${p:0:14})" has "$(hook UserPromptSubmit "prompt=$p")" "systematic-debugging"
@@ -57,7 +57,7 @@ check "prompt: typed skill skips triggers" [ -z "$out" ]
 for p in $'<task-notification>\n<status>failed</status> build broken' \
   $'Another Claude session sent a message:\n<cross-session-message from="x">login is broken</cross-session-message>' \
   '[Cross-session idle notice] peer hit an error'; do
-  new_session; check "prompt: machine-sent skips triggers (${p:0:12})" [ -z "$(hook UserPromptSubmit "prompt=$p")" ]
+  new_session; check "prompt: machine-sent skips triggers (${p:0:12})" silent hook UserPromptSubmit "prompt=$p"
 done
 
 # --- compact nudge ---
@@ -66,7 +66,7 @@ TX="$TMP/tx.jsonl"
 usage() { printf '{"type":"assistant","message":{"usage":{"input_tokens":2,"cache_creation_input_tokens":%s,"cache_read_input_tokens":%s}}}\n' "$2" "$3" >> "$1"; }
 cn() { new_session; hook UserPromptSubmit prompt=next "transcript_path=$1"; }
 : > "$TX"; usage "$TX" 50000 49000
-check "compact: below threshold silent" [ -z "$(cn "$TX")" ]
+check "compact: below threshold silent" silent cn "$TX"
 : > "$TX"; usage "$TX" 60000 100000; out=$(cn "$TX")
 check "compact: tier 1 optional line" has "$out" 'It starts with **Compact — optional:** and ends with Run and the command in backticks'
 check "compact: own line, no bullet" has "$out" 'on its own line, not in a bullet, quote or code span'
@@ -90,27 +90,27 @@ check "compact: tier 2 suggest" has "$(cn "$TX")" '**Compact — suggest:**'
 check "compact: tier 3 recommend" has "$out" '**Compact — recommend:**'
 check "compact: tier 3 any reply not mid-task" has "$out" "any reply that is not mid-task"
 : > "$TX"; usage "$TX" 60000 100000; printf '{"type":"system","subtype":"compact_boundary"}\n' >> "$TX"
-check "compact: after compact boundary silent" [ -z "$(cn "$TX")" ]
+check "compact: after compact boundary silent" silent cn "$TX"
 : > "$TX"; usage "$TX" 50000 49000; printf '{"type":"assistant","isSidechain":true,"message":{"usage":{"input_tokens":900000}}}\n' >> "$TX"
-check "compact: sidechain usage ignored" [ -z "$(cn "$TX")" ]
+check "compact: sidechain usage ignored" silent cn "$TX"
 : > "$TX"; usage "$TX" 60000 100000; printf '{"type":"assistant","message":{"model":"<synthetic>","usage":{"input_tokens":0,"cache_read_input_tokens":0}}}\n' >> "$TX"
 check "compact: synthetic zero-usage reply skipped" has "$(cn "$TX")" "**Compact — optional:**"
 : > "$TX"; usage "$TX" 60000 100000; new_session
-check "compact: machine prompt silent" [ -z "$(hook UserPromptSubmit 'prompt=<task-notification>x</task-notification>' "transcript_path=$TX")" ]
+check "compact: machine prompt silent" silent hook UserPromptSubmit 'prompt=<task-notification>x</task-notification>' "transcript_path=$TX"
 said() { printf '{"type":"assistant","message":{"content":[{"type":"text","text":"**Compact — %s:** x"}],"usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":%s}}}\n' "$2" "$3" >> "$1"; }
 : > "$TX"; said "$TX" optional 160000; usage "$TX" 10000 170000
-check "compact: right after a reply with the line, silent" [ -z "$(cn "$TX")" ]
+check "compact: right after a reply with the line, silent" silent cn "$TX"
 prompted() { printf '{"type":"user","message":{"role":"user","content":"next"}}\n' >> "$1"; }
 : > "$TX"; said "$TX" optional 160000; prompted "$TX"; usage "$TX" 10000 170000
 check "compact: a reply later, shown again" has "$(cn "$TX")" '**Compact — optional:**'
 : > "$TX"; said "$TX" optional 160000; printf '{"type":"user","message":{"content":[{"type":"tool_result","content":"x"}]}}\n' >> "$TX"; usage "$TX" 10000 170000
-check "compact: tool result is not a new prompt" [ -z "$(cn "$TX")" ]
+check "compact: tool result is not a new prompt" silent cn "$TX"
 : > "$TX"; said "$TX" optional 160000; printf '{"type":"system","subtype":"compact_boundary"}\n' >> "$TX"; usage "$TX" 60000 100000
 check "compact: line before a compact boundary forgotten" has "$(cn "$TX")" '**Compact — optional:**'
 : > "$TX"; said "$TX" optional 160000; prompted "$TX"
-check "compact: current prompt already written, still silent" [ -z "$(cn "$TX")" ]
+check "compact: current prompt already written, still silent" silent cn "$TX"
 : > "$TX"; said "$TX" optional 160000; printf '{"type":"user","isMeta":true,"message":{"content":"<local-command-caveat>x</local-command-caveat>"}}\n' >> "$TX"; usage "$TX" 10000 170000
-check "compact: meta user line keeps the block" [ -z "$(cn "$TX")" ]
+check "compact: meta user line keeps the block" silent cn "$TX"
 : > "$TX"; usage "$TX" 60000 100000; printf '{"type":"assistant","isSidechain":true,"message":{"content":[{"type":"text","text":"**Compact — optional:** x"}],"usage":{"input_tokens":5}}}\n' >> "$TX"
 check "compact: sidechain line does not block" has "$(cn "$TX")" '**Compact — optional:**'
 : > "$TX"; printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"new_string":"x **Compact — optional:** y"}}],"usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":160000}}}\n' >> "$TX"
@@ -118,9 +118,9 @@ check "compact: phrase inside a tool input does not block" has "$(cn "$TX")" '**
 check "compact: compact case named" has "$(cn "$TX")" 'needs decisions settled earlier'
 check "compact: subtask ends count" has "$(cn "$TX")" "subtask"
 check "compact: no transcript_path silent" [ -z "$(new_session; hook UserPromptSubmit prompt=next)" ]
-check "compact: missing transcript silent" [ -z "$(cn "$TMP/nope.jsonl")" ]
+check "compact: missing transcript silent" silent cn "$TMP/nope.jsonl"
 : > "$TX"; usage "$TX" 60000 100000; mkdir -p .claude; printf '{"rulesGuard":{"compactNudge":0}}' > .claude/claudzilla.local.json
-check "compact: 0 turns it off" [ -z "$(cn "$TX")" ]
+check "compact: 0 turns it off" silent cn "$TX"
 rm -rf .claude
 
 # --- PostToolUse ---
@@ -167,15 +167,15 @@ check "push: cd is not a check" has "$(sh_ 'cd && git push')" "$NOCHECK"
 check "push: heredoc commit message is not a check" has "$(sh_ $'git commit -m "$(cat <<\'EOF\'\nfix: x\nEOF\n)" && git push')" "$NOCHECK"
 check "gh pr create: heredoc body is not a check" has "$(sh_ $'gh pr create --title t --body "$(cat <<\'EOF\'\nbody\nEOF\n)"')" "$NOCHECK"
 check "push: piped text is not a check" has "$(sh_ 'echo x | git push')" "$NOCHECK"
-check "push: check before push in same command -> allowed" [ -z "$(sh_ 'npm test && git push')" ]
-check "push: verified -> allowed" [ -z "$(sh_ 'git push -u origin feat/x')" ]
+check "push: check before push in same command -> allowed" silent sh_ 'npm test && git push'
+check "push: verified -> allowed" silent sh_ 'git push -u origin feat/x'
 hook PostToolUse tool_name=Skill tool_input.skill=superpowers:verification-before-completion >/dev/null
 check "push: re-invoked verify needs a new check" denied "$(sh_ 'git push')"
 hook UserPromptSubmit 'prompt=<task-notification>x</task-notification>' >/dev/null
 check_eq "push: mid-turn notification keeps the verify skill" '"superpowers:verification-before-completion"' "$(state '.skills[0]')"
 sh_ 'npm test' >/dev/null
 hook UserPromptSubmit 'prompt=<task-notification>x</task-notification>' >/dev/null
-check "push: mid-turn notification keeps the check" [ -z "$(sh_ 'git push')" ]
+check "push: mid-turn notification keeps the check" silent sh_ 'git push'
 out=$(sh_ 'gh pr create --fill')
 check "gh pr create: no pr skill -> deny" denied "$out"
 # A state dir that fails its check can never record the skills, so the gates that need them remind instead of deny forever.
@@ -186,11 +186,11 @@ out=$(open_sh 'gh pr create --fill')
 check "gh pr create: open state dir -> reminds, never denies" bash -c '! grep -qF "\"permissionDecision\":\"deny\"" <<<"$1" && grep -qF "pr skill" <<<"$1"' _ "$out"
 check "gh pr create: deny names pr skill" has "$out" "invoke the pr skill"
 hook PostToolUse tool_name=Skill tool_input.skill=pr >/dev/null
-check "gh pr create: pr + verified -> allowed" [ -z "$(sh_ 'gh pr create --fill')" ]
+check "gh pr create: pr + verified -> allowed" silent sh_ 'gh pr create --fill'
 check "push: compound --force -> ask" asked "$(sh_ 'npm test && git push --force')"
 check "push: -f -> ask" asked "$(sh_ 'git push -f')"
 check "push: +refspec -> ask" asked "$(sh_ 'git push origin +main')"
-check "push: --force-with-lease allowed" [ -z "$(sh_ 'git push --force-with-lease')" ]
+check "push: --force-with-lease allowed" silent sh_ 'git push --force-with-lease'
 hook Stop last_assistant_message=done >/dev/null
 hook UserPromptSubmit 'prompt=<task-notification>x</task-notification>' >/dev/null
 check_eq "push: notification after Stop starts a new turn" 0 "$(state '.skills.length')"
@@ -216,13 +216,13 @@ ask() { printf '{"type":"user","message":{"role":"user","content":"%s"}}\n' "$1"
 { ask hi; use t1 Bash '{"command":"npm test"}'; res t1 ok; ask /superpowers:verification-before-completion; } > "$TX"
 check "transcript: check in an earlier turn -> deny" denied "$(txpush "$TX" 'git push')"
 { use v Skill "$VS"; use t1 Bash '{"command":"npm test"}'; res t1 ok; } > "$TX"
-check "transcript: check after the skill -> allowed" [ -z "$(txpush "$TX" 'git push')" ]
+check "transcript: check after the skill -> allowed" silent txpush "$TX" 'git push'
 SID=$saved
 for c in 'git reset --hard' 'git clean -fd' 'git checkout -- .' 'git checkout .' 'git checkout -f main' 'git switch --discard-changes main' 'git switch -f main' 'git restore a.txt' 'git stash drop' 'git stash clear'; do
   check "discard: $c -> ask" asked "$(sh_ "$c")"
 done
-check "discard: checkout branch allowed" [ -z "$(sh_ 'git checkout main')" ]
-check "discard: restore --staged allowed" [ -z "$(sh_ 'git restore --staged a.txt')" ]
+check "discard: checkout branch allowed" silent sh_ 'git checkout main'
+check "discard: restore --staged allowed" silent sh_ 'git restore --staged a.txt'
 # The ask shows what the held command throws away.
 B=$(repo); cd "$B"; BG="git -c user.name=t -c user.email=t@t"
 printf 1 > a.txt; printf 1 > b.txt; git add .; $BG commit -qm files
@@ -240,10 +240,10 @@ check "hold: restore of a missing path lists only it" not has "$(sh_ 'git restor
 check "hold: deny wins over ask" denied "$(sh_ 'git commit -m "update stuff"; git reset --hard')"
 check "hold: reset to a ref counts commits" has "$(sh_ 'git reset --hard HEAD~1')" '1 commit leaves the branch'
 $BG stash -q
-check "quiet: nothing to lose -> no ask" [ -z "$(sh_ 'git reset --hard')" ]
+check "quiet: nothing to lose -> no ask" silent sh_ 'git reset --hard'
 check "quiet: reset to a ref still counts commits" has "$(sh_ 'git reset --hard HEAD~1')" '1 commit leaves the branch'
-check "quiet: clean with nothing to remove -> no ask" [ -z "$(sh_ 'git clean -fd -e u.txt')" ]
-check "quiet: drop of a missing stash entry -> no ask" [ -z "$(sh_ 'git stash drop stash@{5}')" ]
+check "quiet: clean with nothing to remove -> no ask" silent sh_ 'git clean -fd -e u.txt'
+check "quiet: drop of a missing stash entry -> no ask" silent sh_ 'git stash drop stash@{5}'
 S=$(mktemp -d "$TMP/scratch.XXXX"); git -C "$S" init -q; printf 1 > "$S/a.txt"; git -C "$S" add .; $BG -C "$S" commit -qm a; printf 2 > "$S/a.txt"
 check "quiet: scratch repo under TMPDIR -> no ask" [ -z "$(cd "$S" && sh_ 'git checkout -- a.txt')" ]
 # Lossy forms the tracked-change list cannot see still ask.
@@ -310,32 +310,32 @@ check "hold: forcePush deny level still denies" denied "$(sh_ 'git push -f')"
 rm -rf .claude; cd "$R"
 check "commit: on main -> deny" denied "$(sh_ 'git commit -m "fix: x"')"
 mkdir -p .claude; printf '{"rulesGuard":{"allowMain":true}}' > .claude/claudzilla.local.json
-check "commit: main with allowMain allowed" [ -z "$(sh_ 'git commit -m "fix: x"')" ]
+check "commit: main with allowMain allowed" silent sh_ 'git commit -m "fix: x"'
 rm -rf .claude; git switch -q -c feat/x
 new_session; hook UserPromptSubmit prompt=go >/dev/null
-check "commit: on branch allowed" [ -z "$(sh_ 'git commit -m "fix: x"')" ]
+check "commit: on branch allowed" silent sh_ 'git commit -m "fix: x"'
 check "commit: non-conventional -> deny" denied "$(sh_ 'git commit -m "update stuff"')"
 check "commit: 51-char subject -> deny" denied "$(sh_ "git commit -m \"fix: $(printf 'a%.0s' {1..46})\"")"
-check "commit: -F file skipped" [ -z "$(sh_ 'git commit -F msg.txt')" ]
-check "commit: -m of other command ignored" [ -z "$(sh_ 'python3 -m pytest -q && git commit -m "fix: x"')" ]
-check "commit: branch -m before -F ignored" [ -z "$(sh_ 'git branch -m a b && git commit -F msg')" ]
-check "commit: -m \$VAR skipped" [ -z "$(sh_ 'git commit -m "$MSG"')" ]
-check "commit: -m \$(cat file) skipped" [ -z "$(sh_ 'git commit -m "$(cat /tmp/msg.txt)"')" ]
+check "commit: -F file skipped" silent sh_ 'git commit -F msg.txt'
+check "commit: -m of other command ignored" silent sh_ 'python3 -m pytest -q && git commit -m "fix: x"'
+check "commit: branch -m before -F ignored" silent sh_ 'git branch -m a b && git commit -F msg'
+check "commit: -m \$VAR skipped" silent sh_ 'git commit -m "$MSG"'
+check "commit: -m \$(cat file) skipped" silent sh_ 'git commit -m "$(cat /tmp/msg.txt)"'
 check "commit: heredoc subject checked" denied "$(sh_ $'git commit -m "$(cat <<\'EOF\'\nupdate stuff\n\nbody\nEOF\n)"')"
-check "commit: heredoc body not a push" [ -z "$(sh_ $'git commit -m "$(cat <<\'EOF\'\nfix: ok\n\ngit push later\nEOF\n)"')" ]
+check "commit: heredoc body not a push" silent sh_ $'git commit -m "$(cat <<\'EOF\'\nfix: ok\n\ngit push later\nEOF\n)"'
 check "commit: session trailer -> deny" denied "$(sh_ $'git commit -m "fix: x\n\nClaude-Session: abc"')"
 LONG=$(printf 'a%.0s' {1..73})
 check "body: line over 72 -> remind" has "$(sh_ "git commit -m \"fix: x\" -m \"$LONG\"")" "over 72 columns"
 check "body: long line is not a deny" not denied "$(sh_ "git commit -m \"fix: x\" -m \"$LONG\"")"
 check "body: heredoc long line -> remind" has "$(sh_ $'git commit -F - <<\'EOF\'\nfix: x\n\n'"$LONG"$'\nEOF')" "over 72 columns"
-check "body: long trailer skipped" [ -z "$(sh_ "git commit -m \"fix: x\" -m \"Co-Authored-By: $LONG\"")" ]
+check "body: long trailer skipped" silent sh_ "git commit -m \"fix: x\" -m \"Co-Authored-By: $LONG\""
 check "body: Verify with no result -> remind" has "$(sh_ $'git commit -m "fix: x\n\nVerify: ran the tests"')" "Verify:"
-check "body: Verify with pass count quiet" [ -z "$(sh_ $'git commit -m "fix: x\n\nVerify: bash tests/hooks.test.sh, 12 pass"')" ]
-check "body: Verify not run quiet" [ -z "$(sh_ $'git commit -m "fix: x\n\nVerify: not run"')" ]
+check "body: Verify with pass count quiet" silent sh_ $'git commit -m "fix: x\n\nVerify: bash tests/hooks.test.sh, 12 pass"'
+check "body: Verify not run quiet" silent sh_ $'git commit -m "fix: x\n\nVerify: not run"'
 printf '%s\n' "fix: x" "" "$LONG" > msg.txt
 check "body: -F file read" has "$(sh_ 'git commit -F msg.txt')" "over 72 columns"
-check "body: file written in same command skipped" [ -z "$(sh_ $'cat > msg.txt <<\'EOF\'\nfix: x\nEOF\ngit commit -F msg.txt')" ]
-check "body: -F of a later command ignored" [ -z "$(sh_ 'git commit -q && grep -F msg.txt msg.txt')" ]
+check "body: file written in same command skipped" silent sh_ $'cat > msg.txt <<\'EOF\'\nfix: x\nEOF\ngit commit -F msg.txt'
+check "body: -F of a later command ignored" silent sh_ 'git commit -q && grep -F msg.txt msg.txt'
 printf '%s\n' "bad subject" "" "$LONG" > msg.txt
 check "body: -F file subject not denied" not denied "$(sh_ 'git commit -F msg.txt')"
 rm msg.txt
@@ -343,22 +343,22 @@ mkfifo p.fifo; export RG; export -f hook sh_
 check "body: fifo -F returns" perl -e 'alarm 5; exec @ARGV' bash -c 'sh_ "git commit -F p.fifo"'
 rm p.fifo
 touch b1 b2 b3; git add b1 b2
-check "body: 2 staged files, no Why quiet" [ -z "$(sh_ 'git commit -m "fix: x"')" ]
+check "body: 2 staged files, no Why quiet" silent sh_ 'git commit -m "fix: x"'
 git add b3
 check "body: 3 staged files, no Why -> remind" has "$(sh_ 'git commit -m "fix: x"')" "Why:"
-check "body: 3 staged files with Impact quiet" [ -z "$(sh_ $'git commit -m "fix: x\n\nImpact: callers"')" ]
+check "body: 3 staged files with Impact quiet" silent sh_ $'git commit -m "fix: x\n\nImpact: callers"'
 mkdir -p .claude; printf '{"rulesGuard":{"rules":{"commitBody":"off"}}}' > .claude/claudzilla.local.json
-check "body: off level quiet" [ -z "$(sh_ 'git commit -m "fix: x"')" ]
+check "body: off level quiet" silent sh_ 'git commit -m "fix: x"'
 rm -rf .claude; git reset -q; rm b1 b2 b3
 check "gh pr edit: session link -> deny" denied "$(sh_ 'gh pr edit 1 --body "see claude.ai/code/session_x"')"
 check "gh pr edit: no pr skill -> deny" denied "$(sh_ 'gh pr edit 1 --title x')"
 hook PostToolUse tool_name=Skill tool_input.skill=pr >/dev/null
-check "gh pr edit: pr skill -> allowed" [ -z "$(sh_ 'gh pr edit 1 --title x')" ]
+check "gh pr edit: pr skill -> allowed" silent sh_ 'gh pr edit 1 --title x'
 new_session; hook UserPromptSubmit prompt=go >/dev/null
-check "gh pr edit: label only, no pr skill -> allowed" [ -z "$(sh_ 'gh pr edit 1 --add-label bug')" ]
+check "gh pr edit: label only, no pr skill -> allowed" silent sh_ 'gh pr edit 1 --add-label bug'
 check "gh pr edit: --body-file needs pr skill" denied "$(sh_ 'gh pr edit 1 --body-file m.md')"
 check "gh pr edit: bash -c wrapped -> deny" denied "$(sh_ "bash -c 'gh pr edit 1 -t x'")"
-check "gh pr view: allowed" [ -z "$(sh_ 'gh pr view 1')" ]
+check "gh pr view: allowed" silent sh_ 'gh pr view 1'
 out=$(sh_ 'gh pr create --fill')
 check "gh pr create: deny names verification" has "$out" "verification-before-completion"
 check "gh pr create: deny names pr skill too" has "$out" "invoke the pr skill"
@@ -366,33 +366,33 @@ check "gh -R before pr: create -> deny" denied "$(sh_ 'gh -R o/r pr create --fil
 check "gh --repo= before pr: edit -> deny" denied "$(sh_ 'gh --repo=o/r pr edit 1 -t x')"
 check "gh api: POST pulls via fields -> deny" denied "$(sh_ 'gh api repos/o/r/pulls -f title=x -f head=a -f base=main')"
 check "gh api: -X POST pulls --input -> deny" denied "$(sh_ 'gh api -X POST /repos/o/r/pulls --input b.json')"
-check "gh api: GET pulls allowed" [ -z "$(sh_ 'gh api repos/o/r/pulls')" ]
+check "gh api: GET pulls allowed" silent sh_ 'gh api repos/o/r/pulls'
 check "gh api: PATCH pull title -> deny" denied "$(sh_ 'gh api --method PATCH repos/o/r/pulls/1 -f title=x')"
-check "gh api: PATCH pull state only allowed" [ -z "$(sh_ 'gh api repos/o/r/pulls/1 -X PATCH -f state=closed')" ]
+check "gh api: PATCH pull state only allowed" silent sh_ 'gh api repos/o/r/pulls/1 -X PATCH -f state=closed'
 check "gh api: graphql createPullRequest -> deny" denied "$(sh_ "gh api graphql -f query='mutation { createPullRequest(input: {}) { clientMutationId } }'")"
 check "gh pr -R after pr: create -> deny" denied "$(sh_ 'gh pr -R o/r create --fill')"
 check "gh api: full URL POST pulls -> deny" denied "$(sh_ "gh api 'https://api.github.com/repos/o/r/pulls?x=1' -f title=x")"
 check "gh api: graphql updatePullRequest -> deny" denied "$(sh_ "gh api graphql -f query='mutation { updatePullRequest(input: {body: \"x\"}) { clientMutationId } }'")"
-check "gh api: full URL GET pulls allowed" [ -z "$(sh_ "gh api 'https://api.github.com/repos/o/r/pulls?state=open'")" ]
+check "gh api: full URL GET pulls allowed" silent sh_ "gh api 'https://api.github.com/repos/o/r/pulls?state=open'"
 mcp() { hook PreToolUse "tool_name=mcp__github__$1" "${@:2}"; }
 out=$(mcp create_pull_request tool_input.title=x tool_input.head=a tool_input.base=main)
 check "mcp create PR: no verification -> deny" has "$out" "verification-before-completion"
 check "mcp create PR: no pr skill -> deny" has "$out" "invoke the pr skill"
 check "mcp update PR: session link -> deny" has "$(mcp update_pull_request tool_input.pullNumber=1 'tool_input.body=see claude.ai/code/session_x')" "No Claude session link"
-check "mcp update PR: state only allowed" [ -z "$(mcp update_pull_request tool_input.pullNumber=1 tool_input.state=closed)" ]
+check "mcp update PR: state only allowed" silent mcp update_pull_request tool_input.pullNumber=1 tool_input.state=closed
 hook PostToolUse tool_name=Skill tool_input.skill=superpowers:verification-before-completion >/dev/null
 sh_ 'npm test' >/dev/null
 hook PostToolUse tool_name=Skill tool_input.skill=x:pr >/dev/null
 check "gh pr create: plugin x:pr is not the pr skill" denied "$(sh_ 'gh pr create --fill')"
 hook PostToolUse tool_name=Skill tool_input.skill=pr >/dev/null
-check "mcp create PR: pr + verified -> allowed" [ -z "$(mcp create_pull_request tool_input.title=x)" ]
+check "mcp create PR: pr + verified -> allowed" silent mcp create_pull_request tool_input.title=x
 touch .env .env.example; git add .env.example
-check "commit: .env.example allowed" [ -z "$(sh_ 'git commit -m "fix: x"')" ]
+check "commit: .env.example allowed" silent sh_ 'git commit -m "fix: x"'
 git add .env
 check "commit: .env staged -> deny" denied "$(sh_ 'git commit -m "fix: x"')"
 git reset -q
 check "worktree: inside repo -> deny" denied "$(sh_ 'git worktree add .worktrees/x -b feat/y')"
-check "worktree: sibling allowed" [ -z "$(sh_ "git worktree add ../$(basename "$R")-y -b feat/y")" ]
+check "worktree: sibling allowed" silent sh_ "git worktree add ../$(basename "$R")-y -b feat/y"
 check "worktree: ~/ sibling allowed" [ -z "$(HOME="${R%/*}" sh_ "git worktree add ~/$(basename "$R")-y -b feat/y")" ]
 check "worktree: ~/ inside repo -> deny" denied "$(HOME="$R" sh_ 'git worktree add ~/x -b feat/y')"
 ln -s "$R" "$TMP/rlink"
@@ -406,7 +406,7 @@ new_session; hook UserPromptSubmit prompt="tests fail on CI" >/dev/null
 out=$(hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js)
 check "edit: first edit in debug turn nudged" has "$out" "Phase 3"
 check "edit: debug gate is conditional" has "$out" "If this turn debugs a reported bug"
-check "edit: second edit silent" [ -z "$(hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js)" ]
+check "edit: second edit silent" silent hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js
 check_eq "edit: marks turn edited" true "$(state .edited)"
 S=$(repo); spec="$S/docs/superpowers/specs/x.md"
 hook PreToolUse tool_name=Write tool_input.file_path="$spec" >/dev/null
@@ -439,7 +439,7 @@ check "flags: name the missing check" has "$out" "no check ran after the last ed
 check_eq "flags: cleared after inject" 0 "$(state .flags.length)"
 hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
 sh_ "npm test" >/dev/null
-check "stop: claim after a check ok" [ -z "$(stop "Fixed the parser.")" ]
+check "stop: claim after a check ok" silent stop "Fixed the parser."
 new_session; hook UserPromptSubmit prompt=go >/dev/null; hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
 hook PostToolUse tool_name=Skill tool_input.skill=superpowers:verification-before-completion >/dev/null
 check "stop: skill without a check after the edit continues" has "$(stop "Fixed the parser.")" "Claimed done"
@@ -447,14 +447,14 @@ new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ "npm test" >/dev/nu
 hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
 check "stop: edit after the check continues" has "$(stop "Fixed the parser.")" "Claimed done"
 new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ "sed -i s/a/b/ /x/a.js" >/dev/null; sh_ "bash tests/a.sh" >/dev/null
-check "stop: Bash edit then check ok" [ -z "$(stop "Fixed the parser.")" ]
+check "stop: Bash edit then check ok" silent stop "Fixed the parser."
 new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ $'python3 - <<\'EOF\'\nopen("f", "w").write("x")\nEOF\nbash tests/a.sh' >/dev/null
-check "stop: edit and check in one command ok" [ -z "$(stop "Fixed the parser.")" ]
+check "stop: edit and check in one command ok" silent stop "Fixed the parser."
 new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ $'python3 - <<\'EOF\'\nopen("f", "w").write("x")\nEOF' >/dev/null
 check "stop: heredoc edit alone continues" has "$(stop "Fixed the parser.")" "Claimed done"
 new_session; hook UserPromptSubmit prompt=go >/dev/null; hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
 sh_ "bash tests/a.sh 2>&1 | tail -1; git status --short" >/dev/null
-check "stop: check before a closing git command ok" [ -z "$(stop "Fixed the parser.")" ]
+check "stop: check before a closing git command ok" silent stop "Fixed the parser."
 new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ "sed -i s/a/b/ f 2>&1" >/dev/null
 check "stop: 2>&1 after an edit is no check" has "$(stop "Fixed the parser.")" "Claimed done"
 new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ $'mkdir -p d && cat > d/f <<\'EOF\'\nx\nEOF' >/dev/null
@@ -467,21 +467,21 @@ check "stop: &>/dev/null after an edit is no check" has "$(stop "Fixed the parse
 new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ "sed -i s/a/b/ f.js; for t in a; do echo \$t; done" >/dev/null
 check "stop: loop done is no check" has "$(stop "Fixed the parser.")" "Claimed done"
 new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ $'sed -i s/a/b/ f.js && npm test && git commit -q -F - <<\'EOF\'\nfix: x\nEOF' >/dev/null
-check "stop: commit heredoc after the check ok" [ -z "$(stop "Fixed the parser.")" ]
+check "stop: commit heredoc after the check ok" silent stop "Fixed the parser."
 new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ $'cat > requirements.txt <<\'EOF\'\nrequests\nEOF' >/dev/null
 check "stop: .txt build file is an edit" has "$(stop "Fixed the parser.")" "Claimed done"
 new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ $'git commit -q -F - <<\'EOF\'\nfix: a > b\nEOF' >/dev/null
-check "stop: commit message heredoc is no edit" [ -z "$(stop "Fixed the parser.")" ]
+check "stop: commit message heredoc is no edit" silent stop "Fixed the parser."
 new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ "npm test; sed -i s/a/b/ f" >/dev/null
 check "stop: check then edit in one command continues" has "$(stop "Fixed the parser.")" "Claimed done"
 new_session; hook UserPromptSubmit prompt=go >/dev/null; hook PreToolUse tool_name=Write tool_input.file_path=/tmp/s/a.mjs >/dev/null
-check "stop: scratch /tmp edit is no edit" [ -z "$(stop "Fixed the parser.")" ]
+check "stop: scratch /tmp edit is no edit" silent stop "Fixed the parser."
 new_session; hook UserPromptSubmit prompt=go >/dev/null; CLAUDE_CONFIG_DIR=/x/cfg hook PreToolUse tool_name=Edit tool_input.file_path=/x/cfg/projects/p/memory/a.md >/dev/null
-check "stop: memory note edit is no edit" [ -z "$(stop "Fixed the parser.")" ]
+check "stop: memory note edit is no edit" silent stop "Fixed the parser."
 new_session; hook UserPromptSubmit prompt=go >/dev/null; hook PreToolUse tool_name=Edit tool_input.file_path=/x/README.md >/dev/null
-check "stop: docs edit is no edit" [ -z "$(stop "Fixed the parser.")" ]
+check "stop: docs edit is no edit" silent stop "Fixed the parser."
 new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ 'echo "Task 1: done" >> .sdd/progress.md' >/dev/null
-check "stop: log append to docs is no edit" [ -z "$(stop "Fixed the parser.")" ]
+check "stop: log append to docs is no edit" silent stop "Fixed the parser."
 new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ $'cat > src/a.py <<\'EOF\'\nx = 1\nEOF' >/dev/null
 check "stop: heredoc to code still an edit" has "$(stop "Fixed the parser.")" "Claimed done"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "Done." >/dev/null
@@ -489,7 +489,7 @@ check_eq "stop: claim without edits ok" 0 "$(state .flags.length)"
 new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ "sed -i s/a/b/ /x/a.js" >/dev/null
 check "stop: claim after Bash edit continues" has "$(stop "Fixed the parser.")" "Claimed done"
 new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ "git status > /dev/null 2>&1; echo x > /tmp/n; sed -n 1p f; grep '<a>' f; awk '\$1 > 5' f; node -e 'a => a'" >/dev/null
-check "stop: claim after read-only Bash ok" [ -z "$(stop "Fixed the parser.")" ]
+check "stop: claim after read-only Bash ok" silent stop "Fixed the parser."
 new_session; hook UserPromptSubmit prompt=go >/dev/null; hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
 check "stop: 'is in, N pass' is a claim" has "$(stop "Change A is in. Tests: 25 pass.")" "Claimed done"
 new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ "perl -pi -e 's/a/b/' f" >/dev/null
@@ -529,10 +529,10 @@ check_eq "stop: no COLUMNS, no width flag" 0 "$(state .flags.length)"
 new_session; out=$(COLUMNS=100 hook UserPromptSubmit prompt=q)
 check "prompt: terminal width told" has "$out" "Terminal 100 cols: keep each table within 96 cols"
 check "prompt: width told every prompt (survives /compact)" has "$(COLUMNS=100 hook UserPromptSubmit prompt=q)" "Terminal 100 cols"
-check "prompt: no COLUMNS, no width line" [ -z "$(hook UserPromptSubmit prompt=q)" ]
+check "prompt: no COLUMNS, no width line" silent hook UserPromptSubmit prompt=q
 IX="$TMP/intent.jsonl"
 new_session; printf '{"type":"user","message":{"content":"why is mcp__margin__intent stale"}}\n' > "$IX"
-check "prompt: no intent call yet, no panel reminder" [ -z "$(hook UserPromptSubmit prompt=q "transcript_path=$IX")" ]
+check "prompt: no intent call yet, no panel reminder" silent hook UserPromptSubmit prompt=q "transcript_path=$IX"
 printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__margin__intent","input":{}}]}}\n' >> "$IX"
 check "prompt: intent called, panel reminder" has "$(hook UserPromptSubmit prompt=q "transcript_path=$IX")" 'call `mcp__margin__intent`'
 : > "$IX"
@@ -623,31 +623,31 @@ C=$(repo); git -C "$C" switch -q -c feat/c; cd "$C"
 new_session; hook UserPromptSubmit prompt=go >/dev/null
 check "config: no files keeps push gate" denied "$(sh_ 'git push')"
 mcfg '{"rulesGuard":{"rules":{"pushVerify":"off"}}}'
-check "config: machine off disables push gate" [ -z "$(sh_ 'git push')" ]
+check "config: machine off disables push gate" silent sh_ 'git push'
 rcfg "$C" "" '{"rulesGuard":{"rules":{"pushVerify":"deny"}}}'
 check "config: repo deny beats machine off" denied "$(sh_ 'git push')"
 rcfg "$C" ".local" '{"rulesGuard":{"rules":{"pushVerify":"remind"}}}'
 check "config: local remind beats repo deny" reminded "$(sh_ 'git push')"
 O=$(repo); rcfg "$O" "" '{"rulesGuard":{"rules":{"pushVerify":"off"}}}'
-check "config: cd into other repo uses its config" [ -z "$(sh_ "cd $O && git push")" ]
+check "config: cd into other repo uses its config" silent sh_ "cd $O && git push"
 rm -f "$C/.claude/"*.json "$CLAUDE_CONFIG_DIR/claudzilla.json"
 git switch -q main
 git config claudzilla.allowMain true
 check "config: git config allowMain ignored" denied "$(sh_ 'git commit -m "fix: x"')"
 git config --unset claudzilla.allowMain
 rcfg "$C" ".local" '{"rulesGuard":{"allowMain":true}}'
-check "config: allowMain in local file" [ -z "$(sh_ 'git commit -m "fix: x"')" ]
+check "config: allowMain in local file" silent sh_ 'git commit -m "fix: x"'
 rcfg "$C" "" '{"rulesGuard":{"commitTypes":["feat","fix","refactor","chore","docs","test","ci"],"subjectMax":72}}'
-check "config: extra commit type allowed" [ -z "$(sh_ 'git commit -m "ci: x"')" ]
-check "config: subject under subjectMax allowed" [ -z "$(sh_ "git commit -m \"fix: $(printf 'a%.0s' {1..55})\"")" ]
+check "config: extra commit type allowed" silent sh_ 'git commit -m "ci: x"'
+check "config: subject under subjectMax allowed" silent sh_ "git commit -m \"fix: $(printf 'a%.0s' {1..55})\""
 check "config: subject over subjectMax denied" denied "$(sh_ "git commit -m \"fix: $(printf 'a%.0s' {1..70})\"")"
 rm -f "$C/.claude/"*.json
 mcfg '{"rulesGuard":{"keywords":{"debug":["kaboom","c++"]}}}'
 new_session; check "config: custom keyword with suffix" has "$(hook UserPromptSubmit prompt='login kaboomed')" "systematic-debugging"
 new_session; check "config: regex chars in keyword escaped" has "$(hook UserPromptSubmit prompt='the c++ build')" "systematic-debugging"
-new_session; check "config: keyword list replaced" [ -z "$(hook UserPromptSubmit prompt='login is broken')" ]
+new_session; check "config: keyword list replaced" silent hook UserPromptSubmit prompt='login is broken'
 mcfg '{"rulesGuard":{"rules":{"debugTrigger":"off"}}}'
-new_session; check "config: debugTrigger off" [ -z "$(hook UserPromptSubmit prompt='login is broken')" ]
+new_session; check "config: debugTrigger off" silent hook UserPromptSubmit prompt='login is broken'
 mcfg '{"rulesGuard":{"tldrMinLines":40,"rules":{"doneClaim":"off"}}}'
 new_session; hook UserPromptSubmit prompt=q >/dev/null
 hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
@@ -656,16 +656,16 @@ check_eq "config: tldrMinLines and doneClaim off" 0 "$(state .flags.length)"
 mcfg '{"rulesGuard":{"rules":{"doneClaim":"flag"}}}'
 new_session; hook UserPromptSubmit prompt=q >/dev/null
 hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
-check "config: doneClaim flag stays silent" [ -z "$(stop 'Fixed it.')" ]
+check "config: doneClaim flag stays silent" silent stop 'Fixed it.'
 check "config: doneClaim flag saves flag" has "$(state .flags)" "verification"
 mcfg '{"rulesGuard":{"rules":{"prSkill":"off"}}}'
 new_session; hook UserPromptSubmit prompt=go >/dev/null
-check "config: prSkill off" [ -z "$(sh_ 'gh pr edit 1 --title x')" ]
+check "config: prSkill off" silent sh_ 'gh pr edit 1 --title x'
 mcfg '{"rulesGuard":{"rules":{"specExclude":"off"}}}'
 X=$(repo); hook PreToolUse tool_name=Write tool_input.file_path="$X/docs/superpowers/s.md" >/dev/null
 check "config: specExclude off" [ "$(grep -c superpowers "$X/.git/info/exclude")" -eq 0 ]
 mcfg '{"statusline":{"x":1}}'
-new_session; check "config: file without rulesGuard is silent" [ -z "$(hook UserPromptSubmit prompt=hi)" ]
+new_session; check "config: file without rulesGuard is silent" silent hook UserPromptSubmit prompt=hi
 printf '{bad' > "$CLAUDE_CONFIG_DIR/claudzilla.json"
 new_session; out=$(hook UserPromptSubmit prompt=hi)
 check "config: bad JSON warned" has "$out" "claudzilla config: $CLAUDE_CONFIG_DIR/claudzilla.json ignored: invalid JSON"
@@ -697,10 +697,10 @@ hook PostToolUse tool_name=Skill tool_input.skill=superpowers:verification-befor
 sh_ 'npm test' >/dev/null
 check "config: remind alone still reminds" reminded "$(sh_ 'git push -f')"
 rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"
-new_session; check "config: default keywords skip unrelated suffixes" [ -z "$(hook UserPromptSubmit prompt='exceptional work, add failover, bugfix release')" ]
+new_session; check "config: default keywords skip unrelated suffixes" silent hook UserPromptSubmit prompt='exceptional work, add failover, bugfix release'
 new_session; check "config: default keywords keep plural and tense" has "$(hook UserPromptSubmit prompt='tests failed with errors')" "systematic-debugging"
-new_session; check "prompt: TDD ask for failing tests is not a bug" [ -z "$(hook UserPromptSubmit prompt='write the failing guard tests, then add a failing test for X')" ]
-new_session; check "prompt: TDD ask with hyphenated test name is not a bug" [ -z "$(hook UserPromptSubmit prompt='write the failing rules-guard tests')" ]
+new_session; check "prompt: TDD ask for failing tests is not a bug" silent hook UserPromptSubmit prompt='write the failing guard tests, then add a failing test for X'
+new_session; check "prompt: TDD ask with hyphenated test name is not a bug" silent hook UserPromptSubmit prompt='write the failing rules-guard tests'
 new_session; check "prompt: failing tests report still triggers" has "$(hook UserPromptSubmit prompt='CI has 2 failing tests')" "systematic-debugging"
 mcfg '{"rulesGuard":{"rules":{"debugTrigger":"off"}}}'
 N=$(mktemp -d "$TMP/nogit.XXXX"); new_session
@@ -710,15 +710,15 @@ rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"; cd "$REPO"
 # --- minors: quote-aware split, branch tracking, checkout <file>, state, claims, diagrams, keywords ---
 M=$(repo); git -C "$M" switch -q -c feat/m; cd "$M"
 new_session; hook UserPromptSubmit prompt=go >/dev/null
-check "split: ; inside quoted message is not a command" [ -z "$(sh_ 'git commit -m "docs: x; git push later"')" ]
-check "split: | inside quoted message is not a command" [ -z "$(sh_ 'git commit -m "fix: a | git stash drop"')" ]
+check "split: ; inside quoted message is not a command" silent sh_ 'git commit -m "docs: x; git push later"'
+check "split: | inside quoted message is not a command" silent sh_ 'git commit -m "fix: a | git stash drop"'
 check "branch: switch main then commit denied" denied "$(sh_ 'git switch main && git commit -m "fix: x"')"
 git switch -q main
-check "branch: switch -c then commit allowed" [ -z "$(sh_ 'git switch -c feat/z && git commit -m "fix: x"')" ]
+check "branch: switch -c then commit allowed" silent sh_ 'git switch -c feat/z && git commit -m "fix: x"'
 echo a > a.txt; git add a.txt; git -c user.name=t -c user.email=t@t commit -qm "chore: a"
 echo b > a.txt  # a change to lose, so the discards below are held
 check "checkout: file path held" asked "$(sh_ 'git checkout a.txt')"
-check "checkout: branch name allowed" [ -z "$(sh_ 'git checkout feat/m')" ]
+check "checkout: branch name allowed" silent sh_ 'git checkout feat/m'
 SP="$TMP/sp ace"; mkdir -p "$SP"; git -C "$SP" init -q -b main
 cd "$REPO"
 check "split: -C quoted path with space" denied "$(sh_ "git -C \"$SP\" commit -m \"fix: x\"")"
@@ -726,7 +726,7 @@ check "split: subshell cd honoured" denied "$(sh_ "(cd \"$SP\" && git commit -m 
 new_session; out=$(TMPDIR=/dev/null/x hook UserPromptSubmit prompt='login is broken')
 check "state: reminder survives unwritable state dir" has "$out" "systematic-debugging"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
-check "claim: mention mid-sentence ignored" [ -z "$(stop "Say so if you want it fixed.")" ]
+check "claim: mention mid-sentence ignored" silent stop "Say so if you want it fixed."
 check "claim: 'is fixed' caught" has "$(stop "The bug is fixed.")" "Claimed done"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
 check "claim: bullet claim caught" has "$(stop $'Summary:\n- Fixed the parser')" "Claimed done"
@@ -735,7 +735,7 @@ new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "$loop" >/dev/null
 check_eq "diagram: loop-back arrow not a box" 0 "$(state .flags.length)"
 mcfg '{"rulesGuard":{"keywords":{"debug":[".env","#bug"]}}}'
 new_session; check "keyword: symbol-start keyword matches" has "$(hook UserPromptSubmit prompt='check my .env file')" "systematic-debugging"
-new_session; check "keyword: symbol-start not inside word" [ -z "$(hook UserPromptSubmit prompt='see foo.env there')" ]
+new_session; check "keyword: symbol-start not inside word" silent hook UserPromptSubmit prompt='see foo.env there'
 rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"; cd "$REPO"
 
 # --- minors review fixes ---
@@ -759,7 +759,7 @@ git checkout -q -- a.txt; git switch -q feat/m; echo c > a.txt; git add a.txt
 check "checkout: ref + path is a discard" asked "$(sh_ 'git checkout HEAD a.txt')"
 check "checkout: branch + path is a discard, not a switch" has "$(sh_ 'git checkout main a.txt && git commit -m "fix: x"')" "Discards work"
 check "split: line continuation joins words" denied "$(sh_ $'git switch \\\n  main && git commit -m "fix: x"')"
-check "split: line continuation in worktree path" [ -z "$(sh_ $'git worktree add \\\n  ../'"$(basename "$M")"'-x -b feat/q')" ]
+check "split: line continuation in worktree path" silent sh_ $'git worktree add \\\n  ../'"$(basename "$M")"'-x -b feat/q'
 cd "$REPO"
 
 # --- guard gaps: previous branch, --create=x, repo-wide tracking, hidden commands, graphql file ---
@@ -769,30 +769,30 @@ check "branch: switch - to main then commit denied" denied "$(sh_ 'git switch - 
 check "branch: checkout - to main then commit denied" denied "$(sh_ 'git checkout - && git commit -m "fix: x"')"
 check "branch: switch in subdir tracked repo-wide" denied "$(sh_ 'cd sub && git switch main && cd .. && git commit -m "fix: x"')"
 git switch -q main
-check "branch: --create=x then commit allowed" [ -z "$(sh_ 'git switch --create=feat/y && git commit -m "fix: x"')" ]
-check "branch: -cx then commit allowed" [ -z "$(sh_ 'git switch -cfeat/y && git commit -m "fix: x"')" ]
-check "branch: checkout -bx then commit allowed" [ -z "$(sh_ 'git checkout -bfeat/y && git commit -m "fix: x"')" ]
-check "branch: checkout --orphan=x then commit allowed" [ -z "$(sh_ 'git checkout --orphan=feat/y && git commit -m "fix: x"')" ]
+check "branch: --create=x then commit allowed" silent sh_ 'git switch --create=feat/y && git commit -m "fix: x"'
+check "branch: -cx then commit allowed" silent sh_ 'git switch -cfeat/y && git commit -m "fix: x"'
+check "branch: checkout -bx then commit allowed" silent sh_ 'git checkout -bfeat/y && git commit -m "fix: x"'
+check "branch: checkout --orphan=x then commit allowed" silent sh_ 'git checkout --orphan=feat/y && git commit -m "fix: x"'
 git switch -q feat/g
 for c in 'echo `git push`' 'x="$(git push)"' 'if git push; then echo ok; fi' '{ git push; }' '! git push' \
   'timeout 60 git push' 'env A=1 git push' 'nohup git push' 'command git push' 'time git push' 'sudo git push' 'xargs git push' 'exec git push'; do
   check "hidden: $c denied" denied "$(sh_ "$c")"
 done
-check "hidden: single-quoted backticks inert" [ -z "$(sh_ "git commit -m 'fix: use \`git push\` later'")" ]
-check "hidden: single-quoted \$() inert" [ -z "$(sh_ "echo 'run \$(git push)'")" ]
-check "hidden: quoted heredoc body inert" [ -z "$(sh_ $'git commit -F - <<\'EOF\'\nfix: x\n\nrun $(git push) later\nEOF')" ]
+check "hidden: single-quoted backticks inert" silent sh_ "git commit -m 'fix: use \`git push\` later'"
+check "hidden: single-quoted \$() inert" silent sh_ "echo 'run \$(git push)'"
+check "hidden: quoted heredoc body inert" silent sh_ $'git commit -F - <<\'EOF\'\nfix: x\n\nrun $(git push) later\nEOF'
 echo 'mutation { createPullRequest(input: {}) { clientMutationId } }' > q.graphql
 check "graphql: -F query=@file create gated" denied "$(sh_ 'gh api graphql -F query=@q.graphql')"
-check "graphql: -f query=@file is a literal" [ -z "$(sh_ 'gh api graphql -f query=@q.graphql')" ]
+check "graphql: -f query=@file is a literal" silent sh_ 'gh api graphql -f query=@q.graphql'
 check "graphql: -F query=@- heredoc gated" denied "$(sh_ $'gh api graphql -F query=@- <<\'EOF\'\nmutation { createPullRequest(input: {}) { clientMutationId } }\nEOF')"
-check "branch: switch main then - returns to feature" [ -z "$(sh_ 'git switch main && git switch - && git commit -m "fix: x"')" ]
-check "branch: switch -c then - returns to feature" [ -z "$(sh_ 'git switch -c feat/t && git switch - && git commit -m "fix: x"')" ]
-check "branch: detach after main not main" [ -z "$(sh_ 'git switch main && git switch --detach && git commit -m "fix: x"')" ]
-check "comment: backticks after # inert" [ -z "$(sh_ $'# run `git push` later\ngit status')" ]
-check "comment: trailing # comment inert" [ -z "$(sh_ 'git commit -m "fix: x" # `git push` next')" ]
+check "branch: switch main then - returns to feature" silent sh_ 'git switch main && git switch - && git commit -m "fix: x"'
+check "branch: switch -c then - returns to feature" silent sh_ 'git switch -c feat/t && git switch - && git commit -m "fix: x"'
+check "branch: detach after main not main" silent sh_ 'git switch main && git switch --detach && git commit -m "fix: x"'
+check "comment: backticks after # inert" silent sh_ $'# run `git push` later\ngit status'
+check "comment: trailing # comment inert" silent sh_ 'git commit -m "fix: x" # `git push` next'
 git switch -q main
 check "branch: feature then - back to main denied" denied "$(sh_ 'git switch feat/g && git switch - && git commit -m "fix: x"')"
-check "subst: cd into \$(...) dir fails open" [ -z "$(sh_ 'cd "$(mktemp -d)" && git commit -m "fix: x"')" ]
+check "subst: cd into \$(...) dir fails open" silent sh_ 'cd "$(mktemp -d)" && git commit -m "fix: x"'
 git switch -q feat/g
 cd "$REPO"
 
@@ -1019,17 +1019,17 @@ check "return: no tag on main keeps release clone" bash -c "[ \"\$(git -C '$TMP/
 # --- release sync: opt-in; a PR merge reminds to rebase the open release branch onto main ---
 W=$(repo); cd "$W"; new_session; hook UserPromptSubmit prompt=merge >/dev/null
 git branch release/1.9; git branch release/1.10
-check "release sync: off by default" [ -z "$(sh_ 'gh pr merge 5 --rebase')" ]
+check "release sync: off by default" silent sh_ 'gh pr merge 5 --rebase'
 mcfg '{"rulesGuard":{"rules":{"releaseSync":"remind"}}}'
 out=$(sh_ 'gh pr merge 5 --repo o/r --rebase')
 check "release sync: merge reminds" reminded "$out"
 check "release sync: names the newest release branch" has "$out" "release/1.10"
 lacks() { ! grep -qF -- "$2" <<<"$1"; }
 check "release sync: cites no local file" lacks "$out" "how-i-work"
-check "release sync: other gh pr commands quiet" [ -z "$(sh_ 'gh pr view 5')" ]
-check "release sync: words in a comment body quiet" [ -z "$(sh_ 'gh issue comment 5 -b "pr merge done"')" ]
+check "release sync: other gh pr commands quiet" silent sh_ 'gh pr view 5'
+check "release sync: words in a comment body quiet" silent sh_ 'gh issue comment 5 -b "pr merge done"'
 git branch -D -q release/1.9 release/1.10
-check "release sync: no release branch, no reminder" [ -z "$(sh_ 'gh pr merge 5 --rebase')" ]
+check "release sync: no release branch, no reminder" silent sh_ 'gh pr merge 5 --rebase'
 rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"
 
 summary hooks
