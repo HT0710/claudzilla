@@ -4,6 +4,8 @@ import { walkNames } from './explorer-find'
 import type { NameEntry } from './explorer-find'
 import { parseStatusZ, untrackedFlag } from './git-data'
 import type { Listing } from './explorer-tree'
+import { parseScan } from './explorer-ages'
+import type { Scan } from './explorer-ages'
 
 export type Loaded = { path: string; lines: string[]; unreadable: boolean; missing: boolean; mtimeMs: number; size: number }
 
@@ -96,6 +98,30 @@ export async function gitStatus($: EngineInterface, root: string): Promise<{ pat
   const run = await $.process.run(gitArgs('-C', root, 'status', '--porcelain=v1', '-z', `--untracked-files=${mode}`)).catch(() => undefined)
   if (run?.exitCode !== 0) return undefined
   return parseStatusZ(run.stdout).changes
+}
+
+// Run as `sh -c SCRIPT sh <page>`: the page stays in $1, never in the script text. Linux stat takes -c, macOS stat takes -f.
+const ageList = (stat: string, fmt: string) => [
+  `  if [ "$(${gitArgs('rev-parse', '--is-inside-work-tree').join(' ')} 2>/dev/null)" = true ]; then`,
+  `    ${gitArgs('ls-files', '-z', '--cached', '--others', '--exclude-standard').join(' ')} | xargs -0 stat ${stat} '${fmt}' -- 2>/dev/null | head -n 5001`,
+  '  else',
+  `    find . \\( -name .git -o -name node_modules \\) -prune -o -type f -print0 | xargs -0 stat ${stat} '${fmt}' -- 2>/dev/null | head -n 5001`,
+  '  fi',
+]
+export const AGE_SH: string[] = [
+  'cd "$1" || exit 1',
+  'if [ "$(uname)" = Darwin ]; then',
+  ...ageList('-f', '%m %N'),
+  'else',
+  ...ageList('-c', '%Y %n'),
+  'fi',
+]
+
+/** Newest-file age per file and folder under `page`; undefined when the scan failed. */
+export async function scanAges($: EngineInterface, page: string): Promise<Scan | undefined> {
+  const run = await $.process.run(['sh', '-c', AGE_SH.join('\n'), 'sh', page]).catch(() => undefined)
+  if (run?.exitCode !== 0) return undefined
+  return run.isStdoutTruncated ? { capped: true, at: new Map() } : parseScan(run.stdout, page)
 }
 
 export async function gitDiff($: EngineInterface, root: string, abs: string): Promise<string | undefined> {

@@ -10,7 +10,7 @@ export const props = { title: 'Panel', isFocused: false, bodyColumns: 44, placem
 export const disk = new Map<string, { text: string; mtimeMs: number }>()
 export const tree = new Map<string, Entry[]>()
 // A held read answers only when the test releases it (set by the stale-result test).
-export const hold: { reads?: Array<() => void>; names?: Array<() => void> } = {}
+export const hold: { reads?: Array<() => void>; names?: Array<() => void>; ages?: Array<() => void> } = {}
 // Every process.run argv, in order, for tests that check a command.
 export const runs: string[][] = []
 // A test sets exit to make the detached editor launch fail.
@@ -21,6 +21,8 @@ export const listed = { out: '', cut: false }
 export const diffOut = { exit: 0, out: '' }
 // What `git status` answers (NUL-separated porcelain), its exit code, and the `status.showUntrackedFiles` config text.
 export const statusOut = { exit: 0, out: '', config: '' }
+// What the age scan (`sh -c ... stat`) answers: stdout and exit code.
+export const ages = { out: '', exit: 0 }
 // The clock the plugin's timers run on; a test advances it.
 export let clock: ReturnType<typeof mock.clock>
 // A test sets failList to make every fs.list fail.
@@ -49,6 +51,7 @@ export const setup = async ($: Body[0], on: Body[1]) => {
   tree.clear()
   hold.reads = undefined
   hold.names = undefined
+  hold.ages = undefined
   launch.exit = 0
   listed.out = ''
   diffOut.exit = 0
@@ -56,6 +59,8 @@ export const setup = async ($: Body[0], on: Body[1]) => {
   statusOut.exit = 0
   statusOut.out = ''
   statusOut.config = ''
+  ages.out = ''
+  ages.exit = 0
   listed.cut = false
   lists.length = 0
   reads.length = 0
@@ -71,7 +76,7 @@ export const setup = async ($: Body[0], on: Body[1]) => {
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('session.cwd', () => ({ value: '/repo' }))
-  on('process.run', (_, e) => (runs.push([...e.argv]), e.argv.includes('rev-parse') ? ran(0, '/repo\n') : e.argv.includes('diff') ? ran(diffOut.exit, diffOut.out) : e.argv.includes('--get') ? ran(statusOut.config ? 0 : 1, statusOut.config) : e.argv.includes('status') ? ran(statusOut.exit, statusOut.out) : e.argv.includes('ls-files') ? (hold.names ? new Promise(done => hold.names!.push(() => done(ran(0, listed.out, listed.cut)))) : ran(0, listed.out, listed.cut)) : ran(e.argv.some(x => x.includes('xdg-open')) ? launch.exit : 0)) as any)
+  on('process.run', (_, e) => (runs.push([...e.argv]), e.argv[0] === 'sh' && e.argv[2]?.includes('stat') ? (hold.ages ? new Promise(done => hold.ages!.push(() => done(ran(ages.exit, ages.out)))) : ran(ages.exit, ages.out)) : e.argv.includes('rev-parse') ? ran(0, '/repo\n') : e.argv.includes('diff') ? ran(diffOut.exit, diffOut.out) : e.argv.includes('--get') ? ran(statusOut.config ? 0 : 1, statusOut.config) : e.argv.includes('status') ? ran(statusOut.exit, statusOut.out) : e.argv.includes('ls-files') ? (hold.names ? new Promise(done => hold.names!.push(() => done(ran(0, listed.out, listed.cut)))) : ran(0, listed.out, listed.cut)) : ran(e.argv.some(x => x.includes('xdg-open')) ? launch.exit : 0)) as any)
   on('fs.stat', (_, e) => (tree.has(e.path) ? { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } : disk.has(e.path) ? { value: { kind: 'file', size: disk.get(e.path)!.text.length, mtimeMs: disk.get(e.path)!.mtimeMs, isLink: false } } : { deny: 'ENOENT' }) as any)
   on('fs.read', (_, e) => {
     reads.push(e.path)
