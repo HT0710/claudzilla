@@ -23,6 +23,15 @@ const FILE_ICONS = new Map<string, { glyph: string; color: IconColor }>(Object.e
   sh: { glyph: g(0xe795), color: 'feat' },
 }))
 
+const LANGS = new Map(Object.entries({
+  ts: 'TypeScript', tsx: 'TypeScript JSX', md: 'Markdown', json: 'JSON', py: 'Python', sh: 'Shell',
+  js: 'JavaScript', jsx: 'JavaScript JSX', css: 'CSS', html: 'HTML', yml: 'YAML', yaml: 'YAML', toml: 'TOML', rs: 'Rust', go: 'Go',
+}))
+
+export function langOf(name: string): string {
+  return LANGS.get(name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : '') ?? 'Plain text'
+}
+
 /** Folders first, then names by code point. */
 export function sortListing(entries: readonly Listing[]): Listing[] {
   return [...entries].sort((a, b) => (a.kind === b.kind ? (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) : a.kind === 'dir' ? -1 : 1))

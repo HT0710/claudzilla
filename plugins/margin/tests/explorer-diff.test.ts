@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { layoutOf } from '../hooks/explorer-layout'
-import { barCells, cachedBar, codeLineAt, editDiff, firstChangeLine, lineDiff, mergeMarks, parseDiff, pressLine, redLit, relocateEdit, reloadDiff, sameMarks } from '../hooks/explorer-diff'
+import { barCells, cachedBar, churnText, codeLineAt, editDiff, firstChangeLine, lineDiff, mergeMarks, parseDiff, pressLine, redLit, relocateEdit, reloadDiff, sameMarks } from '../hooks/explorer-diff'
 
 const added = (d: string) => [...parseDiff(d).added]
 
@@ -288,4 +288,10 @@ test('relocateEdit: removed rows that share a key from two hunks are both kept',
   const r = relocateEdit('@@ -2 +2 @@\n-old1\n+NEW\n@@ -1,2 +1,1 @@\n a\n-old2\n', ['a', 'NEW'])
   expect(r?.marks.removed.get(2)).toEqual(['old1', 'old2'])
   expect(r?.first).toBe(2)
+})
+
+test('churnText: counts added lines and removed lines', () => {
+  expect(churnText(parseDiff('@@ -1,2 +1,3 @@\n a\n-old\n+n1\n+n2\n'))).toBe('+2 −1')
+  expect(churnText(undefined)).toBe('none')
+  expect(churnText(parseDiff(''))).toBe('none')
 })

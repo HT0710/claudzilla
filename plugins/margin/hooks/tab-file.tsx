@@ -3,12 +3,12 @@ import type { EngineInterface, RenderSurface } from 'claude-code'
 
 import { FIND_WAIT, filterNames, findIn, leavesField, markCells } from './explorer-find'
 import type { FindResult, NameEntry } from './explorer-find'
-import { cachedBar, firstChangeLine, mergeMarks, parseDiff, pressLine, redLit, relocateEdit, reloadDiff, sameMarks } from './explorer-diff'
+import { cachedBar, churnText, firstChangeLine, mergeMarks, parseDiff, pressLine, redLit, relocateEdit, reloadDiff, sameMarks } from './explorer-diff'
 import type { BarCache, DiffMarks } from './explorer-diff'
 import { cellsOf, codeRow, fileWindow, hitsOf, layoutFor, layoutOf, lineAt, rowAt, sliceTokens, thumbOf, toneRows } from './explorer-layout'
 import type { Cached, Layout } from './explorer-layout'
-import { ageText, markViewed, recentSplit, viewedList } from './explorer-recent'
-import { MIXED, treeMarks } from './explorer-status'
+import { ageText, editedAt, markViewed, recentSplit, viewedList } from './explorer-recent'
+import { MIXED, treeMarks, wordOf } from './explorer-status'
 import type { TreeMarks } from './explorer-status'
 import { OPEN_EDITOR_SH, cleanLine, gitDiff, gitStatus, listDir, listNames, loadFile, latestOf, projectRoot, statOf } from './explorer-load'
 import type { Loaded } from './explorer-load'
@@ -16,10 +16,10 @@ import { back, current, forward, navStart, remember, visit } from './explorer-na
 import type { Nav } from './explorer-nav'
 import { tokenize } from './explorer-tokens'
 import type { Token } from './explorer-tokens'
-import { iconOf, treeRows } from './explorer-tree'
+import { iconOf, langOf, treeRows } from './explorer-tree'
 import type { Listing } from './explorer-tree'
 import { fileKey, printable } from './git-data'
-import { CARD, FLASH, HUD, LIT, PAD, PILL_BG, STATUS, TYPES, basicGlyphs, emptyNote, mixHex, readTheme, rowHovers, themeHex, toPieces } from './kit'
+import { CARD, FLASH, HUD, LIT, PAD, PILL_BG, STATUS, TYPES, basicGlyphs, clock, emptyNote, mixHex, readTheme, rowHovers, themeHex, toPieces } from './kit'
 import type { TabCtx, TabDraw } from './kit'
 
 // The open place, so a change redraws the pane; the draw applies a place whose rev it has not seen.
@@ -808,8 +808,11 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const loaded = place.kind === 'file' && state.loaded?.path === place.path ? state.loaded : undefined
   const lines = loaded?.lines ?? []
   let fileMark: string | undefined
+  let inRepo = false
   if (place.kind === 'file' && state.root && place.path.startsWith(`${state.root}/`)) {
-    fileMark = (await statusFor($, state.root))?.files.get(place.path)
+    const status = await statusFor($, state.root)
+    inRepo = !!status
+    fileMark = status?.files.get(place.path)
     if (current(state.nav).path !== place.path) return draw($, ctx)
   }
   const digits = String(lines.length).length
@@ -1253,6 +1256,14 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const target = () => relOf(place.path)
   // The card is 9 rows at top 2; a shorter body lifts it beside the menu button and drops the divider.
   const short = rows < 11
+  const churn = churnText(state.diff).split(' ')
+  const editedMs = editedAt(place.path)
+  const infoRow = (k: string, value: JSX.Element[]) => (
+    <Box key={`info:${k}`}>
+      <Text color={HUD.faint}>{k.padEnd(8)}</Text>
+      {value}
+    </Box>
+  )
   const infoCard = (
     <Box
       key="explorer:info-card"
@@ -1266,7 +1277,20 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       paddingX={1}
       display={state.infoPinned ? 'flex' : 'none'}
       hover={state.infoPinned || state.menuPinned ? undefined : { scope: 'explorer:info', display: 'flex' }}
-    />
+    >
+      {inRepo && infoRow('git', fileMark ? [<Text color={STATUS[fileMark] ?? HUD.faint}>{`${fileMark} ${wordOf(fileMark)}`}</Text>] : [<Text>clean</Text>])}
+      {inRepo &&
+        infoRow('changes', [
+          <Box gap={1}>
+            {churn.map(part => (
+              <Text color={part[0] === '+' ? STATUS.A : part[0] === '\u2212' ? STATUS.D : undefined}>{part}</Text>
+            ))}
+          </Box>,
+        ])}
+      {infoRow('edited', [<Text>{editedMs === undefined ? '\u2014' : `Claude \u00b7 ${clock(editedMs)}`}</Text>])}
+      {infoRow('type', [<Text>{langOf(place.path.slice(place.path.lastIndexOf('/') + 1))}</Text>])}
+      {infoRow('lines', [<Text>{String(lines.length)}</Text>])}
+    </Box>
   )
   const card = (
     <Box

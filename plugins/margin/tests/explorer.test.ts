@@ -6,7 +6,7 @@ import { markCells } from '../hooks/explorer-find'
 import { cellsOf, codeRow, expandTabs, fileWindow, layoutFor, layoutOf, lineAt, rowAt, sliceTokens, thumbOf, toneRows } from '../hooks/explorer-layout'
 import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '../hooks/explorer-nav'
 import { tokenize } from '../hooks/explorer-tokens'
-import { iconOf, sortListing, treeRows } from '../hooks/explorer-tree'
+import { iconOf, langOf, sortListing, treeRows } from '../hooks/explorer-tree'
 import { fieldPad, refOf } from '../hooks/tab-file'
 import { resetRecent } from '../hooks/explorer-recent'
 import { fileKey } from '../hooks/git-data'
@@ -3279,4 +3279,94 @@ test('the info button takes the file status colour while it has changes', async 
 test('a clean file info button is claude', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
   expect((await ui.find({ type: 'Text', text: String.fromCharCode(0xea74) }))?.props.color).toBe('claude')
+})
+
+test('langOf: the mockup\'s six, a common extra, and Plain text for anything else', () => {
+  expect(['a.ts', 'a.tsx', 'a.md', 'a.json', 'a.py', 'a.sh'].map(langOf)).toEqual(['TypeScript', 'TypeScript JSX', 'Markdown', 'JSON', 'Python', 'Shell'])
+  expect(langOf('a.rs')).toBe('Rust')
+  expect(langOf('x.xyz')).toBe('Plain text')
+  expect(langOf('Makefile')).toBe('Plain text')
+})
+
+const infoRow = async (ui: any, k: string) => nodeOf(ui, `info:${k}`)
+const infoText = async (ui: any, k: string) => textOf(await infoRow(ui, k))
+const infoPart = async (ui: any, k: string, text: string) => {
+  const walk = (n: any): any => (!n || typeof n !== 'object' ? undefined : Array.isArray(n) ? n.map(walk).find(Boolean) : n.props?.color !== undefined && textOf(n) === text ? n : walk([n.children, n.props?.children]))
+  return walk(await infoRow(ui, k))
+}
+
+test('the git row shows the status letter and word in its colour', async ($, on) => {
+  await setup($, on)
+  disk.set('/repo/a.ts', { text: lines(3), mtimeMs: 1 })
+  open({ path: '/repo/a.ts' })
+  statusOut.out = ' M a.ts\0'
+  const ui = await mountPane($)
+  await ui.redraw()
+  expect(await infoText(ui, 'git')).toContain('M modified')
+  expect((await infoPart(ui, 'git', 'M modified'))?.props.color).toBe(STATUS.M)
+})
+
+test('the git row reads clean for an unchanged file', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  expect(await infoText(ui, 'git')).toContain('clean')
+})
+
+test('the git and changes rows are left out outside a repo', async ($, on) => {
+  await setup($, on)
+  disk.set('/repo/a.ts', { text: lines(3), mtimeMs: 1 })
+  open({ path: '/repo/a.ts' })
+  statusOut.exit = 128
+  const ui = await mountPane($)
+  await ui.redraw()
+  expect(await infoRow(ui, 'git')).toBeUndefined()
+  expect(await infoRow(ui, 'changes')).toBeUndefined()
+  expect(await infoRow(ui, 'lines')).toBeDefined()
+})
+
+test('the changes row colours + with STATUS.A and − with STATUS.D', async ($, on) => {
+  await setup($, on)
+  disk.set('/repo/a.ts', { text: lines(3), mtimeMs: 1 })
+  open({ path: '/repo/a.ts' })
+  diffOut.out = '@@ -1,2 +1,3 @@\n a\n-old\n+n1\n+n2\n'
+  const ui = await mountPane($)
+  await ui.redraw()
+  expect((await infoPart(ui, 'changes', '+2'))?.props.color).toBe(STATUS.A)
+  expect((await infoPart(ui, 'changes', '−1'))?.props.color).toBe(STATUS.D)
+})
+
+test('the changes row reads none for a file without a diff', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  expect(await infoText(ui, 'changes')).toContain('none')
+})
+
+test('the edited row reads the Claude time after a Claude Edit, and an em dash before one', async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  expect(await infoText(ui, 'edited')).toContain('—')
+  await clock.advance(120_000)
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts' } as any)
+  await ui.redraw()
+  expect(await infoText(ui, 'edited')).toContain(`Claude · ${new Date(120_000).toTimeString().slice(0, 5)}`)
+})
+
+test('a Claude Edit that is refused does not set the edited row', async ($, on) => {
+  on('tool.call', () => ({ deny: 'no' }) as any)
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts' } as any).catch(() => undefined)
+  await ui.redraw()
+  expect(await infoText(ui, 'edited')).toContain('—')
+})
+
+test('a Claude Edit that ran and failed does not set the edited row', async ($, on) => {
+  on('tool.call', () => ({ isError: true, result: { stdout: '', stderr: 'no match' } }) as any)
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts' } as any).catch(() => undefined)
+  await ui.redraw()
+  expect(await infoText(ui, 'edited')).toContain('—')
+})
+
+test('the lines row reads the loaded line count and the type row the language', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  expect(await infoText(ui, 'lines')).toContain('3')
+  expect(await infoText(ui, 'type')).toContain('TypeScript')
 })
