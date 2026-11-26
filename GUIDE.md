@@ -638,6 +638,33 @@ After two failed corrections, run `/clear` and write a better first prompt with 
 
 For problems with Claude Code itself, run `/doctor`, or see Claude Code's [troubleshooting](https://code.claude.com/docs/en/troubleshooting) page.
 
+### Check the install
+<!-- topic: doctor -->
+
+`/claudzilla doctor` checks that every claudzilla part runs the version your clone is on, and prints one line per problem with the command that fixes it. It only reads, so it is free and safe to run at any time.
+
+It checks:
+
+- **Plugins:** each claudzilla plugin in the plugin cache matches the clone. A cache can stay old when an update ran but the plugins did not, so the status line shows a new version while a plugin still runs the old one.
+- **Restart:** a plugin changed after this session started, so the session still runs the old code.
+- **Links, plugins and settings:** the files in `~/.claude` point into the clone, the parts you picked are installed and turned on, and `settings.json` still has claudzilla's hooks and status line.
+- **Tools:** `node`, `perl` and `git` are on your PATH, and `rtk` when you picked it.
+- **Status line, hooks and the last update:** the status line runs and shows the version, each hook file parses, and the last auto-update did not fail.
+
+```text
+claudzilla doctor  v1.10.0 @ cee0f89
+✗ margin      cache at 6dfdb1b, clone at cee0f89
+  fix: claude plugin update margin@claudzilla
+✓ links       19/19
+Fix all: /claudzilla doctor fix
+```
+
+`/claudzilla doctor fix`, or asking Claude to fix claudzilla, lets Claude apply the fixes. Claude lists them first and runs nothing until you say yes. When your permission mode denies a command, Claude gives you the commands to run yourself.
+
+A row that starts with `!` has no automatic fix, and its second line says why. A restart row clears when you restart Claude. `/reload-plugins` also loads the new plugins, but the row may stay until the next session.
+
+When a session starts and something is wrong, claudzilla shows one line, such as `claudzilla: margin out of date`. A healthy install shows nothing.
+
 ### Report a problem
 <!-- topic: bugs -->
 

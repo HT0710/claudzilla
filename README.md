@@ -166,6 +166,7 @@ Worlds: `/claudzilla-worlds` or alt+w, the guide's story part.
 |---|---|
 | `/claudzilla [topic]` | the guide, one topic at a time |
 | `/claudzilla report [what happened]` | drafts a problem report from the local trace (nothing uploaded); files an issue only on your yes |
+| `/claudzilla doctor [fix]` | checks every part runs the clone's version; `fix` has Claude apply the fixes on your yes |
 | `/claudzilla compact` | drafts a `/compact` line into the prompt box |
 | `/claudzilla-worlds` | opens the guide on *Worlds* |
 | `/margin` | side panel: Claude's plan and steps, this chat's prompts, files, git |
