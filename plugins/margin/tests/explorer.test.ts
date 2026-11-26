@@ -2988,7 +2988,7 @@ test('show: a press on a code row ends the flash', { plugins: [edit] }, async ($
   expect(await anyFlash(ui)).toBe(false)
 })
 
-test('show: a wheel drops a pending edit, so the reload flashes nothing', { plugins: [edit] }, async ($, on) => {
+test('show: a wheel drops a pending edit, so the reload flashes only its own changed row', { plugins: [edit] }, async ($, on) => {
   await started($, on)
   const ui = await ex($, on, { path: '/repo/a.ts' }, 'a\nNEW\nc')
   await $.session.start({ source: 'startup', cwd: '/repo', surface: null, isInteractive: false } as any)
@@ -2998,7 +2998,9 @@ test('show: a wheel drops a pending edit, so the reload flashes nothing', { plug
   await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 1, bodyRows: 19, contentRows: 19, origin: { kind: 'person' }, pointer: { column: 0, row: 6 } })
   await clock.advance(5_000)
   await ui.redraw()
-  expect(await anyFlash(ui)).toBe(false)
+  expect(await flashed(ui, 1)).toBe(true)
+  for (const n of [2, 3, 4, 5]) expect(await flashed(ui, n)).toBe(false)
+  expect(((await gutterRows(ui)) ?? []).filter(r => r.bg === FLASH).map(r => r.line)).toEqual([1])
 })
 
 test('mixHex: t 0 gives a, t 1 gives b, half gives the midpoint', () => {

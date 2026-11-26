@@ -340,6 +340,8 @@ export async function reloadPlace($: EngineInterface, edit?: { oldText: string; 
     if (!same && state.reloadMarks && state.remapTop) state.remapTop = 'text'
     state.tokens = new Map()
     rerunFind()
+    // Before the redraw below: flashRows draws nothing itself.
+    if (!same && state.reloadMarks) await flashRows($, place.path, [...state.reloadMarks.added])
   }
   await update($, file, () => placeOf())
 }
