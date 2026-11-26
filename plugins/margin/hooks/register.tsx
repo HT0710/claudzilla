@@ -863,6 +863,10 @@ const paneDraw = async ($: EngineInterface) => {
     return
   }
   await update($, paneTick, n => n + 1)
+  if (moveAt > settleAt) {
+    const seq = ++settleSeq
+    $.clock.after(Math.max(0, moveAt + SCROLL_SETTLE - (await $.clock.now())), () => seq === settleSeq && settle($))
+  }
 }
 // Each draw finishes only after the one started before it: once an older draw finished after a
 // newer one, the terminal dropped every click on the pane until the next redraw. A draw that never
@@ -1024,6 +1028,26 @@ export const keepNewest = <K, V>(map: Map<K, V>, key: K, value: V, max: number) 
 // A clicked prompt, by its time, stays lit through its own jump: until a row moves after `after`.
 let pin: { timestamp: number; after: number } | undefined
 const SETTLE = 300
+let settleAt = -Infinity
+let settleSeq = 0
+const SCROLL_SETTLE = 300
+// Tests only.
+export const resetScrollState = () => {
+  paneDue = moveAt = settleAt = -Infinity
+  moveUnplaced = false
+  settleSeq++
+  shown.clear()
+}
+// One full redraw once moves stop, so rows that did not move report again. Runs from a clock callback only.
+const settle = async ($: EngineInterface) => {
+  if ((await read($, tab)) !== 'History' || !(await isPlaced($))) return
+  moveUnplaced = false
+  if (shown.size === 0) return
+  await idle()
+  settleAt = await $.clock.now()
+  $.ui.invalidate('ui.render')
+  await paneSoon($)
+}
 const pinPrompt = (timestamp: number, now: number) => {
   pin = { timestamp, after: now + SETTLE }
 }
@@ -1038,6 +1062,7 @@ const see = async ($: EngineInterface, requestId: string, onScreen: Seen, key = 
   if (!onScreen) {
     if (shown.delete(requestId)) {
       moveAt = await $.clock.now()
+      settleSeq++
       await paneSoon($)
     }
     return
@@ -1049,6 +1074,7 @@ const see = async ($: EngineInterface, requestId: string, onScreen: Seen, key = 
   if (moved && !pinHolds(pin, at)) pin = undefined
   if (moved) {
     moveAt = at
+    settleSeq++
     await paneSoon($)
   }
 }

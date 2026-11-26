@@ -6,7 +6,7 @@ import { fileKey } from '../hooks/git-data'
 import { DIMMED, clock, hoverOf, readersOf, rowHovers } from '../hooks/kit'
 import { duration } from '../hooks/footer'
 
-import { EMPTY_USED, ICON, RAIL_COLUMNS, WIDE, railTop, dayLabel, gitWeb, gone, hang, inView, keepNewest, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, SKILL_ROW, resetUsed, stampPattern, useOf, bashPaths, wrapLines, zoneWindow } from '../hooks/register'
+import { EMPTY_USED, ICON, RAIL_COLUMNS, WIDE, railTop, dayLabel, gitWeb, gone, hang, inView, keepNewest, lastRowIds, litPrompt, nearestCommandId, nearestId, needles, ordered, parseSummary, parseTopics, pinHolds, readStamps, recordUse, resetScrollState, SKILL_ROW, resetUsed, stampPattern, useOf, bashPaths, wrapLines, zoneWindow } from '../hooks/register'
 import { modelName } from '../hooks/tab-overview'
 import { pathText } from './explorer-helpers'
 
@@ -2166,13 +2166,18 @@ test('History rereads at most once a second while the chat scrolls', async ($, o
   await row.redraw({ ...reply, onScreen: null })
 })
 
-const redrawSetup = (on: Parameters<TestBody>[1]) => {
+const redrawSetup = (on: Parameters<TestBody>[1], midTurn?: string) => {
   const start = Date.now() - 60_000
-  const history = ['a', 'b', 'c']
+  const history = ['a', 'b', 'c', ...(midTurn ? [midTurn] : [])]
     .map((display, i) => JSON.stringify({ display, timestamp: start + i * 10_000, sessionId: 'chat-1' }))
     .join('\n')
   const clock = mock.clock(on, { now: 1_000_000 })
-  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }))
+  const count = { draws: 0, panes: 0 }
+  on('ui.panes', () => {
+    count.panes++
+    return { value: [{ id: 'margin', isPlaced: true }] }
+  })
+  if (midTurn) mock.store(on, { 'midTurn:chat-1': [midTurn] })
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('session.root', () => ({ value: '/proj' }))
@@ -2184,7 +2189,6 @@ const redrawSetup = (on: Parameters<TestBody>[1]) => {
     const stdout = stamp('row-a', 5_000) + stamp('row-b', 25_000)
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  const count = { draws: 0 }
   // Stands for the engine's own drawing of the rows.
   on('ui.render', { component: 'UserMessage' }, () => {
     count.draws++
@@ -2201,6 +2205,7 @@ const mountRows = async ($: Parameters<TestBody>[0]) => {
 }
 
 test('a move with History current redraws only the pane, 100 ms later', async ($, on) => {
+  resetScrollState()
   const { clock, count } = redrawSetup(on)
   const { a, b } = await mountRows($)
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
@@ -2219,6 +2224,7 @@ test('a move with History current redraws only the pane, 100 ms later', async ($
 })
 
 test('a move with Git current redraws no chat row', async ($, on) => {
+  resetScrollState()
   const { clock, count } = redrawSetup(on)
   const { a, b } = await mountRows($)
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
@@ -2234,6 +2240,7 @@ test('a move with Git current redraws no chat row', async ($, on) => {
 })
 
 test('a row leaving the screen redraws the panel 100 ms later', async ($, on) => {
+  resetScrollState()
   const { clock } = redrawSetup(on)
   const { a, b } = await mountRows($)
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
@@ -2247,6 +2254,104 @@ test('a row leaving the screen redraws the panel 100 ms later', async ($, on) =>
   await clock.advance(100)
   expect([await color('a'), await color('b'), await color('c')]).not.toEqual(lit)
   await a.redraw({ ...rowProps, onScreen: null })
+})
+
+test('a burst settles once, 300 ms after its last move', async ($, on) => {
+  resetScrollState()
+  const { clock, count } = redrawSetup(on)
+  const { a, b } = await mountRows($)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await clock.advance(1_000)
+
+  for (const first of [1, 2, 3]) {
+    await a.redraw({ ...rowProps, onScreen: { first, last: first + 2, of: 10 } })
+    if (first < 3) await clock.advance(100)
+  }
+  const before = count.draws
+  await clock.advance(299)
+  expect(count.draws).toBe(before)
+  await clock.advance(1)
+
+  expect(count.draws).toBe(before + 2)
+  for (const row of [a, b]) await row.redraw({ ...rowProps, onScreen: null })
+})
+
+test('a move 250 ms after another still settles 300 ms after the last', async ($, on) => {
+  resetScrollState()
+  const { clock, count } = redrawSetup(on)
+  const { a, b } = await mountRows($)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await clock.advance(1_000)
+
+  await a.redraw({ ...rowProps, onScreen: { first: 1, last: 3, of: 10 } })
+  await clock.advance(250)
+  await a.redraw({ ...rowProps, onScreen: { first: 2, last: 4, of: 10 } })
+  const before = count.draws
+  await clock.advance(299)
+  expect(count.draws).toBe(before)
+  await clock.advance(1)
+
+  expect(count.draws).toBe(before + 2)
+  for (const row of [a, b]) await row.redraw({ ...rowProps, onScreen: null })
+})
+
+test('a settle after History was hidden draws nothing', async ($, on) => {
+  resetScrollState()
+  const { clock, count } = redrawSetup(on)
+  const { a, b } = await mountRows($)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await clock.advance(1_000)
+
+  await a.redraw({ ...rowProps, onScreen: { first: 1, last: 3, of: 10 } })
+  await clock.advance(50)
+  await ui.press({ key: 'Git' })
+  const before = count.draws
+  await clock.advance(300)
+
+  expect(count.draws).toBe(before)
+  for (const row of [a, b]) await row.redraw({ ...rowProps, onScreen: null })
+})
+
+test('a learn redraw at 260 ms does not drop the settle at 350 ms', async ($, on) => {
+  resetScrollState()
+  const { clock, count } = redrawSetup(on, 'sent mid-turn')
+  const { a, b } = await mountRows($)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await clock.advance(1_000)
+
+  await clock.advance(50)
+  await a.redraw({ ...rowProps, onScreen: { first: 1, last: 3, of: 10 } })
+  await clock.advance(210)
+  await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId: 'msg-1',
+    props: { text: 'sent mid-turn', origin: { kind: 'composer' as const }, isExpanded: false } })
+  await clock.advance(80)
+  const before = count.draws
+  await clock.advance(15)
+
+  expect(count.draws).toBe(before + 3)
+  await clock.advance(1_000)
+  for (const row of [a, b]) await row.redraw({ ...rowProps, onScreen: null })
+})
+
+test('the pane draws once more 100 ms after a settle', async ($, on) => {
+  resetScrollState()
+  const { clock, count } = redrawSetup(on)
+  const { a, b } = await mountRows($)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await clock.advance(1_000)
+
+  await a.redraw({ ...rowProps, onScreen: { first: 1, last: 3, of: 10 } })
+  await clock.advance(300)
+  const settled = count.panes
+  await clock.advance(100)
+
+  expect(count.panes).toBe(settled + 1)
+  for (const row of [a, b]) await row.redraw({ ...rowProps, onScreen: null })
 })
 
 test("a tool call's command and output rows, at different places, settle after one redraw", async ($, on) => {
