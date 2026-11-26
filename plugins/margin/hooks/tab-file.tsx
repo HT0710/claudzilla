@@ -302,7 +302,6 @@ async function scanFor($: EngineInterface, page: string): Promise<Scan | undefin
   // Only a newer scan of this same page makes a result stale.
   const run = scanAges($, page).then(r => {
     if (scanSeq.get(page) === n) return r
-    if (pageAges.get(page) === run) pageAges.delete(page)
     return undefined
   })
   pageAges.set(page, run)
@@ -1004,7 +1003,8 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       }
       rowHover.acts[key] = press
       const name = path.slice(path.lastIndexOf('/') + 1)
-      const folder = path.slice(0, Math.max(0, path.length - name.length - 1))
+      const dir = relOf(path.slice(0, Math.max(0, path.length - name.length - 1)))
+      const folder = dir === '.' ? '' : dir
       const icon = iconOf(name, 'file', { open: false, empty: false })
       const here = path === open
       const letter = marks?.files.get(path)
@@ -1443,7 +1443,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
           <Box width={5} flexShrink={0} gap={1}>
             {glyph('back', '‹', 0xea9b, () => goBack($))}
             {glyph('forward', '›', 0xea9c, () => goForward($))}
-            {glyph('refresh', '↻', 0xeb37, () => reloadPlace($))}
+            {glyph('refresh', '↻', 0xeb37, () => ((statusCache = undefined), reloadPlace($)))}
           </Box>
           <Box key="path" flexGrow={1} justifyContent={editing ? 'flex-start' : 'center'} marginX={GAP}>
             {state.find?.open && place.kind === 'file' ? (

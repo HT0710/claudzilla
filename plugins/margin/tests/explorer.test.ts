@@ -3168,11 +3168,36 @@ test('a Recent row shows its icon, name, folder in faint text, git letter or bla
   await recentOpen(ui)
   const [b, a] = await recentClients(ui)
   const left = (r: any) => r.props.props.left.map((p: any) => p.text)
-  expect(left(b)).toEqual([' ', ' ', expect.any(String), ' ', 'b.ts', ' /repo'])
-  expect(b.props.props.left.at(-1).color).toBe('#4f5c68')
+  expect(left(b)).toEqual([' ', ' ', expect.any(String), ' ', 'b.ts'])
   expect(b.props.props.right.map((p: any) => p.text)).toEqual([' ', '  ', 'now'])
   expect(a.props.props.right.map((p: any) => p.text)).toEqual(['M', '  ', ' 1m'])
   expect(a.props.props.right[0].color).toBe(STATUS.M)
+})
+
+test('a Recent row for a file in a subfolder shows the folder relative to the working directory, in faint text', async ($, on) => {
+  const ui = await recentRoot($, on)
+  disk.set('/repo/sub/c.ts', { text: 'c\n', mtimeMs: 1 })
+  open({ path: '/repo/sub/c.ts' })
+  await ui.redraw()
+  await recentOpen(ui)
+  const row = (await recentClients(ui)).find((r: any) => r.props.key === `row:x:recent:${fileKey('/repo/sub/c.ts')}`)
+  const last = row.props.props.left.at(-1)
+  expect(last).toMatchObject({ text: ' sub', color: '#4f5c68' })
+})
+
+test('a refresh on a file page reads the git status again', async ($, on) => {
+  await setup($, on)
+  disk.set('/repo/a.ts', { text: lines(3), mtimeMs: 1 })
+  open({ path: '/repo/a.ts' })
+  statusOut.out = ' M a.ts\0'
+  const ui = await mountPane($)
+  await ui.redraw()
+  const icon = () => ui.find({ type: 'Text', text: String.fromCharCode(0xea74) })
+  expect((await icon())?.props.color).toBe(STATUS.M)
+  statusOut.out = ''
+  await ui.press({ key: 'refresh' })
+  await ui.redraw()
+  expect((await icon())?.props.color).toBe('claude')
 })
 
 test('a press on a Recent row opens that file and closes the field', async ($, on) => {
