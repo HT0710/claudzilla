@@ -11,7 +11,7 @@ import { fieldPad, refOf } from '../hooks/tab-file'
 import { resetRecent } from '../hooks/explorer-recent'
 import { fileKey } from '../hooks/git-data'
 import { FLASH, LIT, STATUS, mixHex } from '../hooks/kit'
-import { clock, diffOut, statusOut, gutterRows, disk, props, chevron, tapTree, treeRow, explorer, explorerRoot, failList, hold, lists, mountPane, launch, open, pathText, ran, reads, runs, lines, listed, setup, sets, store, textOf, tree, waitFor } from './explorer-helpers'
+import { ages, clock, diffOut, statusOut, gutterRows, disk, props, chevron, tapTree, treeRow, explorer, explorerRoot, failList, hold, lists, mountPane, launch, open, pathText, ran, reads, runs, lines, listed, setup, sets, store, textOf, tree, waitFor } from './explorer-helpers'
 
 test('tokenize: a keyword, a string, a comment and a number', () => {
   expect(tokenize('const s = "a" // x 42')).toEqual([
@@ -3400,5 +3400,129 @@ test('counts pad to the widest count on the page', async ($, on) => {
 
 test('a clean file\'s row ends in one blank mark cell', async ($, on) => {
   const ui = await marked($, on, { '/repo': [{ name: 'a.ts', kind: 'file' }] }, '')
-  expect((await piecesOf(ui, 'a.ts')).map(p => p.text)).toEqual(['  ', ' '])
+  expect((await piecesOf(ui, 'a.ts')).map(p => p.text)).toEqual(['  ', '   ', '  ', ' '])
+})
+
+// The clock reads 1000 s, so `<seconds> <name>` lines are that many seconds before now at 1000 - seconds.
+const aged = async ($: any, on: any, trees: Record<string, { name: string; kind: 'file' | 'dir' }[]>, out: string) => {
+  await setup($, on)
+  await clock.advance(1_000_000)
+  for (const [path, list] of Object.entries(trees)) tree.set(path, list)
+  ages.out = out
+  runs.length = 0
+  return mountPane($)
+}
+const ageCell = async (ui: any, name: string) => (await piecesOf(ui, name)).at(-3)?.text
+const shRuns = () => runs.filter(a => a[0] === 'sh' && a[2]?.includes('stat')).length
+const srcTree = { '/repo': [{ name: 'src', kind: 'dir' as const }, { name: 'empty', kind: 'dir' as const }, { name: 'a.ts', kind: 'file' as const }], '/repo/src': [{ name: 'b.ts', kind: 'file' as const }], '/repo/empty': [] }
+
+test('a folder row shows the newest age under it, from one scan of its page', async ($, on) => {
+  const ui = await aged($, on, srcTree, '400 src/b.ts\n100 src/old.ts\n')
+  expect(await ageCell(ui, 'src')).toBe('10m')
+  expect(shRuns()).toBe(1)
+})
+
+test('a folder with no scanned file under it shows a blank age', async ($, on) => {
+  const ui = await aged($, on, srcTree, '400 src/b.ts\n')
+  expect(await ageCell(ui, 'empty')).toBe('   ')
+})
+
+test('a file row shows its own age', async ($, on) => {
+  const ui = await aged($, on, srcTree, '400 src/b.ts\n990 a.ts\n')
+  expect(await ageCell(ui, 'a.ts')).toBe('now')
+})
+
+test('past 5000 entries every age on the page is blank', async ($, on) => {
+  const ui = await aged($, on, srcTree, Array.from({ length: 5001 }, (_, i) => `400 src/f${i}`).join('\n'))
+  expect(await ageCell(ui, 'src')).toBe('   ')
+  expect(await ageCell(ui, 'a.ts')).toBe('   ')
+})
+
+test('a Claude Edit reruns the scan once the count changes', async ($, on) => {
+  hostOk(on)
+  const ui = await aged($, on, srcTree, '400 src/b.ts\n')
+  await ui.redraw()
+  expect(shRuns()).toBe(1)
+  ages.out = '990 src/b.ts\n'
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/src/b.ts' } as any)
+  await ui.redraw()
+  expect(shRuns()).toBe(2)
+  expect(await ageCell(ui, 'src')).toBe('now')
+})
+
+test('refresh reruns the scan', async ($, on) => {
+  const ui = await aged($, on, srcTree, '400 src/b.ts\n')
+  await ui.redraw()
+  ages.out = '700 src/b.ts\n'
+  await ui.press({ key: 'refresh' })
+  await ui.redraw()
+  expect(shRuns()).toBe(2)
+  expect(await ageCell(ui, 'src')).toBe(' 5m')
+})
+
+test('a subfolder page reuses the cached ancestor scan', async ($, on) => {
+  const ui = await aged($, on, srcTree, '400 src/b.ts\n')
+  await ui.redraw()
+  open({ path: '/repo/src', kind: 'folder' })
+  await ui.redraw()
+  expect(shRuns()).toBe(1)
+  expect(await ageCell(ui, 'b.ts')).toBe('10m')
+})
+
+test('a capped ancestor scan is not reused by a subfolder page', async ($, on) => {
+  const ui = await aged($, on, srcTree, Array.from({ length: 5001 }, (_, i) => `400 src/f${i}`).join('\n'))
+  await ui.redraw()
+  ages.out = '400 b.ts\n'
+  open({ path: '/repo/src', kind: 'folder' })
+  await ui.redraw()
+  expect(shRuns()).toBe(2)
+  expect(await ageCell(ui, 'b.ts')).toBe('10m')
+})
+
+test('a stale scan result is dropped by its sequence number', async ($, on) => {
+  const ui = await aged($, on, srcTree, '400 src/b.ts\n')
+  hold.ages = []
+  const slow = ui.press({ key: 'refresh' })
+  await waitFor(() => hold.ages!.length === 1)
+  const fast = ui.press({ key: 'refresh' })
+  await waitFor(() => hold.ages!.length === 2)
+  const [first, second] = hold.ages!.splice(0)
+  ages.out = '990 src/b.ts\n'
+  second!()
+  await new Promise(done => setTimeout(done, 0))
+  ages.out = '100 src/b.ts\n'
+  first!()
+  await Promise.all([slow, fast])
+  hold.ages = undefined
+  await ui.redraw()
+  expect(await ageCell(ui, 'src')).toBe('now')
+})
+
+test('a scan of another page never makes a pending scan stale', async ($, on) => {
+  await setup($, on)
+  await clock.advance(1_000_000)
+  tree.set('/repo', [])
+  tree.set('/other', [{ name: 'b.ts', kind: 'file' }])
+  tree.set('/else', [])
+  ages.out = '400 b.ts\n'
+  const ui = await mountPane($)
+  hold.ages = []
+  open({ path: '/other', kind: 'folder' })
+  const a = ui.redraw()
+  await waitFor(() => hold.ages!.length === 1)
+  open({ path: '/else', kind: 'folder' })
+  const b = ui.redraw()
+  await waitFor(() => hold.ages!.length === 2)
+  open({ path: '/other', kind: 'folder' })
+  const c = ui.redraw()
+  hold.ages!.splice(0).forEach(go => go())
+  await Promise.all([a, b, c])
+  hold.ages = undefined
+  await ui.redraw()
+  expect(await ageCell(ui, 'b.ts')).toBe('10m')
+})
+
+test('a folder holding a file edited a minute ago reads now or 1m', async ($, on) => {
+  const ui = await aged($, on, srcTree, '950 src/b.ts\n')
+  expect(['now', ' 1m']).toContain(await ageCell(ui, 'src'))
 })
