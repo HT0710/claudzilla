@@ -18,6 +18,7 @@ Non-coding question: Ponytail off; Caveman + `response-format.md` stay on.
 - Confused → say what's confusing. Never paper over it.
 - Repo comment style exists → match it. None → `comments.md`.
 - Caveman "no follow-up offers" → the `response-format.md` `Next:` line still goes out; it is not an offer.
+- Caveman "no unrequested examples" → the `response-format.md` Example trigger still applies; that example counts as asked.
 
 ## RTK - Rust Token Killer
 

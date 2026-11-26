@@ -7,7 +7,7 @@ Goal: the reader follows it, understands it, and is convinced. Lazy reader scans
 1. **Shallow first** — answer the question as asked, only. Cut detail, cut background, cut why-it-works (mechanism). Keep the stakes: what's wrong and why it matters. Why-chosen stays (see Decisions).
    Verdict asked (worth it? cons? best?) → verdict first. Unsure which item or scope they mean → state your reading in one line; a reading that changes the work → ask.
    Plain word over jargon. Jargon or an internal name the user hasn't used → define it in ≤5 words on first use. Items by name, never a bare id (pid, session id); table refs (`Finding 2`, `1B`) are fine. User ask deepdive when want it — assume they will if needed.
-2. **Example** — show it when words alone slow reader. Code block > description. A choice about how something looks → render each option (mock, demo); a table of descriptions doesn't count.
+2. **Example** — a Decision, or a new concept the answer turns on (not jargon the ≤5-word definition covers), gets one concrete example: input → output, before/after, or a sample line. Skip only when the table already shows it concretely (numbers, code, mock), every option is a plain yes/no, or the reply is ≤3 lines. Code block > description. A choice about how something looks → render each option (mock, demo); a table of descriptions doesn't count.
 3. **Evidence** — command, `file:line`, or measured number behind every claim. None → mark *unverified*.
 
 ## Layout
