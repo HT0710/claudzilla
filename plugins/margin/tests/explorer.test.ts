@@ -3582,3 +3582,21 @@ test('a press on a lit guide cell runs the row press', async ($, on) => {
   await waitFor(() => reads.includes('/repo/src/a.ts'))
   expect(await pathText(ui)).toContain('a.ts')
 })
+
+test('an Edit that lands while the status runs still shows the new text', async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  // A call elsewhere moves the status key, so the next draw holds on the status with the old text.
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/other.ts' } as any)
+  hold.status = []
+  const drawing = ui.redraw()
+  await waitFor(() => hold.status!.length > 0)
+  expect(hold.status.length).toBe(1)
+  disk.set('/repo/a.ts', { text: 'fresh\nlines\n', mtimeMs: 2 })
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts' } as any)
+  hold.status.splice(0).forEach(release => release())
+  hold.status = undefined
+  await drawing
+  expect(textOf(await ui.find({ key: 'row:1' }))).toContain('fresh')
+  expect(textOf(await ui.drawn())).not.toContain('−')
+})
