@@ -173,4 +173,46 @@ check "hook: stdin held open exits within 3 s" [ "$rc" -eq 0 -a $(( $(date +%s) 
 fixture; stale_margin
 check "hook: stdin without session_id still runs the state checks" js "$(hook '{}')" 'r.systemMessage.includes("margin")'
 
+GD() { git -C "$CL" rev-parse --absolute-git-dir; }
+events() { printf '%b' "$1" >"$(GD)/claudzilla-update.events"; }
+
+fixture
+check "full: status line row shows the clone version" row "$(run --json)" 'x.check=="statusline"&&x.ok'
+fixture notag; out=$(run --json); rc=$?
+check "full: no tag gives no statusline row" js "$out" '!r.some(x=>x.check=="statusline")'
+check "full: no tag exits 0" [ "$rc" -eq 0 ]
+
+fixture; printf 'function (\n' >"$CL/claude/hooks/trace.mjs"
+check "full: a hook that does not parse gives hooks with no fix" row "$(run --json)" 'x.check=="hooks"&&!x.ok&&!("fix" in x)'
+fixture; printf 'sub {\n' >"$CL/claude/hooks/trace.pl"
+check "full: a perl syntax error in hooks/trace.pl gives hooks with no fix" row "$(run --json)" 'x.check=="hooks"&&!x.ok&&!("fix" in x)&&x.text.includes("trace.pl")'
+fixture; rm "$CL/claude/hooks/cost-trace.mjs"
+check "full: a missing hook file gives hooks with install" row "$(run --json)" 'x.check=="hooks"&&!x.ok&&x.fix?.kind=="install"'
+
+fixture; events '1\tfail\tsecret log text\n'
+check "full: newest fail with no success gives update with no fix" row "$(run --json)" "x.check=='update'&&!x.ok&&!('fix' in x)&&x.text.includes('$(GD)/claudzilla-update.log')&&!x.text.includes('secret')"
+events '1\tfail\tx\n2\tlive\tclaudzilla: updating to v9.9.9\n'
+check "full: a fail then an updating line is still a failure" row "$(run --json)" 'x.check=="update"&&!x.ok'
+events '1\tfail\tx\n2\tlive\tclaudzilla: updating to v9.9.9\n3\tlive\tclaudzilla: updated to v9.9.9\n'
+check "full: a fail then the success line is ok" js "$(run --json)" '!r.some(x=>x.check=="update"&&!x.ok)'
+
+fixture; proj_entry "$TMP/home/proj"; stale_margin
+out=$(run --quick --json)
+check "--quick --json: no full-only rows" js "$out" '!r.some(x=>["statusline","hooks","update"].includes(x.check))'
+check "--quick --json: path tokens become <path>" grep -qF '<path>' <<<"$out"
+check "--quick --json: no path left" sh -c '! printf "%s" "$1" | grep -qE "[\" ][/~]"' _ "$out"
+check "--quick --json: counts stay" grep -qE '[0-9]+/[0-9]+' <<<"$out"
+check "--json keeps the cwd" row "$(run --json)" "x.check=='project'&&x.fix.cwd=='$TMP/home/proj'"
+
+fixture; proj_entry "$TMP/home/proj"; stale_margin; rm -rf "$TMP/tmp"; mkdir -p "$TMP/tmp" "$TMP/stub"
+printf '#!/bin/sh\ntouch "%s/claude-called"\n' "$TMP" >"$TMP/stub/claude"; chmod +x "$TMP/stub/claude"
+rm -rf "$TMP/cfg.before" "$TMP/clone.before"; cp -R "$CFG" "$TMP/cfg.before"; cp -R "$CL" "$TMP/clone.before"
+PATH="$TMP/stub:$PATH" run --quick >/dev/null
+( cd "$TMP/home/proj" && PATH="$TMP/stub:$PATH" HOME="$TMP/home" CLAUDE_CONFIG_DIR="$CFG" TMPDIR="$TMP/tmp" node "$D" --hook <<<"{\"session_id\":\"s1\",\"cwd\":\"$TMP/home/proj\"}" >/dev/null )
+PATH="$TMP/stub:$PATH" run >/dev/null
+check "anti-goal: no claude call in any mode" [ ! -e "$TMP/claude-called" ]
+diff -r "$CFG" "$TMP/cfg.before" >"$TMP/cfgdiff" 2>&1; cat "$TMP/cfgdiff" >&2; check "anti-goal: config unchanged" [ ! -s "$TMP/cfgdiff" ]
+check "anti-goal: clone unchanged" diff -r --exclude=index "$CL" "$TMP/clone.before"
+check "anti-goal: only the session note is written" [ "$(ls -A "$TMP/tmp")" = "claudzilla-rules-$(id -u)" -a "$(ls -A "$SD")" = doctor-s1.json ]
+
 echo "pass=$pass fail=$fail"; [ "$fail" -eq 0 ]
