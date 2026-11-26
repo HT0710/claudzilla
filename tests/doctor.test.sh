@@ -240,4 +240,4 @@ check "shape: hooks event not an array gives settings row" row "$out" 'x.check==
 fixture; mkdir -p "$TMP/home/it's"; proj_entry "$TMP/home/it's"; stale_margin
 check "quote: a project path with ' gets no fix" row "$(CWD="$TMP/home/it's" run --json)" 'x.check=="project"&&!("fix" in x)&&x.why.includes("quote")'
 
-echo "pass=$pass fail=$fail"; [ "$fail" -eq 0 ]
+summary doctor
