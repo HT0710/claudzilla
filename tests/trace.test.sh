@@ -141,6 +141,6 @@ check "perl unwritable dir: silent, exit 0" bash -c '[ "$1" = 0 ] && [ -z "$2" ]
 fresh; err=$(perl -e 'require $ARGV[0]; eval{die "outer\n"}; trace_write({session=>"s",part=>"p",event=>"e"}); print $@' "$TP" 2>&1 </dev/null)
 check "perl trace_write keeps caller's \$@" [ "$err" = outer ]
 fresh; err=$(perl -e 'require $ARGV[0]; trace_write(undef); trace_write("x"); trace_write([]); print "ok"' "$TP" 2>&1 </dev/null)
-check "perl trace_write with non-hashref: no die, no stderr" [ "$err" = ok ]
+check_eq "perl trace_write with non-hashref: no die, no stderr" ok "$err"
 
 summary trace

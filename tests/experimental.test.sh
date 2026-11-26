@@ -69,7 +69,7 @@ fresh; conf '{"experimental":{"alpha":true}}'; mkdir -p "$TMP/cfg/hooks"; ln -s 
 check "hook: runs through a symlink" [ "$(node "$TMP/cfg/hooks/experimental.mjs")" = "$(node "$SCRIPT")" -a -n "$(node "$SCRIPT")" ]
 
 fresh; conf '{"experimental":{"alpha":true}}'
-check "list: ids, descriptions, state" [ "$(node "$SCRIPT" --list)" = '[{"id":"alpha","description":"First feature.","on":true},{"id":"beta","description":"Second feature.","on":false},{"id":"empty","description":"","on":false}]' ]
+check_eq "list: ids, descriptions, state" '[{"id":"alpha","description":"First feature.","on":true},{"id":"beta","description":"Second feature.","on":false},{"id":"empty","description":"","on":false}]' "$(node "$SCRIPT" --list)"
 
 fresh; rm -rf "$FEAT"
 out=$(node "$SCRIPT" --list); rc=$?
@@ -84,19 +84,19 @@ node "$SCRIPT" --set alpha on; rc=$?
 check "set: creates a missing file" [ $rc -eq 0 -a "$(jget j)" = '{"experimental":{"alpha":true}}' ]
 
 node "$SCRIPT" --set alpha off
-check "set: off writes false" [ "$(jget j.experimental.alpha)" = false ]
+check_eq "set: off writes false" false "$(jget j.experimental.alpha)"
 
 fresh; conf '{"install":{"skip":["hud"]},"rulesGuard":{"rules":{"tldr":"off"}}}'
 node "$SCRIPT" --set alpha on
-check "set: keeps other keys" [ "$(jget '[j.install,j.rulesGuard,j.experimental.alpha]')" = '[{"skip":["hud"]},{"rules":{"tldr":"off"}},true]' ]
+check_eq "set: keeps other keys" '[{"skip":["hud"]},{"rules":{"tldr":"off"}},true]' "$(jget '[j.install,j.rulesGuard,j.experimental.alpha]')"
 
 fresh; conf '{"experimental":{"beta":true}}'
 node "$SCRIPT" --set alpha on
-check "set: keeps other features" [ "$(jget '[j.experimental.alpha,j.experimental.beta]')" = '[true,true]' ]
+check_eq "set: keeps other features" '[true,true]' "$(jget '[j.experimental.alpha,j.experimental.beta]')"
 
 fresh; conf '{"experimental":true,"install":{}}'
 node "$SCRIPT" --set alpha on
-check "set: replaces a non-object experimental" [ "$(jget '[j.experimental,j.install]')" = '[{"alpha":true},{}]' ]
+check_eq "set: replaces a non-object experimental" '[{"alpha":true},{}]' "$(jget '[j.experimental,j.install]')"
 
 fresh; conf '{'
 err=$(node "$SCRIPT" --set alpha on 2>&1 >/dev/null); rc=$?
@@ -142,7 +142,7 @@ check "set then hook" grep -qF 'Alpha body.' <(node "$SCRIPT" | ctx)
 LIMIT=10000
 RF="$REPO/claude/experimental"
 fresh; rm -rf "$TMP/rcfg"; mkdir -p "$TMP/rcfg"
-check "repo: steward listed and on by default" [ "$(has "$(CLAUDE_CONFIG_DIR="$TMP/rcfg" node "$REPO/claude/hooks/experimental.mjs" --list)" '{"id":"steward","description":"Picks, per task, whether to delegate to a subagent and at which model and effort.","on":true}')" = y ]
+check_eq "repo: steward listed and on by default" y "$(has "$(CLAUDE_CONFIG_DIR="$TMP/rcfg" node "$REPO/claude/hooks/experimental.mjs" --list)" '{"id":"steward","description":"Picks, per task, whether to delegate to a subagent and at which model and effort.","on":true}')"
 all_under_limit() {
   local d="$TMP/allcfg" ids
   rm -rf "$d"; mkdir -p "$d"

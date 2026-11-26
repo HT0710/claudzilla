@@ -38,7 +38,7 @@ fresh() { rm -rf "$T" "$GH_LOG"; : > "$GIT_CONFIG_GLOBAL"; rm -f "$CLAUDE_CONFIG
 ghcalls() { [ -f "$GH_LOG" ] && wc -l < "$GH_LOG" | tr -d ' ' || echo 0; }
 
 fresh; account me@gmail.com
-check "gate: gmail -> github" [ "$(rep --gate)" = github ]
+check_eq "gate: gmail -> github" github "$(rep --gate)"
 fresh; account me@fpt.com
 check "gate: fpt.com -> blocked" bash -c '[[ "$(node "$1" --gate </dev/null)" == blocked:* ]]' _ "$R"
 fresh
@@ -46,13 +46,13 @@ check "gate: no account email -> blocked" bash -c '[[ "$(node "$1" --gate </dev/
 fresh; printf 'not json' > "$CLAUDE_CONFIG_DIR/.claude.json"
 check "gate: unparseable account -> blocked" bash -c '[[ "$(node "$1" --gate </dev/null)" == blocked:* ]]' _ "$R"
 fresh; account Me@GMAIL.com
-check "gate: domain compare ignores case" [ "$(rep --gate)" = github ]
+check_eq "gate: domain compare ignores case" github "$(rep --gate)"
 fresh; account me@gmail.com; gitmail me@fpt.com
 check "gate: gmail account + fpt.com git email -> blocked" bash -c '[[ "$(node "$1" --gate </dev/null)" == blocked:* ]]' _ "$R"
 fresh; account me@gmail.com; gitmail me@proton.me
-check "gate: gmail account + proton git email -> github" [ "$(rep --gate)" = github ]
+check_eq "gate: gmail account + proton git email -> github" github "$(rep --gate)"
 fresh; account me@gmail.com; gitmail 123+me@users.noreply.github.com
-check "gate: gmail account + github noreply git email -> github" [ "$(rep --gate)" = github ]
+check_eq "gate: gmail account + github noreply git email -> github" github "$(rep --gate)"
 
 blocked_with() { # name, then a setup command; --file/--search/--comment must exit 3 with gh untouched
   local name=$1; shift
@@ -139,7 +139,7 @@ fresh
 ent s1 hook 30 before; ent s1 report 20 report.mark '{"phase":"start"}'; ent s1 hook 15 inside
 ent s1 report 10 report.mark '{"phase":"end"}'; ent s1 hook 6 after; ent s1 primer 5 report.snapshot '{"v":1}'
 rep --excerpt | sed 1d | grep -q . && w=$(rep --excerpt | sed 1d | node -e 'console.log(require("fs").readFileSync(0,"utf8").trim().split("\n").map(l=>JSON.parse(l).event).join(","))')
-check "excerpt uses the mark window" [ "${w:-}" = "report.mark,inside,report.mark" ]
+check_eq "excerpt uses the mark window" "report.mark,inside,report.mark" "${w:-}"
 fresh; ent s1 primer 5 report.snapshot '{"v":1}'; ent s1 hook 20 old; ent s1 hook 7 new; ent s1 hook 2 later
 check "excerpt default window: 10 min before snapshot, ends at it" bash -c 'o=$(node "$1" --excerpt </dev/null); [ "$(sed 1d <<<"$o" | grep -c "\"event\":\"new\"")" = 1 ] && ! grep -q "\"event\":\"old\"" <<<"$o" && ! grep -q "\"event\":\"later\"" <<<"$o"' _ "$R"
 
@@ -152,7 +152,7 @@ check "excerpt: other env session gets the other trace" bash -c 'head -1 <<<"$1"
 o=$(env -u CLAUDE_CODE_SESSION_ID node "$R" --excerpt </dev/null)
 check "excerpt: no session id -> says so, live snapshot, no excerpt" bash -c '[ "$(head -1 <<<"$1")" = "no session id" ] && grep -q "\"claudeCode\":\"9.9.9" <<<"$1" && ! grep -q "mine1\|theirs2\|\"who\"" <<<"$1"' _ "$o"
 o=$(CLAUDE_CODE_SESSION_ID= rep --excerpt)
-check "excerpt: empty session id -> no session id" [ "$(head -1 <<<"$o")" = "no session id" ]
+check_eq "excerpt: empty session id -> no session id" "no session id" "$(head -1 <<<"$o")"
 : > "$T/.off"; o=$(rep --excerpt)
 check "excerpt: .off -> tracing off, live snapshot, no excerpt" bash -c '[ "$(head -1 <<<"$1")" = "tracing off" ] && grep -q "\"claudeCode\":\"9.9.9" <<<"$1" && ! grep -q "mine1\|\"who\"" <<<"$1"' _ "$o"
 o=$(rep --mark start)
