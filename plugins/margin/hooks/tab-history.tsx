@@ -67,7 +67,9 @@ export async function draw($: EngineInterface, ctx: HistoryCtx): Promise<TabDraw
   // The prompt being read lights even if compacted: it is on screen.
   const times = await ctx.rowTimes([...new Set([...shown.values()].map(row => row.key))])
   const known = [...shown.values()].filter(row => times.has(row.key))
-  const lit = litPrompt(prompts, known.filter(row => row.at >= ctx.settledAt()).map(row => times.get(row.key)!), ctx.pin())
+  const fresh = known.filter(row => row.at >= ctx.settledAt())
+  // Rows have not re-reported since the settle yet: keep the known rows lit, not none.
+  const lit = litPrompt(prompts, (fresh.length ? fresh : known).map(row => times.get(row.key)!), ctx.pin())
   // `line` left and right of " label ", across the row (room + 9 columns).
   const flanks = (label: string, line: string) => {
     const fill = Math.max(0, room + 7 - label.length)
