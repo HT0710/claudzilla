@@ -3122,3 +3122,72 @@ test('moving to another file closes the Recent field', async ($, on) => {
   await ui.redraw()
   expect(await keyMatching(ui, /^explorer:recent(:\d+)?$/)).toBeUndefined()
 })
+
+const recentClients = async (ui: any) => {
+  const found: any[] = []
+  const walk = (n: any) => {
+    if (!n || typeof n !== 'object') return
+    if (Array.isArray(n)) return n.forEach(walk)
+    if (n.props?.module && /^row:x:recent:/.test(String(n.props.key))) found.push(n)
+    walk([n.children, n.props?.children])
+  }
+  walk(await ui.drawn())
+  return found
+}
+
+test('the Recent list shows today, then earlier, with the open file first and bold', async ($, on) => {
+  const ui = await recentRoot($, on)
+  await clock.advance(2 * 86_400_000)
+  await recentOpen(ui)
+  const today = await ui.find({ type: 'Text', text: 'today' })
+  const earlier = await ui.find({ type: 'Text', text: 'earlier' })
+  expect(today?.props.color).toBe('#4f5c68')
+  expect(earlier?.props.color).toBe('#4f5c68')
+  const rows = await recentClients(ui)
+  expect(rows.map((r: any) => r.props.key)).toEqual([`row:x:recent:${fileKey('/repo/b.ts')}`, `row:x:recent:${fileKey('/repo/a.ts')}`])
+  const first = rows[0].props.props.left.find((p: any) => p.text === 'b.ts')
+  expect(first).toMatchObject({ bold: true, color: 'claude' })
+  expect(rows[1].props.props.left.find((p: any) => p.text === 'a.ts').bold).toBeUndefined()
+})
+
+test('a Recent row shows its icon, name, folder in faint text, git letter or blank cell, and age', async ($, on) => {
+  const ui = await recentRoot($, on)
+  statusOut.out = ' M a.ts\0'
+  await recentOpen(ui)
+  const [b, a] = await recentClients(ui)
+  const left = (r: any) => r.props.props.left.map((p: any) => p.text)
+  expect(left(b)).toEqual([' ', ' ', expect.any(String), ' ', 'b.ts', ' /repo'])
+  expect(b.props.props.left.at(-1).color).toBe('#4f5c68')
+  expect(b.props.props.right.map((p: any) => p.text)).toEqual([' ', '  ', 'now'])
+  expect(a.props.props.right.map((p: any) => p.text)).toEqual(['M', '  ', ' 1m'])
+  expect(a.props.props.right[0].color).toBe(STATUS.M)
+})
+
+test('a press on a Recent row opens that file and closes the field', async ($, on) => {
+  const ui = await recentRoot($, on)
+  await recentOpen(ui)
+  const row = (await recentClients(ui))[1].props.key
+  await ui.resize({ columns: 30, rows: 1, in: row })
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: row })
+  await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: row })
+  await ui.redraw()
+  expect(await pathText(ui)).toBe('repo/a.ts')
+  expect(await keyMatching(ui, /^explorer:recent(:\d+)?$/)).toBeUndefined()
+})
+
+test('on a short pane Down and Enter reach only the rows drawn', async ($, on) => {
+  const rows = props.scroll.bodyRows
+  props.scroll.bodyRows = 5
+  try {
+    const ui = await recentRoot($, on)
+    await recentOpen(ui)
+    expect((await recentClients(ui)).length).toBe(1)
+    await recentStep($, ui, 'down')
+    await recentStep($, ui, 'down')
+    await ui.input({ key: await recentKeyOf(ui), text: '', kind: 'submit' })
+    await ui.redraw()
+    expect(await pathText(ui)).toBe('repo/b.ts')
+  } finally {
+    props.scroll.bodyRows = rows
+  }
+})
