@@ -75,6 +75,8 @@ function liveSnapshot() {
   const settings = readJson(join(CONFIG_DIR, "settings.json"));
   const overrides = readJson(join(CONFIG_DIR, "settings.overrides.json"));
   const config = readJson(join(CONFIG_DIR, "claudzilla.json"));
+  let doctor;
+  try { doctor = JSON.parse(run("node", [join(REPO, "claude/hooks/doctor.mjs"), "--quick", "--json"]) ?? ""); } catch { /* left out */ }
   return {
     version: next || last || undefined,
     commit: git("rev-parse", "HEAD"),
@@ -86,6 +88,7 @@ function liveSnapshot() {
     mods: Object.entries(settings?.enabledPlugins ?? {}).filter(([k, v]) => v && k.endsWith("@claudzilla")).map(([k]) => k),
     overrideKeys: overrides && keyNames(overrides),
     configKeys: config && keyNames(config),
+    doctor,
   };
 }
 

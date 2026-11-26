@@ -458,6 +458,8 @@ async function snapshot($: EngineInterface, columns: number | undefined) {
     json('claudzilla.json').catch(() => undefined),
   ])
   const rowCount = Number(size?.split(' ')[0])
+  let doctor: unknown
+  try { doctor = JSON.parse((await run(['node', `${dir}/hooks/doctor.mjs`, '--quick', '--json'])) ?? '') } catch { /* left out */ }
   return {
     version: g.version,
     commit,
@@ -473,6 +475,7 @@ async function snapshot($: EngineInterface, columns: number | undefined) {
     mods: Object.entries((settings?.enabledPlugins as Record<string, unknown> | undefined) ?? {}).filter(([k, v]) => v && k.endsWith('@claudzilla')).map(([k]) => k),
     overrideKeys: overrides && keyNames(overrides),
     configKeys: config && keyNames(config),
+    doctor,
   }
 }
 
