@@ -185,6 +185,7 @@ printf '{"enabledPlugins":{"primer@claudzilla":true,"off@claudzilla":false,"x@ot
 printf '{"a":{"b":"SECRETVALUE"}}' > "$CLAUDE_CONFIG_DIR/settings.overrides.json"
 s=$(rep --snapshot)
 check "snapshot: mods enabled only, key names only, writes nothing" bash -c '[ ! -e "$2" ] && grep -q "\"mods\":\[\"primer@claudzilla\"\]" <<<"$1" && grep -q "\"overrideKeys\":\[\"a.b\"\]" <<<"$1" && ! grep -q SECRETVALUE <<<"$1" && grep -q "\"claudeCode\":\"9.9.9" <<<"$1" && grep -q "\"commit\":\"[0-9a-f]\{40\}\"" <<<"$1"' _ "$s" "$T"
+check "snapshot: doctor rows, no paths" node -e 'const d=JSON.parse(process.argv[1]).doctor;process.exit(Array.isArray(d)&&d.every(c=>typeof c.ok==="boolean")&&!/["\s][\/~]/.test(JSON.stringify(d))?0:1)' "$s"
 rm -f "$CLAUDE_CONFIG_DIR/settings.json" "$CLAUDE_CONFIG_DIR/settings.overrides.json"
 
 fresh; d=$(rep --drafts)
