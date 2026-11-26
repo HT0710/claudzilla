@@ -2237,11 +2237,13 @@ test('a move with Git current redraws no chat row', async ($, on) => {
   await ui.press({ key: 'Git' })
   await clock.advance(1_000)
   const before = count.draws
+  const panes = count.panes
 
   await a.redraw({ ...rowProps, onScreen: { first: 1, last: 3, of: 10 } })
   await clock.advance(100)
 
   expect(count.draws).toBe(before + 1)
+  expect(count.panes).toBe(panes)
   for (const row of [a, b]) await row.redraw({ ...rowProps, onScreen: null })
 })
 
@@ -2399,6 +2401,24 @@ test('a row dropped while History was hidden does not light once it is shown', a
   await a.redraw({ ...rowProps, onScreen: null })
 })
 
+test('a settle before any row re-reports keeps the known rows lit', async ($, on) => {
+  resetScrollState()
+  const { clock } = redrawSetup(on)
+  const a = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId: 'row-a',
+    props: { ...rowProps, onScreen: { first: 0, last: 2, of: 10 } } })
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await clock.advance(1_000)
+  const color = async (text: string) => (await ui.find({ type: 'Text', text: new RegExp(`^${text}\\s*$`) }))?.props.color
+
+  await a.redraw({ ...rowProps, onScreen: { first: 1, last: 3, of: 10 } })
+  await a.unmount()
+  await clock.advance(300)
+
+  expect(await color('a')).toBe('claude')
+  expect(await color('c')).toBeUndefined()
+})
+
 test('a pane reopened after a move while closed settles once', async ($, on) => {
   resetScrollState()
   const pane = { isOpen: true }
@@ -2408,8 +2428,10 @@ test('a pane reopened after a move while closed settles once', async ($, on) => 
   await ui.press({ key: 'History' })
   await clock.advance(1_000)
   pane.isOpen = false
+  const closed = count.draws
   await a.redraw({ ...rowProps, onScreen: { first: 1, last: 3, of: 10 } })
   await clock.advance(100)
+  expect(count.draws).toBe(closed + 1)
   pane.isOpen = true
   const before = count.draws
   await ui.unmount()
@@ -2428,8 +2450,10 @@ test('a pane placed by a resize settles once', async ($, on) => {
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   await clock.advance(1_000)
+  const unplaced = count.draws
   await a.redraw({ ...rowProps, onScreen: { first: 1, last: 3, of: 10 } })
   await clock.advance(100)
+  expect(count.draws).toBe(unplaced + 1)
   placed = true
   const before = count.draws
   await ui.redraw()
