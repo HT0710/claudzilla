@@ -7,7 +7,7 @@ import { EMPTY_INTENT, EMPTY_OVERVIEW, EMPTY_USED, ICON, PAD, WHEEL_HOLD, applyP
 import type { Prompt, Readers, TabCtx, TabDraw, UseEntry, UseKind, Used, Zone } from './kit'
 import { capped } from './modal'
 import { readPalette } from './palette'
-import { blankOnce, changedOnDisk, checkOpenFile, draw as drawFile, closeEmptyField, closeOnEscape, resetSeeds, explorerPost, escapeSent, fieldOpen, fieldTakesEscape, fieldText, menuPinned, paneBase, showPlace, stepName, unpinMenu } from './tab-file'
+import { blankOnce, changedOnDisk, checkOpenFile, draw as drawFile, closeEmptyField, closeOnEscape, resetSeeds, explorerPost, escapeSent, fieldOpen, fieldTakesEscape, fieldText, menuPinned, paneBase, showPlace, stepName, stepRecent, unpinMenu } from './tab-file'
 import { autoFetch, draw as drawGit, resetGitReads } from './tab-git'
 import { draw as drawHistory } from './tab-history'
 import { draw as drawOverview, resetStepsHeld, same } from './tab-overview'
@@ -1398,7 +1398,7 @@ export const register: Register = (on, options) => {
 
   on('ui.focus', { requestId: PANE }, async ($, e, next) => {
     // Down or Up from the name field: steps the lit result, and the ring stays in the field.
-    if (await stepName($, e.element).catch(() => false)) return {}
+    if ((await stepName($, e.element).catch(() => false)) || (await stepRecent($, e.element).catch(() => false))) return {}
     await closeEmptyField($, e).catch(() => undefined)
     return next(e)
   })

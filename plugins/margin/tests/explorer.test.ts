@@ -8,6 +8,7 @@ import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '
 import { tokenize } from '../hooks/explorer-tokens'
 import { iconOf, sortListing, treeRows } from '../hooks/explorer-tree'
 import { fieldPad, refOf } from '../hooks/tab-file'
+import { resetRecent } from '../hooks/explorer-recent'
 import { fileKey } from '../hooks/git-data'
 import { FLASH, LIT, STATUS, mixHex } from '../hooks/kit'
 import { clock, diffOut, statusOut, gutterRows, disk, props, chevron, tapTree, treeRow, explorer, explorerRoot, failList, hold, lists, mountPane, launch, open, pathText, ran, reads, runs, lines, listed, setup, sets, store, textOf, tree, waitFor } from './explorer-helpers'
@@ -2999,4 +3000,125 @@ test('mixHex: t 0 gives a, t 1 gives b, half gives the midpoint', () => {
   expect(mixHex('#000000', '#ffffff', 0)).toBe('#000000')
   expect(mixHex('#000000', '#ffffff', 1)).toBe('#ffffff')
   expect(mixHex('#000000', '#ffffff', 0.5)).toBe('#808080')
+})
+
+// The Recent field: a.ts was viewed a minute before b.ts, which is open.
+const recentRoot = async ($: any, on: any) => {
+  resetRecent()
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, 'a\n', { '/repo': [{ name: 'a.ts', kind: 'file' }, { name: 'b.ts', kind: 'file' }] })
+  disk.set('/repo/b.ts', { text: 'b\n', mtimeMs: 1 })
+  await ui.redraw()
+  await clock.advance(60_000)
+  open({ path: '/repo/b.ts' })
+  await ui.redraw()
+  return ui
+}
+const recentOpen = async (ui: any) => {
+  await ui.press({ key: 'explorer:path-last' })
+  await ui.redraw()
+}
+// A move bumps the field's key generation, so the drawn key is looked up.
+const recentKeyOf = async (ui: any) => (await keyMatching(ui, /^explorer:recent(:\d+)?$/))!
+const recentType = async (ui: any, text: string, kind = 'change') => {
+  await ui.input({ key: await recentKeyOf(ui), text, kind })
+  await ui.redraw()
+}
+const recentStep = async ($: any, ui: any, dir: 'up' | 'down') => {
+  await $.ui.focus({ component: 'Pane', requestId: 'margin', element: `explorer:recent:${dir}`, origin: { kind: 'person' } })
+  await ui.redraw()
+}
+
+test("pressing the path's last part on a file page opens the Recent field", async ($, on) => {
+  const ui = await recentRoot($, on)
+  await recentOpen(ui)
+  const field = await ui.find({ key: await recentKeyOf(ui) })
+  expect(field?.props.submitLabel).toBe('open')
+  expect(field?.props.label).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'type a file name ' })).toBeDefined()
+})
+
+test("on a folder page the path's last part opens the name search", async ($, on) => {
+  const ui = await nameRoot($, on)
+  await ui.press({ key: 'explorer:path-last' })
+  await ui.redraw()
+  expect(await ui.find({ key: 'explorer:name' })).toBeDefined()
+})
+
+test("typing shows the faint 'file named ' label beside the text", async ($, on) => {
+  const ui = await recentRoot($, on)
+  await recentOpen(ui)
+  await recentType(ui, 'a')
+  const label = await ui.find({ type: 'Text', text: 'file named ' })
+  expect(label?.props.color).toBe('#4f5c68')
+})
+
+test('the header buttons hide while the Recent field is open', async ($, on) => {
+  const ui = await recentRoot($, on)
+  expect(await ui.find({ key: 'explorer:header-right' })).toBeDefined()
+  await recentOpen(ui)
+  expect(await ui.find({ key: 'explorer:header-right' })).toBeUndefined()
+})
+
+test('Down, Down, Enter opens the second row', async ($, on) => {
+  ring(on)
+  const ui = await recentRoot($, on)
+  await recentOpen(ui)
+  await recentStep($, ui, 'down')
+  await recentStep($, ui, 'down')
+  await ui.input({ key: await recentKeyOf(ui), text: '', kind: 'submit' })
+  await ui.redraw()
+  expect(await pathText(ui)).toBe('repo/a.ts')
+})
+
+test('Enter with no lit row opens the top row, the open file, and only closes the field', async ($, on) => {
+  const ui = await recentRoot($, on)
+  await recentOpen(ui)
+  await ui.input({ key: await recentKeyOf(ui), text: '', kind: 'submit' })
+  await ui.redraw()
+  expect(await pathText(ui)).toBe('repo/b.ts')
+  expect(await keyMatching(ui, /^explorer:recent(:\d+)?$/)).toBeUndefined()
+})
+
+test('Enter with a filter that matches nothing opens nothing and keeps the field', async ($, on) => {
+  const ui = await recentRoot($, on)
+  await recentOpen(ui)
+  await recentType(ui, 'zzz')
+  await ui.input({ key: await recentKeyOf(ui), text: 'zzz', kind: 'submit' })
+  await ui.redraw()
+  expect((await ui.find({ key: (await keyMatching(ui, /^explorer:recent(:\d+)?$/))! }))?.props.value).toBe('zzz')
+})
+
+test('a click away closes an empty Recent field, and a field with text stays open', async ($, on) => {
+  const ui = await recentRoot($, on)
+  await recentOpen(ui)
+  await ui.press({ key: 'refresh' })
+  await ui.redraw()
+  expect(await keyMatching(ui, /^explorer:recent(:\d+)?$/)).toBeUndefined()
+  await recentOpen(ui)
+  await recentType(ui, 'a')
+  await ui.press({ key: 'refresh' })
+  await ui.redraw()
+  expect(await keyMatching(ui, /^explorer:recent(:\d+)?$/)).toBeDefined()
+})
+
+// The Escape press itself reaches register's ui.close hook, which the test engine cannot send as a person; the pane asking for Escape is what is checked.
+test('the Recent field asks the pane for Escape, with or without text', async ($, on) => {
+  const opens: unknown[] = []
+  on('ui.open', (_, e) => (opens.push((e as any).closeOnEscape), { value: { isPlaced: true } }) as any)
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }) as any)
+  const ui = await recentRoot($, on)
+  await recentOpen(ui)
+  await clock.advance(0)
+  expect(opens.at(-1)).toBe(true)
+  await recentType(ui, 'a')
+  await clock.advance(0)
+  expect(opens.at(-1)).toBe(true)
+})
+
+test('moving to another file closes the Recent field', async ($, on) => {
+  const ui = await recentRoot($, on)
+  await recentOpen(ui)
+  open({ path: '/repo/a.ts' })
+  await ui.redraw()
+  expect(await keyMatching(ui, /^explorer:recent(:\d+)?$/)).toBeUndefined()
 })
