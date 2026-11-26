@@ -205,6 +205,8 @@ const recordOne = (used: Used, call: { tool: string } & Record<string, unknown>,
 export const resetUsed = (used: Used): Used => ({ kinds: {}, last: used.kinds, stale: [...used.stale, ...used.seen], seen: [] })
 
 const tab = atom({ plugin: 'margin', key: 'tab' } as const, 'Overview' as Tab)
+// Bumped by a chat move so the History pane redraws alone.
+const paneTick = atom({ plugin: 'margin', key: 'paneTick' } as const, 0)
 // Content hooks flag tabs here.
 const notices = atom({ plugin: 'margin', key: 'notices' } as const, [] as Tab[])
 // Bumped per prompt so the History list redraws.
@@ -843,6 +845,25 @@ const redrawSoon = async ($: EngineInterface) => {
   due = at + 100
   $.clock.after(100, () => idle().then(() => $.ui.invalidate('ui.render')))
 }
+// A chat move redraws the pane alone. The checks live here, in a clock callback: a state read during a
+// chat row's draw would subscribe that row to the state.
+let paneDue = -Infinity
+let moveAt = -Infinity
+let moveUnplaced = false
+const paneSoon = async ($: EngineInterface) => {
+  const at = await $.clock.now().catch(() => undefined)
+  if (at === undefined || at < paneDue) return
+  paneDue = at + 100
+  $.clock.after(100, () => paneDraw($))
+}
+const paneDraw = async ($: EngineInterface) => {
+  if ((await read($, tab)) !== 'History') return
+  if (!(await isPlaced($))) {
+    moveUnplaced = true
+    return
+  }
+  await update($, paneTick, n => n + 1)
+}
 // Each draw finishes only after the one started before it: once an older draw finished after a
 // newer one, the terminal dropped every click on the pane until the next redraw. A draw that never
 // settled would hold back the ones after it.
@@ -1015,7 +1036,10 @@ type Seen = { first: number; last: number } | null | undefined
 const see = async ($: EngineInterface, requestId: string, onScreen: Seen, key = requestId) => {
   if (onScreen === undefined) return
   if (!onScreen) {
-    if (shown.delete(requestId)) await redrawSoon($)
+    if (shown.delete(requestId)) {
+      moveAt = await $.clock.now()
+      await paneSoon($)
+    }
     return
   }
   const where = `${onScreen.first}-${onScreen.last}`
@@ -1023,7 +1047,10 @@ const see = async ($: EngineInterface, requestId: string, onScreen: Seen, key = 
   const at = await $.clock.now()
   keepNewest(shown, requestId, { where, key, at }, SHOWN_MAX)
   if (moved && !pinHolds(pin, at)) pin = undefined
-  if (moved) await redrawSoon($)
+  if (moved) {
+    moveAt = at
+    await paneSoon($)
+  }
 }
 
 // When the chat file stamped each row, by its uuid or a tool call's id: grep -o's pattern, then its
@@ -1634,6 +1661,7 @@ export const register: Register = (on, options) => {
     if (current === 'Explorer') {
       out = await drawFile($, ctx)
     } else if (current === 'History') {
+      await read($, paneTick)
       out = await drawHistory($, {
         ...ctx,
         reads: async () => {

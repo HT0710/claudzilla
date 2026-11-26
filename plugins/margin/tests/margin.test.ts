@@ -2104,6 +2104,7 @@ test('History lights the prompt whose turn is on screen, not the newest', async 
     .join('\n')
   const runs: (readonly string[])[] = []
   const clock = mock.clock(on, { now: 1_000_000 })
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }))
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('session.root', () => ({ value: '/proj' }))
@@ -2138,6 +2139,7 @@ test('History rereads at most once a second while the chat scrolls', async ($, o
   const history = JSON.stringify({ display: 'a', timestamp: 1, sessionId: 'chat-1' })
   let greps = 0
   const clock = mock.clock(on, { now: 2_000_000 })
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }))
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('process.run', (_, e) => {
@@ -2162,6 +2164,89 @@ test('History rereads at most once a second while the chat scrolls', async ($, o
   await clock.advance(100)
   expect(greps).toBe(before + 1)
   await row.redraw({ ...reply, onScreen: null })
+})
+
+const redrawSetup = (on: Parameters<TestBody>[1]) => {
+  const start = Date.now() - 60_000
+  const history = ['a', 'b', 'c']
+    .map((display, i) => JSON.stringify({ display, timestamp: start + i * 10_000, sessionId: 'chat-1' }))
+    .join('\n')
+  const clock = mock.clock(on, { now: 1_000_000 })
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('session.id', () => ({ value: 'chat-1' }))
+  on('session.root', () => ({ value: '/proj' }))
+  on('fs.read', () => ({ value: history }))
+  on('session.messages', (_, e) => ({ value: e.as === 'api' ? [] : ['a', 'b', 'c'].map(text => ({ role: 'user' as const, text, toolUses: [] })) }))
+  on('process.run', (_, e) => {
+    if (isHistoryGrep(e.argv)) return ran(history)
+    const stamp = (id: string, ms: number) => (e.argv.join(' ').includes(id) ? `"uuid":"${id}","timestamp":"${new Date(start + ms).toISOString()}"\n` : '')
+    const stdout = stamp('row-a', 5_000) + stamp('row-b', 25_000)
+    return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  const count = { draws: 0 }
+  // Stands for the engine's own drawing of the rows.
+  on('ui.render', { component: 'UserMessage' }, () => {
+    count.draws++
+    return { type: 'Text' as const, children: ['reply'] }
+  })
+  return { clock, count }
+}
+const rowProps = { text: 'a reply', origin: { kind: 'composer' as const }, isExpanded: false }
+const mountRows = async ($: Parameters<TestBody>[0]) => {
+  const at = (requestId: string, first: number) =>
+    $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId,
+      props: { ...rowProps, onScreen: { first, last: first + 2, of: 10 } } })
+  return { a: await at('row-a', 0), b: await at('row-b', 3) }
+}
+
+test('a move with History current redraws only the pane, 100 ms later', async ($, on) => {
+  const { clock, count } = redrawSetup(on)
+  const { a, b } = await mountRows($)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await clock.advance(1_000)
+  const color = async (text: string) => (await ui.find({ type: 'Text', text: new RegExp(`^${text}\\s*$`) }))?.props.color
+  const before = count.draws
+  const lit = [await color('a'), await color('b'), await color('c')]
+
+  await a.redraw({ ...rowProps, onScreen: { first: 1, last: 3, of: 10 } })
+  await clock.advance(100)
+
+  expect(count.draws).toBe(before + 1)
+  expect([await color('a'), await color('b'), await color('c')]).not.toEqual(lit)
+  for (const row of [a, b]) await row.redraw({ ...rowProps, onScreen: null })
+})
+
+test('a move with Git current redraws no chat row', async ($, on) => {
+  const { clock, count } = redrawSetup(on)
+  const { a, b } = await mountRows($)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'Git' })
+  await clock.advance(1_000)
+  const before = count.draws
+
+  await a.redraw({ ...rowProps, onScreen: { first: 1, last: 3, of: 10 } })
+  await clock.advance(100)
+
+  expect(count.draws).toBe(before + 1)
+  for (const row of [a, b]) await row.redraw({ ...rowProps, onScreen: null })
+})
+
+test('a row leaving the screen redraws the panel 100 ms later', async ($, on) => {
+  const { clock } = redrawSetup(on)
+  const { a, b } = await mountRows($)
+  const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
+  await ui.press({ key: 'History' })
+  await clock.advance(1_000)
+  const color = async (text: string) => (await ui.find({ type: 'Text', text: new RegExp(`^${text}\\s*$`) }))?.props.color
+  const lit = [await color('a'), await color('b'), await color('c')]
+
+  await b.redraw({ ...rowProps, onScreen: null })
+  expect([await color('a'), await color('b'), await color('c')]).toEqual(lit)
+  await clock.advance(100)
+  expect([await color('a'), await color('b'), await color('c')]).not.toEqual(lit)
+  await a.redraw({ ...rowProps, onScreen: null })
 })
 
 test("a tool call's command and output rows, at different places, settle after one redraw", async ($, on) => {
@@ -2193,6 +2278,7 @@ test('chat moves redraw the panel once, 100 ms later', async ($, on) => {
     .map((display, i) => JSON.stringify({ display, timestamp: start + i * 10_000, sessionId: 'chat-1' }))
     .join('\n')
   const clock = mock.clock(on, { now: 1_000_000 })
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }))
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('session.root', () => ({ value: '/proj' }))
@@ -2393,6 +2479,7 @@ const inViewSetup = (on: Parameters<TestBody>[1], stamped: (start: number) => Re
     .map((display, i) => JSON.stringify({ display, timestamp: start + i * 10_000, sessionId: 'chat-1' }))
     .join('\n')
   const clock = mock.clock(on, { now: 1_000_000 })
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }))
   const runs: (readonly string[])[] = []
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
@@ -2434,7 +2521,7 @@ test('a tool group at the bottom of the screen lights its turn, found by its fir
   await tools.redraw({ ...group, onScreen: null })
 })
 
-test('a row still on screen counts when it redraws without moving', async ($, on) => {
+test('a row still on screen counts after a move; one that left without a report does not', async ($, on) => {
   const clock = inViewSetup(on, start => ({ 'b-top': start + 15_000, 'c-mid': start + 25_000 }))
   const mount = (requestId: string, first: number) =>
     $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId,
@@ -2442,17 +2529,17 @@ test('a row still on screen counts when it redraws without moving', async ($, on
   const mid = await mount('c-mid', 0)
   const top = await mount('b-top', 3)
   await clock.advance(5_000)
-  // A scroll tick: only the top row moves; the middle one redraws as it was.
-  await top.redraw({ ...reply, onScreen: { first: 4, last: 9, of: 10 } })
-  // The redraw it sets off makes the middle row say where it is again.
-  await clock.advance(100)
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   const color = async (text: string) => (await ui.find({ type: 'Text', text: new RegExp(`^${text}\\s*$`) }))?.props.color
+  // The middle row moves; the top one goes without a report.
+  await mid.redraw({ ...reply, onScreen: { first: 1, last: 9, of: 10 } })
+  top.unmount()
+  await clock.advance(300)
 
   expect(await color('c')).toBe('claude')
   expect(await color('b')).toBeUndefined()
-  for (const row of [top, mid]) await row.redraw({ ...reply, onScreen: null })
+  await mid.redraw({ ...reply, onScreen: null })
 })
 
 test('a row is looked up in the chat file once, not on every redraw', async ($, on) => {
