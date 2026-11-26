@@ -10,7 +10,9 @@ import type { Cached, Layout } from './explorer-layout'
 import { ageText, editedAt, markViewed, recentSplit, viewedList } from './explorer-recent'
 import { MIXED, treeMarks, wordOf } from './explorer-status'
 import type { TreeMarks } from './explorer-status'
-import { OPEN_EDITOR_SH, cleanLine, gitDiff, gitStatus, listDir, listNames, loadFile, latestOf, projectRoot, statOf } from './explorer-load'
+import { ageOf } from './explorer-ages'
+import type { Scan } from './explorer-ages'
+import { OPEN_EDITOR_SH, cleanLine, gitDiff, gitStatus, listDir, listNames, loadFile, latestOf, projectRoot, scanAges, statOf } from './explorer-load'
 import type { Loaded } from './explorer-load'
 import { back, current, forward, navStart, remember, visit } from './explorer-nav'
 import type { Nav } from './explorer-nav'
@@ -97,6 +99,10 @@ const statuses = latestOf()
 const edits = latestOf()
 // The last git status run, kept while the root and the tool-call count stay the same.
 let statusCache: { key: string; changes: Promise<{ path: string; xy: string }[] | undefined> } | undefined
+// Age scans by page folder, kept while the tool-call count stays the same.
+const scanSeq = new Map<string, number>()
+const pageAges = new Map<string, Promise<Scan | undefined>>()
+let pageAgesCalls: number | undefined
 // Blank cells between the header's centre (path, field, notice) and its buttons.
 const GAP = 2
 // A row icon's colour name (explorer-tree.ts) to the colour the Git tab draws that name in.
@@ -276,7 +282,31 @@ export function openPlace($: EngineInterface, place: { path: string; line?: numb
 async function relistPage($: EngineInterface): Promise<void> {
   state.listed.clear()
   statusCache = undefined
+  pageAges.clear()
   await update($, file, () => placeOf())
+}
+
+// The age scan for a page: one run per page, a subfolder page reuses a whole ancestor scan, and a capped one is never reused.
+async function scanFor($: EngineInterface, page: string): Promise<Scan | undefined> {
+  const calls = await read($, toolCalls)
+  if (calls !== pageAgesCalls) (pageAges.clear(), (pageAgesCalls = calls))
+  const own = pageAges.get(page)
+  if (own) return own
+  for (const [folder, run] of [...pageAges]) {
+    if (!page.startsWith(`${folder}/`)) continue
+    const scan = await run
+    if (scan && !scan.capped) return scan
+  }
+  const n = (scanSeq.get(page) ?? 0) + 1
+  scanSeq.set(page, n)
+  // Only a newer scan of this same page makes a result stale.
+  const run = scanAges($, page).then(r => {
+    if (scanSeq.get(page) === n) return r
+    if (pageAges.get(page) === run) pageAges.delete(page)
+    return undefined
+  })
+  pageAges.set(page, run)
+  return run
 }
 
 // Marks for the tree below `root`, with every listed folder known so a submodule takes a dot; none outside a repo.
@@ -839,6 +869,9 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     const inRoot = !!state.root && (place.path === state.root || place.path.startsWith(`${state.root}/`))
     const marks = inRoot ? await statusFor($, state.root!) : undefined
     if (stale()) return draw($, ctx)
+    const scan = hits ? undefined : await scanFor($, place.path)
+    const now = await $.clock.now()
+    if (stale()) return draw($, ctx)
     // A file's letter, or a closed folder's dot.
     const markOf = (path: string, kind: 'file' | 'dir', open = false): JSX.Element[] => {
       const letter = kind === 'file' ? marks?.files.get(path) : open ? undefined : marks?.folders.get(path)
@@ -913,8 +946,9 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       }
       const n = r.kind === 'dir' ? state.listed.get(r.path)?.length : undefined
       const mark = markOf(r.path, r.kind, r.open)
-      // Count, 2 spaces, then the mark cell: one blank cell when the row has no mark.
-      const right = [<Text color={HUD.faint}>{(n === undefined ? '' : itemsText(n)).padEnd(countW)}</Text>, <Text>{'  '}</Text>, ...(mark.length ? mark : [<Text> </Text>])]
+      const at = ageOf(scan, r.path)
+      // Count, 2 spaces, age (3 cells, blank without scan data), 2 spaces, then the mark cell: one blank cell when the row has no mark.
+      const right = [<Text color={HUD.faint}>{(n === undefined ? '' : itemsText(n)).padEnd(countW)}</Text>, <Text>{'  '}</Text>, <Text color={HUD.faint}>{at === undefined ? '   ' : ageText(at, now)}</Text>, <Text>{'  '}</Text>, ...(mark.length ? mark : [<Text> </Text>])]
       put(r.path, left, right, press)
     }
     zones.push({
