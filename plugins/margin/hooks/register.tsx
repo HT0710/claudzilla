@@ -1145,9 +1145,9 @@ export const register: Register = (on, options) => {
     const built = await next(e)
     // Calls on `built` only: it is refused as an argument. Not through /margin: its hook skips a run the plugin's own code raises
     // ("command.run skipped: re-entry"). The open overlaps /margin's on purpose.
-    const show = async ({ path: given, line }: { path: string; line?: number }) => {
+    const show = async ({ path: given, line, diff }: { path: string; line?: number; diff?: string }) => {
       const path = normal(given)
-      await built.state.set({ plugin: 'margin', key: 'file' } as const, { rev: showPlace({ path, line }), path, line })
+      await built.state.set({ plugin: 'margin', key: 'file' } as const, { rev: showPlace({ path, line, diff }), path, line })
       const placed = (await built.ui.panes()).some(pane => pane.id === PANE && pane.isPlaced)
       // As setModal: the open pane drops closeOnEscape.
       if ((await built.state.get({ plugin: 'margin', key: 'modal' } as const)).value) {

@@ -411,7 +411,7 @@ echo '{"palette":{"shared":{"label":"nope"},"hud":{"rampHot":"#12"}}}' > "$GC/cl
 out=$(frame 0 120)
 check "palette: invalid override still renders" bash -c '[ -n "$1" ] && grep -q "⎇  .*main" <<<"$1"' _ "$out"
 printf '{bad' > "$GC/claudzilla.json"
-check "palette: broken file -> every default sent" [ "$(CLAUDE_CONFIG_DIR="$GC" HUD_DUMP=1 perl "$HUD/hud.pl" </dev/null | grep -c '^pal_')" -eq 30 ]
+check "palette: broken file -> every default sent" [ "$(CLAUDE_CONFIG_DIR="$GC" HUD_DUMP=1 perl "$HUD/hud.pl" </dev/null | grep -c '^pal_')" -eq 31 ]
 rm "$GC/claudzilla.json"
 gg switch -qc feat/x
 check "palette: a branch type prefix takes its type colour, the rest plain" grep -q $'⎇  \e\\[0m\e\\[38;2;152;195;121mfeat/\e\\[0mx' <<<"$(frame 0 120)"

@@ -9,7 +9,7 @@ import { tokenize } from '../hooks/explorer-tokens'
 import { iconOf, sortListing, treeRows } from '../hooks/explorer-tree'
 import { fieldPad, refOf } from '../hooks/tab-file'
 import { fileKey } from '../hooks/git-data'
-import { LIT, STATUS } from '../hooks/kit'
+import { FLASH, LIT, STATUS, mixHex } from '../hooks/kit'
 import { clock, diffOut, statusOut, gutterRows, disk, props, chevron, tapTree, treeRow, explorer, explorerRoot, failList, hold, lists, mountPane, launch, open, pathText, ran, reads, runs, lines, listed, setup, sets, store, textOf, tree, waitFor } from './explorer-helpers'
 
 test('tokenize: a keyword, a string, a comment and a number', () => {
@@ -2707,4 +2707,296 @@ test('status with untracked files off leaves an untracked file unmarked', async 
   const status = runs.find(a => a.includes('--porcelain=v1'))!
   expect(status).toContain('--untracked-files=no')
   expect(await rightOf(ui, 'n.ts')).toEqual([])
+})
+
+import type { Register } from 'claude-code'
+// Folio's file press, as it calls `$.margin.show` with an edit's diff (the args carry it as JSON).
+const edit = { name: 'edit', register: (on => { on('command.run', { command: 'show-edit' }, async ($, e) => (await ($ as any).margin.show(JSON.parse((e as any).args)), {})) }) as Register }
+const placed = (on: any) => on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }))
+// What the five-second check needs: a started session.
+const started = async ($: any, on: any) => {
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('store.keys', () => ({ value: [] }))
+  on('command.register', (_: unknown, e: any) => ({ value: { command: e.name } }))
+  on('tool.register', (_: unknown, e: any) => ({ value: { tool: `mcp__margin__${e.name}` } }) as any)
+}
+const ex = (...a: Parameters<typeof explorer>) => (placed(a[1]), explorer(...a))
+const A = '@@ -1,3 +1,3 @@\n a\n-OLD\n+NEW\n c'
+const B = '@@ -4 +4 @@\n-x\n+d\n'
+const withEdit = async ($: any, on: any, text: string, diff = A) => {
+  const ui = await ex($, on, { path: '/repo/a.ts' }, text)
+  await showNow($, diff)
+  await ui.redraw()
+  return ui
+}
+const showNow = async ($: any, diff?: string, path = '/repo/a.ts') => {
+  await $.command.run({ command: 'show-edit', args: JSON.stringify({ path, diff }), origin: { kind: 'composer' } } as any)
+}
+
+const flashed = async (ui: any, n: number) => (await ui.find({ key: `row:${n}` }))?.props.backgroundColor === FLASH
+const anyFlash = async (ui: any) => ((await gutterRows(ui)) ?? []).some(r => r.bg === FLASH) || (await Promise.all([1, 2, 3, 4, 5].map(n => flashed(ui, n)))).some(Boolean)
+
+test('show: an edit flashes only its added rows', { plugins: [edit] }, async ($, on) => {
+  const ui = await withEdit($, on, 'a\nNEW\nc')
+  expect(await flashed(ui, 2)).toBe(true)
+  expect(await flashed(ui, 1)).toBe(false)
+  expect(await flashed(ui, 3)).toBe(false)
+})
+
+test('show: the flash holds for 1.5 s, then drops', { plugins: [edit] }, async ($, on) => {
+  const ui = await withEdit($, on, 'a\nNEW\nc')
+  await clock.advance(1499)
+  await ui.redraw()
+  expect(await flashed(ui, 2)).toBe(true)
+  await clock.advance(1)
+  await ui.redraw()
+  expect(await flashed(ui, 2)).toBe(false)
+})
+
+test('show: the gutter row takes the flash colour and no tone', { plugins: [edit] }, async ($, on) => {
+  const ui = await withEdit($, on, 'a\nNEW\nc')
+  const row = (await gutterRows(ui)).find(r => r.line === 2)!
+  expect(row.bg).toBe(FLASH)
+  expect(row.tone).toBeUndefined()
+})
+
+test("show: git's marks stay on under a flash", { plugins: [edit] }, async ($, on) => {
+  await setup($, on)
+  placed(on)
+  diffOut.out = '@@ -4 +4 @@\n-x\n+d\n'
+  disk.set('/repo/a.ts', { text: 'a\nNEW\nc\nd', mtimeMs: 1 })
+  open({ path: '/repo/a.ts' })
+  const ui = await mountPane($)
+  await showNow($, A)
+  await ui.redraw()
+  expect(await flashed(ui, 2)).toBe(true)
+  expect(await tones(ui)).toEqual([undefined, undefined, undefined, 'del', 'add'])
+})
+
+test('show: refresh with the same text keeps the flash', { plugins: [edit] }, async ($, on) => {
+  const ui = await withEdit($, on, 'a\nNEW\nc\nd')
+  expect(await flashed(ui, 2)).toBe(true)
+  await ui.press({ key: 'refresh' })
+  await ui.redraw()
+  expect(await flashed(ui, 2)).toBe(true)
+})
+
+test('show: an edit centres on its first line', { plugins: [edit] }, async ($, on) => {
+  const ui = await ex($, on, { path: '/repo/a.ts' }, lines(100))
+  await showNow($, '@@ -49,3 +49,3 @@\n line 49\n-x\n+line 50\n line 51\n')
+  await ui.redraw()
+  const rows = await gutterRows(ui)
+  expect(rows.some(r => r.line === 50)).toBe(true)
+  expect(rows.every(r => !r.lit)).toBe(true)
+})
+
+test('show: an edit opens at its first added row, not a removed row above it', { plugins: [edit] }, async ($, on) => {
+  const ui = await ex($, on, { path: '/repo/a.ts' }, lines(100))
+  await showNow($, '@@ -49,3 +49,3 @@\n-x\n line 49\n+line 50\n line 51\n')
+  await ui.redraw()
+  const rows = await gutterRows(ui)
+  expect(rows[0]!.line).toBe(50 - Math.floor(rows.length / 2))
+  expect(await flashed(ui, 50)).toBe(true)
+})
+
+test('show: an edit whose lines changed toasts and draws no flash', { plugins: [edit] }, async ($, on) => {
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => (toasts.push(String((e as any).text)), { value: {} } as any))
+  const ui = await withEdit($, on, 'a\nX\nc')
+  expect(toasts.join()).toMatch(/changed since/)
+  expect(await anyFlash(ui)).toBe(false)
+})
+
+test('show: a deleted file keeps its missing note, no flash and no toast', { plugins: [edit] }, async ($, on) => {
+  await setup($, on)
+  placed(on)
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => (toasts.push(String((e as any).text)), { value: {} } as any))
+  const ui = await mountPane($)
+  await showNow($, A)
+  await ui.redraw()
+  expect(textOf(await ui.drawn())).toMatch(/Can't show this file/)
+  expect(await gutterRows(ui)).toBeUndefined()
+  expect(toasts).toEqual([])
+})
+
+test('show: a line longer than CUT still flashes its row', { plugins: [edit] }, async ($, on) => {
+  const long = 'x'.repeat(2500)
+  const ui = await withEdit($, on, `a\n${long}\nc`, `@@ -1,3 +1,3 @@\n a\n-OLD\n+${long}\n c`)
+  expect(await flashed(ui, 2)).toBe(true)
+})
+
+test('show: a failed read on a second press ends the first flash', { plugins: [edit] }, async ($, on) => {
+  const ui = await withEdit($, on, 'a\nNEW\nc')
+  expect(await flashed(ui, 2)).toBe(true)
+  disk.delete('/repo/a.ts')
+  await showNow($, B)
+  await ui.redraw()
+  expect(await anyFlash(ui)).toBe(false)
+})
+
+test('show: a failed read draws no flash and no toast', { plugins: [edit] }, async ($, on) => {
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => (toasts.push(String((e as any).text)), { value: {} } as any))
+  const ui = await ex($, on, { path: '/repo/a.ts' }, 'a\nNEW\nc')
+  disk.delete('/repo/a.ts')
+  await showNow($, A)
+  await ui.redraw()
+  expect(await anyFlash(ui)).toBe(false)
+  expect(toasts).toEqual([])
+})
+
+test("show: two quick presses, and the second one's flash wins", { plugins: [edit] }, async ($, on) => {
+  const ui = await ex($, on, { path: '/repo/a.ts' }, 'a\nNEW\nc\nd')
+  hold.reads = []
+  await showNow($, A)
+  const one = ui.redraw()
+  await waitFor(() => hold.reads!.length === 1)
+  await showNow($, B)
+  const two = ui.redraw()
+  await waitFor(() => hold.reads!.length === 2)
+  hold.reads[1]!()
+  hold.reads[0]!()
+  await Promise.all([one, two])
+  hold.reads = undefined
+  await ui.redraw()
+  expect(await flashed(ui, 4)).toBe(true)
+  expect(await flashed(ui, 2)).toBe(false)
+})
+
+test('show: a press on stale loaded text flashes after the poll', { plugins: [edit] }, async ($, on) => {
+  await started($, on)
+  const ui = await ex($, on, { path: '/repo/a.ts' }, 'a\nNEW\nc')
+  await $.session.start({ source: 'startup', cwd: '/repo', surface: null, isInteractive: false } as any)
+  disk.set('/repo/a.ts', { text: 'z\na\nNEW\nc', mtimeMs: 2 })
+  await showNow($, A)
+  await ui.redraw()
+  expect(await anyFlash(ui)).toBe(false)
+  await clock.advance(5_000)
+  await ui.redraw()
+  expect(await flashed(ui, 3)).toBe(true)
+  expect(await flashed(ui, 2)).toBe(false)
+})
+
+test('show: a change to the file on disk ends the flash', { plugins: [edit] }, async ($, on) => {
+  const ui = await withEdit($, on, 'a\nNEW\nc')
+  expect(await flashed(ui, 2)).toBe(true)
+  disk.set('/repo/a.ts', { text: 'a\nc', mtimeMs: 2 })
+  await clock.advance(100)
+  await ui.press({ key: 'refresh' })
+  await ui.redraw()
+  expect(await anyFlash(ui)).toBe(false)
+})
+
+test('show: Show git diff keeps the flash running', { plugins: [edit] }, async ($, on) => {
+  const ui = await withEdit($, on, 'a\nNEW\nc')
+  expect(await flashed(ui, 2)).toBe(true)
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'show-diff' })
+  await ui.redraw()
+  expect(await flashed(ui, 2)).toBe(true)
+  await ui.press({ key: 'show-diff' })
+  await ui.redraw()
+  expect(await flashed(ui, 2)).toBe(true)
+})
+
+test('show: a plain show of the same file keeps the flash', { plugins: [edit] }, async ($, on) => {
+  const ui = await withEdit($, on, 'a\nNEW\nc')
+  expect(await flashed(ui, 2)).toBe(true)
+  await showNow($)
+  await ui.redraw()
+  expect(await flashed(ui, 2)).toBe(true)
+})
+
+test("show: a second edit's flash replaces the first", { plugins: [edit] }, async ($, on) => {
+  const ui = await withEdit($, on, 'a\nNEW\nc\nd')
+  await showNow($, B)
+  await ui.redraw()
+  expect(await flashed(ui, 4)).toBe(true)
+  expect(await flashed(ui, 2)).toBe(false)
+})
+
+test('show: a file changed during a folder page ends the flash', { plugins: [edit] }, async ($, on) => {
+  const ui = await withEdit($, on, 'a\nNEW\nc')
+  expect(await flashed(ui, 2)).toBe(true)
+  await ui.press({ key: '/repo' })
+  await ui.redraw()
+  disk.set('/repo/a.ts', { text: 'a\nNEW\nc\nd', mtimeMs: 2 })
+  await ui.press({ key: 'back' })
+  await ui.redraw()
+  expect(await anyFlash(ui)).toBe(false)
+})
+
+test("show: a second press on stale text ends the first flash at once", { plugins: [edit] }, async ($, on) => {
+  await started($, on)
+  const ui = await withEdit($, on, 'a\nNEW\nc\nd')
+  expect(await flashed(ui, 2)).toBe(true)
+  await $.session.start({ source: 'startup', cwd: '/repo', surface: null, isInteractive: false } as any)
+  disk.set('/repo/a.ts', { text: 'z\na\nNEW\nc\nd', mtimeMs: 2 })
+  await showNow($, B)
+  await ui.redraw()
+  expect(await anyFlash(ui)).toBe(false)
+})
+
+test('show: a deletion-only edit ends the flash and draws none', { plugins: [edit] }, async ($, on) => {
+  const ui = await withEdit($, on, 'a\nNEW\nc')
+  expect(await flashed(ui, 2)).toBe(true)
+  await showNow($, '@@ -1,4 +1,3 @@\n a\n-x\n NEW\n c')
+  await ui.redraw()
+  expect(await anyFlash(ui)).toBe(false)
+})
+
+test('show: opening another file ends the flash', { plugins: [edit] }, async ($, on) => {
+  const ui = await withEdit($, on, 'a\nNEW\nc')
+  expect(await flashed(ui, 2)).toBe(true)
+  disk.set('/repo/b.ts', { text: 'a\nNEW\nc', mtimeMs: 1 })
+  await showNow($, undefined, '/repo/b.ts')
+  await ui.redraw()
+  await showNow($, undefined, '/repo/a.ts')
+  await ui.redraw()
+  expect(await flashed(ui, 2)).toBe(false)
+})
+
+test('show: a folder page ends the flash', { plugins: [edit] }, async ($, on) => {
+  const ui = await withEdit($, on, 'a\nNEW\nc')
+  expect(await flashed(ui, 2)).toBe(true)
+  await ui.press({ key: '/repo' })
+  await ui.press({ key: 'back' })
+  await ui.redraw()
+  expect(await anyFlash(ui)).toBe(false)
+})
+
+test('show: a wheel ends the flash', { plugins: [edit] }, async ($, on) => {
+  const ui = await withEdit($, on, 'a\nNEW\nc')
+  expect(await flashed(ui, 2)).toBe(true)
+  await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 1, bodyRows: 19, contentRows: 19, origin: { kind: 'person' }, pointer: { column: 0, row: 6 } })
+  await ui.redraw()
+  expect(await anyFlash(ui)).toBe(false)
+})
+
+test('show: a press on a code row ends the flash', { plugins: [edit] }, async ($, on) => {
+  const ui = await withEdit($, on, 'a\nNEW\nc')
+  expect(await flashed(ui, 2)).toBe(true)
+  await ui.press({ key: 'code:0' })
+  await ui.redraw()
+  expect(await anyFlash(ui)).toBe(false)
+})
+
+test('show: a wheel drops a pending edit, so the reload flashes nothing', { plugins: [edit] }, async ($, on) => {
+  await started($, on)
+  const ui = await ex($, on, { path: '/repo/a.ts' }, 'a\nNEW\nc')
+  await $.session.start({ source: 'startup', cwd: '/repo', surface: null, isInteractive: false } as any)
+  disk.set('/repo/a.ts', { text: 'z\na\nNEW\nc', mtimeMs: 2 })
+  await showNow($, A)
+  await ui.redraw()
+  await $.ui.scroll({ component: 'Pane', requestId: 'margin', offset: 0, by: 1, bodyRows: 19, contentRows: 19, origin: { kind: 'person' }, pointer: { column: 0, row: 6 } })
+  await clock.advance(5_000)
+  await ui.redraw()
+  expect(await anyFlash(ui)).toBe(false)
+})
+
+test('mixHex: t 0 gives a, t 1 gives b, half gives the midpoint', () => {
+  expect(mixHex('#000000', '#ffffff', 0)).toBe('#000000')
+  expect(mixHex('#000000', '#ffffff', 1)).toBe('#ffffff')
+  expect(mixHex('#000000', '#ffffff', 0.5)).toBe('#808080')
 })

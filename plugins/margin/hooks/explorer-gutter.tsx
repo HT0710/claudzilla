@@ -3,7 +3,7 @@ import type { ClientModule } from 'claude-code'
 import { codeLineAt, redLit } from './explorer-diff'
 
 type Props = {
-  rows: { row: number; line: number; before?: number; cell: string; lit: boolean; hit?: boolean; tone?: 'add' | 'del' }[]
+  rows: { row: number; line: number; before?: number; cell: string; lit: boolean; hit?: boolean; tone?: 'add' | 'del'; bg?: string }[]
   colors: { lit: string; faint: string; claude: string; warning: string; add: string; del: string; addBg: string; delBg: string }
 }
 
@@ -36,7 +36,7 @@ const Gutter: ClientModule<Props, { anchor?: number; to?: number }> = ({ rows, c
         const diff = r.tone === 'add' ? colors.add : r.tone === 'del' ? colors.del : colors.faint
         const diffBg = r.tone === 'add' ? colors.addBg : r.tone === 'del' ? colors.delBg : undefined
         return (
-          <Text key={r.row} color={r.hit ? colors.warning : diff} backgroundColor={inRange ? colors.lit : diffBg}>
+          <Text key={r.row} color={r.hit ? colors.warning : diff} backgroundColor={inRange ? colors.lit : r.bg ?? diffBg}>
             {r.cell}
           </Text>
         )
