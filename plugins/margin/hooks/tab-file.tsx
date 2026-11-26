@@ -16,7 +16,7 @@ import { back, current, forward, navStart, remember, visit } from './explorer-na
 import type { Nav } from './explorer-nav'
 import { tokenize } from './explorer-tokens'
 import type { Token } from './explorer-tokens'
-import { iconOf, langOf, treeRows } from './explorer-tree'
+import { iconOf, itemsText, langOf, treeRows } from './explorer-tree'
 import type { Listing } from './explorer-tree'
 import { fileKey, printable } from './git-data'
 import { CARD, FLASH, HUD, LIT, PAD, PILL_BG, STATUS, TYPES, basicGlyphs, clock, emptyNote, mixHex, readTheme, rowHovers, themeHex, toPieces } from './kit'
@@ -893,6 +893,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
         top + i === lit,
       )
     }
+    const countW = Math.max(0, ...all.map(r => (r.kind === 'dir' && state.listed.has(r.path) ? itemsText(state.listed.get(r.path)!.length).length : 0)))
     for (const r of hits ? [] : all.slice(top, top + codeRows)) {
       const icon = iconOf(r.name, r.kind, r)
       const faint = r.dim || r.broken
@@ -910,7 +911,11 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
         if (!state.expanded.delete(r.path)) state.expanded.add(r.path)
         return update($, file, () => placeOf())
       }
-      put(r.path, left, markOf(r.path, r.kind, r.open), press)
+      const n = r.kind === 'dir' ? state.listed.get(r.path)?.length : undefined
+      const mark = markOf(r.path, r.kind, r.open)
+      // Count, 2 spaces, then the mark cell: one blank cell when the row has no mark.
+      const right = [<Text color={HUD.faint}>{(n === undefined ? '' : itemsText(n)).padEnd(countW)}</Text>, <Text>{'  '}</Text>, ...(mark.length ? mark : [<Text> </Text>])]
+      put(r.path, left, right, press)
     }
     zones.push({
       tab: 'Explorer',

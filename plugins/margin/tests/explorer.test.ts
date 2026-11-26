@@ -6,7 +6,7 @@ import { markCells } from '../hooks/explorer-find'
 import { cellsOf, codeRow, expandTabs, fileWindow, layoutFor, layoutOf, lineAt, rowAt, sliceTokens, thumbOf, toneRows } from '../hooks/explorer-layout'
 import { MAX_HISTORY, back, current, forward, navStart, remember, visit } from '../hooks/explorer-nav'
 import { tokenize } from '../hooks/explorer-tokens'
-import { iconOf, langOf, sortListing, treeRows } from '../hooks/explorer-tree'
+import { iconOf, itemsText, langOf, sortListing, treeRows } from '../hooks/explorer-tree'
 import { fieldPad, refOf } from '../hooks/tab-file'
 import { resetRecent } from '../hooks/explorer-recent'
 import { fileKey } from '../hooks/git-data'
@@ -2619,7 +2619,12 @@ const marked = async ($: any, on: any, trees: Record<string, { name: string; kin
   runs.length = 0
   return mountPane($)
 }
-const rightOf = async (ui: any, name: string) => ((await treeRow(ui, name)).props.props.right as { text: string; color?: string }[])
+const piecesOf = async (ui: any, name: string) => ((await treeRow(ui, name)).props.props.right as { text: string; color?: string }[])
+// The mark cell: the last piece, or none when it is blank.
+const rightOf = async (ui: any, name: string) => {
+  const last = (await piecesOf(ui, name)).at(-1)
+  return last && last.text.trim() ? [last] : []
+}
 const statusRuns = () => runs.filter(a => a.includes('status') && a.includes('--porcelain=v1')).length
 
 test('a changed file shows its letter at the far right of its row', async ($, on) => {
@@ -3369,4 +3374,31 @@ test('the lines row reads the loaded line count and the type row the language', 
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
   expect(await infoText(ui, 'lines')).toContain('3')
   expect(await infoText(ui, 'type')).toContain('TypeScript')
+})
+
+test('itemsText: 0 items, 1 item and 5 items', () => {
+  expect([0, 1, 5].map(itemsText)).toEqual(['0 items', '1 item', '5 items'])
+})
+
+const five = ['a', 'b', 'c', 'd', 'e'].map(name => ({ name: `${name}.ts`, kind: 'file' as const }))
+
+test('a folder row shows its item count from the listing', async ($, on) => {
+  const ui = await marked($, on, { '/repo': [{ name: 'src', kind: 'dir' }], '/repo/src': five }, '')
+  expect((await piecesOf(ui, 'src'))[0].text).toBe('5 items')
+})
+
+test('a file row leaves the count blank', async ($, on) => {
+  const ui = await marked($, on, { '/repo': [{ name: 'src', kind: 'dir' }, { name: 'a.ts', kind: 'file' }], '/repo/src': five }, '')
+  expect((await piecesOf(ui, 'a.ts'))[0].text).toBe(' '.repeat(7))
+})
+
+test('counts pad to the widest count on the page', async ($, on) => {
+  const ui = await marked($, on, { '/repo': [{ name: 'one', kind: 'dir' }, { name: 'src', kind: 'dir' }], '/repo/one': [five[0]], '/repo/src': five }, '')
+  expect((await piecesOf(ui, 'one'))[0].text).toBe('1 item ')
+  expect((await piecesOf(ui, 'src'))[0].text).toBe('5 items')
+})
+
+test('a clean file\'s row ends in one blank mark cell', async ($, on) => {
+  const ui = await marked($, on, { '/repo': [{ name: 'a.ts', kind: 'file' }] }, '')
+  expect((await piecesOf(ui, 'a.ts')).map(p => p.text)).toEqual(['  ', ' '])
 })

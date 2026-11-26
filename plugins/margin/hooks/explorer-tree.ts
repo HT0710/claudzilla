@@ -32,6 +32,10 @@ export function langOf(name: string): string {
   return LANGS.get(name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : '') ?? 'Plain text'
 }
 
+export function itemsText(n: number): string {
+  return `${n} ${n === 1 ? 'item' : 'items'}`
+}
+
 /** Folders first, then names by code point. */
 export function sortListing(entries: readonly Listing[]): Listing[] {
   return [...entries].sort((a, b) => (a.kind === b.kind ? (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) : a.kind === 'dir' ? -1 : 1))
