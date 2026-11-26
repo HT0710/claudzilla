@@ -4,9 +4,9 @@
 //   node doctor.mjs --quick        state checks only; prints nothing when all pass
 //   node doctor.mjs --json         every check as JSON; with --quick, state checks only
 //   node doctor.mjs --hook         SessionStart hook: quick checks, one JSON line on a problem; notes the session's plugin commits
-import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -151,7 +151,47 @@ export function checks(ctx) {
   const gone = tools.filter((t) => !onPath(t));
   results.push(gone.length ? { check: "tools", label: "tools", ok: false, text: `not on PATH: ${gone.join(", ")}`, why: `install ${gone.join(", ")}` } : { check: "tools", label: "tools", ok: true, text: tools.join(", ") });
 
+  if (!ctx.quick) results.push(...fullChecks(ctx, [...on].flatMap((p) => parts[p]?.links ?? [])));
   return results;
+}
+
+export function fullChecks(ctx, links) {
+  const results = [];
+  const ver = version(ctx.clone);
+  if (ver) {
+    const tmp = mkdtempSync(join(tmpdir(), "claudzilla-doctor-"));
+    const input = JSON.stringify({ session_id: "doctor", workspace: { current_dir: ctx.clone }, model: { display_name: "Opus" }, context_window: { used_percentage: 10, context_window_size: 200000 } });
+    const r = spawnSync("perl", [join(ctx.clone, "claude/hud/hud.pl")], { encoding: "utf8", input, env: { ...process.env, TMPDIR: tmp, CLAUDE_CONFIG_DIR: tmp }, stdio: ["pipe", "pipe", "ignore"] });
+    rmSync(tmp, { recursive: true, force: true });
+    results.push(r.status === 0 && (r.stdout ?? "").includes(ver) ? { check: "statusline", label: "statusline", ok: true, text: `shows ${ver}` }
+      : { check: "statusline", label: "statusline", ok: false, text: `hud.pl ${r.status === 0 ? `does not show ${ver}` : "failed"}`, why: "run /claudzilla report to file it" });
+  }
+
+  const files = links.filter((l) => l.startsWith("hooks/")).concat(links.includes("skills/rule-review") ? ["skills/rule-review/scan.mjs"] : []);
+  const CHECK = { ".mjs": ["node", "--check"], ".pl": ["perl", "-c"], ".sh": ["sh", "-n"] };
+  const missing = [], broken = [];
+  for (const f of files) {
+    const path = join(ctx.clone, "claude", f), how = CHECK[f.slice(f.lastIndexOf("."))];
+    if (!existsSync(path)) missing.push(f);
+    else if (how && run(how[0], [...how.slice(1), path]).status !== 0) broken.push(f);
+  }
+  if (missing.length) results.push({ check: "hooks", label: "hooks", ok: false, text: `missing: ${missing.join(", ")}`, fix: { kind: "install", cwd: ctx.clone } });
+  if (broken.length) results.push({ check: "hooks", label: "hooks", ok: false, text: `does not parse: ${broken.join(", ")}`, why: "the clone has a broken file; run /claudzilla report" });
+  if (!missing.length && !broken.length) results.push({ check: "hooks", label: "hooks", ok: true, text: `${files.length}/${files.length} parse` });
+
+  const gd = run("git", ["-C", ctx.clone, "rev-parse", "--absolute-git-dir"]).out;
+  let lines = [];
+  try { lines = readFileSync(join(gd, "claudzilla-update.events"), "utf8").split("\n").map((l) => l.split("\t")); } catch { /* no update yet */ }
+  const fail = lines.findLastIndex((l) => l[1] === "fail");
+  const fixed = fail >= 0 && lines.slice(fail + 1).some((l) => l[1] === "live" && (l[2] ?? "").startsWith("claudzilla: updated to "));
+  results.push(fail >= 0 && !fixed ? { check: "update", label: "update", ok: false, text: `last auto-update failed, log: ${join(gd, "claudzilla-update.log")}`, why: "ask Claude to debug the claudzilla update" }
+    : { check: "update", label: "update", ok: true, text: "no failed auto-update" });
+  return results;
+}
+
+export function stripPaths(results) {
+  const strip = (s) => s.split(/(\s+)/).map((t) => (/^[/~]/.test(t) ? "<path>" : t)).join("");
+  return results.map((r) => ({ ...r, text: strip(r.text), ...(r.fix?.cwd ? { fix: { ...r.fix, cwd: "<path>" } } : {}) }));
 }
 
 function version(clone) {
@@ -211,7 +251,7 @@ if (process.argv[1] && real(process.argv[1]) === real(fileURLToPath(import.meta.
         const what = plugin ? `${plugin.label} out of date` : `${bad.length} problem${bad.length > 1 ? "s" : ""} found`;
         console.log(JSON.stringify({ systemMessage: `claudzilla: ${what}. Run /claudzilla-doctor, or ask Claude to fix claudzilla.`, hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: "claudzilla doctor found problems. If the user asks to fix claudzilla, run the claudzilla-doctor skill." } }));
       }
-    } else if (ctx.json) console.log(JSON.stringify(results));
+    } else if (ctx.json) console.log(JSON.stringify(ctx.quick ? stripPaths(results) : results));
     else if (!ctx.quick || results.some((r) => !r.ok)) console.log(render(results, ctx));
   } catch (e) {
     console.error(`claudzilla doctor: ${e.message}`);
