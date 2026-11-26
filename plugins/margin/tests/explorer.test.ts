@@ -786,7 +786,7 @@ test('a tab body too short for the card opens it at the top, left of the menu bu
   await short.press({ key: 'menu' })
   await short.redraw()
   const box = await short.find({ key: 'explorer:menu-card' })
-  expect([box?.props.top, box?.props.right]).toEqual([0, 3])
+  expect([box?.props.top, box?.props.right]).toEqual([0, 5])
   expect(textOf(box)).not.toContain('─')
   expect(textOf(box)).toContain('Wrap lines')
 })
@@ -3003,9 +3003,15 @@ test('mixHex: t 0 gives a, t 1 gives b, half gives the midpoint', () => {
 })
 
 // The Recent field: a.ts was viewed a minute before b.ts, which is open.
-const recentRoot = async ($: any, on: any) => {
+const recentRoot = async ($: any, on: any, status = '') => {
   resetRecent()
-  const ui = await explorer($, on, { path: '/repo/a.ts' }, 'a\n', { '/repo': [{ name: 'a.ts', kind: 'file' }, { name: 'b.ts', kind: 'file' }] })
+  await setup($, on)
+  tree.set('/repo', [{ name: 'a.ts', kind: 'file' }, { name: 'b.ts', kind: 'file' }])
+  disk.set('/repo/a.ts', { text: 'a\n', mtimeMs: 1 })
+  open({ path: '/repo/a.ts' })
+  // Set before the first draw: a file page now reads the status for its info button.
+  statusOut.out = status
+  const ui = await mountPane($)
   disk.set('/repo/b.ts', { text: 'b\n', mtimeMs: 1 })
   await ui.redraw()
   await clock.advance(60_000)
@@ -3151,8 +3157,7 @@ test('the Recent list shows today, then earlier, with the open file first and bo
 })
 
 test('a Recent row shows its icon, name, folder in faint text, git letter or blank cell, and age', async ($, on) => {
-  const ui = await recentRoot($, on)
-  statusOut.out = ' M a.ts\0'
+  const ui = await recentRoot($, on, ' M a.ts\0')
   await recentOpen(ui)
   const [b, a] = await recentClients(ui)
   const left = (r: any) => r.props.props.left.map((p: any) => p.text)
@@ -3190,4 +3195,88 @@ test('on a short pane Down and Enter reach only the rows drawn', async ($, on) =
   } finally {
     props.scroll.bodyRows = rows
   }
+})
+
+const infoOf = async (ui: any) => (await ui.find({ key: 'explorer:info-card' }))?.props
+const nodeOf = async (ui: any, key: string) => {
+  const walk = (n: any): any => (!n || typeof n !== 'object' ? undefined : Array.isArray(n) ? n.map(walk).find(Boolean) : n.props?.key === key ? n : walk([n.children, n.props?.children]))
+  return walk(await ui.drawn())
+}
+const infoNode = (ui: any) => nodeOf(ui, 'info')
+
+test('the info button shows on a file page', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  expect(await ui.find({ key: 'info' })).toBeDefined()
+})
+
+test('the info button is not on a folder page', async ($, on) => {
+  const root = await explorerRoot($, on, { '/repo': [{ name: 'a.ts', kind: 'file' }] })
+  expect(await root.find({ key: 'info' })).toBeUndefined()
+})
+
+test('pressing the info button pins its card and unpins the menu', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  await ui.press({ key: 'menu' })
+  await ui.press({ key: 'info' })
+  await ui.redraw()
+  expect((await infoOf(ui)).display).toBe('flex')
+  expect(await card(ui)).toBe('none')
+})
+
+test('pressing the menu after the info pin swaps the pin', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  await ui.press({ key: 'info' })
+  await ui.press({ key: 'menu' })
+  await ui.redraw()
+  expect(await card(ui)).toBe('flex')
+  expect((await infoOf(ui)).display).toBe('none')
+})
+
+test('a pinned menu stops the info button from revealing its card on hover', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  expect((await infoNode(ui))?.hover).toEqual({ scope: 'explorer:info' })
+  await ui.press({ key: 'menu' })
+  await ui.redraw()
+  expect((await infoNode(ui))?.hover).toBeUndefined()
+  expect((await nodeOf(ui, 'explorer:info-card'))?.hover).toBeUndefined()
+})
+
+test('a pinned info card makes the pane take Escape and unpinning gives it back', async ($, on) => {
+  const opens: unknown[] = []
+  on('ui.open', (_, e) => (opens.push((e as any).closeOnEscape), { value: { isPlaced: true } }) as any)
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }) as any)
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
+  await ui.press({ key: 'info' })
+  await ui.redraw()
+  await clock.advance(0)
+  expect(opens.at(-1)).toBe(true)
+  await ui.press({ key: 'code:0' })
+  await ui.redraw()
+  await clock.advance(0)
+  expect((await infoOf(ui)).display).toBe('none')
+  expect(opens.at(-1)).toBeUndefined()
+})
+
+test('the info icon is inverse while pinned', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  const icon = () => ui.find({ type: 'Text', text: String.fromCharCode(0xea74) })
+  expect((await icon())?.props.inverse).toBeFalsy()
+  await ui.press({ key: 'info' })
+  await ui.redraw()
+  expect((await icon())?.props.inverse).toBe(true)
+})
+
+test('the info button takes the file status colour while it has changes', async ($, on) => {
+  await setup($, on)
+  disk.set('/repo/a.ts', { text: lines(3), mtimeMs: 1 })
+  open({ path: '/repo/a.ts' })
+  statusOut.out = ' M a.ts\0'
+  const ui = await mountPane($)
+  await ui.redraw()
+  expect((await ui.find({ type: 'Text', text: String.fromCharCode(0xea74) }))?.props.color).toBe(STATUS.M)
+})
+
+test('a clean file info button is claude', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  expect((await ui.find({ type: 'Text', text: String.fromCharCode(0xea74) }))?.props.color).toBe('claude')
 })
