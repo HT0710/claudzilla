@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { layoutOf } from '../hooks/explorer-layout'
-import { barCells, cachedBar, codeLineAt, editDiff, firstChangeLine, lineDiff, mergeMarks, parseDiff, pressLine, redLit, reloadDiff, sameMarks } from '../hooks/explorer-diff'
+import { barCells, cachedBar, codeLineAt, editDiff, firstChangeLine, lineDiff, mergeMarks, parseDiff, pressLine, redLit, relocateEdit, reloadDiff, sameMarks } from '../hooks/explorer-diff'
 
 const added = (d: string) => [...parseDiff(d).added]
 
@@ -221,4 +221,71 @@ test('cachedBar: the same key returns the same cells, and any changed part build
   expect(cachedBar(first, { ...key }, COL)).toBe(first)
   for (const change of [{ layout: layoutOf(['a', 'b', 'c'], 20, false) }, { reload: { added: new Set<number>(), removed: new Map<number, string[]>() } }, { diff: { ...diff } }, { showDiff: false }, { cells: 2 }])
     expect(cachedBar(first, { ...key, ...change }, COL)).not.toBe(first)
+})
+
+test('parseDiff: context lines are skipped and count as new lines', () => {
+  const m = parseDiff('@@ -3,1 +3,2 @@\n a\n+b\n')
+  expect([...m.added]).toEqual([4])
+  expect(m.removed.size).toBe(0)
+})
+
+test('parseDiff: a change between context lines keeps its place', () => {
+  const m = parseDiff('@@ -3,3 +3,3 @@\n a\n-b\n+c\n d\n')
+  expect([...m.added]).toEqual([4])
+  expect(m.removed.get(4)).toEqual(['b'])
+})
+
+test('parseDiff: a pure deletion of 20000 lines parses in linear time', () => {
+  const m = parseDiff(`@@ -1,20000 +0,0 @@\n${'-x\n'.repeat(20000)}`)
+  expect(m.removed.get(1)?.length).toBe(20000)
+})
+
+const EDIT = '@@ -1,3 +1,3 @@\n a\n-OLD\n+NEW\n c\n'
+
+test('relocateEdit: a hunk that still matches stays at its header line', () => {
+  const r = relocateEdit(EDIT, ['a', 'NEW', 'c'])
+  expect(r?.first).toBe(2)
+  expect([...r!.marks.added]).toEqual([2])
+  expect(r!.marks.removed.get(2)).toEqual(['OLD'])
+})
+
+test('relocateEdit: a hunk that moved follows its anchor', () => {
+  const r = relocateEdit(EDIT, ['x', 'y', 'a', 'NEW', 'c'])
+  expect(r?.first).toBe(4)
+  expect([...r!.marks.added]).toEqual([4])
+  expect(r!.marks.removed.get(4)).toEqual(['OLD'])
+})
+
+test('relocateEdit: an anchor found nowhere gives no marks', () => {
+  expect(relocateEdit(EDIT, ['a', 'X', 'c'])).toBeUndefined()
+})
+
+test('relocateEdit: a repeated anchor that moved gives no marks', () => {
+  expect(relocateEdit('@@ -2,1 +2,1 @@\n-old\n+}\n', ['a', 'x', '}', 'y', '}'])).toBeUndefined()
+})
+
+test('relocateEdit: a repeated anchor at its header line stays', () => {
+  const r = relocateEdit('@@ -2,1 +2,1 @@\n-old\n+}\n', ['a', '}', 'b', '}'])
+  expect(r?.first).toBe(2)
+  expect([...r!.marks.added]).toEqual([2])
+})
+
+test('relocateEdit: an empty anchor matches an empty file only', () => {
+  const d = '@@ -1,2 +0,0 @@\n-a\n-b\n'
+  expect(relocateEdit(d, [''])?.marks.removed.get(1)).toEqual(['a', 'b'])
+  expect(relocateEdit(d, [])?.marks.removed.get(1)).toEqual(['a', 'b'])
+  expect(relocateEdit(d, ['x'])).toBeUndefined()
+})
+
+test('relocateEdit: control characters in the file do not block a match', () => {
+  const r = relocateEdit('@@ -1,3 +1,3 @@\n a\n-OLD\n+x[0m\n c\n', ['a', 'x\x1b[0m', 'c\x85'])
+  expect(r?.first).toBe(2)
+  expect([...r!.marks.added]).toEqual([2])
+  expect(r!.marks.removed.get(2)).toEqual(['OLD'])
+})
+
+test('relocateEdit: removed rows that share a key from two hunks are both kept', () => {
+  const r = relocateEdit('@@ -2 +2 @@\n-old1\n+NEW\n@@ -1,2 +1,1 @@\n a\n-old2\n', ['a', 'NEW'])
+  expect(r?.marks.removed.get(2)).toEqual(['old1', 'old2'])
+  expect(r?.first).toBe(2)
 })

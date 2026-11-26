@@ -16,12 +16,66 @@ export function parseDiff(diff: string): DiffMarks {
     const b = h[2] === undefined ? 1 : Number(h[2])
     const c = Number(h[3])
     const d = h[4] === undefined ? 1 : Number(h[4])
-    const rows = lines.slice(i + 1, i + 1 + b).map((l) => cleanLine(l.slice(1).replace(/\r$/, '')))
-    if (rows.length) removed.set(d > 0 ? c : c + 1, [...(removed.get(d > 0 ? c : c + 1) ?? []), ...rows])
-    for (let n = c; n < c + d; n++) added.add(n)
-    i += b + d
+    let oldLeft = b
+    let newLeft = d
+    let n = d > 0 ? c : c + 1
+    while ((oldLeft > 0 || newLeft > 0) && i + 1 < lines.length) {
+      const l = lines[++i]
+      if (l[0] === '\\') continue
+      if (l[0] === '+') {
+        added.add(n++)
+        newLeft--
+      } else if (l[0] === '-') {
+        const rows = removed.get(n) ?? []
+        rows.push(cleanLine(l.slice(1).replace(/\r$/, '')))
+        removed.set(n, rows)
+        oldLeft--
+      } else {
+        n++
+        oldLeft--
+        newLeft--
+      }
+    }
   }
   return { added, removed }
+}
+
+// The control set folio strips from its diffs (plugins/folio/hooks/register.tsx:44).
+const CONTROL = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g
+
+// Each hunk's marks at its place in `lines`, and the first marked line. undefined when a hunk matches nowhere, or in more than one place and not at its own header line.
+export function relocateEdit(diff: string, lines: readonly string[]): { marks: DiffMarks; first: number } | undefined {
+  const file = lines.map((l) => l.replace(CONTROL, ''))
+  const added = new Set<number>()
+  const removed = new Map<number, string[]>()
+  for (const hunk of diff.split(/^(?=@@ )/m)) {
+    const h = HUNK.exec(hunk)
+    if (!h) continue
+    const start = Number(h[3])
+    const anchor = hunk.split('\n').filter((l) => l[0] === ' ' || l[0] === '+').map((l) => l.slice(1).replace(CONTROL, ''))
+    let offset = 0
+    if (!anchor.length) {
+      if (file.join('\n') !== '') return undefined
+    } else {
+      const at = (s: number) => s >= 0 && s + anchor.length <= file.length && anchor.every((t, i) => file[s + i] === t)
+      if (!at(start - 1)) {
+        let found = -1
+        for (let s = 0; s + anchor.length <= file.length; s++) {
+          if (!at(s)) continue
+          if (found >= 0) return undefined
+          found = s
+        }
+        if (found < 0) return undefined
+        offset = found + 1 - start
+      }
+    }
+    const m = parseDiff(hunk)
+    for (const n of m.added) added.add(n + offset)
+    for (const [n, rows] of m.removed) removed.set(n + offset, [...(removed.get(n + offset) ?? []), ...rows])
+  }
+  const keys = [...added, ...removed.keys()]
+  if (!keys.length) return undefined
+  return { marks: { added, removed }, first: Math.min(...keys) }
 }
 
 export function firstChangeLine(diff: string): number | undefined {
