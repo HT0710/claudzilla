@@ -139,6 +139,11 @@ export function reportArgs(args: string): string | undefined {
 const EXPERIMENTAL_USAGE = 'Use: /claudzilla experimental [<id> on|off]'
 
 // First word not `experimental`: undefined; bare: {}; `<id> on|off`: that pair; anything else: the usage line.
+export function doctorArgs(args: string): 'check' | 'fix' | undefined {
+  const a = args.trim().toLowerCase().split(/\s+/).join(' ')
+  return a === 'doctor' ? 'check' : a === 'doctor fix' ? 'fix' : undefined
+}
+
 export function experimentalArgs(args: string): { id?: string; state?: 'on' | 'off'; error?: string } | undefined {
   const [first, ...rest] = args.trim().split(/\s+/)
   if (first?.toLowerCase() !== 'experimental') return undefined
@@ -507,7 +512,7 @@ export const register: Register = on => {
     handing = false
     await t.start(traceIo($))
     HUD.label = (await readPalette($)).palette.shared.label
-    await $.command.register({ name: 'claudzilla', description: 'The claudzilla guide, one section at a time', argumentHint: '[topic | report [what happened] | compact | handoff [ask] | experimental [id on|off] | cost [session-id | all [--since d] [--until d] [--project p]]]', immediate: true })
+    await $.command.register({ name: 'claudzilla', description: 'The claudzilla guide, one section at a time', argumentHint: '[topic | report [what happened] | compact | doctor [fix] | handoff [ask] | experimental [id on|off] | cost [session-id | all [--since d] [--until d] [--project p]]]', immediate: true })
     await $.command.register({ name: 'claudzilla-guide', description: 'Open the claudzilla guide, or a topic in it', argumentHint: '[topic]', immediate: true })
     await $.command.register({ name: 'claudzilla-worlds', description: 'Open the Worlds part of the guide', immediate: true })
     await $.command.register({ name: 'claudzilla-handoff', description: 'Start fresh with a note from this session', argumentHint: '[ask]', immediate: true })
@@ -592,6 +597,12 @@ export const register: Register = on => {
 
       return {}
     }
+    const doctor = plain ? undefined : doctorArgs(e.args)
+    if (doctor === 'fix') {
+      await handOff($, 'claudzilla-doctor', '')
+
+      return {}
+    }
     // Bare, it toggles like /margin (alt+i); a topic opens that topic either way.
     if (!plain && !e.args.trim() && (await $.ui.panes()).some(pane => pane.id === PANE)) {
       await $.ui.close({ id: PANE })
@@ -607,6 +618,12 @@ export const register: Register = on => {
       const cwd = await $.session.cwd().catch(() => '')
       const out = await $.process.run(['node', `${dir}/hooks/cost-trace.mjs`, 'report', ...cost, '--cwd', cwd]).catch(() => undefined)
       labNote = out?.exitCode === 0 ? out.stdout.trimEnd() : out?.stderr.trim() || 'Could not read the cost log.'
+    }
+    if (doctor === 'check') {
+      const home = await $.env.get('HOME').catch(() => undefined)
+      const dir = (await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined)) || `${home}/.claude`
+      const out = await $.process.run(['node', `${dir}/hooks/doctor.mjs`]).catch(() => undefined)
+      labNote = out?.exitCode === 0 && out.stdout.trim() ? out.stdout.trimEnd() : 'Could not run the doctor.'
     }
     if (lab) {
       const home = await $.env.get('HOME').catch(() => undefined)
@@ -630,7 +647,7 @@ export const register: Register = on => {
     // Read again on each run: GUIDE.md changes with the clone.
     guide = load($)
     const { sections } = await guide
-    const hit = find(sections ?? [], lab ? 'labs' : cost ? 'limits' : topic)
+    const hit = find(sections ?? [], lab ? 'labs' : cost ? 'limits' : doctor ? 'doctor' : topic)
     if (hit.section) slug = hit.section.slug
     note = labNote ?? hit.note
     if (hit.section) await update($, bodyTop, () => 0)
