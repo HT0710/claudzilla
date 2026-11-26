@@ -309,9 +309,11 @@ check "render: non-release tag ignored" grep -q 'a…h@example.test  v9.10.0$' <
 CD="$TMP/claudzilla-rules-$(id -u)"
 cfull() { local t=$1 sid=$2; echo "${full//$T/$t}" | sed "s/abcdef1234567890/$sid/"; }
 tick() { data <<<"$(cfull "$1" "$2")"; }
+# tick with the clock frozen <off> seconds ahead: a file written now is no longer racy, and time passes without a sleep
+tick_at() { local off=$1; shift; FROZEN_TIME=$(( $(date +%s) + off )) PERL5LIB="$PL" CLAUDE_CONFIG_DIR="$C" HUD_DUMP=1 perl -MFrozen "$HUD/hud.pl" <<<"$(cfull "$@")"; }
 sk() { printf '{"timestamp":"%s","message":{"content":[{"type":"tool_use","id":"x","name":"Skill","input":{"skill":"%s"}}]}}\n' "$(iso 30)" "$1"; }
 CT="$TMP/c1.jsonl"; { echo "{\"timestamp\":\"$(iso 5400)\",\"message\":{\"content\":\"hi\"}}"; sk pr; } > "$CT"
-# a file changed in the current second is never cached (racy), so let the clock pass first
+# a file changed in the current second is never cached (racy), so let the clock pass first; the rewrite below needs a real new second for ctime
 sleep 1; tick "$CT" csid1 >/dev/null
 # chmod would move ctime and miss the cache; instead plant a value only a cache hit can return
 perl -i -pe 's/^skill\tpr$/skill\tzz/' "$CD/hud-csid1.cache"
@@ -330,9 +332,9 @@ CU="$TMP/c2.jsonl"; echo '{"type":"mode","mode":"normal"}' > "$CU"
 u0=$(key up "$(tick "$CU" csid2)")
 echo "{\"timestamp\":\"$(iso 600)\",\"message\":{\"content\":\"hi\"}}" >> "$CU"
 check "cache: up appears once a timestamp line arrives" bash -c '[ -z "$1" ] && [ "$2" = 10m ]' _ "$u0" "$(key up "$(tick "$CU" csid2)")"
-CK="$TMP/c3.jsonl"; echo "{\"timestamp\":\"$(iso 25)\",\"message\":{\"content\":[{\"type\":\"thinking\",\"thinking\":\"\"}]}}" > "$CK"; sleep 1
-t1=$(key thinking "$(tick "$CK" csid3)"); sleep 6
-check "cache: thinking recomputed on an unchanged transcript" bash -c '[ "$1" = 1 ] && [ -z "$2" ]' _ "$t1" "$(key thinking "$(tick "$CK" csid3)")"
+CK="$TMP/c3.jsonl"; echo "{\"timestamp\":\"$(iso 25)\",\"message\":{\"content\":[{\"type\":\"thinking\",\"thinking\":\"\"}]}}" > "$CK"
+t1=$(key thinking "$(tick_at 2 "$CK" csid3)")
+check "cache: thinking recomputed on an unchanged transcript" bash -c '[ "$1" = 1 ] && [ -z "$2" ]' _ "$t1" "$(key thinking "$(tick_at 7 "$CK" csid3)")"
 # a 4 MB cut inside a multi-byte character must not push the whole slice through the slow decode fallback
 CM="$TMP/c5.jsonl"
 perl -e 'my $tail = shift; my $r = 4194305 - 91 - length $tail;
@@ -343,9 +345,9 @@ m0=$(perl -MTime::HiRes=time -e 'printf "%d", time*1000'); mo=$(tick "$CM" csid5
 check_eq "cache: 4 MB cut mid-character still finds the skill" pr "$(key skill "$mo")"
 check "cache: 4 MB cut mid-character reads in under 250 ms" [ $(( m1 - m0 )) -lt 250 ]
 echo "  mid-char tick: $(( m1 - m0 )) ms"
-CH="$TMP/c4.jsonl"; echo "{\"type\":\"assistant\",\"timestamp\":\"$(iso 60)\",\"message\":{\"usage\":{\"input_tokens\":5,\"cache_creation\":{\"ephemeral_5m_input_tokens\":10}}}}" > "$CH"; sleep 1
-h1=$(key cch "$(tick "$CH" csid4)"); sleep 4
-check "cache: cch recomputed on an unchanged transcript" [ "$(key cch "$(tick "$CH" csid4)")" -gt "$h1" ]
+CH="$TMP/c4.jsonl"; echo "{\"type\":\"assistant\",\"timestamp\":\"$(iso 60)\",\"message\":{\"usage\":{\"input_tokens\":5,\"cache_creation\":{\"ephemeral_5m_input_tokens\":10}}}}" > "$CH"
+h1=$(key cch "$(tick_at 2 "$CH" csid4)")
+check "cache: cch recomputed on an unchanged transcript" [ "$(key cch "$(tick_at 7 "$CH" csid4)")" -gt "$h1" ]
 VF="$CD/hud-ver-$(perl -e 'my $h = 2166136261; for (unpack "C*", $ARGV[0]) { $h ^= $_; $h = ($h * 16777619) & 0xffffffff } printf "%08x", $h' "$R/claude/hud")"
 vset() { perl -i -pe "s/^$1\t.*/$1\t$2/" "$VF" 2>/dev/null; }
 vat() { awk -F'\t' '$1=="at"{print $2}' "$VF"; }
@@ -356,7 +358,8 @@ check "cache: version recomputed past 60 s" bash -c '[ $(( $(date +%s) - $(cat "
 verfresh >/dev/null; vset at $(( $(date +%s) + 61 )); vset ver v0.0.1-bogus
 check "cache: version recomputed when at is in the future" bash -c '[ -s "$2" ] && grep -q "v9.10.0$" <<<"$1"' _ "$(ver)" "$VF"
 sn() { data <<<"$full" | COLUMNS=170 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
-mkdir -p "$C/sessions"; echo '{"sessionId":"abcdef1234567890","name":"n1"}' > "$C/sessions/1.json"; sleep 1; sn >/dev/null
+sn_at() { data <<<"$full" | FROZEN_TIME=$(( $(date +%s) + $1 )) PERL5LIB="$PL" COLUMNS=170 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
+mkdir -p "$C/sessions"; echo '{"sessionId":"abcdef1234567890","name":"n1"}' > "$C/sessions/1.json"; sn_at 2 >/dev/null
 echo '{"sessionId":"abcdef1234567890","name":"n22"}' > "$C/sessions/1.json"
 check "cache: session rename shows on the next tick" grep -q 'n22' <<<"$(sn)"
 rm -rf "$C/sessions"
