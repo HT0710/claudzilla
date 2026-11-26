@@ -22,9 +22,9 @@ check_eq "change line drops author and PR" '* fix(a): b' "$(rn "* fix(a): b by @
 check "New Contributors line kept" [ "$(rn "* @x made their first contribution in $U\n")" = "* @x made their first contribution in $U" ]
 check_eq "Full Changelog line kept" '**Full Changelog**: https://github.com/o/r/compare/v1...v2' "$(rn '**Full Changelog**: https://github.com/o/r/compare/v1...v2\n')"
 check "CI release trims notes" grep -q 'release-notes.sh' "$REPO/.github/workflows/test.yml"
-check "CI runs release tests" grep -q 'tests/release.test.sh' "$REPO/.github/workflows/test.yml"
+check "CI runs release tests" grep -q 'printf .* tests/\*\.test\.sh' "$REPO/.github/workflows/test.yml"
 # The matrix lists suites by hand, so a new test file or plugin must be added there.
-check "CI runs every test file and plugin" bash -c 'cd "$1" && for t in tests/*.test.sh plugins/*/tests; do grep -q "^ *- ${t%/tests}$" .github/workflows/test.yml || { echo "not in CI: $t"; exit 1; }; done' _ "$REPO"
+check "CI runs every test file and plugin" bash -c 'cd "$1" && eval "$(grep "^ *list=" .github/workflows/test.yml)" && for t in tests/*.test.sh plugins/*/tests; do grep -qF "\"${t%/tests}\"" <<<"$list" || { echo "not in CI: $t"; exit 1; }; done' _ "$REPO"
 check "CI release skips a run behind main" grep -q 'origin/main' "$REPO/.github/workflows/test.yml"
 check "CI release waits for tests" grep -q 'needs: \[test, macos\]' "$REPO/.github/workflows/test.yml"
 check "CI release has no schedule" bash -c "! grep -q 'schedule:' '$REPO/.github/workflows/test.yml'"

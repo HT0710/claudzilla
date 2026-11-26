@@ -367,6 +367,6 @@ rm -f "$REPORTS"
 SK="$REPO/claude/skills/rule-review/SKILL.md"
 check "skill: user-only" grep -qx 'disable-model-invocation: true' "$SK"
 check "skill: name" grep -qx 'name: rule-review' "$SK"
-check "skill: CI runs tests" grep -q 'tests/rule-review.test.sh' "$REPO/.github/workflows/test.yml"
+check "skill: CI runs tests" grep -q 'printf .* tests/\*\.test\.sh' "$REPO/.github/workflows/test.yml"
 
 summary rule-review

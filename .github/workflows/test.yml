@@ -7,32 +7,24 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Every shell suite and every plugin with tests, so a new one cannot be left out.
+  suites:
+    runs-on: ubuntu-latest
+    outputs:
+      suites: ${{ steps.list.outputs.suites }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: list
+        run: |
+          list=$(printf '%s\n' tests/*.test.sh $(ls -d plugins/*/tests | sed 's|/tests$||') | sed 's/.*/"&"/' | paste -sd, -)
+          echo "suites=[$list]" >> "$GITHUB_OUTPUT"
+
   test:
+    needs: suites
     strategy:
       fail-fast: false
       matrix:
-        suite:
-          - tests/hooks.test.sh
-          - tests/trace.test.sh
-          - tests/report.test.sh
-          - tests/install.test.sh
-          - tests/rule-review.test.sh
-          - tests/experimental.test.sh
-          - tests/delegate-nudge.test.sh
-          - tests/agent-name.test.sh
-          - tests/hud.test.sh
-          - tests/guide.test.sh
-          - tests/glyphs.test.sh
-          - tests/visuals.test.sh
-          - tests/release.test.sh
-          - tests/cost-trace.test.sh
-          - plugins/ballot
-          - plugins/byline
-          - plugins/folio
-          - plugins/herald
-          - plugins/ledger
-          - plugins/margin
-          - plugins/primer
+        suite: ${{ fromJSON(needs.suites.outputs.suites) }}
     name: ${{ matrix.suite }} (ubuntu-latest)
     runs-on: ubuntu-latest
     timeout-minutes: 10
