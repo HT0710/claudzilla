@@ -355,7 +355,7 @@ verfresh >/dev/null; vset ver v0.0.1-bogus
 check "cache: version reused within 60 s" grep -q 'v0.0.1-bogus$' <<<"$(ver)"
 verfresh >/dev/null; vset at $(( $(date +%s) - 61 )); vset ver v0.0.1-bogus; o=$(ver)
 check "cache: version recomputed past 60 s" bash -c '[ $(( $(date +%s) - $(cat "$2") )) -le 2 ] && grep -q "v9.10.0$" <<<"$1"' _ "$o" <(vat)
-verfresh >/dev/null; vset at $(( $(date +%s) + 61 )); vset ver v0.0.1-bogus
+verfresh >/dev/null; vset at $(( $(date +%s) + 65 )); vset ver v0.0.1-bogus
 check "cache: version recomputed when at is in the future" bash -c '[ -s "$2" ] && grep -q "v9.10.0$" <<<"$1"' _ "$(ver)" "$VF"
 sn() { data <<<"$full" | COLUMNS=170 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
 sn_at() { data <<<"$full" | FROZEN_TIME=$(( $(date +%s) + $1 )) PERL5LIB="$PL" COLUMNS=170 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
