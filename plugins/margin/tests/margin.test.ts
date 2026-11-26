@@ -1862,6 +1862,7 @@ test('a slash row stays dim until its output line is drawn in the chat', async (
   const history = ['kept', '/model']
     .map((display, i) => JSON.stringify({ display, timestamp: Date.now() - 2 + i, sessionId: 'chat-1' }))
     .join('\n')
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }))
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('fs.read', () => ({ value: history }))
@@ -1956,6 +1957,7 @@ test('a mid-turn prompt stays dim until its row is drawn in the chat', async ($,
   const history = ['kept', 'sent mid-turn']
     .map((display, i) => JSON.stringify({ display, timestamp: Date.now() - 2 + i, sessionId: 'chat-1' }))
     .join('\n')
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }))
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('fs.read', () => ({ value: history }))
@@ -2375,6 +2377,8 @@ test('picking History settles once; picking Git settles none', async ($, on) => 
   const hidden = count.draws
   await clock.advance(300)
   expect(count.draws).toBe(hidden)
+  await clock.advance(1_000)
+  expect(count.draws).toBe(hidden)
   for (const row of [a, b]) await row.redraw({ ...rowProps, onScreen: null })
 })
 
@@ -2385,14 +2389,14 @@ test('a row dropped while History was hidden does not light once it is shown', a
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'Git' })
   await clock.advance(1_000)
-  await a.unmount()
+  await b.unmount()
   await ui.press({ key: 'History' })
   await clock.advance(0)
   const color = async (text: string) => (await ui.find({ type: 'Text', text: new RegExp(`^${text}\\s*$`) }))?.props.color
 
-  expect(await color('c')).toBe('claude')
-  expect(await color('a')).toBeUndefined()
-  await b.redraw({ ...rowProps, onScreen: null })
+  expect(await color('a')).toBe('claude')
+  expect(await color('c')).toBeUndefined()
+  await a.redraw({ ...rowProps, onScreen: null })
 })
 
 test('a pane reopened after a move while closed settles once', async ($, on) => {
