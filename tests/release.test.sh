@@ -7,20 +7,20 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 nv() { printf '%b' "$2" | sh "$REPO/.github/next-version.sh" "$1"; }
 rn() { printf '%b' "$1" | sh "$REPO/.github/release-notes.sh"; }
 
-check "first tag is v1.0.0" [ "$(nv '' 'docs: a\n')" = v1.0.0 ]
-check "feat bumps minor" [ "$(nv v1.2.3 'fix: a\nfeat(picks): b\n')" = v1.3.0 ]
-check "fix bumps patch" [ "$(nv v1.2.3 'fix(hooks): a\n')" = v1.2.4 ]
-check "perf bumps patch" [ "$(nv v1.2.3 'perf: a\n')" = v1.2.4 ]
-check "refactor bumps patch" [ "$(nv v1.2.3 'refactor(panel): a\n')" = v1.2.4 ]
-check "bang bumps major" [ "$(nv v1.2.3 'feat!: a\n')" = v2.0.0 ]
-check "scoped bang bumps major" [ "$(nv v1.2.3 'refactor(install)!: a\n')" = v2.0.0 ]
-check "BREAKING body line bumps major" [ "$(nv v1.2.3 'fix: a\n\nBREAKING: key renamed\n')" = v2.0.0 ]
+check_eq "first tag is v1.0.0" v1.0.0 "$(nv '' 'docs: a\n')"
+check_eq "feat bumps minor" v1.3.0 "$(nv v1.2.3 'fix: a\nfeat(picks): b\n')"
+check_eq "fix bumps patch" v1.2.4 "$(nv v1.2.3 'fix(hooks): a\n')"
+check_eq "perf bumps patch" v1.2.4 "$(nv v1.2.3 'perf: a\n')"
+check_eq "refactor bumps patch" v1.2.4 "$(nv v1.2.3 'refactor(panel): a\n')"
+check_eq "bang bumps major" v2.0.0 "$(nv v1.2.3 'feat!: a\n')"
+check_eq "scoped bang bumps major" v2.0.0 "$(nv v1.2.3 'refactor(install)!: a\n')"
+check_eq "BREAKING body line bumps major" v2.0.0 "$(nv v1.2.3 'fix: a\n\nBREAKING: key renamed\n')"
 check "docs, test, chore, ci: no tag" [ -z "$(nv v1.2.3 'docs: a\ntest: b\nchore: c\nci: d\n')" ]
 check "indented feat in a body: no tag" [ -z "$(nv v1.2.3 'docs: a\n  feat: quoted\n')" ]
 U=https://github.com/o/r/pull/7
-check "change line drops author and PR" [ "$(rn "* fix(a): b by @x-y in $U\n")" = '* fix(a): b' ]
+check_eq "change line drops author and PR" '* fix(a): b' "$(rn "* fix(a): b by @x-y in $U\n")"
 check "New Contributors line kept" [ "$(rn "* @x made their first contribution in $U\n")" = "* @x made their first contribution in $U" ]
-check "Full Changelog line kept" [ "$(rn '**Full Changelog**: https://github.com/o/r/compare/v1...v2\n')" = '**Full Changelog**: https://github.com/o/r/compare/v1...v2' ]
+check_eq "Full Changelog line kept" '**Full Changelog**: https://github.com/o/r/compare/v1...v2' "$(rn '**Full Changelog**: https://github.com/o/r/compare/v1...v2\n')"
 check "CI release trims notes" grep -q 'release-notes.sh' "$REPO/.github/workflows/test.yml"
 check "CI runs release tests" grep -q 'tests/release.test.sh' "$REPO/.github/workflows/test.yml"
 # The matrix lists suites by hand, so a new test file or plugin must be added there.

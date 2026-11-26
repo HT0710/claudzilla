@@ -52,38 +52,38 @@ check "data: no usage -> no ctx_note" [ -z "$(key ctx_note "$kv")" ]
 check "data: 5h"        [ "$(key 5h "$kv")" = 30 ]
 check "data: 5h_note"   [ "$(key 5h_note "$kv")" = 2h0m ]
 check "data: wk"        [ "$(key wk "$kv")" = 12 ]
-check "data: wk_note ms" [ "$(key wk_note "$kv")" = 2d7h ]
+check_eq "data: wk_note ms" 2d7h "$(key wk_note "$kv")"
 check "data: profile"   [ "$(key profile "$kv")" = a…h@example.test ]
 C2="$TMP/cfg2"; mkdir -p "$C2"; echo '{"oauthAccount":{"emailAddress":"me@example.test"}}' > "$C2/.claude.json"
 check "data: short profile -> first char only" [ "$(key profile "$(CLAUDE_CONFIG_DIR="$C2" HUD_DUMP=1 perl "$HUD/hud.pl" <<<"$full")")" = m…@example.test ]
 check "data: up"        [ "$(key up "$kv")" = 90m ]
-check "data: last skill" [ "$(key skill "$kv")" = pr ]
-check "data: thinking recent" [ "$(key thinking "$kv")" = 1 ]
+check_eq "data: last skill" pr "$(key skill "$kv")"
+check_eq "data: thinking recent" 1 "$(key thinking "$kv")"
 
 nolim=$(node -e 'const j=JSON.parse(process.argv[1]);delete j.rate_limits;j.context_window.context_window_size=200000;console.log(JSON.stringify(j))' "$full")
 kv=$(data <<<"$nolim")
 check "data: no limits -> no 5h" [ -z "$(key 5h "$kv")" ]
 check "data: no limits -> no wk" [ -z "$(key wk "$kv")" ]
-check "data: logged in, no reply, no limits -> lim_wait" [ "$(key lim_wait "$kv")" = 1 ]
+check_eq "data: logged in, no reply, no limits -> lim_wait" 1 "$(key lim_wait "$kv")"
 check "data: limits in -> no lim_wait" [ -z "$(key lim_wait "$(data <<<"$full")")" ]
 check "data: not logged in -> no lim_wait" [ -z "$(key lim_wait "$(CLAUDE_CONFIG_DIR="$TMP/none" HUD_DUMP=1 perl "$HUD/hud.pl" <<<"$nolim")")" ]
 used=$(node -e 'const j=JSON.parse(process.argv[1]);j.context_window.current_usage={input_tokens:2,output_tokens:830,cache_creation_input_tokens:2018,cache_read_input_tokens:414892};console.log(JSON.stringify(j))' "$full")
-check "data: no reply yet -> ctx_note 0" [ "$(key ctx_note "$(data <<<'{}')")" = 0 ]
-check "data: ctx_note used" [ "$(key ctx_note "$(data <<<"$used")")" = 417k ]
+check_eq "data: no reply yet -> ctx_note 0" 0 "$(key ctx_note "$(data <<<'{}')")"
+check_eq "data: ctx_note used" 417k "$(key ctx_note "$(data <<<"$used")")"
 # usage <current_usage json>: ctx_note for that shape (printf: bash 3.2 brace-expands here-strings)
 usage() { key ctx_note "$(printf '{"context_window":{"used_percentage":1,"current_usage":%s}}' "$1" | data)"; }
 check "data: empty usage -> no note" [ -z "$(usage '{}')" ]
 check "data: junk usage -> no note" [ -z "$(usage '{"input_tokens":"a","cache_read_input_tokens":{}}')" ]
 check "data: string counts ignored" [ -z "$(usage '{"input_tokens":"300000"}')" ]
-check "data: negative counts ignored" [ "$(usage '{"input_tokens":-5000,"cache_read_input_tokens":20000}')" = 20k ]
+check_eq "data: negative counts ignored" 20k "$(usage '{"input_tokens":-5000,"cache_read_input_tokens":20000}')"
 check "data: non-object usage -> no note" [ -z "$(usage '5')" ]
-check "data: 999.5k rounds to 1M" [ "$(usage '{"input_tokens":999600}')" = 1M ]
+check_eq "data: 999.5k rounds to 1M" 1M "$(usage '{"input_tokens":999600}')"
 
 past=$(node -e 'const j=JSON.parse(process.argv[1]);j.rate_limits.five_hour.resets_at=1;console.log(JSON.stringify(j))' "$full")
 check "data: past reset -> no note" [ -z "$(key 5h_note "$(data <<<"$past")")" ]
 gone=$(node -e 'const j=JSON.parse(process.argv[1]);delete j.rate_limits.five_hour;console.log(JSON.stringify(j))' "$full")
 kv=$(data <<<"$gone")
-check "data: dropped window -> 5h 0" [ "$(key 5h "$kv")" = 0 ]
+check_eq "data: dropped window -> 5h 0" 0 "$(key 5h "$kv")"
 check "data: dropped window -> no note" [ -z "$(key 5h_note "$kv")" ]
 kv=$(data <<<'{"rate_limits":{"spend_limit":{"used_percentage":5}}}')
 check "data: spend limit only -> no 5h" [ -z "$(key 5h "$kv")" ]
@@ -98,23 +98,23 @@ check "data: thinking stale" [ -z "$(key thinking "$(data <<<"$full")")" ]
 check "data: garbage stdin exit 0" bash -c "echo nope | HUD_DUMP=1 perl '$HUD/hud.pl' >/dev/null"
 check "data: missing transcript" bash -c "echo '{\"session_id\":\"x\",\"transcript_path\":\"/nope\"}' | HUD_DUMP=1 perl '$HUD/hud.pl' | grep -q '^id	x$'"
 
-check "data: no context_window -> ctx 0" [ "$(key ctx "$(data <<<'{"cwd":"/x"}')")" = 0 ]
-check "data: cwd fallback" [ "$(key cwd "$(data <<<'{"cwd":"/x"}')")" = /x ]
+check_eq "data: no context_window -> ctx 0" 0 "$(key ctx "$(data <<<'{"cwd":"/x"}')")"
+check_eq "data: cwd fallback" /x "$(key cwd "$(data <<<'{"cwd":"/x"}')")"
 check "data: non-object current_usage never dies, ctx kept" bash -c 'o=$(HUD_DUMP=1 CLAUDE_CONFIG_DIR="$1" perl "$2/hud.pl" <<<"{\"context_window\":{\"current_usage\":5}}") && grep -q "^ctx	" <<<"$o"' _ "$C" "$HUD"
 echo '{"palette":{"hud":"x"}}' > "$C/claudzilla.json"
 check "data: non-object palette.hud never dies, ctx kept" bash -c 'o=$(HUD_DUMP=1 CLAUDE_CONFIG_DIR="$1" perl "$2/hud.pl" <<<"{\"cwd\":\"/x\"}") && grep -q "^ctx	" <<<"$o"' _ "$C" "$HUD"
 rm -f "$C/claudzilla.json"
-check "data: tab in value flattened" [ "$(key model "$(data <<<'{"model":{"display_name":"a\tb"}}')")" = "a b" ]
+check_eq "data: tab in value flattened" "a b" "$(key model "$(data <<<'{"model":{"display_name":"a\tb"}}')")"
 
 check "data: surrogate pair decoded" [ "$(key model "$(data <<<'{"model":{"display_name":"\ud83d\ude00"}}')")" = "$(printf '\xf0\x9f\x98\x80')" ]
 check "data: trailing garbage -> no fields" [ -z "$(key model "$(data <<<'{"model":{"display_name":"Opus"}} x')")" ]
 check "data: numeric string resets_at" [ "$(key 5h_note "$(printf '{"rate_limits":{"five_hour":{"used_percentage":30,"resets_at":"%s"}}}' "$(( $(date +%s) + 7230 ))" | data)")" = 2h0m ]
 printf '%s' '{"palette":{"hud":{"rampHot":"#123456\n"}}}' > "$C/claudzilla.json"
-check "data: #rrggbb plus newline rejected" [ "$(key pal_hud_rampHot "$(data <<<'{}')")" = '#ffaa5a' ]
+check_eq "data: #rrggbb plus newline rejected" '#ffaa5a' "$(key pal_hud_rampHot "$(data <<<'{}')")"
 rm "$C/claudzilla.json"
 check "data: invalid UTF-8 becomes U+FFFD" [ "$(key model "$(data <<<"$(printf '{"model":{"display_name":"a\xffb"}}')")")" = "$(printf 'a\xef\xbf\xbdb')" ]
 printf '{"timestamp":"2026-11-21T00:00:00.000Z","message":{"content":"x"}}\n' > "$TMP/iso.jsonl"
-check "data: ISO 8601 fixed value gives up 10m" [ "$(printf '{"transcript_path":"%s"}' "$TMP/iso.jsonl" | HUD_DUMP=1 CLAUDE_CONFIG_DIR="$C" FROZEN_TIME=$((1795219200 + 600)) TZ=UTC PERL5LIB="$PL" perl -MFrozen "$HUD/hud.pl" | awk -F'\t' '$1=="up"{print $2}')" = 10m ]
+check_eq "data: ISO 8601 fixed value gives up 10m" 10m "$(printf '{"transcript_path":"%s"}' "$TMP/iso.jsonl" | HUD_DUMP=1 CLAUDE_CONFIG_DIR="$C" FROZEN_TIME=$((1795219200 + 600)) TZ=UTC PERL5LIB="$PL" perl -MFrozen "$HUD/hud.pl" | awk -F'\t' '$1=="up"{print $2}')"
 rm "$TMP/iso.jsonl"
 printf '{"timestamp":"2026-11-21T25:00:00Z","message":{"content":"x"}}\n' > "$TMP/iso2.jsonl"
 check "data: out-of-range ISO time gives no up" [ -z "$(key up "$(printf '{"transcript_path":"%s"}' "$TMP/iso2.jsonl" | data)")" ]
@@ -128,7 +128,7 @@ B="$TMP/big.jsonl"
 } > "$B"
 kv=$(data <<<"{\"transcript_path\":\"$B\"}")
 check "data: big transcript up"    [ "$(key up "$kv")" = 2m ]
-check "data: big transcript skill" [ "$(key skill "$kv")" = big ]
+check_eq "data: big transcript skill" big "$(key skill "$kv")"
 # cache: newest main-chat reply with tokens starts the clock; TTL from the newest reply that wrote cache
 reply() { # <secs ago> <5m written> <1h written> [sidechain]
   echo "{\"type\":\"assistant\",\"isSidechain\":${4:-false},\"timestamp\":\"$(iso "$1")\",\"message\":{\"usage\":{\"input_tokens\":2,\"cache_read_input_tokens\":9000,\"cache_creation_input_tokens\":$(($2 + $3)),\"cache_creation\":{\"ephemeral_5m_input_tokens\":$2,\"ephemeral_1h_input_tokens\":$3}}}}"
@@ -138,21 +138,21 @@ cache() { printf '%s\n' "$@" > "$TMP/c.jsonl"; kv=$(data <<<"{\"transcript_path\
 check "data: cache 1h warm"     [ "$(cache "$(reply 1200 0 500)")" = "33 40m" ]
 check "data: cache 5m warm"     [ "$(cache "$(reply 120 500 0)")" = "40 3m" ]
 check "data: cache 1h cold"     [ "$(cache "$(reply 3660 0 500)")" = "100 cold" ]
-check "data: cache read keeps earlier TTL" [ "$(cache "$(reply 1800 0 500)" "$(reply 600 0 0)")" = "16 50m" ]
-check "data: cache sidechain ignored" [ "$(cache "$(reply 1800 0 500)" "$(reply 60 500 0 true)")" = "50 30m" ]
+check_eq "data: cache read keeps earlier TTL" "16 50m" "$(cache "$(reply 1800 0 500)" "$(reply 600 0 0)")"
+check_eq "data: cache sidechain ignored" "50 30m" "$(cache "$(reply 1800 0 500)" "$(reply 60 500 0 true)")"
 synthetic="{\"type\":\"assistant\",\"timestamp\":\"$(iso 10)\",\"message\":{\"model\":\"<synthetic>\",\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":0}}}"
-check "data: cache synthetic reply ignored" [ "$(cache "$(reply 1800 0 500)" "$synthetic")" = "50 30m" ]
-check "data: cache future reply clamps to fresh" [ "$(cache "$(reply -60 0 500)")" = "0 60m" ]
-check "data: cache seconds left not shown as 100%" [ "$(cache "$(reply 3595 0 500)")" = "99 1m" ]
-check "data: cache reply but no write -> cold" [ "$(cache "$(reply 600 0 0)")" = "100 cold" ]
+check_eq "data: cache synthetic reply ignored" "50 30m" "$(cache "$(reply 1800 0 500)" "$synthetic")"
+check_eq "data: cache future reply clamps to fresh" "0 60m" "$(cache "$(reply -60 0 500)")"
+check_eq "data: cache seconds left not shown as 100%" "99 1m" "$(cache "$(reply 3595 0 500)")"
+check_eq "data: cache reply but no write -> cold" "100 cold" "$(cache "$(reply 600 0 0)")"
 check "data: cache no reply -> hot" [ "$(key cch "$(data <<<"$full")") $(key cch_note "$(data <<<"$full")")" = "0 hot" ]
 printf '%s\n' "$(reply 60 0 500)" > "$TMP/r.jsonl"
-check "data: reply but no limits -> lim_wait" [ "$(key lim_wait "$(data <<<"{\"transcript_path\":\"$TMP/r.jsonl\"}")")" = 1 ]
+check_eq "data: reply but no limits -> lim_wait" 1 "$(key lim_wait "$(data <<<"{\"transcript_path\":\"$TMP/r.jsonl\"}")")"
 
 kv=$(data <<<'{"model":{"display_name":"a\u001b]52;c;aGk=\u0007b"}}')
-check "data: control chars dropped" [ "$(key model "$kv")" = "a ]52;c;aGk= b" ]
+check_eq "data: control chars dropped" "a ]52;c;aGk= b" "$(key model "$kv")"
 kv=$(data <<<'{"model":{"display_name":"a\u009d52;c;aGk=\u009cb"}}')
-check "data: C1 control chars dropped" [ "$(key model "$kv")" = "a 52;c;aGk= b" ]
+check_eq "data: C1 control chars dropped" "a 52;c;aGk= b" "$(key model "$kv")"
 
 # --- hud.pl: render ---
 render() { data <<<"$1" | COLUMNS=120 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
@@ -200,7 +200,7 @@ check "data: unknown layout -> full" [ -z "$(key layout "$(data <<<"$full")")" ]
 echo '{"hud":{"compact":true}}' > "$C/claudzilla.json"
 check "data: old compact key ignored" [ -z "$(key layout "$(data <<<"$full")")" ]
 echo '{"hud":{"layout":"compact"}}' > "$C/claudzilla.json"
-check "data: layout compact" [ "$(key layout "$(data <<<"$full")")" = compact ]
+check_eq "data: layout compact" compact "$(key layout "$(data <<<"$full")")"
 out=$(strip 170 "$full")
 check "compact: 3 rows" [ "$(wc -l <<<"$out")" -eq 3 ]
 check "compact: no rules" bash -c "! grep -q '━' <<<'$out'"
@@ -214,7 +214,7 @@ for w in $(seq 40 170); do
   bottom=$(COLUMNS=$w HUD_KV=1 perl "$HUD/hud.pl" <<<"$rendered" | perl -pe 's/\e\[[0-9;]*m//g' | tail -1)
   grep -qE '[0-9]{2}:[0-9]{2} ' <<<"$bottom" && ! grep -q 'pr' <<<"$bottom" && clock_alone=$w
 done
-check "compact: clock never outlives the skill" [ "$clock_alone" = 0 ]
+check_eq "compact: clock never outlives the skill" 0 "$clock_alone"
 check "compact: 109 cols -> one meter row" [ "$(strip 109 '{"session_id":"w1"}' | wc -l)" -eq 3 ]
 check "compact: 108 cols -> two columns, 4 rows" [ "$(strip 108 '{"session_id":"w1"}' | wc -l)" -eq 4 ]
 check "compact: 108 cols, short notes -> height holds" [ "$(strip 108 "$full" | wc -l)" -eq 4 ]
@@ -231,7 +231,7 @@ check "compact: 40 cols -> meters stack, no rules" [ "$(strip 40 '{"session_id":
 echo '{"hud":{"layout":"minimal"}}' > "$C/claudzilla.json"
 # HOME at the cwd: the folder draws as ~, so what fits does not hang on the temp path's length (long on macOS)
 mstrip() { HOME="$TMP" strip "$@"; }
-check "data: layout minimal" [ "$(key layout "$(data <<<"$full")")" = minimal ]
+check_eq "data: layout minimal" minimal "$(key layout "$(data <<<"$full")")"
 out=$(mstrip 170 "$full")
 check "minimal: 1 row" [ "$(wc -l <<<"$out")" -eq 1 ]
 check "minimal: place and model left, meters right" grep -q '^~  Opus  high  .*  cch 40m ┃ ctx [^ ]*  42% ┃ 5h [^ ]*  30%  2h0m ┃ wk [^ ]*  12%  2d7h$' <<<"$out"
@@ -245,7 +245,7 @@ flip=0; for w in $(seq 60 2 130); do
   b=$(mstrip $w "${full//\"used_percentage\":42.4/\"used_percentage\":10}" | perl -pe 's/ (cch|ctx) .*//')
   [ "$a" = "$b" ] || flip=$w
 done
-check "minimal: 9% vs 10% keeps the left part" [ "$flip" = 0 ]
+check_eq "minimal: 9% vs 10% keeps the left part" 0 "$flip"
 for w in 120 90 70 50 30; do
   o=$(mstrip $w "$full")
   check "minimal: $w cols -> 1 row within $((w - 4))" [ "$(wc -l <<<"$o" | tr -d ' ')/$(widest <<<"$o" | awk -v w=$((w - 4)) '{ print ($1 <= w) }')" = 1/1 ]
@@ -315,17 +315,17 @@ CT="$TMP/c1.jsonl"; { echo "{\"timestamp\":\"$(iso 5400)\",\"message\":{\"conten
 sleep 1; tick "$CT" csid1 >/dev/null
 # chmod would move ctime and miss the cache; instead plant a value only a cache hit can return
 perl -i -pe 's/^skill\tpr$/skill\tzz/' "$CD/hud-csid1.cache"
-check "cache: unchanged transcript reads nothing" [ "$(key skill "$(tick "$CT" csid1)")" = zz ]
+check_eq "cache: unchanged transcript reads nothing" zz "$(key skill "$(tick "$CT" csid1)")"
 tick "$CT" csid1 >/dev/null
 c=$(cat "$CT"); printf '%s\n' "${c//\"pr\"/\"qq\"}" > "$CT"
-check "cache: same-size rewrite of a cached transcript shows the new skill" [ "$(key skill "$(tick "$CT" csid1)")" = qq ]
+check_eq "cache: same-size rewrite of a cached transcript shows the new skill" qq "$(key skill "$(tick "$CT" csid1)")"
 sk new >> "$CT"
 # start of a new second, so write, tick and rewrite share it: the first tick must store nothing
 s=$(date +%s); until [ "$(date +%s)" != "$s" ]; do :; done
 CR="$TMP/c1r.jsonl"; sk pr > "$CR"; tick "$CR" csidR >/dev/null
 c=$(cat "$CR"); printf '%s\n' "${c//\"pr\"/\"qq\"}" > "$CR"
-check "cache: file changed this second is not cached" [ "$(key skill "$(tick "$CR" csidR)")" = qq ]
-check "cache: changed transcript shows the new skill" [ "$(key skill "$(tick "$CT" csid1)")" = new ]
+check_eq "cache: file changed this second is not cached" qq "$(key skill "$(tick "$CR" csidR)")"
+check_eq "cache: changed transcript shows the new skill" new "$(key skill "$(tick "$CT" csid1)")"
 CU="$TMP/c2.jsonl"; echo '{"type":"mode","mode":"normal"}' > "$CU"
 u0=$(key up "$(tick "$CU" csid2)")
 echo "{\"timestamp\":\"$(iso 600)\",\"message\":{\"content\":\"hi\"}}" >> "$CU"
@@ -340,7 +340,7 @@ perl -e 'my $tail = shift; my $r = 4194305 - 91 - length $tail;
   print "c" x ($r % 100 - 1), "\n" if $r % 100; print $tail' "$(sk pr)"$'\n' > "$CM"
 check "cache: transcript over 4 MB cut mid-character: size" [ "$(stat -c %s "$CM" 2>/dev/null || stat -f %z "$CM")" -gt 4194304 ]
 m0=$(perl -MTime::HiRes=time -e 'printf "%d", time*1000'); mo=$(tick "$CM" csid5); m1=$(perl -MTime::HiRes=time -e 'printf "%d", time*1000')
-check "cache: 4 MB cut mid-character still finds the skill" [ "$(key skill "$mo")" = pr ]
+check_eq "cache: 4 MB cut mid-character still finds the skill" pr "$(key skill "$mo")"
 check "cache: 4 MB cut mid-character reads in under 250 ms" [ $(( m1 - m0 )) -lt 250 ]
 echo "  mid-char tick: $(( m1 - m0 )) ms"
 CH="$TMP/c4.jsonl"; echo "{\"type\":\"assistant\",\"timestamp\":\"$(iso 60)\",\"message\":{\"usage\":{\"input_tokens\":5,\"cache_creation\":{\"ephemeral_5m_input_tokens\":10}}}}" > "$CH"; sleep 1
@@ -400,7 +400,7 @@ check "palette: uppercase hex accepted" grep -q $'\e\\[38;2;160;176;192mctx' <<<
 check "palette: hud.session colours the session name" grep -q $'\e\\[38;2;10;11;12mmaxis-24' <<<"$out"
 printf '{"palette":{"shared":{"label":"#12\\u001b[0m"},"hud":"x","margin":{"ahead":"#010203"}}}' > "$GC/claudzilla.json"
 kv=$(CLAUDE_CONFIG_DIR="$GC" HUD_DUMP=1 perl "$HUD/hud.pl" </dev/null)
-check "palette: escape in a value -> default sent" [ "$(key pal_shared_label "$kv")" = '#a396d2' ]
+check_eq "palette: escape in a value -> default sent" '#a396d2' "$(key pal_shared_label "$kv")"
 check "palette: \"hud\": \"x\" -> hud defaults sent" [ "$(key pal_hud_rampHot "$kv")" = '#ffaa5a' ]
 check "palette: escape never reaches the output" bash -c '! grep -q "#12" <<<"$1"' _ "$(frame 0 120)"
 check "palette: margin table not sent" bash -c '! grep -q "^pal_margin" <<<"$1"' _ "$kv"
@@ -443,7 +443,7 @@ check "trace hud: exit code unchanged with unwritable trace" [ "$ac" = "$bc" ]
 # --- state dir: private per user, never a planted symlink or a dir others can write ---
 TRD="$TRT/claudzilla-rules-$(id -u)"
 rm -rf "$TRT"; mkdir -p "$TRT"; trun >/dev/null
-check "state hud: state dir is private" [ "$(ls -ld "$TRD" | cut -c1-10)" = drwx------ ]
+check_eq "state hud: state dir is private" drwx------ "$(ls -ld "$TRD" | cut -c1-10)"
 hud_guarded() {
   rm -rf "$TRT"; mkdir -p "$TRT/victim"; ln -s "$TRT/victim" "$TRD"; local out; out=$(trun)
   rm "$TRD"; mkdir "$TRD"; chmod 777 "$TRD"; trun >/dev/null

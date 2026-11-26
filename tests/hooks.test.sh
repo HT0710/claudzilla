@@ -32,7 +32,7 @@ state() { node -p "JSON.stringify(require('$STATE/$SID.json')$1)"; }
 # --- UserPromptSubmit ---
 new_session; out=$(hook UserPromptSubmit prompt="login is broken")
 check "prompt: bug word -> systematic-debugging" has "$out" "systematic-debugging"
-check "prompt: bug word sets debug" [ "$(state .debug)" = true ]
+check_eq "prompt: bug word sets debug" true "$(state .debug)"
 check "prompt: debug nudge is conditional" has "$out" "If the prompt reports a bug"
 check "prompt: debug nudge names what to ignore" has "$out" "Otherwise ignore this reminder."
 new_session; out=$(hook UserPromptSubmit prompt="review all rules")
@@ -52,7 +52,7 @@ check "prompt: 'not working' still triggers" has "$out" "systematic-debugging"
 new_session; out=$(hook UserPromptSubmit prompt="reviewer said the loop is slow")
 check "prompt: review feedback -> receiving-code-review" has "$out" "receiving-code-review"
 new_session; out=$(hook UserPromptSubmit prompt="/superpowers:verification-before-completion the build is broken")
-check "prompt: typed skill recorded" [ "$(state '.skills[0]')" = '"superpowers:verification-before-completion"' ]
+check_eq "prompt: typed skill recorded" '"superpowers:verification-before-completion"' "$(state '.skills[0]')"
 check "prompt: typed skill skips triggers" [ -z "$out" ]
 for p in $'<task-notification>\n<status>failed</status> build broken' \
   $'Another Claude session sent a message:\n<cross-session-message from="x">login is broken</cross-session-message>' \
@@ -71,19 +71,19 @@ check "compact: below threshold silent" [ -z "$(cn "$TX")" ]
 check "compact: tier 1 optional line" has "$out" 'It starts with **Compact — optional:** and ends with Run and the command in backticks'
 check "compact: own line, no bullet" has "$out" 'on its own line, not in a bullet, quote or code span'
 check "compact: own words, size given" has "$out" 'in your own words: the `~160k` tokens re-sent every turn'
-check "compact: one line, no heading" [ "$(grep -c '## Compact' <<<"$out")" = 0 ]
-check "compact: no draft" [ "$(grep -c 'Keep:' <<<"$out")" = 0 ]
+check_eq "compact: one line, no heading" 0 "$(grep -c '## Compact' <<<"$out")"
+check_eq "compact: no draft" 0 "$(grep -c 'Keep:' <<<"$out")"
 check "compact: compact when decisions carry over" has "$out" '- `/claudzilla compact`: the next step needs decisions settled earlier.'
 check "compact: handoff when recent turns suffice" has "$out" '- `/claudzilla handoff`: the same work continues and the next step needs only the last few turns'
 check "compact: clear for unrelated work" has "$out" '- `/clear`: a big piece of work finished and the next step is unrelated.'
-check "compact: no fixed template" [ "$(grep -c '<what finished' <<<"$out")" = 0 ]
-check "compact: no why clause on screen" [ "$(grep -c "why the next step" <<<"$out")" = 0 ]
+check_eq "compact: no fixed template" 0 "$(grep -c '<what finished' <<<"$out")"
+check_eq "compact: no why clause on screen" 0 "$(grep -c "why the next step" <<<"$out")"
 check "compact: before Next or at end" has "$out" "right before **Next:**, or at the end when there is no **Next:**"
 check "compact: even on a short reply" has "$out" "even on a short reply"
 check "compact: never mid-task" has "$out" "mid-task"
 check "compact: tier 1 no Q&A" has "$out" "not on a Q&A"
-check "compact: tier 1 no any-reply clause" [ "$(grep -c "any reply that is not mid-task" <<<"$out")" = 0 ]
-check "compact: no fenced block" [ "$(grep -c '```' <<<"$out")" = 0 ]
+check_eq "compact: tier 1 no any-reply clause" 0 "$(grep -c "any reply that is not mid-task" <<<"$out")"
+check_eq "compact: no fenced block" 0 "$(grep -c '```' <<<"$out")"
 : > "$TX"; usage "$TX" 20000 300000
 check "compact: tier 2 suggest" has "$(cn "$TX")" '**Compact — suggest:**'
 : > "$TX"; usage "$TX" 50000 600000; out=$(cn "$TX")
@@ -126,7 +126,7 @@ rm -rf .claude
 # --- PostToolUse ---
 new_session; hook UserPromptSubmit prompt=hi >/dev/null
 hook PostToolUse tool_name=Skill tool_input.skill=superpowers:brainstorming >/dev/null
-check "skill: recorded" [ "$(state '.skills[0]')" = '"superpowers:brainstorming"' ]
+check_eq "skill: recorded" '"superpowers:brainstorming"' "$(state '.skills[0]')"
 
 # --- fail open ---
 check "bad json: silent" bash -c "[ -z \"\$(echo nope | node '$RG')\" ]"
@@ -172,7 +172,7 @@ check "push: verified -> allowed" [ -z "$(sh_ 'git push -u origin feat/x')" ]
 hook PostToolUse tool_name=Skill tool_input.skill=superpowers:verification-before-completion >/dev/null
 check "push: re-invoked verify needs a new check" denied "$(sh_ 'git push')"
 hook UserPromptSubmit 'prompt=<task-notification>x</task-notification>' >/dev/null
-check "push: mid-turn notification keeps the verify skill" [ "$(state '.skills[0]')" = '"superpowers:verification-before-completion"' ]
+check_eq "push: mid-turn notification keeps the verify skill" '"superpowers:verification-before-completion"' "$(state '.skills[0]')"
 sh_ 'npm test' >/dev/null
 hook UserPromptSubmit 'prompt=<task-notification>x</task-notification>' >/dev/null
 check "push: mid-turn notification keeps the check" [ -z "$(sh_ 'git push')" ]
@@ -193,7 +193,7 @@ check "push: +refspec -> ask" asked "$(sh_ 'git push origin +main')"
 check "push: --force-with-lease allowed" [ -z "$(sh_ 'git push --force-with-lease')" ]
 hook Stop last_assistant_message=done >/dev/null
 hook UserPromptSubmit 'prompt=<task-notification>x</task-notification>' >/dev/null
-check "push: notification after Stop starts a new turn" [ "$(state '.skills.length')" = 0 ]
+check_eq "push: notification after Stop starts a new turn" 0 "$(state '.skills.length')"
 # The Bash hook only sees git/gh commands (settings `if`); a check between them is read from the transcript.
 use() { printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"%s","name":"%s","input":%s}]}}\n' "$@"; }
 res() { printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"%s","content":"%s"}]}}\n' "$@"; }
@@ -407,7 +407,7 @@ out=$(hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js)
 check "edit: first edit in debug turn nudged" has "$out" "Phase 3"
 check "edit: debug gate is conditional" has "$out" "If this turn debugs a reported bug"
 check "edit: second edit silent" [ -z "$(hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js)" ]
-check "edit: marks turn edited" [ "$(state .edited)" = true ]
+check_eq "edit: marks turn edited" true "$(state .edited)"
 S=$(repo); spec="$S/docs/superpowers/specs/x.md"
 hook PreToolUse tool_name=Write tool_input.file_path="$spec" >/dev/null
 hook PreToolUse tool_name=Write tool_input.file_path="$spec" >/dev/null
@@ -424,19 +424,19 @@ hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
 out=$(stop "Fixed the parser.")
 check "stop: done claim continues now" has "$out" '"hookEventName":"Stop","additionalContext":"If this reply claims'
 check "stop: done claim says what to do otherwise" has "$out" "Otherwise reply only: no claim."
-check "stop: done claim fixed now, not flagged" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: done claim fixed now, not flagged" 0 "$(state .flags.length)"
 out=$(stop "Fixed the parser 🚀")
 check "stop: other slips folded into continuation" has "$out" "decorative emoji"
 check "stop: slips still fixed when no claim" has "$out" "Otherwise skip verification. Also fix:"
-check "stop: folded slips not flagged" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: folded slips not flagged" 0 "$(state .flags.length)"
 hook Stop "last_assistant_message=Fixed the parser 🚀" stop_hook_active=true >/dev/null
-check "stop: judged text not re-flagged" [ "$(state '.flags.join().includes("verification")')" = false ]
+check_eq "stop: judged text not re-flagged" false "$(state '.flags.join().includes("verification")')"
 hook Stop "last_assistant_message=Fixed the parser." stop_hook_active=true >/dev/null
 check "stop: done claim on continuation flagged" has "$(state .flags)" "verification"
 out=$(hook UserPromptSubmit prompt=$'<task-notification>\nbug')
 check "flags: injected on next prompt" has "$out" "claimed done without verification"
 check "flags: name the missing check" has "$out" "no check ran after the last edit"
-check "flags: cleared after inject" [ "$(state .flags.length)" = 0 ]
+check_eq "flags: cleared after inject" 0 "$(state .flags.length)"
 hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
 sh_ "npm test" >/dev/null
 check "stop: claim after a check ok" [ -z "$(stop "Fixed the parser.")" ]
@@ -485,7 +485,7 @@ check "stop: log append to docs is no edit" [ -z "$(stop "Fixed the parser.")" ]
 new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ $'cat > src/a.py <<\'EOF\'\nx = 1\nEOF' >/dev/null
 check "stop: heredoc to code still an edit" has "$(stop "Fixed the parser.")" "Claimed done"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "Done." >/dev/null
-check "stop: claim without edits ok" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: claim without edits ok" 0 "$(state .flags.length)"
 new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ "sed -i s/a/b/ /x/a.js" >/dev/null
 check "stop: claim after Bash edit continues" has "$(stop "Fixed the parser.")" "Claimed done"
 new_session; hook UserPromptSubmit prompt=go >/dev/null; sh_ "git status > /dev/null 2>&1; echo x > /tmp/n; sed -n 1p f; grep '<a>' f; awk '\$1 > 5' f; node -e 'a => a'" >/dev/null
@@ -500,13 +500,13 @@ check "stop: missing TL;DR flagged" has "$(state .flags)" "TL;DR"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "#$long" >/dev/null
 check "stop: missing TL;DR flagged under ### only" has "$(state .flags)" "TL;DR"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'**TL;DR** — x\n'"$long" >/dev/null
-check "stop: TL;DR present ok" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: TL;DR present ok" 0 "$(state .flags.length)"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'**TL;DR:** x\n'"$long" >/dev/null
-check "stop: TL;DR with colon inside bold ok" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: TL;DR with colon inside bold ok" 0 "$(state .flags.length)"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'**TL;DR: fixed x.**\n'"$long" >/dev/null
-check "stop: whole bold TL;DR line ok" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: whole bold TL;DR line ok" 0 "$(state .flags.length)"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'\n**Yes, it is a bug.** x\n'"$long" >/dev/null
-check "stop: bold answer first line ok" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: bold answer first line ok" 0 "$(state .flags.length)"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'Plain answer.\n**Bold later.**\n'"$long" >/dev/null
 check "stop: bold below a plain first line flagged" has "$(state .flags)" "TL;DR"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'**Next:** go\n'"$long" >/dev/null
@@ -516,16 +516,16 @@ check "stop: emoji flagged" has "$(state .flags)" "emoji"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop '| a | b<br>c |' >/dev/null
 check "stop: <br> in table flagged" has "$(state .flags)" "<br>"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop '| a | `x<br>y` |' >/dev/null
-check "stop: <br> in code span ok" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: <br> in code span ok" 0 "$(state .flags.length)"
 stop '| a | "x<br>y" |' >/dev/null
-check "stop: quoted <br> ok" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: quoted <br> ok" 0 "$(state .flags.length)"
 # rendered width = widest cell per column + 3 per column + 1; budget = COLUMNS - 4
 new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop $'| aaaaaaaaaa | b |\n|---|---|\n| c | dddddddddd |' >/dev/null
 check "stop: table wider than terminal flagged" has "$(state .flags)" "table wider than terminal (27 > 20 cols)"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop $'| **aaaa** | `bbbb` |\n|---|---|' >/dev/null
-check "stop: table within terminal ok (markup not counted)" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: table within terminal ok (markup not counted)" 0 "$(state .flags.length)"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'| aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa | b |\n|---|---|' >/dev/null
-check "stop: no COLUMNS, no width flag" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: no COLUMNS, no width flag" 0 "$(state .flags.length)"
 new_session; out=$(COLUMNS=100 hook UserPromptSubmit prompt=q)
 check "prompt: terminal width told" has "$out" "Terminal 100 cols: keep each table within 96 cols"
 check "prompt: width told every prompt (survives /compact)" has "$(COLUMNS=100 hook UserPromptSubmit prompt=q)" "Terminal 100 cols"
@@ -547,7 +547,7 @@ printf '{"enabledPlugins":{"margin@claudzilla":true}}' > "$SETTINGS"; : > "$IX"
 new_session; out=$(hook UserPromptSubmit prompt=q "transcript_path=$IX")
 check "prompt: margin enabled, not installed, no panel reminder" [ "${out#*Side panel}" = "$out" ]
 hook Stop last_assistant_message=hi "transcript_path=$IX" >/dev/null
-check "stop: margin not installed, no flag" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: margin not installed, no flag" 0 "$(state .flags.length)"
 mkdir -p "$CLAUDE_CONFIG_DIR/plugins"; printf '{"version":2,"plugins":{"margin@claudzilla":[{"scope":"user"}]}}' > "$CLAUDE_CONFIG_DIR/plugins/installed_plugins.json"
 new_session; out=$(hook UserPromptSubmit prompt=q "transcript_path=$IX")
 check "prompt: margin enabled, panel reminder on first prompt" has "$out" 'call `mcp__margin__intent`'
@@ -555,11 +555,11 @@ printf '{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}
 check "stop: no intent report this turn, flagged" has "$(state .flags)" "skipped the side panel report"
 check "prompt: missed report told next prompt" has "$(hook UserPromptSubmit prompt=q "transcript_path=$IX")" "Previous reply broke: skipped the side panel report"
 printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__margin__intent","input":{}}]}}\n' >> "$IX"; hook Stop last_assistant_message=hi "transcript_path=$IX" >/dev/null
-check "stop: intent reported this turn, no flag" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: intent reported this turn, no flag" 0 "$(state .flags.length)"
 hook UserPromptSubmit prompt=q "transcript_path=$IX" >/dev/null; hook Stop last_assistant_message=hi "transcript_path=$IX" >/dev/null
 check "stop: last turn's report does not count" has "$(state .flags)" "skipped the side panel report"
 hook UserPromptSubmit 'prompt=<task-notification>x</task-notification>' "transcript_path=$IX" >/dev/null; hook Stop last_assistant_message=hi "transcript_path=$IX" >/dev/null
-check "stop: task notification needs no report" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: task notification needs no report" 0 "$(state .flags.length)"
 new_session; NX="$TMP/later.jsonl"; out=$(hook UserPromptSubmit prompt=q "transcript_path=$NX")
 check "prompt: transcript not written yet, still reminded" has "$out" 'call `mcp__margin__intent`'
 printf '{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}\n' > "$NX"; hook Stop last_assistant_message=hi "transcript_path=$NX" >/dev/null
@@ -575,38 +575,38 @@ printf '{"enabledPlugins":{"margin@claudzilla":true},"pluginConfigs":{"margin@cl
 new_session; : > "$IX"; out=$(hook UserPromptSubmit prompt=q "transcript_path=$IX")
 check "prompt: intent option off, no panel reminder" [ "${out#*Side panel}" = "$out" ]
 printf '{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}\n' >> "$IX"; hook Stop last_assistant_message=hi "transcript_path=$IX" >/dev/null
-check "stop: intent option off, no flag" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: intent option off, no flag" 0 "$(state .flags.length)"
 rm -f "$SETTINGS"
 wide=$'| aaaaaaaaaa | b |\n|---|---|\n| c | dddddddddd |'
 for f in '```' '~~~'; do
   new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop "$f"$'\n'"$wide"$'\n'"$f" >/dev/null
-  check "stop: table in $f fence not measured" [ "$(state .flags.length)" = 0 ]
+  check_eq "stop: table in $f fence not measured" 0 "$(state .flags.length)"
 done
 new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop $'| just a long prose line that starts with a pipe |' >/dev/null
-check "stop: pipe line without separator row not a table" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: pipe line without separator row not a table" 0 "$(state .flags.length)"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=30 stop $'| a | b |\n|-----------------|---|\n| c | d | extra extra extra extra |' >/dev/null
-check "stop: separator and extra cells not measured" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: separator and extra cells not measured" 0 "$(state .flags.length)"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop $'| [link](https://example.com/very/long/path) | b |\n|---|---|' >/dev/null
-check "stop: link URL not counted" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: link URL not counted" 0 "$(state .flags.length)"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=28 stop $'| 一二三四五六七八九十 | b |\n|---|---|' >/dev/null
 check "stop: wide chars count 2 cols" has "$(state .flags)" "(30 > 24 cols)"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=28 stop $'| ひらがなひらがなひら | b |\n|---|---|' >/dev/null
 check "stop: kana count 2 cols" has "$(state .flags)" "(30 > 24 cols)"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop $'| *unverified* | b |\n|---|---|' >/dev/null
-check "stop: *italic* markers not counted" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: *italic* markers not counted" 0 "$(state .flags.length)"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop $'| 👨‍👩‍👧👨‍👩‍👧👨‍👩‍👧 | b |\n|---|---|' >/dev/null
 check "stop: joined emoji count 2 cols each" bash -c "! grep -q 'table wider' <<<'$(state .flags)'"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; COLUMNS=24 stop '```'$'\n''```js'$'\n'"$wide"$'\n''```' >/dev/null
-check "stop: fence line with info string does not close" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: fence line with info string does not close" 0 "$(state .flags.length)"
 new_session; hook UserPromptSubmit prompt=q >/dev/null
 hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
 stop 'Peer wrote "Fixed the probe." in its reply.' >/dev/null
-check "stop: quoted done claim ok" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: quoted done claim ok" 0 "$(state .flags.length)"
 check "stop: real claim beside code span still caught" has "$(stop 'Fixed the parser; see `fixed` flag.')" "Claimed done"
 good=$'```text\n┌─ A ─┐  ┌──┐\n│ x   │  │y │\n└─────┘  └──┘\n```'
 bad=$'```text\n┌───┐\n│ x  │\n└───┘\n```'
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "$good" >/dev/null
-check "stop: aligned boxes ok" [ "$(state .flags.length)" = 0 ]
+check_eq "stop: aligned boxes ok" 0 "$(state .flags.length)"
 stop "$bad" >/dev/null
 check "stop: misaligned box flagged" has "$(state .flags)" "line 3"
 
@@ -617,7 +617,7 @@ reminded() { ! denied "$1" && has "$1" "Reminder: "; }
 mcfg '{"rulesGuard":{"rules":{"tableWidth":"off"}}}'
 new_session; check "config: tableWidth off, no width line" [ -z "$(COLUMNS=100 hook UserPromptSubmit prompt=q)" ]
 COLUMNS=24 stop $'| aaaaaaaaaa | bbbbbbbbbbbbbbb |\n|---|---|' >/dev/null
-check "config: tableWidth off, no flag" [ "$(state .flags.length)" = 0 ]
+check_eq "config: tableWidth off, no flag" 0 "$(state .flags.length)"
 rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"
 C=$(repo); git -C "$C" switch -q -c feat/c; cd "$C"
 new_session; hook UserPromptSubmit prompt=go >/dev/null
@@ -652,7 +652,7 @@ mcfg '{"rulesGuard":{"tldrMinLines":40,"rules":{"doneClaim":"off"}}}'
 new_session; hook UserPromptSubmit prompt=q >/dev/null
 hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
 stop "$long" >/dev/null; stop "Fixed it." >/dev/null
-check "config: tldrMinLines and doneClaim off" [ "$(state .flags.length)" = 0 ]
+check_eq "config: tldrMinLines and doneClaim off" 0 "$(state .flags.length)"
 mcfg '{"rulesGuard":{"rules":{"doneClaim":"flag"}}}'
 new_session; hook UserPromptSubmit prompt=q >/dev/null
 hook PreToolUse tool_name=Edit tool_input.file_path=/x/a.js >/dev/null
@@ -732,7 +732,7 @@ new_session; hook UserPromptSubmit prompt=q >/dev/null; hook PreToolUse tool_nam
 check "claim: bullet claim caught" has "$(stop $'Summary:\n- Fixed the parser')" "Claimed done"
 loop=$'```text\n┌────┐\n▼    │\nA ──▶ B ─┘\n```'
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "$loop" >/dev/null
-check "diagram: loop-back arrow not a box" [ "$(state .flags.length)" = 0 ]
+check_eq "diagram: loop-back arrow not a box" 0 "$(state .flags.length)"
 mcfg '{"rulesGuard":{"keywords":{"debug":[".env","#bug"]}}}'
 new_session; check "keyword: symbol-start keyword matches" has "$(hook UserPromptSubmit prompt='check my .env file')" "systematic-debugging"
 new_session; check "keyword: symbol-start not inside word" [ -z "$(hook UserPromptSubmit prompt='see foo.env there')" ]
@@ -840,7 +840,7 @@ check "frame: matching fence closes it" sub "$(mdm h 1 $'```\n---\n')" "$G"
 check "frame: no message_id, no frame" [ -z "$(md $'**TL;DR** x\n')" ]
 check "frame: state removed after final" bash -c "! ls '$STATE'/md-* 2>/dev/null"
 check "frame: a planted or open state dir is never used" guarded mdm gz 0 $'**TL;DR** x\n'
-check "frame: state dir is private" [ "$(ls -ld "$STATE" | cut -c1-10)" = drwx------ ]
+check_eq "frame: state dir is private" drwx------ "$(ls -ld "$STATE" | cut -c1-10)"
 # folio writes the chat's width; a docked panel leaves it narrower than COLUMNS
 printf 34 >"$STATE/cols-mdw"
 out=$(node -e 'console.log(JSON.stringify({ hook_event_name: "MessageDisplay", session_id: "mdw", message_id: "w", final: true, delta: "**TL;DR** x\n" }))' | COLUMNS=24 perl "$MD")

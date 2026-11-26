@@ -71,7 +71,7 @@ check "content: no omc" bash -c "! grep -rqi omc '$REPO/claude' '$REPO/settings.
 
 # --- parts ---
 check "parts: every base key/hook/plugin claimed exactly once" node "$REPO/tests/parts-check.mjs" "$REPO"
-check "parts: links == old LINKS set" [ "$(node -p 'Object.values(require(process.argv[1])).flatMap(p=>p.links||[]).sort().join(" ")' "$REPO/parts.json")" = "CLAUDE.md RTK.md agents/atlas.md hooks/agent-name.mjs hooks/claudzilla-update.sh hooks/cost-trace.mjs hooks/delegate-nudge.mjs hooks/experimental.mjs hooks/md-display.pl hooks/rules-guard.mjs hooks/trace.mjs hooks/trace.pl hud rules skills/claudzilla-compact skills/claudzilla-report skills/pr skills/rule-review themes" ]
+check_eq "parts: links == old LINKS set" "CLAUDE.md RTK.md agents/atlas.md hooks/agent-name.mjs hooks/claudzilla-update.sh hooks/cost-trace.mjs hooks/delegate-nudge.mjs hooks/experimental.mjs hooks/md-display.pl hooks/rules-guard.mjs hooks/trace.mjs hooks/trace.pl hud rules skills/claudzilla-compact skills/claudzilla-report skills/pr skills/rule-review themes" "$(node -p 'Object.values(require(process.argv[1])).flatMap(p=>p.links||[]).sort().join(" ")' "$REPO/parts.json")"
 H=$(new_home); run_install "$H"; cp -a "$H/.claude" "$H/before"; run_install "$H"
 check "existing: re-run byte-identical" diff -r --exclude=.claudzilla-backup "$H/before" "$H/.claude"
 
@@ -82,15 +82,15 @@ for f in CLAUDE.md RTK.md rules themes hud agents/atlas.md hooks/claudzilla-upda
   check "fresh: $f linked" [ "$(readlink "$H/.claude/$f")" = "$REPO/claude/$f" ]
 done
 H2=$(new_home); mkdir -p "$H2/.claude/skills/mine"; echo x > "$H2/.claude/skills/mine/SKILL.md"; run_install "$H2"
-check "skills: own skill kept" [ "$(cat "$H2/.claude/skills/mine/SKILL.md")" = x ]
+check_eq "skills: own skill kept" x "$(cat "$H2/.claude/skills/mine/SKILL.md")"
 check "skills: pr linked beside own" [ "$(readlink "$H2/.claude/skills/pr")" = "$REPO/claude/skills/pr" ]
 HA=$(new_home); mkdir -p "$HA/.claude/agents"; echo x > "$HA/.claude/agents/mine.md"; run_install "$HA"
-check "agents: own agent kept" [ "$(cat "$HA/.claude/agents/mine.md")" = x ]
+check_eq "agents: own agent kept" x "$(cat "$HA/.claude/agents/mine.md")"
 check "agents: atlas linked beside own" [ "$(readlink "$HA/.claude/agents/atlas.md")" = "$REPO/claude/agents/atlas.md" ]
 check "fresh: CLAUDE.local.md created" [ -f "$H/.claude/CLAUDE.local.md" ]
 check "fresh: settings == base + ponytail seed" [ "$(node -p 'const j=require(process.argv[1]);delete j.pluginConfigs["ponytail@ponytail"];if(!Object.keys(j.pluginConfigs).length)delete j.pluginConfigs;JSON.stringify(j)' "$H/.claude/settings.json")" = "$(q "$REPO/settings.base.json" '')" ]
-check "fresh: permissions ask by default" [ "$(q "$H/.claude/settings.json" .permissions.defaultMode)" = '"default"' ]
-check "fresh: no bypass-prompt skip" [ "$(q "$H/.claude/settings.json" .skipDangerousModePermissionPrompt)" = undefined ]
+check_eq "fresh: permissions ask by default" '"default"' "$(q "$H/.claude/settings.json" .permissions.defaultMode)"
+check_eq "fresh: no bypass-prompt skip" undefined "$(q "$H/.claude/settings.json" .skipDangerousModePermissionPrompt)"
 check "fresh: update hook in settings" grep -q 'claudzilla-update.sh' "$H/.claude/settings.json"
 ssMatcher() { node -e 'const [p,re,m]=process.argv.slice(1),e=require(p).hooks.SessionStart.filter(x=>x.hooks.some(h=>new RegExp(re).test(h.command)));process.exit(e.length===1&&e[0].matcher===m?0:1)' "$H/.claude/settings.json" "$1" "$2"; }
 check "fresh: update hook runs on startup and /clear" ssMatcher claudzilla-update 'startup|clear'
@@ -105,7 +105,7 @@ rule_ids() { node --input-type=module -e "import { DEFAULTS } from '$REPO/claude
 check "fresh: every rule stamped" [ "$(node -p "Object.keys(require('$RS')).sort().join(',')" 2>/dev/null)" = "$(rule_ids)" ]
 node -e 'const f=process.argv[1],s=require(f);s.tldr="2001-01-01T00:00:00.000Z";s.emoji=5;delete s.pushVerify;require("fs").writeFileSync(f,JSON.stringify(s))' "$RS" 2>/dev/null
 run_install "$H"
-check "rerun: rule date kept" [ "$(node -p "require('$RS').tldr" 2>/dev/null)" = 2001-01-01T00:00:00.000Z ]
+check_eq "rerun: rule date kept" 2001-01-01T00:00:00.000Z "$(node -p "require('$RS').tldr" 2>/dev/null)"
 check "rerun: missing rule stamped" node -e 'process.exit(/^\d{4}-\d\d-\d\dT.*Z$/.test(require(process.argv[1]).pushVerify) ? 0 : 1)' "$RS"
 check "rerun: non-string stamp restamped" node -e 'process.exit(/^\d{4}-\d\d-\d\dT.*Z$/.test(require(process.argv[1]).emoji) ? 0 : 1)' "$RS"
 H3=$(new_home); mkdir -p "$H3/.claude/.claudzilla-rules.json"; run_install "$H3"; rc=$?
@@ -116,9 +116,9 @@ check "fresh: rules-guard hook in settings" grep -q 'rules-guard.mjs' "$H/.claud
 check "fresh: delegate hook in settings" grep -q 'delegate-nudge.mjs' "$H/.claude/settings.json"
 check "fresh: experimental hook in settings" grep -q 'experimental.mjs' "$H/.claude/settings.json"
 check "fresh: agent-name hook in settings" grep -q 'agent-name.mjs' "$H/.claude/settings.json"
-check "fresh: agent teams 0 from base" [ "$(q "$H/.claude/settings.json" .env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS)" = '"0"' ]
+check_eq "fresh: agent teams 0 from base" '"0"' "$(q "$H/.claude/settings.json" .env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS)"
 HT=$(new_home); mkdir -p "$HT/.claude"; echo '{"env":{"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS":"1"}}' > "$HT/.claude/settings.overrides.json"; run_install "$HT"
-check "overrides: a user's 1 wins over base 0" [ "$(q "$HT/.claude/settings.json" .env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS)" = '"1"' ]
+check_eq "overrides: a user's 1 wins over base 0" '"1"' "$(q "$HT/.claude/settings.json" .env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS)"
 echo '{"experimental":{"steward":true}}' > "$H/.claude/claudzilla.json"
 check "fresh: experimental hook finds features via link" bash -c "CLAUDE_CONFIG_DIR='$H/.claude' node '$H/.claude/hooks/experimental.mjs' </dev/null | grep -q 'Steward'"
 check "fresh: md-display hook in settings" grep -q 'md-display.pl' "$H/.claude/settings.json"
@@ -141,16 +141,16 @@ cat > "$S" <<'JSON'
  "enabledPlugins":{"extra@x":true}}
 JSON
 run_install "$H"
-check "merge: repo scalar wins" [ "$(q "$S" .model)" = '"opus[1m]"' ]
-check "merge: machine env kept" [ "$(q "$S" .env.FOO)" = '"1"' ]
-check "merge: repo env added" [ "$(q "$S" .env.COLORTERM)" = '"truecolor"' ]
+check_eq "merge: repo scalar wins" '"opus[1m]"' "$(q "$S" .model)"
+check_eq "merge: machine env kept" '"1"' "$(q "$S" .env.FOO)"
+check_eq "merge: repo env added" '"truecolor"' "$(q "$S" .env.COLORTERM)"
 check "merge: machine hook kept" grep -q '"mine"' "$S"
 check "merge: rtk hook not duplicated" [ "$(grep -c 'rtk hook claude' "$S")" -eq 1 ]
-check "merge: machine plugin kept" [ "$(q "$S" '.enabledPlugins["extra@x"]')" = true ]
+check_eq "merge: machine plugin kept" true "$(q "$S" '.enabledPlugins["extra@x"]')"
 check "backup: old CLAUDE.md saved" grep -rqx old "$H/.claude/.claudzilla-backup"
 check "backup: old settings saved" bash -c "ls '$H'/.claude/.claudzilla-backup/*/settings.json >/dev/null"
-check "override: beats repo value" [ "$(q "$S" .permissions.defaultMode)" = '"dontAsk"' ]
-check "override: beats repo theme" [ "$(q "$S" .theme)" = '"dark"' ]
+check_eq "override: beats repo value" '"dontAsk"' "$(q "$S" .permissions.defaultMode)"
+check_eq "override: beats repo theme" '"dark"' "$(q "$S" .theme)"
 check "local: CLAUDE.local.md untouched" grep -qx 'keep me' "$H/.claude/CLAUDE.local.md"
 
 # --- hooks left pointing at files moved to the backup (#175) ---
@@ -170,9 +170,9 @@ check "moved: hook on a file behind a moved symlink named" bash -c "grep -F 'sh 
 
 # --- statusLine redraws every 30 s ---
 N=$(new_home); inst "$N"
-check "refresh: fresh install -> refreshInterval 30" [ "$(q "$N/.claude/settings.json" .statusLine.refreshInterval)" = 30 ]
+check_eq "refresh: fresh install -> refreshInterval 30" 30 "$(q "$N/.claude/settings.json" .statusLine.refreshInterval)"
 N3=$(new_home); mkdir -p "$N3/.claude"; echo '{"statusLine":{"refreshInterval":5}}' > "$N3/.claude/settings.overrides.json"; inst "$N3"
-check "refresh: settings.overrides.json still wins" [ "$(q "$N3/.claude/settings.json" .statusLine.refreshInterval)" = 5 ]
+check_eq "refresh: settings.overrides.json still wins" 5 "$(q "$N3/.claude/settings.json" .statusLine.refreshInterval)"
 
 # --- re-run is a no-op ---
 nb=$(ls "$H/.claude/.claudzilla-backup" | wc -l); cp "$S" "$H/s1"; sleep 1
@@ -201,8 +201,8 @@ const d=JSON.parse(fs.readFileSync(s,"utf8"));d.hooks.Stop.push(old);d.x=1;d.y=2
 run_install "$H"
 check "prune: stale entry from record removed" lacksCmd "$S" old
 check "prune: machine hook kept with record" hasCmd "$S" mine
-check "prune: removed key deleted when unchanged" [ "$(q "$S" .x)" = undefined ]
-check "prune: removed key kept when changed" [ "$(q "$S" .y)" = 2 ]
+check_eq "prune: removed key deleted when unchanged" undefined "$(q "$S" .x)"
+check_eq "prune: removed key kept when changed" 2 "$(q "$S" .y)"
 check "record: rewritten as base" cmp -s "$R" "$REPO/settings.base.json"
 run_install "$H"
 check "prune: rerun is a no-op" bash -c "! grep -q 'settings.json merged' '$H/install.log'"
@@ -228,21 +228,21 @@ check "record: unparsable record rewritten" cmp -s "$R" "$REPO/settings.base.jso
 sec_keys() {
 # --- keybindings: alt+h toggles the panel, alt+k focuses the band, alt+g opens the guide ---
 K=$(new_home); run_install "$K"
-check "keys: fresh alt+o opens overview" [ "$(key "$K" Chat alt+o)" = '"command:margin-overview"' ]
-check "keys: fresh alt+h opens history" [ "$(key "$K" Chat alt+h)" = '"command:margin-history"' ]
-check "keys: fresh alt+e opens explorer" [ "$(key "$K" Chat alt+e)" = '"command:margin-explorer"' ]
-check "keys: fresh alt+l unbound" [ "$(key "$K" Chat alt+l)" = undefined ]
-check "keys: fresh alt+g opens git" [ "$(key "$K" Chat alt+g)" = '"command:margin-git"' ]
-check "keys: fresh alt+k focuses band" [ "$(key "$K" Chat alt+k)" = '"abovePrompt:focus"' ]
-check "keys: fresh alt+i opens guide" [ "$(key "$K" Chat alt+i)" = '"command:claudzilla"' ]
-check "keys: fresh alt+w opens worlds" [ "$(key "$K" Chat alt+w)" = '"command:claudzilla-worlds"' ]
+check_eq "keys: fresh alt+o opens overview" '"command:margin-overview"' "$(key "$K" Chat alt+o)"
+check_eq "keys: fresh alt+h opens history" '"command:margin-history"' "$(key "$K" Chat alt+h)"
+check_eq "keys: fresh alt+e opens explorer" '"command:margin-explorer"' "$(key "$K" Chat alt+e)"
+check_eq "keys: fresh alt+l unbound" undefined "$(key "$K" Chat alt+l)"
+check_eq "keys: fresh alt+g opens git" '"command:margin-git"' "$(key "$K" Chat alt+g)"
+check_eq "keys: fresh alt+k focuses band" '"abovePrompt:focus"' "$(key "$K" Chat alt+k)"
+check_eq "keys: fresh alt+i opens guide" '"command:claudzilla"' "$(key "$K" Chat alt+i)"
+check_eq "keys: fresh alt+w opens worlds" '"command:claudzilla-worlds"' "$(key "$K" Chat alt+w)"
 K=$(new_home); mkdir -p "$K/.claude"
 echo '{"bindings":[{"context":"Global","bindings":{"ctrl+t":"app:toggleTodos"}},{"context":"Chat","bindings":{"ctrl+e":"chat:externalEditor"}}]}' > "$K/.claude/keybindings.json"
 run_install "$K"
-check "keys: own binding kept" [ "$(key "$K" Global ctrl+t)" = '"app:toggleTodos"' ]
-check "keys: own Chat binding kept" [ "$(key "$K" Chat ctrl+e)" = '"chat:externalEditor"' ]
-check "keys: alt+h added beside own" [ "$(key "$K" Chat alt+h)" = '"command:margin-history"' ]
-check "keys: alt+k added beside own" [ "$(key "$K" Chat alt+k)" = '"abovePrompt:focus"' ]
+check_eq "keys: own binding kept" '"app:toggleTodos"' "$(key "$K" Global ctrl+t)"
+check_eq "keys: own Chat binding kept" '"chat:externalEditor"' "$(key "$K" Chat ctrl+e)"
+check_eq "keys: alt+h added beside own" '"command:margin-history"' "$(key "$K" Chat alt+h)"
+check_eq "keys: alt+k added beside own" '"abovePrompt:focus"' "$(key "$K" Chat alt+k)"
 check "keys: added to existing Chat block" node -e 'process.exit(require(process.argv[1]).bindings.filter(b=>b.context==="Chat").length===1?0:1)' "$K/.claude/keybindings.json"
 check "keys: own file backed up" bash -c "ls '$K'/.claude/.claudzilla-backup/*/keybindings.json >/dev/null"
 cp "$K/.claude/keybindings.json" "$K/k1"; nb=$(ls "$K/.claude/.claudzilla-backup" | wc -l); sleep 1; run_install "$K"
@@ -256,13 +256,13 @@ for own in '{"bindings":[{"context":"Chat","bindings":{"alt+h":null}}]}' \
            '{"bindings":[{"context":"Global","bindings":{"ctrl+p":"command:margin-history"}}]}'; do
   K=$(new_home); mkdir -p "$K/.claude"; printf '%s\n' "$own" | tee "$K/k0" > "$K/.claude/keybindings.json"; run_install "$K"
   check "keys: alt+h left alone: $own" [ "$(n "$K/.claude/keybindings.json" command:margin-history)" -eq "$(n "$K/k0" command:margin-history)" ]
-  check "keys: alt+k still added: $own" [ "$(key "$K" Chat alt+k)" = '"abovePrompt:focus"' ]
+  check_eq "keys: alt+k still added: $own" '"abovePrompt:focus"' "$(key "$K" Chat alt+k)"
 done
 for own in '{"bindings":[{"context":"Chat","bindings":{"alt+k":null}}]}' \
            '{"bindings":[{"context":"Global","bindings":{"ctrl+f":"abovePrompt:focus"}}]}'; do
   K=$(new_home); mkdir -p "$K/.claude"; printf '%s\n' "$own" | tee "$K/k0" > "$K/.claude/keybindings.json"; run_install "$K"
   check "keys: alt+k left alone: $own" [ "$(n "$K/.claude/keybindings.json" abovePrompt:focus)" -eq "$(n "$K/k0" abovePrompt:focus)" ]
-  check "keys: alt+h still added: $own" [ "$(key "$K" Chat alt+h)" = '"command:margin-history"' ]
+  check_eq "keys: alt+h still added: $own" '"command:margin-history"' "$(key "$K" Chat alt+h)"
 done
 K=$(new_home); mkdir -p "$K/.claude"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+o":null,"alt+h":null,"alt+e":null,"alt+g":null,"alt+k":null,"alt+i":null,"alt+w":null}}]}' | tee "$K/k0" > "$K/.claude/keybindings.json"; run_install "$K"
 check "keys: all own, file untouched" cmp -s "$K/.claude/keybindings.json" "$K/k0"
@@ -289,11 +289,11 @@ tk() { K=$(new_home); mkdir -p "$K/.claude"; printf '%s\n' "$1" > "$K/.claude/ke
 tk '{"bindings":[{"context":"Chat","bindings":{"alt+h":"command:panel","alt+g":"command:claudzilla","alt+k":"abovePrompt:focus"}}]}'
 check "tabkeys: released user migrated" bash -c "[ '$(key "$K" Chat alt+h)' = '\"command:margin-history\"' ] && [ '$(key "$K" Chat alt+g)' = '\"command:margin-git\"' ] && [ '$(key "$K" Chat alt+i)' = '\"command:claudzilla\"' ] && [ '$(key "$K" Chat alt+o)' = '\"command:margin-overview\"' ] && [ '$(key "$K" Chat alt+e)' = '\"command:margin-explorer\"' ] && [ \"\$(grep -c 'command:panel\|\"command:margin\"' '$K/.claude/keybindings.json')\" -eq 0 ]"
 tk '{"bindings":[{"context":"Chat","bindings":{"alt+h":"command:margin"}}]}'
-check "tabkeys: dev user migrated" [ "$(key "$K" Chat alt+h)" = '"command:margin-history"' ]
+check_eq "tabkeys: dev user migrated" '"command:margin-history"' "$(key "$K" Chat alt+h)"
 tk '{"bindings":[{"context":"Chat","bindings":{"alt+i":null,"alt+g":"command:claudzilla"}}]}'
 check "tabkeys: own alt+i keeps guide on alt+g" [ "$(key "$K" Chat alt+g)$(key "$K" Chat alt+i)" = '"command:claudzilla"null' ]
 tk '{"bindings":[{"context":"Global","bindings":{"Meta+I":"app:x"}},{"context":"Chat","bindings":{"alt+g":"command:claudzilla"}}]}'
-check "tabkeys: own alt+i (alias, Global) keeps guide on alt+g" [ "$(key "$K" Chat alt+g)" = '"command:claudzilla"' ]
+check_eq "tabkeys: own alt+i (alias, Global) keeps guide on alt+g" '"command:claudzilla"' "$(key "$K" Chat alt+g)"
 tk '{"bindings":[{"context":"Chat","bindings":{"alt+q":"command:claudzilla"}}]}'
 check "tabkeys: guide on alt+q moves to alt+i" bash -c "[ '$(key "$K" Chat alt+i)' = '\"command:claudzilla\"' ] && [ '$(key "$K" Chat alt+q)' = undefined ] && grep -q 'alt+q -> alt+i' '$K/install.log'"
 tk '{"bindings":[{"context":"Chat","bindings":{"alt+i":"chat:x","alt+q":"command:claudzilla"}}]}'
@@ -314,29 +314,29 @@ A=$(new_home); inst "$A" --add hud
 check "add: hud linked" [ -L "$A/.claude/hud" ]
 check "add: no rules" [ ! -e "$A/.claude/rules" ]
 check "add: updater linked" [ -L "$A/.claude/hooks/claudzilla-update.sh" ]
-check "add: alt+i without core" [ "$(key "$A" Chat alt+i)" = '"command:claudzilla"' ]
-check "add: only saved" [ "$(q "$A/.claude/claudzilla.json" .install)" = '{"only":["hud"]}' ]
+check_eq "add: alt+i without core" '"command:claudzilla"' "$(key "$A" Chat alt+i)"
+check_eq "add: only saved" '{"only":["hud"]}' "$(q "$A/.claude/claudzilla.json" .install)"
 inst "$A" --add margin
-check "add: stacks" [ "$(q "$A/.claude/claudzilla.json" .install.only)" = '["hud","margin"]' ]
-check "add: alt+h with margin" [ "$(key "$A" Chat alt+h)" = '"command:margin-history"' ]
-check "add: no alt+k without picks" [ "$(key "$A" Chat alt+k)" = undefined ]
+check_eq "add: stacks" '["hud","margin"]' "$(q "$A/.claude/claudzilla.json" .install.only)"
+check_eq "add: alt+h with margin" '"command:margin-history"' "$(key "$A" Chat alt+h)"
+check_eq "add: no alt+k without picks" undefined "$(key "$A" Chat alt+k)"
 inst "$A" --remove hud
 check "remove: hud unlinked" [ ! -e "$A/.claude/hud" ]
-check "remove: statusLine gone" [ "$(q "$A/.claude/settings.json" .statusLine)" = undefined ]
+check_eq "remove: statusLine gone" undefined "$(q "$A/.claude/settings.json" .statusLine)"
 inst "$A" --remove margin
 check "tabkeys: --remove margin drops the four tab keys, keeps alt+i" [ "$(key "$A" Chat alt+o)$(key "$A" Chat alt+h)$(key "$A" Chat alt+e)$(key "$A" Chat alt+g)$(key "$A" Chat alt+i)" = 'undefinedundefinedundefinedundefined"command:claudzilla"' ]
 R=$(new_home); inst "$R" --remove rtk
-check "remove fresh: skip saved" [ "$(q "$R/.claude/claudzilla.json" .install)" = '{"skip":["rtk"]}' ]
+check_eq "remove fresh: skip saved" '{"skip":["rtk"]}' "$(q "$R/.claude/claudzilla.json" .install)"
 check "remove fresh: rtk hook absent" bash -c "! grep -q 'rtk hook' '$R/.claude/settings.json'"
 check "remove fresh: rules-guard hooks kept" bash -c "grep -q 'rules-guard' '$R/.claude/settings.json' && [ \"\$(node -p 'require(process.argv[1]).hooks.PreToolUse.length' '$R/.claude/settings.json')\" -ge 2 ]"
 inst "$R"; check "saved: re-run keeps skip" bash -c "! grep -q 'rtk hook' '$R/.claude/settings.json'"
-inst "$R" --full; check "full: clears install key" [ "$(q "$R/.claude/claudzilla.json" .install)" = undefined ]
+inst "$R" --full; check_eq "full: clears install key" undefined "$(q "$R/.claude/claudzilla.json" .install)"
 X=$(new_home); inst "$X" --add nope; rc=$?
 check "unknown part: exit 1" [ "$rc" -eq 1 ]; check "unknown part: no change" [ ! -e "$X/.claude" ]
 B=$(new_home); (cd "$B" && clean_env HOME="$B" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_REPO="$REPO" bash -s -- --add hud < "$REPO/install.sh" >"$B/install.log" 2>&1)
 check "bootstrap: flags forwarded" [ ! -e "$B/.claude/rules" ]
 J=$(new_home); mkdir -p "$J/.claude"; echo '{"rulesGuard":{"allowMain":true}}' > "$J/.claude/claudzilla.json"; inst "$J" --remove rtk
-check "save: keeps rulesGuard" [ "$(q "$J/.claude/claudzilla.json" .rulesGuard.allowMain)" = true ]
+check_eq "save: keeps rulesGuard" true "$(q "$J/.claude/claudzilla.json" .rulesGuard.allowMain)"
 I=$(new_home); mkdir -p "$I/.claude"; echo '{bad' > "$I/.claude/claudzilla.json"; inst "$I" --remove rtk; rc=$?
 check "save: invalid json exit 1, untouched" bash -c "[ $rc -eq 1 ] && [ \"\$(cat '$I/.claude/claudzilla.json')\" = '{bad' ]"
 D=$(new_home); inst "$D" --remove rtk
@@ -344,7 +344,7 @@ node -e 'const f=process.argv[1],j=require(f);j.install.skip=["rtk","gone"];requ
 check "saved: dropped part ignored" [ "$rc" -eq 0 ]
 E=$(new_home); inst "$E"
 node -e 'const f=process.argv[1],j=require(f);j.statusLine.command="mine";require("fs").writeFileSync(f,JSON.stringify(j))' "$E/.claude/settings.json"; inst "$E" --remove hud
-check "remove: user-edited key kept" [ "$(q "$E/.claude/settings.json" .statusLine.command)" = '"mine"' ]
+check_eq "remove: user-edited key kept" '"mine"' "$(q "$E/.claude/settings.json" .statusLine.command)"
 }
 
 sec_deps_update() {
@@ -378,10 +378,10 @@ O=$(new_home); online "$O"; rc=$?
 check "deps: online install exit 0" [ "$rc" -eq 0 ]
 check "deps: node dir, link and rtk recorded" [ "$(q "$O/.claude/.claudzilla-installed.json" .files)" = "[\"$O/.local/share/node-v1.0.0-$NOS-$NA\",\"$O/.local/bin/node\",\"$O/.local/bin/rtk\"]" ]
 online "$O"
-check "deps: re-run records nothing new" [ "$(q "$O/.claude/.claudzilla-installed.json" .files.length)" = 3 ]
+check_eq "deps: re-run records nothing new" 3 "$(q "$O/.claude/.claudzilla-installed.json" .files.length)"
 O2=$(new_home); online "$O2" --remove rtk
 check "deps: rtk not picked, not downloaded" bash -c "! grep -q rtk-ai '$O2/curl.log' && [ ! -e '$O2/.local/bin/rtk' ]"
-check "deps: node still recorded without rtk" [ "$(q "$O2/.claude/.claudzilla-installed.json" .files.length)" = 2 ]
+check_eq "deps: node still recorded without rtk" 2 "$(q "$O2/.claude/.claudzilla-installed.json" .files.length)"
 O3=$(new_home); mkdir -p "$O3/.local/bin"; printf '#!/bin/sh\n' > "$O3/.local/bin/rtk"; chmod +x "$O3/.local/bin/rtk"; online "$O3"
 check "deps: rtk already present not recorded" bash -c "! grep -q '/rtk' '$O3/.claude/.claudzilla-installed.json'"
 O4=$(new_home); mkdir -p "$O4/.claude"; echo '{bad' > "$O4/.claude/.claudzilla-installed.json"; online "$O4"; rc=$?
@@ -471,13 +471,13 @@ g -C "$U/clone" pull --ff-only; echo local >> "$U/clone/f"
 mkdir -p "$U/seed/q/y"; printf 'z\n' > "$U/seed/q/y/z"; g -C "$U/seed" add q; g -C "$U/seed" commit -m four; g -C "$U/seed" push origin main
 g -C "$U/clone" fetch
 notice >/dev/null; waitres; out=$(notice)
-check "auto: edit the update leaves alone still updates" [ "$(git -C "$U/clone" log -1 --format=%s)" = four ]
+check_eq "auto: edit the update leaves alone still updates" four "$(git -C "$U/clone" log -1 --format=%s)"
 check "auto: edit kept through update" grep -q local "$U/clone/f"
 check "auto: updated notice says edits kept" grep -q 'updated to [0-9a-f]\{7,\}, your edits kept - for changes: /claudzilla news' <<<"$out"
 g -C "$U/clone" mv p/x/a r; printf 'y\n' > "$U/seed/p/x/b"; g -C "$U/seed" commit -am edit-b; g -C "$U/seed" push origin main
 g -C "$U/clone" fetch
 out=$(notice); waitjob
-check "auto: rename next to a changed file skips update" [ "$(git -C "$U/clone" log -1 --format=%s)" = four ]
+check_eq "auto: rename next to a changed file skips update" four "$(git -C "$U/clone" log -1 --format=%s)"
 check "auto: skip keeps the edit" [ -f "$U/clone/r" ]
 check "auto: skip notice says local changes" grep -qE 'update [0-9a-f]{7,} skipped \(local changes\) - ask Claude to update"' <<<"$out"
 check "auto: Claude gets the part to resolve" node -e 'const h=JSON.parse(process.argv[1]).hookSpecificOutput;if(!/local changes in p\/x/.test(h.additionalContext)||!/install\.sh/.test(h.additionalContext))process.exit(1)' "$out"
@@ -493,7 +493,7 @@ printf 'echo ran > "$HOME/ran"\n' > "$U/clone/install.sh"
 g -C "$U/clone" commit --allow-empty -m mine
 g -C "$U/seed" commit --allow-empty -m five; g -C "$U/seed" push origin main; g -C "$U/clone" fetch
 out=$(notice); waitjob
-check "auto: local commit skips update" [ "$(git -C "$U/clone" log -1 --format=%s)" = mine ]
+check_eq "auto: local commit skips update" mine "$(git -C "$U/clone" log -1 --format=%s)"
 check "auto: local commit keeps notice" grep -qE 'update [0-9a-f]{7,} skipped \(local commits\) - ask Claude to update' <<<"$out"
 g -C "$U/clone" reset -q --hard origin/main
 printf 'up\n' > "$U/seed/u"; g -C "$U/seed" add u; g -C "$U/seed" commit -m six; g -C "$U/seed" push origin main
@@ -515,7 +515,7 @@ g -C "$U/seed" tag v1.1.0; g -C "$U/seed" commit --allow-empty -m eight; g -C "$
 touch -t 200001010000 "$(git -C "$U/clone" rev-parse --absolute-git-dir)/FETCH_HEAD"
 notice >/dev/null; waitres
 check "release: background fetch gets new tags" git -C "$U/clone" rev-parse -q --verify v1.1.0
-check "release: updated to the tag, not the tip" [ "$(git -C "$U/clone" log -1 --format=%s)" = seven ]
+check_eq "release: updated to the tag, not the tip" seven "$(git -C "$U/clone" log -1 --format=%s)"
 check "release: report names the tag" grep -qx 'claudzilla: updated to v1.1.0' "$res"
 rm -f "$res"; g -C "$U/seed" tag v1.2.0; g -C "$U/seed" tag aa-old; g -C "$U/seed" push origin v1.2.0 aa-old
 echo '{"rulesGuard":{"autoUpdate":false}}' > "$U/home/.claude/claudzilla.json"; g -C "$U/clone" fetch
@@ -525,7 +525,7 @@ g -C "$U/seed" commit --allow-empty -m nine; g -C "$U/seed" tag backup; g -C "$U
 check "release: non-release tag is no target" grep -q 'merge --ff-only v1.2.0' <<<"$(notice)"
 rm "$U/home/.claude/claudzilla.json"; g -C "$U/clone" pull --ff-only
 check "release: ahead of tag is no update" [ -z "$(notice)" ]
-check "release: ahead of tag keeps HEAD" [ "$(git -C "$U/clone" log -1 --format=%s)" = nine ]
+check_eq "release: ahead of tag keeps HEAD" nine "$(git -C "$U/clone" log -1 --format=%s)"
 # A curl install is a --depth 1 clone with no tags: the background fetch fills in history, so it still waits for a tag.
 S="$TMP/shallow"; g clone --depth 1 "file://$U/origin.git" "$S/clone"; mkdir -p "$S/clone/claude/hooks" "$S/home/.claude/hooks"
 cp "$REPO/claude/hooks/claudzilla-update.sh" "$REPO/claude/hooks/rules-guard.mjs" "$S/clone/claude/hooks/"
@@ -537,7 +537,7 @@ clean_env HOME="$S/home" sh "$S/home/.claude/hooks/claudzilla-update.sh" >/dev/n
 for i in $(seq 20); do [ ! -f "$sgd/shallow" ] && [ ! -d "$sgd/claudzilla-update.lock" ] && break; sleep 0.5; done
 check "shallow: background fetch unshallows" [ ! -f "$sgd/shallow" ]
 check "shallow: background fetch gets tags" git -C "$S/clone" rev-parse -q --verify v1.2.0
-check "shallow: untagged commit is no update" [ "$(git -C "$S/clone" log -1 --format=%s)" = nine ]
+check_eq "shallow: untagged commit is no update" nine "$(git -C "$S/clone" log -1 --format=%s)"
 # Timer mode (herald, open sessions): fetch only, a new release is a live line, the next session's result stays.
 timer() { clean_env HOME="$U/home" CLAUDZILLA_UPDATE_TIMER=1 sh "$U/home/.claude/hooks/claudzilla-update.sh"; }
 echo '{"rulesGuard":{"autoUpdate":false}}' > "$U/home/.claude/claudzilla.json"; echo keep > "$res"
@@ -549,20 +549,20 @@ check "timer: keeps the next session's result" grep -qx keep "$res"
 check "timer: new release is a live line" grep -qE $'^[0-9]+\tlive\tclaudzilla: v1.3.0 released - ask Claude to update$' "$ev"
 check "timer: no start line" bash -c '! grep -q "v1.3.0 available" "$1"' _ "$ev"
 touch -t 200001010000 "$gdir/FETCH_HEAD"; timer >/dev/null; waitjob
-check "timer: known release toasts once" [ "$(grep -c 'v1.3.0 released' "$ev")" = 1 ]
+check_eq "timer: known release toasts once" 1 "$(grep -c 'v1.3.0 released' "$ev")"
 # Another fetch (margin's Git tab, a manual one) pulled the tag first: the timer still tells the open session.
 g -C "$U/seed" commit --allow-empty -m tenb; g -C "$U/seed" tag v1.3.1; g -C "$U/seed" push origin main v1.3.1; g -C "$U/clone" fetch -q
 timer >/dev/null; waitjob
 check "timer: a release another fetch brought is a live line" grep -qF $'\tlive\tclaudzilla: v1.3.1 released' "$ev"
 timer >/dev/null; waitjob
-check "timer: that release toasts once" [ "$(grep -c 'v1.3.1 released' "$ev")" = 1 ]
+check_eq "timer: that release toasts once" 1 "$(grep -c 'v1.3.1 released' "$ev")"
 # autoUpdate on: a release the timer's fetch brings starts the update; a failed one waits for the next session.
 rm -f "$res" "$U/home/.claude/claudzilla.json"; printf 'mine\n' > "$U/clone/w"   # untracked w makes the merge fail
 printf 'up\n' > "$U/seed/w"; g -C "$U/seed" add w; g -C "$U/seed" commit -m eleven; g -C "$U/seed" tag v1.4.0; g -C "$U/seed" push origin main v1.4.0
 touch -t 200001010000 "$gdir/FETCH_HEAD"; timer >/dev/null; waitjob
 check "timer: new release starts the update" grep -qF $'\tfail\tclaudzilla: auto-update to v1.4.0 failed' "$ev"
 timer >/dev/null; waitjob
-check "timer: failed update not retried each tick" [ "$(grep -c 'updating to v1.4.0' "$ev")" = 1 ]
+check_eq "timer: failed update not retried each tick" 1 "$(grep -c 'updating to v1.4.0' "$ev")"
 rm -f "$res" "$U/clone/w"   # autoUpdate off again, so the trim check below starts no update job
 echo '{"rulesGuard":{"autoUpdate":false}}' > "$U/home/.claude/claudzilla.json"
 for i in $(seq 150); do printf '0\tlive\tx%s\n' "$i"; done > "$ev"; notice >/dev/null
@@ -575,10 +575,10 @@ sec_font() {
 W=$(new_home); echo 'alias x=y' > "$W/.bashrc"; echo 'export COLORTERM=24bit' > "$W/.zshrc"
 wsl_install() { clean_env HOME="$1" WSL_DISTRO_NAME=Ubuntu CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" >"$1/install.log" 2>&1; }
 wsl_install "$W"; wsl_install "$W"
-check "wsl: bashrc gets COLORTERM once" [ "$(grep -c '^export COLORTERM=truecolor$' "$W/.bashrc")" = 1 ]
-check "wsl: rc with COLORTERM untouched" [ "$(cat "$W/.zshrc")" = 'export COLORTERM=24bit' ]
+check_eq "wsl: bashrc gets COLORTERM once" 1 "$(grep -c '^export COLORTERM=truecolor$' "$W/.bashrc")"
+check_eq "wsl: rc with COLORTERM untouched" 'export COLORTERM=24bit' "$(cat "$W/.zshrc")"
 N=$(new_home); echo 'alias x=y' > "$N/.bashrc"; clean_env -u WSL_DISTRO_NAME HOME="$N" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" >/dev/null 2>&1
-check "non-wsl: bashrc untouched" [ "$(cat "$N/.bashrc")" = 'alias x=y' ]
+check_eq "non-wsl: bashrc untouched" 'alias x=y' "$(cat "$N/.bashrc")"
 M=$(new_home); wsl_install "$M"
 check "wsl: missing rc not created" [ ! -e "$M/.bashrc" ] && [ ! -e "$M/.zshrc" ]
 T=$(new_home); printf 'alias x=y' > "$T/.bashrc"; wsl_install "$T"
@@ -614,7 +614,7 @@ G=$(new_home); clean_env HOME="$G" SHAN="$G/shan" CLAUDZILLA_OFFLINE=1 CLAUDZILL
 check "font: new fonts recorded" [ "$(q "$G/.claude/.claudzilla-installed.json" .files)" = "[\"$G/$FD/MesloLGS NF Regular.ttf\",\"$G/$FD/MesloLGS NF Bold.ttf\",\"$G/$FD/MesloLGS NF Italic.ttf\",\"$G/$FD/MesloLGS NF Bold Italic.ttf\"]" ]
 rm "$G/$FD/MesloLGS NF Bold.ttf"; echo 1 > "$G/shan"
 clean_env HOME="$G" SHAN="$G/shan" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT_URL="file://$TMP/goodfont" PATH="$TMP/sha:$TMP/linux:$PATH" bash "$REPO/install.sh" >"$G/install.log" 2>&1
-check "font: re-download not recorded twice" [ "$(q "$G/.claude/.claudzilla-installed.json" .files.length)" = 4 ]
+check_eq "font: re-download not recorded twice" 4 "$(q "$G/.claude/.claudzilla-installed.json" .files.length)"
 D=$(new_home); clean_env HOME="$D" CLAUDZILLA_OFFLINE=1 PATH="$TMP/darwin:$PATH" bash "$REPO/install.sh" >"$D/install.log" 2>&1
 check "font: macOS targets ~/Library/Fonts" grep -q 'Library/Fonts' "$D/install.log"
 
@@ -626,22 +626,22 @@ wsl_font() {  # $1 home, $2 WT settings content ('' = none)
 }
 X=$(new_home); wsl_font "$X" '{"profiles":{"defaults":{},"list":[]}}'; rc=$?
 check "wsl font: exit 0" [ "$rc" -eq 0 ]
-check "wsl font: copied to Windows fonts" [ "$(ls "$X/win/Microsoft/Windows/Fonts" | grep -c 'MesloLGS NF')" = 4 ]
+check_eq "wsl font: copied to Windows fonts" 4 "$(ls "$X/win/Microsoft/Windows/Fonts" | grep -c 'MesloLGS NF')"
 check "wsl font: registered per user" bash -c "grep -c 'HKCU.*Fonts.*/v MesloLGS NF Bold Italic (TrueType).*C:.fonts.MesloLGS NF Bold Italic.ttf' '$X/reg.log' | grep -qx 1 && [ \$(wc -l < '$X/reg.log') -eq 4 ]"
-check "wsl font: Windows Terminal face set" [ "$(q "$X/win/$WTREL" .profiles.defaults.font.face)" = '"MesloLGS NF"' ]
+check_eq "wsl font: Windows Terminal face set" '"MesloLGS NF"' "$(q "$X/win/$WTREL" .profiles.defaults.font.face)"
 check "wsl font: Windows Terminal settings backed up" bash -c "find '$X/.claude/.claudzilla-backup' -path '*windows-terminal/*/settings.json' | grep -q ."
 : > "$X/reg.log"; wsl_font "$X" ''
-check "wsl font: re-run re-registers (repairs)" [ "$(wc -l < "$X/reg.log" | tr -d ' ')" = 4 ]
+check_eq "wsl font: re-run re-registers (repairs)" 4 "$(wc -l < "$X/reg.log" | tr -d ' ')"
 check "wsl font: re-run is quiet" bash -c "! grep -q 'font:' '$X/install.log'"
 check "wsl font: copies recorded with registry name" [ "$(q "$X/.claude/.claudzilla-installed.json" .winFonts)" = "[$(for s in "Bold Italic" Bold Italic Regular; do printf '{"file":"%s/win/Microsoft/Windows/Fonts/MesloLGS NF %s.ttf","reg":"MesloLGS NF %s (TrueType)"},' "$X" "$s" "$s"; done | sed 's/,$//')]" ]
 check "wsl font: Windows Terminal path recorded" [ "$(q "$X/.claude/.claudzilla-installed.json" .wtFont)" = "[\"$X/win/$WTREL\"]" ]
-check "wsl font: re-run copies nothing new" [ "$(ls "$X/win/Microsoft/Windows/Fonts" | wc -l | tr -d ' ')" = 4 ]
+check_eq "wsl font: re-run copies nothing new" 4 "$(ls "$X/win/Microsoft/Windows/Fonts" | wc -l | tr -d ' ')"
 Y0=$(new_home); mkdir -p "$Y0/win/Microsoft/Windows/Fonts"; for s in "${STYLES[@]}"; do echo x > "$Y0/win/Microsoft/Windows/Fonts/MesloLGS NF $s.ttf"; done
 wsl_font "$Y0" '{"profiles":{"defaults":{"font":{"face":"MesloLGS NF"}}}}'
 check "wsl font: Windows fonts already there not recorded" bash -c "! grep -q 'Fonts/MesloLGS' '$Y0/.claude/.claudzilla-installed.json' 2>/dev/null"
 check "wsl font: Windows Terminal already ours not recorded" bash -c "! grep -q settings.json '$Y0/.claude/.claudzilla-installed.json' 2>/dev/null"
 Y=$(new_home); wsl_font "$Y" '{"profiles":{"defaults":{"font":{"face":"Fira Code"}}}}'
-check "wsl font: user's own face kept" [ "$(q "$Y/win/$WTREL" .profiles.defaults.font.face)" = '"Fira Code"' ]
+check_eq "wsl font: user's own face kept" '"Fira Code"' "$(q "$Y/win/$WTREL" .profiles.defaults.font.face)"
 check "wsl font: own face gets a hint" grep -q 'MesloLGS NF' "$Y/install.log"
 Z=$(new_home); wsl_font "$Z" $'{\n  // comment\n  "profiles": {}\n}'
 check "wsl font: JSONC left untouched" grep -q '// comment' "$Z/win/$WTREL"
@@ -702,7 +702,7 @@ for fl in "--remove hud" "--uninstall --yes"; do
 done
 # --- menu / Claude run ---
 M=$(new_home); printf '2\n7 6\n' > "$M/ans"; clean_env HOME="$M" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_TTY="$M/ans" bash "$REPO/install.sh" >"$M/install.log" 2>&1
-check "menu: custom skip saved" [ "$(q "$M/.claude/claudzilla.json" .install.skip)" = '["rtk","folio"]' ]
+check_eq "menu: custom skip saved" '["rtk","folio"]' "$(q "$M/.claude/claudzilla.json" .install.skip)"
 C=$(new_home); notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY HOME="$C" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" >"$C/install.log" 2>&1 </dev/null; rc=$?
 check "claude run: exit 2" [ "$rc" -eq 2 ]
 check "claude run: nothing written" [ ! -e "$C/.claude" ]
@@ -715,12 +715,12 @@ stop_lists() { local p; grep -q 'Full (recommended)' "$1" && grep -q Custom "$1"
 check "claude run: asks Full or Custom, lists every part" stop_lists "$C/install.log"
 # --full --remove x = Full minus x, whatever was saved before
 L=$(new_home); inst "$L" --full --remove rtk
-check "full+remove fresh: skip only x" [ "$(q "$L/.claude/claudzilla.json" .install)" = '{"skip":["rtk"]}' ]
+check_eq "full+remove fresh: skip only x" '{"skip":["rtk"]}' "$(q "$L/.claude/claudzilla.json" .install)"
 inst "$L" --full --remove margin
-check "full+remove over saved skip: replaces, not stacks" [ "$(q "$L/.claude/claudzilla.json" .install)" = '{"skip":["margin"]}' ]
+check_eq "full+remove over saved skip: replaces, not stacks" '{"skip":["margin"]}' "$(q "$L/.claude/claudzilla.json" .install)"
 check "full+remove over saved skip: rtk linked back" bash -c "grep -q 'rtk hook' '$L/.claude/settings.json'"
 L=$(new_home); inst "$L" --add hud; inst "$L" --full --remove margin
-check "full+remove over saved only: skip only x" [ "$(q "$L/.claude/claudzilla.json" .install)" = '{"skip":["margin"]}' ]
+check_eq "full+remove over saved only: skip only x" '{"skip":["margin"]}' "$(q "$L/.claude/claudzilla.json" .install)"
 check "full+remove over saved only: rules back" [ -L "$L/.claude/rules" ]
 Y=$(new_home); seedbase "$Y"; cp -a "$Y/.claude" "$Y/copy"; notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY HOME="$Y" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" --custom >"$Y/install.log" 2>&1 </dev/null; rc=$?
 check "custom no tty: exit 2" [ "$rc" -eq 2 ]
@@ -749,13 +749,13 @@ check "plugins: unpicked third-party not recorded-uninstalled" bash -c "! grep -
 check "plugins: primer keeps the claudzilla marketplace added" grep -q "marketplace add $REPO" "$S/log"
 S=$(new_stub); H=$(new_home); echo '[{"id":"caveman@caveman"}]' > "$S/list"; echo '[{"name":"caveman"}]' > "$S/mlist"; pinst "$H" "$S"
 R="$H/.claude/.claudzilla-installed.json"
-check "record: new superpowers+ponytail recorded, pre-existing caveman not" [ "$(q "$R" .plugins)" = '["superpowers@claude-plugins-official","ponytail@ponytail"]' ]
+check_eq "record: new superpowers+ponytail recorded, pre-existing caveman not" '["superpowers@claude-plugins-official","ponytail@ponytail"]' "$(q "$R" .plugins)"
 check "record: pre-existing caveman marketplace not recorded" bash -c "[ \"\$(node -p 'require(process.argv[1]).marketplaces.includes(\"caveman\")' '$R')\" = false ] && node -p 'require(process.argv[1]).marketplaces.includes(\"ponytail\")' '$R' | grep -q true"
 check "record: claudzilla plugins never recorded" bash -c "! grep -q claudzilla '$R'"
-check "record: shape has every key" [ "$(node -p 'Object.keys(require(process.argv[1])).join()' "$R")" = 'files,rcLines,plugins,marketplaces,winFonts,wtFont,seeds' ]
+check_eq "record: shape has every key" 'files,rcLines,plugins,marketplaces,winFonts,wtFont,seeds' "$(node -p 'Object.keys(require(process.argv[1])).join()' "$R")"
 check "plugins: claudzilla marketplace added" grep -q "marketplace add $REPO" "$S/log"
 pinst "$H" "$S"
-check "record: re-run adds no duplicates" [ "$(q "$R" .plugins.length)" = 2 ]
+check_eq "record: re-run adds no duplicates" 2 "$(q "$R" .plugins.length)"
 : > "$S/log"; pinst "$H" "$S" --remove caveman,ponytail
 check "plugins: unpicked recorded third-party uninstalled" grep -q 'plugin uninstall ponytail@ponytail' "$S/log"
 check "plugins: unpicked pre-existing third-party kept" bash -c "! grep -q 'plugin uninstall caveman@caveman' '$S/log'"
@@ -763,12 +763,12 @@ check "plugins: unpicked pre-existing third-party kept" bash -c "! grep -q 'plug
 # unreadable list: install as usual, record nothing
 S=$(new_stub); H=$(new_home); printf '#!/bin/sh\necho "$*" >> "$(dirname "$0")/log"\ncase "$1 $2" in "plugin list") exit 1 ;; esac\n' > "$S/claude"; pinst "$H" "$S"
 check "record: failing list still installs" grep -q 'plugin install ponytail@ponytail' "$S/log"
-check "record: failing list records nothing" [ "$(node -p 'const r=require(process.argv[1]);r.plugins.length+r.files.length+r.marketplaces.length' "$H/.claude/.claudzilla-installed.json")" = 0 ]
+check_eq "record: failing list records nothing" 0 "$(node -p 'const r=require(process.argv[1]);r.plugins.length+r.files.length+r.marketplaces.length' "$H/.claude/.claudzilla-installed.json")"
 check "record: failing list warns" grep -q 'cannot read claude' "$H/install.log"
 S=$(new_stub); H=$(new_home); echo 'not json' > "$S/list"; pinst "$H" "$S"
-check "record: unparseable list records nothing" [ "$(node -p 'const r=require(process.argv[1]);r.plugins.length+r.files.length+r.marketplaces.length' "$H/.claude/.claudzilla-installed.json")" = 0 ]
+check_eq "record: unparseable list records nothing" 0 "$(node -p 'const r=require(process.argv[1]);r.plugins.length+r.files.length+r.marketplaces.length' "$H/.claude/.claudzilla-installed.json")"
 # removing a recorded plugin drops its record entry
-check "record: removed plugin's entry gone, others kept" [ "$(q "$R" .plugins)" = '["superpowers@claude-plugins-official"]' ]
+check_eq "record: removed plugin's entry gone, others kept" '["superpowers@claude-plugins-official"]' "$(q "$R" .plugins)"
 }
 
 sec_uninstall() {
@@ -779,12 +779,12 @@ node -e 'const f=process.argv[1]+"/.claude/",fs=require("fs"),s=require(f+"setti
 inst "$U" --uninstall --yes; rc=$?
 check "uninstall: exit 0" [ "$rc" -eq 0 ]
 check "uninstall: no links into repo" bash -c "! find '$U/.claude' -lname '$REPO/*' | grep -q ."
-check "uninstall: edited key kept" [ "$(q "$U/.claude/settings.json" .model)" = '"mine"' ]
-check "uninstall: hooks gone" [ "$(q "$U/.claude/settings.json" .hooks)" = undefined ]
+check_eq "uninstall: edited key kept" '"mine"' "$(q "$U/.claude/settings.json" .model)"
+check_eq "uninstall: hooks gone" undefined "$(q "$U/.claude/settings.json" .hooks)"
 check "uninstall: state gone" bash -c "! ls -a '$U/.claude' | grep -E '^\.claudzilla-(base|rules|installed|basic)'"
-check "uninstall: own skill kept" [ "$(cat "$U/.claude/skills/mine/SKILL.md")" = x ]
-check "uninstall: non-empty CLAUDE.local.md kept" [ "$(cat "$U/.claude/CLAUDE.local.md")" = mine ]
-check "uninstall: install key gone, other keys kept" [ "$(cat "$U/.claude/claudzilla.json" | node -p 'JSON.stringify(JSON.parse(require("fs").readFileSync(0,"utf8")))')" = '{"keep":1}' ]
+check_eq "uninstall: own skill kept" x "$(cat "$U/.claude/skills/mine/SKILL.md")"
+check_eq "uninstall: non-empty CLAUDE.local.md kept" mine "$(cat "$U/.claude/CLAUDE.local.md")"
+check_eq "uninstall: install key gone, other keys kept" '{"keep":1}' "$(cat "$U/.claude/claudzilla.json" | node -p 'JSON.stringify(JSON.parse(require("fs").readFileSync(0,"utf8")))')"
 check "uninstall: backup kept" [ -d "$U/.claude/.claudzilla-backup/x" ]
 check "uninstall: prints clone rm" grep -q "rm -rf $REPO" "$U/install.log"
 check "uninstall: prints backup rm" grep -q "rm -rf $U/.claude/.claudzilla-backup" "$U/install.log"
@@ -826,11 +826,11 @@ check "uninstall rec: recorded font gone, unrecorded kept" bash -c "[ ! -e '$D/M
 check "uninstall rec: unrecorded font listed" grep -q "rm .*MesloLGS.*Bold.ttf" "$W/install.log"
 check "uninstall rec: outside-HOME path kept, refused, listed without a command" bash -c "[ -f '$OUT' ] && grep -q 'refused.*outside' '$W/install.log' && grep -q 'Not touched' '$W/install.log' && grep -q '$(basename "$OUT")' '$W/install.log' && ! grep -q 'rm .*$(basename "$OUT")' '$W/install.log'"
 check "uninstall rec: rc line removed, rest intact" [ "$(cat "$W/.bashrc")" = $'alias a=b\nalias c=d' ]
-check "uninstall rec: rc without the line untouched" [ "$(cat "$W/.zshrc")" = 'alias z=y' ]
+check_eq "uninstall rec: rc without the line untouched" 'alias z=y' "$(cat "$W/.zshrc")"
 check "uninstall rec: Windows font file gone" [ ! -e "$WF/MesloLGS NF Regular.ttf" ]
 check "uninstall rec: registry value deleted" grep -q 'delete HKCU.*Fonts /v MesloLGS NF Regular (TrueType) /f' "$W/reg.log"
 check "uninstall rec: WT face removed, rest kept" bash -c "[ \"\$(node -p 'JSON.stringify(require(process.argv[1]).profiles.defaults)' '$W/win/a/settings.json')\" = '{\"opacity\":90}' ]"
-check "uninstall rec: WT other face kept" [ "$(q "$W/win/b/settings.json" .profiles.defaults.font.face)" = '"Fira Code"' ]
+check_eq "uninstall rec: WT other face kept" '"Fira Code"' "$(q "$W/win/b/settings.json" .profiles.defaults.font.face)"
 check "uninstall rec: gone record" [ ! -e "$W/.claude/.claudzilla-installed.json" ]
 
 # plugins: claudzilla's always, recorded third-party only; unrecorded node/rtk listed, not deleted
@@ -926,17 +926,17 @@ check "rename: saved skip mapped" bash -c "[ '$(q "$H/.claude/claudzilla.json" .
 H=$(new_home); seedbase "$H"; echo '{"install":{"only":["core","panel"]}}' > "$H/.claude/claudzilla.json"; inst "$H"; rc=$?
 check "rename: saved only mapped" bash -c "[ $rc -eq 0 ] && [ '$(q "$H/.claude/claudzilla.json" .install.only)' = '[\"core\",\"margin\"]' ]"
 H=$(new_home); inst "$H" --remove panel
-check "rename: --remove old part name" [ "$(q "$H/.claude/claudzilla.json" .install)" = '{"skip":["margin"]}' ]
+check_eq "rename: --remove old part name" '{"skip":["margin"]}' "$(q "$H/.claude/claudzilla.json" .install)"
 H=$(new_home); seedbase "$H"; echo '{"hud":{"compact":true}}' > "$H/.claude/claudzilla.json"; inst "$H"
-check "migrate: hud.compact true -> layout compact" [ "$(q "$H/.claude/claudzilla.json" .hud)" = '{"layout":"compact"}' ]
+check_eq "migrate: hud.compact true -> layout compact" '{"layout":"compact"}' "$(q "$H/.claude/claudzilla.json" .hud)"
 H=$(new_home); seedbase "$H"; echo '{"hud":{"compact":false}}' > "$H/.claude/claudzilla.json"; inst "$H"
-check "migrate: hud.compact false dropped" [ "$(q "$H/.claude/claudzilla.json" .hud)" = '{}' ]
+check_eq "migrate: hud.compact false dropped" '{}' "$(q "$H/.claude/claudzilla.json" .hud)"
 H=$(new_home); seedbase "$H"; echo '{"experimental":{"agentRouting":false}}' > "$H/.claude/claudzilla.json"; inst "$H"
-check "migrate: agentRouting false -> steward false" [ "$(q "$H/.claude/claudzilla.json" .experimental)" = '{"steward":false}' ]
+check_eq "migrate: agentRouting false -> steward false" '{"steward":false}' "$(q "$H/.claude/claudzilla.json" .experimental)"
 H=$(new_home); seedbase "$H"; echo '{"experimental":{"agentRouting":true}}' > "$H/.claude/claudzilla.json"; inst "$H"
-check "migrate: agentRouting true dropped" [ "$(q "$H/.claude/claudzilla.json" .experimental)" = '{}' ]
+check_eq "migrate: agentRouting true dropped" '{}' "$(q "$H/.claude/claudzilla.json" .experimental)"
 H=$(new_home); seedbase "$H"; echo '{"experimental":{"agentRouting":false,"steward":true}}' > "$H/.claude/claudzilla.json"; inst "$H"
-check "migrate: steward kept over agentRouting" [ "$(q "$H/.claude/claudzilla.json" .experimental)" = '{"steward":true}' ]
+check_eq "migrate: steward kept over agentRouting" '{"steward":true}' "$(q "$H/.claude/claudzilla.json" .experimental)"
 H=$(new_home); seedbase "$H"; echo '{bad' | tee "$H/c0" > "$H/.claude/claudzilla.json"; inst "$H"; rc=$?
 check "rename: bad claudzilla.json untouched" bash -c "[ $rc -eq 0 ] && cmp -s '$H/c0' '$H/.claude/claudzilla.json'"
 H=$(new_home); seedbase "$H"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+h":"command:panel"}}]}' > "$H/.claude/keybindings.json"; inst "$H"
@@ -953,20 +953,20 @@ sec_ponytail() {
 # --- ponytail band + ledger: off once, then the user's choice stands ---
 ledger() { q "$1/.claude/settings.json" '.pluginConfigs?.["ponytail@ponytail"]?.options?.ledger'; }
 P=$(new_home); inst "$P" --remove rtk
-check "ponytail: band flag off" [ "$(cat "$P/.claude/.ponytail-band" 2>/dev/null)" = off ]
-check "ponytail: ledger off" [ "$(ledger "$P")" = false ]
+check_eq "ponytail: band flag off" off "$(cat "$P/.claude/.ponytail-band" 2>/dev/null)"
+check_eq "ponytail: ledger off" false "$(ledger "$P")"
 rm "$P/.claude/.ponytail-band"
 node -e 'const f=process.argv[1],j=require(f);j.pluginConfigs["ponytail@ponytail"].options.ledger=true;require("fs").writeFileSync(f,JSON.stringify(j))' "$P/.claude/settings.json"
 inst "$P" --remove rtk
 check "ponytail: band on survives a rerun" [ ! -e "$P/.claude/.ponytail-band" ]
-check "ponytail: ledger on survives a rerun" [ "$(ledger "$P")" = true ]
+check_eq "ponytail: ledger on survives a rerun" true "$(ledger "$P")"
 P2=$(new_home); mkdir -p "$P2/.claude"; echo '{"pluginConfigs":{"ponytail@ponytail":{"options":{"ledger":true}}}}' > "$P2/.claude/settings.json"; inst "$P2" --remove rtk
-check "ponytail: ledger set before install kept" [ "$(ledger "$P2")" = true ]
+check_eq "ponytail: ledger set before install kept" true "$(ledger "$P2")"
 P3=$(new_home); inst "$P3" --remove ponytail
 check "ponytail: unpicked, no band flag" [ ! -e "$P3/.claude/.ponytail-band" ]
-check "ponytail: unpicked, no ledger" [ "$(ledger "$P3")" = undefined ]
+check_eq "ponytail: unpicked, no ledger" undefined "$(ledger "$P3")"
 P4=$(new_home); inst "$P4" --remove ponytail; inst "$P4" --add ponytail
-check "ponytail: --add later seeds band off" [ "$(cat "$P4/.claude/.ponytail-band" 2>/dev/null)" = off ]
+check_eq "ponytail: --add later seeds band off" off "$(cat "$P4/.claude/.ponytail-band" 2>/dev/null)"
 P5=$(new_home); seedbase "$P5"; echo '{"files":[],"plugins":["ponytail@ponytail"]}' > "$P5/.claude/.claudzilla-installed.json"; inst "$P5" --remove rtk
 check "ponytail: update from a record with no seeds seeds once" [ "$(cat "$P5/.claude/.ponytail-band" 2>/dev/null)$(ledger "$P5")$(q "$P5/.claude/.claudzilla-installed.json" .seeds)" = 'offfalse["ponytail"]' ]
 P6=$(new_home); inst "$P6" --remove rtk; rm "$P6/.claude/.ponytail-band"; echo '{bad' > "$P6/.claude/.claudzilla-installed.json"; inst "$P6" --remove rtk
@@ -976,7 +976,7 @@ check "ponytail: odd pluginConfigs leaves the band alone" [ ! -e "$P7/.claude/.p
 
 # --- v1.5 plugin ids in settings and on uninstall ---
 O=$(new_home); seedbase "$O"; echo '{"enabledPlugins":{"picks@claudzilla":false},"pluginConfigs":{"panel@claudzilla":{"options":{"intent":false}}}}' > "$O/.claude/settings.json"; inst "$O"
-check "old ids: panel's options move to margin" [ "$(q "$O/.claude/settings.json" '.pluginConfigs["margin@claudzilla"]')" = '{"options":{"intent":false}}' ]
+check_eq "old ids: panel's options move to margin" '{"options":{"intent":false}}' "$(q "$O/.claude/settings.json" '.pluginConfigs["margin@claudzilla"]')"
 check "old ids: no old key left in settings" bash -c "! grep -qE '\"(panel|picks)@claudzilla\"' '$O/.claude/settings.json'"
 S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S" --uninstall --yes
 check "old ids: uninstall removes a leftover panel" grep -q 'plugin uninstall panel@claudzilla' "$S/log"
@@ -984,7 +984,7 @@ K=$(new_home); seedbase "$K"; echo '{"bindings":[{"context":"Chat","bindings":{"
 check "old ids: uninstall says the guide key is removed, not moved" bash -c "grep -q 'alt+g removed' '$K/install.log' && ! grep -q 'alt+g -> alt+i' '$K/install.log'"
 v15() { mkdir -p "$1/.claude"; local s='{"enabledPlugins":{"panel@claudzilla":true,"picks@claudzilla":true}}'; echo "$s" > "$1/.claude/.claudzilla-base.json"; echo "$s" > "$1/.claude/settings.json"; }   # a v1.5 install's record and settings
 V5=$(new_home); v15 "$V5"; inst "$V5" --remove margin
-check "old ids: an unpicked renamed plugin is not left enabled" [ "$(q "$V5/.claude/settings.json" '.enabledPlugins["margin@claudzilla"]')" = undefined ]
+check_eq "old ids: an unpicked renamed plugin is not left enabled" undefined "$(q "$V5/.claude/settings.json" '.enabledPlugins["margin@claudzilla"]')"
 V6=$(new_home); v15 "$V6"; inst "$V6" --uninstall --yes
 check "old ids: uninstall from v1.5 leaves no claudzilla plugin enabled" bash -c "! grep -q '@claudzilla' '$V6/.claude/settings.json'"
 }

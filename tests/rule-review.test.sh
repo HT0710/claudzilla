@@ -12,18 +12,18 @@ js() { node --input-type=module -e "import * as m from '$RG'; console.log(JSON.s
 
 # --- rules-guard exports ---
 check "import: does not run the hook" [ -z "$(echo '{"session_id":"x","hook_event_name":"UserPromptSubmit","prompt":"login is broken"}' | node --input-type=module -e "import '$RG'")" ]
-check "firedRules: deny reason" [ "$(js 'm.firedRules("PreToolUse:Bash hook error: " + m.WHY.pushVerify)')" = '["pushVerify"]' ]
-check "firedRules: joined reasons" [ "$(js 'm.firedRules(m.WHY.pushVerify + " " + m.WHY.prSkill)')" = '["pushVerify","prSkill"]' ]
-check "firedRules: subject reason" [ "$(js 'm.firedRules("Commit subject is 52 chars; max 50 (git.md:19).")')" = '["commitSubject"]' ]
-check "firedRules: body reason" [ "$(js 'm.firedRules("Reminder: Commit body: 1 body line over 72 columns (git.md).")')" = '["commitBody"]' ]
-check "firedRules: prompt trigger" [ "$(js 'm.firedRules(m.MSG.debugTrigger)')" = '["debugTrigger"]' ]
-check "firedRules: conditional nudge" [ "$(js 'm.firedRules(m.nudge("doneClaim"))')" = '["doneClaim"]' ]
-check "firedRules: previous-reply flags" [ "$(js 'm.firedRules("Previous reply broke: missing TL;DR; diagram box edge misaligned at line 3. Apply from this reply on.")')" = '["tldr","boxAlign"]' ]
-check "firedRules: unrelated text" [ "$(js 'm.firedRules("CAVEMAN MODE ACTIVE")')" = '[]' ]
-check "formatFlags: emoji" [ "$(js 'm.formatFlags("Shipped 🚀", {rules: m.DEFAULTS.rules, tldrMinLines: 15}).map(f => f[0])')" = '["emoji"]' ]
-check "gitParse: -C and sub" [ "$(js 'm.gitParse(["git","-C","x","push","-f"], "/r").sub')" = '"push"' ]
-check "forceFlag: +refspec" [ "$(js 'm.forceFlag(["origin","+main"])')" = true ]
-check "prDescribes: label edit" [ "$(js 'm.prDescribes(["gh","pr","edit","1","--add-label","x"])')" = false ]
+check_eq "firedRules: deny reason" '["pushVerify"]' "$(js 'm.firedRules("PreToolUse:Bash hook error: " + m.WHY.pushVerify)')"
+check_eq "firedRules: joined reasons" '["pushVerify","prSkill"]' "$(js 'm.firedRules(m.WHY.pushVerify + " " + m.WHY.prSkill)')"
+check_eq "firedRules: subject reason" '["commitSubject"]' "$(js 'm.firedRules("Commit subject is 52 chars; max 50 (git.md:19).")')"
+check_eq "firedRules: body reason" '["commitBody"]' "$(js 'm.firedRules("Reminder: Commit body: 1 body line over 72 columns (git.md).")')"
+check_eq "firedRules: prompt trigger" '["debugTrigger"]' "$(js 'm.firedRules(m.MSG.debugTrigger)')"
+check_eq "firedRules: conditional nudge" '["doneClaim"]' "$(js 'm.firedRules(m.nudge("doneClaim"))')"
+check_eq "firedRules: previous-reply flags" '["tldr","boxAlign"]' "$(js 'm.firedRules("Previous reply broke: missing TL;DR; diagram box edge misaligned at line 3. Apply from this reply on.")')"
+check_eq "firedRules: unrelated text" '[]' "$(js 'm.firedRules("CAVEMAN MODE ACTIVE")')"
+check_eq "formatFlags: emoji" '["emoji"]' "$(js 'm.formatFlags("Shipped 🚀", {rules: m.DEFAULTS.rules, tldrMinLines: 15}).map(f => f[0])')"
+check_eq "gitParse: -C and sub" '"push"' "$(js 'm.gitParse(["git","-C","x","push","-f"], "/r").sub')"
+check_eq "forceFlag: +refspec" true "$(js 'm.forceFlag(["origin","+main"])')"
+check_eq "prDescribes: label edit" false "$(js 'm.prDescribes(["gh","pr","edit","1","--add-label","x"])')"
 
 # --- scanner ---
 SCAN="$REPO/claude/skills/rule-review/scan.mjs"
@@ -75,114 +75,114 @@ console.log(JSON.stringify(s));" </dev/null > "$SINCE"
 stamp
 
 reset_proj; session a '[["user","ship"],["bash","git push"]]'; scan
-check "push without verify: slip" [ "$(rule pushVerify slips)" = 1 ]
+check_eq "push without verify: slip" 1 "$(rule pushVerify slips)"
 reset_proj; session a '[["user","ship"],["skill","superpowers:verification-before-completion"],["bash","git push"]]'; scan
-check "push after verify: applies" [ "$(rule pushVerify applies)" = 1 ]
-check "push after verify: no slip" [ "$(rule pushVerify slips)" = 0 ]
+check_eq "push after verify: applies" 1 "$(rule pushVerify applies)"
+check_eq "push after verify: no slip" 0 "$(rule pushVerify slips)"
 reset_proj; session a "[[\"user\",\"ship\"],[\"bash\",\"git push\",{denied:$J_VERIFY}]]"; scan
-check "denied push: no slip" [ "$(rule pushVerify slips)" = 0 ]
-check "denied push: hook fire" [ "$(rule pushVerify hookFires)" = 1 ]
+check_eq "denied push: no slip" 0 "$(rule pushVerify slips)"
+check_eq "denied push: hook fire" 1 "$(rule pushVerify hookFires)"
 reset_proj; session a '[["user","ship"],["bash","git push",{denied:"Run superpowers:verification-before-completion this turn before push/PR (superpowers.md:47)."}]]'; scan
-check "hook fire under older citation still counted" [ "$(rule pushVerify hookFires)" = 1 ]
+check_eq "hook fire under older citation still counted" 1 "$(rule pushVerify hookFires)"
 reset_proj; session a '[["user","go"],["bash","git push -f"]]'; scan
-check "force push at ask: Yes is no slip" [ "$(rule forcePush slips)" = 0 ]
+check_eq "force push at ask: Yes is no slip" 0 "$(rule forcePush slips)"
 echo '{"rulesGuard":{"rules":{"forcePush":"deny"}}}' > "$CLAUDE_CONFIG_DIR/claudzilla.json"
 reset_proj; session a '[["user","go"],["bash","git push -f"]]'; scan
-check "force push at deny: slip" [ "$(rule forcePush slips)" = 1 ]
+check_eq "force push at deny: slip" 1 "$(rule forcePush slips)"
 rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"
 reset_proj; session a '[["user","ship"],["bash","git push",{rejected:true}]]'; scan
-check "push the person said No to: no slip" [ "$(rule pushVerify slips)" = 0 ]
+check_eq "push the person said No to: no slip" 0 "$(rule pushVerify slips)"
 reset_proj; session a '[["user","go"],["bash","git commit -m \"update stuff\""]]'; scan
-check "bad subject: slip" [ "$(rule commitSubject slips)" = 1 ]
+check_eq "bad subject: slip" 1 "$(rule commitSubject slips)"
 reset_proj; session a '[["user","go"],["bash","git commit -m \"fix: x\"",{branch:"main"}]]'; scan
-check "commit on main: slip" [ "$(rule mainCommit slips)" = 1 ]
-check "good subject: no slip" [ "$(rule commitSubject slips)" = 0 ]
+check_eq "commit on main: slip" 1 "$(rule mainCommit slips)"
+check_eq "good subject: no slip" 0 "$(rule commitSubject slips)"
 reset_proj; session a '[["user","go"],["skill","superpowers:verification-before-completion"],["bash","gh pr create --fill"]]'; scan
-check "pr without pr skill: slip" [ "$(rule prSkill slips)" = 1 ]
-check "pr: pushVerify applies" [ "$(rule pushVerify applies)" = 1 ]
+check_eq "pr without pr skill: slip" 1 "$(rule prSkill slips)"
+check_eq "pr: pushVerify applies" 1 "$(rule pushVerify applies)"
 reset_proj; session a '[["user","go"],["bash","gh pr edit 1 --add-label x"]]'; scan
-check "label edit: prSkill n/a" [ "$(rule prSkill applies)" = 0 ]
+check_eq "label edit: prSkill n/a" 0 "$(rule prSkill applies)"
 reset_proj; session a '[["user","go"],["bash","gh -R o/r pr create --fill"]]'; scan
-check "gh -R pr create: pushVerify slip" [ "$(rule pushVerify slips)" = 1 ]
+check_eq "gh -R pr create: pushVerify slip" 1 "$(rule pushVerify slips)"
 reset_proj; session a '[["user","go"],["bash","gh api repos/o/r/pulls -f title=x -f head=a -f base=main"]]'; scan
-check "gh api pulls POST: pushVerify slip" [ "$(rule pushVerify slips)" = 1 ]
-check "gh api pulls POST: prSkill slip" [ "$(rule prSkill slips)" = 1 ]
+check_eq "gh api pulls POST: pushVerify slip" 1 "$(rule pushVerify slips)"
+check_eq "gh api pulls POST: prSkill slip" 1 "$(rule prSkill slips)"
 reset_proj; session a '[["user","go"],["bash","gh api graphql -f query=q1 && gh api graphql -f query=\"mutation{createPullRequest}\""]]'; scan
-check "graphql: one PR among two calls counted once" [ "$(rule pushVerify applies)" = 1 ]
+check_eq "graphql: one PR among two calls counted once" 1 "$(rule pushVerify applies)"
 reset_proj; session a '[["user","go"],["tool","mcp__github__create_pull_request",{title:"x"}]]'; scan
-check "mcp create PR: pushVerify slip" [ "$(rule pushVerify slips)" = 1 ]
-check "mcp create PR: prSkill slip" [ "$(rule prSkill slips)" = 1 ]
+check_eq "mcp create PR: pushVerify slip" 1 "$(rule pushVerify slips)"
+check_eq "mcp create PR: prSkill slip" 1 "$(rule prSkill slips)"
 reset_proj; session a '[["user","go"],["skill","superpowers:verification-before-completion"],["skill","pr"],["tool","mcp__github__create_pull_request",{title:"x"}]]'; scan
 check "mcp create PR after skills: no slip" [ "$(rule prSkill slips)$(rule pushVerify slips)" = 00 ]
 reset_proj; session a '[["user","go"],["skill","superpowers:verification-before-completion"],["skill","x:pr"],["bash","gh pr create --fill"]]'; scan
-check "plugin x:pr is not the pr skill" [ "$(rule prSkill slips)" = 1 ]
+check_eq "plugin x:pr is not the pr skill" 1 "$(rule prSkill slips)"
 reset_proj; session a '[["user","go"],["edit"],["text","Fixed the parser."]]'; scan
-check "done claim: slip" [ "$(rule doneClaim slips)" = 1 ]
+check_eq "done claim: slip" 1 "$(rule doneClaim slips)"
 reset_proj; session a '[["user","go"],["edit"],["bash","npm test"],["text","Fixed the parser."]]'; scan
-check "checked claim: no slip" [ "$(rule doneClaim slips)" = 0 ]
+check_eq "checked claim: no slip" 0 "$(rule doneClaim slips)"
 reset_proj; session a '[["user","go"],["edit"],["skill","superpowers:verification-before-completion"],["text","Fixed the parser."]]'; scan
-check "skill without a check: slip" [ "$(rule doneClaim slips)" = 1 ]
+check_eq "skill without a check: slip" 1 "$(rule doneClaim slips)"
 reset_proj; session a '[["user","go"],["tool","Write",{file_path:"/tmp/s/a.mjs"}],["text","Fixed the parser."]]'; scan
-check "scratch /tmp edit: n/a" [ "$(rule doneClaim applies)" = 0 ]
+check_eq "scratch /tmp edit: n/a" 0 "$(rule doneClaim applies)"
 reset_proj; session a '[["user","q"],["text","Shipped 🚀"]]'; scan
-check "emoji: slip" [ "$(rule emoji slips)" = 1 ]
-check "emoji: applies per reply" [ "$(rule emoji applies)" = 1 ]
+check_eq "emoji: slip" 1 "$(rule emoji slips)"
+check_eq "emoji: applies per reply" 1 "$(rule emoji applies)"
 reset_proj; session a "[[\"user\",\"login is broken\"],[\"ctx\",\"UserPromptSubmit\",$J_DEBUG],[\"skill\",\"superpowers:systematic-debugging\"]]"; scan
-check "debug followed: applies" [ "$(rule debugTrigger applies)" = 1 ]
-check "debug followed: no slip" [ "$(rule debugTrigger slips)" = 0 ]
-check "debug followed: hook fire" [ "$(rule debugTrigger hookFires)" = 1 ]
+check_eq "debug followed: applies" 1 "$(rule debugTrigger applies)"
+check_eq "debug followed: no slip" 0 "$(rule debugTrigger slips)"
+check_eq "debug followed: hook fire" 1 "$(rule debugTrigger hookFires)"
 reset_proj; session a "[[\"user\",\"go\"],[\"user\",\"<task-notification>\\nbuild broken\"],[\"ctx\",\"UserPromptSubmit\",$J_DEBUG]]"; scan
-check "machine prompt: no turn" [ "$(top turns)" = 1 ]
-check "machine prompt: trigger n/a" [ "$(rule debugTrigger applies)" = 0 ]
-check "machine prompt: false fire" [ "$(rule debugTrigger falseFires)" = 1 ]
+check_eq "machine prompt: no turn" 1 "$(top turns)"
+check_eq "machine prompt: trigger n/a" 0 "$(rule debugTrigger applies)"
+check_eq "machine prompt: false fire" 1 "$(rule debugTrigger falseFires)"
 reset_proj; session a '[["user","Another Claude session sent a message:\nbug",{meta:true}],["user","go"]]'; scan
-check "meta prompt: no turn" [ "$(top turns)" = 1 ]
+check_eq "meta prompt: no turn" 1 "$(top turns)"
 reset_proj; session a '[["user","go"],["queued","prompt","login is broken"],["skill","superpowers:systematic-debugging"]]'; scan
-check "queued prompt: starts a turn" [ "$(top turns)" = 2 ]
-check "queued prompt: trigger applies" [ "$(rule debugTrigger applies)" = 1 ]
+check_eq "queued prompt: starts a turn" 2 "$(top turns)"
+check_eq "queued prompt: trigger applies" 1 "$(rule debugTrigger applies)"
 reset_proj; session a "[[\"user\",\"go\"],[\"queued\",\"task-notification\",\"<task-notification>\\nx\"],[\"user\",\"Base directory for this skill: y\",{meta:true}],[\"queued\",\"prompt\",\"login is broken\"],[\"ctx\",\"UserPromptSubmit\",$J_DEBUG]]"; scan
-check "meta line: machine not stale" [ "$(rule debugTrigger falseFires)" = 0 ]
-check "queued notification: no turn" [ "$(top turns)" = 2 ]
+check_eq "meta line: machine not stale" 0 "$(rule debugTrigger falseFires)"
+check_eq "queued notification: no turn" 2 "$(top turns)"
 reset_proj; session a "[[\"user\",\"go\"],[\"user\",\"Another Claude session sent a message:\\nbug\",{meta:true}],[\"ctx\",\"UserPromptSubmit\",$J_DEBUG]]"; scan
-check "meta peer message: still machine" [ "$(rule debugTrigger falseFires)" = 1 ]
+check_eq "meta peer message: still machine" 1 "$(rule debugTrigger falseFires)"
 reset_proj; session a '[["user","/compact Keep: build failed"],["text","ok"]]'; scan
-check "slash command with args: trigger n/a" [ "$(rule debugTrigger applies)" = 0 ]
+check_eq "slash command with args: trigger n/a" 0 "$(rule debugTrigger applies)"
 reset_proj; session a '[["user","go"],["user","/x build failed",{meta:true}],["text","ok"]]'; scan
-check "meta line starting with /: no turn" [ "$(top turns)" = 1 ]
+check_eq "meta line starting with /: no turn" 1 "$(top turns)"
 reset_proj; session a '[["user","write the failing guard tests"],["text","ok"]]'; scan
-check "TDD ask for failing tests: trigger n/a" [ "$(rule debugTrigger applies)" = 0 ]
+check_eq "TDD ask for failing tests: trigger n/a" 0 "$(rule debugTrigger applies)"
 reset_proj; session a "[[\"user\",\"go\"],[\"edit\"],[\"stop\",$J_DONE]]"; scan
-check "stop continue: hook fire" [ "$(rule doneClaim hookFires)" = 1 ]
+check_eq "stop continue: hook fire" 1 "$(rule doneClaim hookFires)"
 reset_proj; session a '[["user","go"],["bash","git commit -m \"fix: x\"",{denied:"Branch first: git switch -c <type>/<slug>. Solo repo that commits to main: user runs `git config claudzilla.allowMain true` (git.md:6)."}]]'; scan
-check "hook fire under older wording still counted" [ "$(rule mainCommit hookFires)" = 1 ]
+check_eq "hook fire under older wording still counted" 1 "$(rule mainCommit hookFires)"
 reset_proj; session a '[["user","go"],["edit"],["stop","Claimed done without verification-before-completion. Invoke superpowers:verification-before-completion now and report its evidence, or retract the claim."]]'; scan
-check "stop fire under older wording still counted" [ "$(rule doneClaim hookFires)" = 1 ]
+check_eq "stop fire under older wording still counted" 1 "$(rule doneClaim hookFires)"
 reset_proj; session a '[["user","go"],["ctx","UserPromptSubmit","Previous reply broke: skipped the side panel report (`mcp__margin__intent`). Apply from this reply on."]]'; scan
-check "flag with no config rule: hook fire counted" [ "$(rule intentReport hookFires)" = 1 ]
-check "firedRules: each hook text maps to one rule" [ "$(js '[...Object.values(m.WHY), ...Object.values(m.MSG), ...["debugTrigger", "debugGate", "doneClaim"].map((k) => m.nudge(k))].every((t) => m.firedRules(t).length === 1)')" = true ]
+check_eq "flag with no config rule: hook fire counted" 1 "$(rule intentReport hookFires)"
+check_eq "firedRules: each hook text maps to one rule" true "$(js '[...Object.values(m.WHY), ...Object.values(m.MSG), ...["debugTrigger", "debugGate", "doneClaim"].map((k) => m.nudge(k))].every((t) => m.firedRules(t).length === 1)')"
 reset_proj; session a '[["user","go"],["bash","cd ../other && git commit -m \"fix: x\"",{branch:"main"}],["bash","git -C ../other commit -m \"fix: y\"",{branch:"main"}]]'; scan
 check "commit after cd / -C: branch unknown, not counted" [ "$(rule mainCommit applies)$(rule mainCommit slips)" = 00 ]
 reset_proj; session a '[["user","go",{branch:"main"}],["bash","git switch -c fix/x && git commit -m \"fix: x\""],["bash","git checkout -b fix/y && git commit -m \"fix: y\""]]'; scan
-check "branch then commit from main: not a slip" [ "$(rule mainCommit slips)" = 0 ]
+check_eq "branch then commit from main: not a slip" 0 "$(rule mainCommit slips)"
 AM="$TMP/am"; mkdir -p "$AM/.claude"; git -C "$AM" init -q; echo '{"rulesGuard":{"allowMain":true}}' > "$AM/.claude/claudzilla.local.json"
 reset_proj; session a "[[\"user\",\"go\",{cwd:\"$AM\"}],[\"bash\",\"git commit -m \\\"fix: x\\\"\",{branch:\"main\"}]]"; scan
-check "commit on main with allowMain: not a slip" [ "$(rule mainCommit slips)" = 0 ]
+check_eq "commit on main with allowMain: not a slip" 0 "$(rule mainCommit slips)"
 reset_proj; session a '[["user","go"],["tool","Write",{file_path:"/r/README.md",content:"A seamless install."}],["tool","Edit",{file_path:"/r/a.md",new_string:"Runs once."}]]'; scan
-check "writing: md writes apply" [ "$(rule writing applies)" = 2 ]
-check "writing: tell word slips" [ "$(rule writing slips)" = 1 ]
+check_eq "writing: md writes apply" 2 "$(rule writing applies)"
+check_eq "writing: tell word slips" 1 "$(rule writing slips)"
 reset_proj; session a '[["user","go"],["tool","Write",{file_path:"/tmp/s/a.md",content:"seamless"}],["tool","Write",{file_path:"/r/a.js",content:"// seamless"}]]'; scan
-check "writing: scratch and code n/a" [ "$(rule writing applies)" = 0 ]
+check_eq "writing: scratch and code n/a" 0 "$(rule writing applies)"
 reset_proj; session a '[["user","go"],["tool","Write",{file_path:"/r/a.md",content:"Call `f(g(x))` (see the docs)."}],["tool","Write",{file_path:"/r/b.md",content:"Panel (the side one (right)) opens."}]]'; scan
-check "writing: nested parens slip, code span not" [ "$(rule writing slips)" = 1 ]
+check_eq "writing: nested parens slip, code span not" 1 "$(rule writing slips)"
 LONG=$(printf 'word %.0s' {1..61}); SHORT=$(printf 'word %.0s' {1..40})
 reset_proj; session a "[[\"user\",\"go\"],[\"tool\",\"Write\",{file_path:\"/r/a.md\",content:\"$SHORT\\n\\n- $SHORT\\n- $SHORT\\n\\n| $LONG |\"}],[\"tool\",\"Write\",{file_path:\"/r/b.md\",content:\"- $LONG\"}]]"; scan
-check "writing: run-on paragraph slips, table row not" [ "$(rule writing slips)" = 1 ]
+check_eq "writing: run-on paragraph slips, table row not" 1 "$(rule writing slips)"
 reset_proj; session a "[[\"user\",\"go\"],[\"bash\",\"git commit -F- <<'EOF'\\nfix: x\\n\\nWhy: robust now\\nEOF\"],[\"bash\",\"gh pr create --title t --body \\\"Adds a hook.\\\"\"],[\"bash\",\"git status\"]]"; scan
-check "writing: commit and PR bodies apply" [ "$(rule writing applies)" = 2 ]
-check "writing: heredoc body slips" [ "$(rule writing slips)" = 1 ]
+check_eq "writing: commit and PR bodies apply" 2 "$(rule writing applies)"
+check_eq "writing: heredoc body slips" 1 "$(rule writing slips)"
 stamp '{"writing":null}'
 reset_proj; session a '[["user","go"],["tool","Write",{file_path:"/r/a.md",content:"seamless"}]]'; scan
-check "writing: counted before the rule arrives" [ "$(rule writing slips)" = 1 ]
+check_eq "writing: counted before the rule arrives" 1 "$(rule writing slips)"
 stamp
 reset_proj; session a '[["user","go"],["toolerr","Write",{file_path:"/r/a.md",content:"seamless"}],["tool","Write",{file_path:"/r/a.md",content:"Clean."}]]'; scan
 check "writing: failed write n/a" [ "$(rule writing applies)$(rule writing slips)" = 10 ]
@@ -195,69 +195,69 @@ check "writing: unrelated heredoc before commit not the body" [ "$(rule writing 
 reset_proj; session a "[[\"user\",\"go\"],[\"tool\",\"Edit\",{file_path:\"/r/a.md\",old_string:\"- $LONG\",new_string:\"- x $LONG\"}],[\"tool\",\"Edit\",{file_path:\"/r/a.md\",old_string:\"x\",new_string:\"\"}]]"; scan
 check "writing: old slip kept by Edit n/a, empty Edit n/a" [ "$(rule writing applies)$(rule writing slips)" = 10 ]
 reset_proj; session a '[["user","go"],["tool","Write",{file_path:"/r/a.md",content:"It leveraged it."}],["tool","Write",{file_path:"/r/b.md",content:"It’s worth noting."}]]'; scan
-check "writing: tell word forms" [ "$(rule writing slips)" = 2 ]
+check_eq "writing: tell word forms" 2 "$(rule writing slips)"
 reset_proj; session a "[[\"user\",\"go\"],[\"tool\",\"Write\",{file_path:\"/r/a.md\",content:\"1) $SHORT\\n2) $SHORT\\n3) $SHORT\"}],[\"tool\",\"Write\",{file_path:\"/r/b.md\",content:\"Intro.\\n| $LONG |\\nAfter.\"}],[\"tool\",\"Write\",{file_path:\"/r/c.md\",content:\"~~~\\nf(g(x))\\n~~~\"}]]"; scan
-check "writing: 1) list, glued table, ~~~ fence not slips" [ "$(rule writing slips)" = 0 ]
+check_eq "writing: 1) list, glued table, ~~~ fence not slips" 0 "$(rule writing slips)"
 reset_proj; session a '[["user","go"],["tool","Write",{file_path:"/r/a.md",content:"Save → reload."}],["tool","Write",{file_path:"/r/b.md",content:"Fast — and safe."}],["tool","Write",{file_path:"/r/c.md",content:"Add test → verify: test passes.\nRun `a -> b`, fixes 1–3."}]]'; scan
-check "writing: arrow and dash slip; plan verify line, code, ranges not" [ "$(rule writing slips)" = 2 ]
+check_eq "writing: arrow and dash slip; plan verify line, code, ranges not" 2 "$(rule writing slips)"
 reset_proj; session a '[["user","<command-name>/clear</command-name>"],["user","<command-name>/rule-review</command-name>"],["text","ok"]]'; scan
-check "built-in command with no reply: no turn" [ "$(top turns)" = 1 ]
+check_eq "built-in command with no reply: no turn" 1 "$(top turns)"
 session b '[["user","<command-name>/login</command-name>"]]'; scan
-check "built-in only session: not a session" [ "$(top sessions)" = 1 ]
+check_eq "built-in only session: not a session" 1 "$(top sessions)"
 reset_proj; session a '[["user","old",{daysAgo:30}],["bash","git push"],["user","new"]]'; scan
-check "window: old turn skipped" [ "$(top turns)" = 1 ]
-check "window: old push skipped" [ "$(rule pushVerify applies)" = 0 ]
+check_eq "window: old turn skipped" 1 "$(top turns)"
+check_eq "window: old push skipped" 0 "$(rule pushVerify applies)"
 scan --days 60
-check "window: --days widens" [ "$(top turns)" = 2 ]
+check_eq "window: --days widens" 2 "$(top turns)"
 reset_proj; session a '[["user","go"],["raw","{not json"]]'; scan
-check "bad line: unparsed" [ "$(top unparsed)" = 1 ]
+check_eq "bad line: unparsed" 1 "$(top unparsed)"
 reset_proj; session a '[["user","go"],["bash","git push"],["raw","{\"type\":\"assistant\",\"message\":{\"content\":[null]}}"],["raw","{\"type\":\"user\",\"message\":{\"content\":[null]}}"],["raw","{\"type\":\"user\",\"message\":{\"content\":[null,{\"type\":\"text\",\"text\":\"hi\"}]}}"]]'
 check "null content items: scan survives" scan
-check "null content items: turn still counted" [ "$(rule pushVerify slips)" = 1 ]
+check_eq "null content items: turn still counted" 1 "$(rule pushVerify slips)"
 reset_proj; session a '[["user","go"],["bash","git push"],["raw","null"],["raw","{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":null}]}}"],["raw","{\"type\":\"attachment\",\"attachment\":{\"type\":\"hook_additional_context\",\"content\":5}}"],["raw","{\"type\":\"system\",\"subtype\":\"stop_hook_summary\",\"hookAdditionalContext\":5}"]]'
 check "odd lines (null, text:null, non-array context): scan survives" scan
-check "odd lines: turn still counted" [ "$(rule pushVerify slips)" = 1 ]
+check_eq "odd lines: turn still counted" 1 "$(rule pushVerify slips)"
 reset_proj; mkdir -p "$PROJ/sess/subagents"; session a '[["user","go"]]'; cp "$PROJ/a.jsonl" "$PROJ/sess/subagents/x.jsonl"; scan
-check "subagent transcripts skipped" [ "$(top sessions)" = 1 ]
+check_eq "subagent transcripts skipped" 1 "$(top sessions)"
 check "missing dir: exit 1" bash -c "! node '$SCAN' --dir '$TMP/nope' 2>/dev/null"
-check "missing dir: one-line error" [ "$(node "$SCAN" --dir "$TMP/nope" 2>&1 | wc -l | tr -d ' ')" = 1 ]
-check "--dir is a file: one-line error" [ "$(node "$SCAN" --dir "$PROJ/a.jsonl" 2>&1 | grep -c '^rule-review: ')" = 1 ]
+check_eq "missing dir: one-line error" 1 "$(node "$SCAN" --dir "$TMP/nope" 2>&1 | wc -l | tr -d ' ')"
+check_eq "--dir is a file: one-line error" 1 "$(node "$SCAN" --dir "$PROJ/a.jsonl" 2>&1 | grep -c '^rule-review: ')"
 check "bad --days: exit 1" bash -c "! node '$SCAN' --dir '$TMP/projects' --days x 2>/dev/null"
 reset_proj; session a '[["user","SECRET-TOKEN-123 login"],["bash","git commit -m \"SECRET-TOKEN-123\""],["text","SECRET-TOKEN-123"]]'; scan
 check "no text leak: report" bash -c "! grep -q SECRET '$TMP/r.json'"
-check "report: only schema fields" [ "$(node -p "Object.keys(require('$TMP/r.json')).join(',')")" = "schema,claudzilla,window,sessions,turns,unparsed,rules" ]
+check_eq "report: only schema fields" "schema,claudzilla,window,sessions,turns,unparsed,rules" "$(node -p "Object.keys(require('$TMP/r.json')).join(',')")"
 
 # --- rule arrival dates ---
 future=$(node -p 'new Date(Date.now() + 864e5).toISOString()')
 reset_proj; session a '[["user","ship"],["bash","git push"]]'
 stamp "{\"pushVerify\":\"$future\"}"; scan
-check "since: rule stamped after session -> no applies" [ "$(rule pushVerify applies)" = 0 ]
-check "since: rule stamped after session -> no slips" [ "$(rule pushVerify slips)" = 0 ]
-check "since: other rules still counted" [ "$(rule forcePush applies)" = 1 ]
+check_eq "since: rule stamped after session -> no applies" 0 "$(rule pushVerify applies)"
+check_eq "since: rule stamped after session -> no slips" 0 "$(rule pushVerify slips)"
+check_eq "since: other rules still counted" 1 "$(rule forcePush applies)"
 stamp '{"pushVerify":null}'; scan
-check "since: rule missing -> not counted" [ "$(rule pushVerify applies)" = 0 ]
+check_eq "since: rule missing -> not counted" 0 "$(rule pushVerify applies)"
 rm -f "$SINCE"; scan
-check "since: no file -> nothing counted" [ "$(node -p "Object.values(require('$TMP/r.json').rules).every((v) => v.applies === 0 && v.slips === 0)")" = true ]
+check_eq "since: no file -> nothing counted" true "$(node -p "Object.values(require('$TMP/r.json').rules).every((v) => v.applies === 0 && v.slips === 0)")"
 echo '[1,2]' > "$SINCE"; scan
-check "since: invalid file -> nothing counted" [ "$(rule pushVerify applies)" = 0 ]
+check_eq "since: invalid file -> nothing counted" 0 "$(rule pushVerify applies)"
 reset_proj; session a "[[\"user\",\"ship\"],[\"bash\",\"git push\",{denied:$J_VERIFY}]]"
 stamp "{\"pushVerify\":\"$future\"}"; scan
-check "since: fires before stamp still counted" [ "$(rule pushVerify hookFires)" = 1 ]
+check_eq "since: fires before stamp still counted" 1 "$(rule pushVerify hookFires)"
 stamp
 
 # --- save / issue / share ---
 REPORTS="$CLAUDE_CONFIG_DIR/claudzilla-reports"
 reset_proj; session a '[["user","ship"],["bash","git push"]]'
 node "$SCAN" --dir "$TMP/projects" --save > "$TMP/s.json"
-check "save: first run previous null" [ "$(node -p "require('$TMP/s.json').previous")" = null ]
-check "save: file written" [ "$(ls "$REPORTS" | wc -l | tr -d ' ')" = 1 ]
+check_eq "save: first run previous null" null "$(node -p "require('$TMP/s.json').previous")"
+check_eq "save: file written" 1 "$(ls "$REPORTS" | wc -l | tr -d ' ')"
 echo '{"schema":4,"window":{"from":"2000-01-01","to":"2000-01-15"},"rules":{"pushVerify":{"applies":9,"slips":9,"hookFires":0,"falseFires":0}}}' > "$REPORTS/2000-01-15.json"
 echo '{"schema":4,"window":{"from":"2000-01-01","to":"2000-01-31"},"rules":{"pushVerify":{"applies":7,"slips":7,"hookFires":0,"falseFires":0}}}' > "$REPORTS/2000-01-31.json"
 node "$SCAN" --dir "$TMP/projects" --save > "$TMP/s.json"
-check "save: previous is older report, same window" [ "$(node -p "require('$TMP/s.json').previous.rules.pushVerify.slips")" = 9 ]
+check_eq "save: previous is older report, same window" 9 "$(node -p "require('$TMP/s.json').previous.rules.pushVerify.slips")"
 echo '{"schema":1,"window":{"from":"2000-01-02","to":"2000-01-16"},"rules":{"pushVerify":{"applies":5,"slips":5,"hookFires":0,"falseFires":0}}}' > "$REPORTS/2000-01-16.json"
 node "$SCAN" --dir "$TMP/projects" --save > "$TMP/s.json"
-check "save: previous skips old schema" [ "$(node -p "require('$TMP/s.json').previous.rules.pushVerify.slips")" = 9 ]
+check_eq "save: previous skips old schema" 9 "$(node -p "require('$TMP/s.json').previous.rules.pushVerify.slips")"
 rm -f "$REPORTS/2000-01-16.json"
 rm -f "$REPORTS/2000-01-15.json" "$REPORTS/2000-01-31.json"
 issue=$(node "$SCAN" --issue)
@@ -286,9 +286,9 @@ out=$(PATH="$BIN:$PATH" node "$SCAN" --share); rc=$?
 check "share: gh fails -> exit 0" [ "$rc" -eq 0 ]
 check "share: gh fails -> prefilled url" has "$out" "github.com/$SLUG/issues/new?labels=rule-report"
 echo '{broken' > "$REPORTS/2999-01-01.json"
-check "issue: corrupt report -> one-line error" [ "$(node "$SCAN" --issue 2>&1 | grep -c '^rule-review: ')" = 1 ]
+check_eq "issue: corrupt report -> one-line error" 1 "$(node "$SCAN" --issue 2>&1 | grep -c '^rule-review: ')"
 d="$REPORTS/$(node -p 'new Date().toISOString().slice(0,10)').json"; rm -f "$REPORTS/2999-01-01.json" "$d"; mkdir -p "$d"
-check "save fails: one-line error" [ "$(node "$SCAN" --dir "$TMP/projects" --save 2>&1 | grep -c '^rule-review: ')" = 1 ]
+check_eq "save fails: one-line error" 1 "$(node "$SCAN" --dir "$TMP/projects" --save 2>&1 | grep -c '^rule-review: ')"
 check "save fails: no tmp left" [ -z "$(ls "$REPORTS" | grep '\.tmp$')" ]
 rm -rf "$REPORTS"
 check "issue: no saved report -> exit 1" bash -c "! node '$SCAN' --issue 2>/dev/null"
@@ -301,7 +301,7 @@ check "save: marks report seen" [ "$(cat "$SEEN" 2>/dev/null)" = "$(ls "$REPORTS
 rm -rf "$REPORTS"
 out=$(node "$SCAN" --dir "$TMP/projects" --save --background)
 check "background: no output" [ -z "$out" ]
-check "background: report written" [ "$(ls "$REPORTS" | grep -c '\.json$')" = 1 ]
+check_eq "background: report written" 1 "$(ls "$REPORTS" | grep -c '\.json$')"
 check "background: not marked seen" [ ! -e "$SEEN" ]
 
 # --- nudge ---
@@ -322,7 +322,7 @@ check "nudge: no report -> silent" [ -z "$(nudge)" ]
 check "nudge: no report -> background scan" scanned
 rm -rf "$REPORTS"; report "$today" 5 1
 out=$(nudge)
-check "nudge: line" [ "$out" = '{"systemMessage":"claudzilla: 6 rule slips in 3 sessions (14 days) · most: tldr 5× · /rule-review to see and share"}' ]
+check_eq "nudge: line" '{"systemMessage":"claudzilla: 6 rule slips in 3 sessions (14 days) · most: tldr 5× · /rule-review to see and share"}' "$out"
 check "nudge: marks seen" [ "$(cat "$SEEN")" = "$today.json" ]
 check "nudge: shown once" [ -z "$(nudge)" ]
 rm -rf "$REPORTS"; report "$today" 0 0
