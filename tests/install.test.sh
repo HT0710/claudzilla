@@ -198,6 +198,9 @@ node -e '
 const fs=require("fs"),[r,s]=process.argv.slice(1),old={matcher:"Old",hooks:[{type:"command",command:"old"}]};
 const b=JSON.parse(fs.readFileSync(r,"utf8"));b.hooks.Stop.push(old);b.x=1;b.y=1;fs.writeFileSync(r,JSON.stringify(b));
 const d=JSON.parse(fs.readFileSync(s,"utf8"));d.hooks.Stop.push(old);d.x=1;d.y=2;fs.writeFileSync(s,JSON.stringify(d))' "$R" "$S"
+check "prune: setup planted old in settings" hasCmd "$S" old
+check "prune: setup planted old in record" hasCmd "$R" old
+check_eq "prune: setup planted x and y" "1 2" "$(q "$S" .x) $(q "$S" .y)"
 run_install "$H"
 check "prune: stale entry from record removed" lacksCmd "$S" old
 check "prune: machine hook kept with record" hasCmd "$S" mine
@@ -737,8 +740,10 @@ sec_plugins() {
 S=$(new_stub); H=$(new_home); seedbase "$H"; echo '[{"id":"margin@claudzilla"}]' > "$S/list"; pinst "$H" "$S" --remove margin
 check "plugins: remove panel uninstalls it" grep -q 'plugin uninstall margin@claudzilla' "$S/log"
 S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S" --remove margin
+check "plugins: setup ran the claude stub (no uninstall)" [ -s "$S/log" ]
 check "plugins: unpicked but not installed: no uninstall call" bash -c "! grep -q 'plugin uninstall' '$S/log'"
 S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S"
+check "plugins: setup ran the claude stub (all picked)" [ -s "$S/log" ]
 check "plugins: re-run with all picked: no uninstall call" bash -c "! grep -q 'plugin uninstall' '$S/log'"
 S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S" --remove margin
 check "plugins: kept part still installed" grep -q 'plugin install ballot@claudzilla' "$S/log"
@@ -788,12 +793,18 @@ check_eq "uninstall: install key gone, other keys kept" '{"keep":1}' "$(cat "$U/
 check "uninstall: backup kept" [ -d "$U/.claude/.claudzilla-backup/x" ]
 check "uninstall: prints clone rm" grep -q "rm -rf $REPO" "$U/install.log"
 check "uninstall: prints backup rm" grep -q "rm -rf $U/.claude/.claudzilla-backup" "$U/install.log"
-V=$(new_home); inst "$V"; inst "$V" --uninstall --yes
+V=$(new_home); inst "$V"
+check "uninstall: setup installed CLAUDE.local.md and keybindings" bash -c "[ -e '$V/.claude/CLAUDE.local.md' ] && [ -s '$V/.claude/keybindings.json' ]"
+inst "$V" --uninstall --yes
 check "uninstall: empty CLAUDE.local.md removed" [ ! -e "$V/.claude/CLAUDE.local.md" ]
 check "uninstall: keybindings gone" bash -c "! grep -qE 'alt\+[ohlgkq]' '$V/.claude/keybindings.json' 2>/dev/null"
-V3=$(new_home); mkdir -p "$V3/.claude"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+i":null,"alt+g":"command:claudzilla"}}]}' > "$V3/.claude/keybindings.json"; inst "$V3"; inst "$V3" --uninstall --yes
+V3=$(new_home); mkdir -p "$V3/.claude"; echo '{"bindings":[{"context":"Chat","bindings":{"alt+i":null,"alt+g":"command:claudzilla"}}]}' > "$V3/.claude/keybindings.json"; inst "$V3"
+check "uninstall: setup left the guide key in V3 keybindings" grep -q 'command:claudzilla' "$V3/.claude/keybindings.json"
+inst "$V3" --uninstall --yes
 check "uninstall: tabkeys own alt+i leaves no dead guide key" bash -c "! grep -q 'command:claudzilla' '$V3/.claude/keybindings.json' 2>/dev/null"
-V2=$(new_home); inst "$V2" --remove rtk; inst "$V2" --uninstall --yes
+V2=$(new_home); inst "$V2" --remove rtk
+check "uninstall: setup wrote claudzilla.json" [ -e "$V2/.claude/claudzilla.json" ]
+inst "$V2" --uninstall --yes
 check "uninstall: claudzilla.json removed when only install key" [ ! -e "$V2/.claude/claudzilla.json" ]
 N=$(new_home); inst "$N"; notty env -u CLAUDE_CONFIG_DIR -u WSL_DISTRO_NAME -u CLAUDZILLA_TTY HOME="$N" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" --uninstall >"$N/u.log" 2>&1 </dev/null; rc=$?
 check "uninstall no tty: exit 2, kept" bash -c "[ $rc -eq 2 ] && [ -L '$N/.claude/rules' ]"
@@ -801,6 +812,7 @@ check "uninstall no tty: says run with --yes" grep -q 'install.sh --uninstall --
 echo n > "$TMP/ans"; C=$(new_home); inst "$C"; cp -a "$C/.claude" "$C/before"
 clean_env HOME="$C" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_TTY="$TMP/ans" bash "$REPO/install.sh" --uninstall >"$C/u.log" 2>&1; rc=$?
 check "uninstall: n cancels, exit 0, no change" bash -c "[ $rc -eq 0 ] && grep -q 'uninstall cancelled' '$C/u.log' && diff -r '$C/before' '$C/.claude'"
+check "uninstall: setup left rules linked" [ -e "$C/.claude/rules" ]
 echo y > "$TMP/ans"; clean_env HOME="$C" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_TTY="$TMP/ans" bash "$REPO/install.sh" --uninstall >"$C/u.log" 2>&1
 check "uninstall: y at the prompt proceeds" [ ! -e "$C/.claude/rules" ]
 for fl in "--add hud" "--remove rtk" --full --custom; do
@@ -820,6 +832,7 @@ echo '{"profiles":{"defaults":{"font":{"face":"Fira Code"}}}}' > "$W/win/b/setti
 node -e 'const [h,out]=process.argv.slice(1);require("fs").writeFileSync(h+"/.claude/.claudzilla-installed.json",JSON.stringify({files:[h+"/.local/share/node-v9",h+"/.local/bin/node",h+"/.local/share/fonts/MesloLGS NF Regular.ttf",out,h+"/gone"],
  rcLines:[{file:h+"/.bashrc",line:"export COLORTERM=truecolor"},{file:h+"/.zshrc",line:"export COLORTERM=truecolor"}],plugins:[],marketplaces:[],
  winFonts:[{file:h+"/win/Microsoft/Windows/Fonts/MesloLGS NF Regular.ttf",reg:"MesloLGS NF Regular (TrueType)"}],wtFont:[h+"/win/a/settings.json",h+"/win/b/settings.json"]}))' "$W" "$OUT"
+check "uninstall rec: setup planted the record and its targets" bash -c "[ -s '$W/.claude/.claudzilla-installed.json' ] && [ -e '$W/.local/share/node-v9/x' ] && [ -L '$W/.local/bin/node' ] && [ -e '$D/MesloLGS NF Regular.ttf' ] && [ -e '$WF/MesloLGS NF Regular.ttf' ]"
 clean_env HOME="$W" REGLOG="$W/reg.log" PATH="$WB:$PATH" CLAUDZILLA_OFFLINE=1 bash "$REPO/install.sh" --uninstall --yes >"$W/install.log" 2>&1
 check "uninstall rec: node dir and link gone" bash -c "[ ! -e '$W/.local/share/node-v9' ] && [ ! -L '$W/.local/bin/node' ]"
 check "uninstall rec: recorded font gone, unrecorded kept" bash -c "[ ! -e '$D/MesloLGS NF Regular.ttf' ] && [ -f '$D/MesloLGS NF Bold.ttf' ]"
@@ -944,8 +957,10 @@ check "rename: alt+h command:panel moved" bash -c "[ '$(key "$H" Chat alt+h)' = 
 S=$(new_stub); H=$(new_home); seedbase "$H"; echo '[{"id":"panel@claudzilla"}]' > "$S/list"; pinst "$H" "$S"
 check "rename: old plugin id uninstalled after new install" bash -c "i=\$(grep -n -m1 -x 'plugin install margin@claudzilla' '$S/log' | cut -d: -f1); u=\$(grep -n -m1 -x 'plugin uninstall panel@claudzilla' '$S/log' | cut -d: -f1); [ -n \"\$i\" ] && [ -n \"\$u\" ] && [ \"\$i\" -lt \"\$u\" ]"
 S=$(new_stub); H=$(new_home); seedbase "$H"; echo '[{"id":"margin@claudzilla"}]' > "$S/list"; pinst "$H" "$S"
+check "rename: setup ran the claude stub (second run)" [ -s "$S/log" ]
 check "rename: second run no old uninstall" bash -c "! grep -q 'plugin uninstall' '$S/log'"
 S=$(new_stub); H=$(new_home); seedbase "$H"; echo '[{"id":"panel@claudzilla"}]' > "$S/list"; echo 'plugin install margin@claudzilla' > "$S/fail"; pinst "$H" "$S"
+check "rename: setup tried the failing install" grep -qx 'plugin install margin@claudzilla' "$S/log"
 check "rename: old plugin kept when new id install fails" bash -c "! grep -q 'plugin uninstall panel@claudzilla' '$S/log'"
 }
 

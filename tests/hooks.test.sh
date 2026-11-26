@@ -233,7 +233,9 @@ check "hold: reset leaves untracked out" not has "$out" 'u.txt'
 out=$(sh_ 'git restore b.txt')
 check "hold: restore lists its path" has "$out" 'M b.txt'
 check "hold: restore lists only its path" not has "$out" 'a.txt'
-check "hold: checkout -- lists its path" not has "$(sh_ 'git checkout -- b.txt')" 'a.txt'
+out=$(sh_ 'git checkout -- b.txt')
+check "hold: checkout -- lists its own path" has "$out" 'M b.txt'
+check "hold: checkout -- lists its path" not has "$out" 'a.txt'
 check "hold: clean lists what it removes" has "$(sh_ 'git clean -fd')" 'u.txt'
 check "hold: quiet clean still lists" has "$(sh_ 'git clean -fdq')" 'u.txt'
 check "hold: restore of a missing path lists only it" not has "$(sh_ 'git restore gone.txt')" 'a.txt'
@@ -337,7 +339,9 @@ check "body: -F file read" has "$(sh_ 'git commit -F msg.txt')" "over 72 columns
 check "body: file written in same command skipped" silent sh_ $'cat > msg.txt <<\'EOF\'\nfix: x\nEOF\ngit commit -F msg.txt'
 check "body: -F of a later command ignored" silent sh_ 'git commit -q && grep -F msg.txt msg.txt'
 printf '%s\n' "bad subject" "" "$LONG" > msg.txt
-check "body: -F file subject not denied" not denied "$(sh_ 'git commit -F msg.txt')"
+out=$(sh_ 'git commit -F msg.txt')
+check "body: -F file subject is read" has "$out" "over 72 columns"
+check "body: -F file subject not denied" not denied "$out"
 rm msg.txt
 mkfifo p.fifo; export RG; export -f hook sh_
 check "body: fifo -F returns" perl -e 'alarm 5; exec @ARGV' bash -c 'sh_ "git commit -F p.fifo"'
