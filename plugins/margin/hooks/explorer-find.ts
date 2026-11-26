@@ -33,8 +33,8 @@ export function findIn(lines: readonly string[], query: FindQuery): FindResult {
   return { ...none, matches }
 }
 
-// A move onto one of the find bar's own buttons keeps the field open.
-export const leavesField = (e: { element?: string }, key: string): boolean => e.element !== key && !e.element?.startsWith('explorer:find:')
+// A move onto one of the find bar's own buttons, or the Recent field's Down and Up, keeps the field open.
+export const leavesField = (e: { element?: string }, key: string): boolean => e.element !== key && !e.element?.startsWith('explorer:find:') && !e.element?.startsWith('explorer:recent:')
 
 // The cell of `cells` each row of `total` marks: the one thumbOf maps it to.
 export const markCells = (total: number, cells: number, rows: readonly number[]): boolean[] => {

@@ -7,6 +7,7 @@ import { cachedBar, firstChangeLine, mergeMarks, parseDiff, pressLine, redLit, r
 import type { BarCache, DiffMarks } from './explorer-diff'
 import { cellsOf, codeRow, fileWindow, hitsOf, layoutFor, layoutOf, lineAt, rowAt, sliceTokens, thumbOf, toneRows } from './explorer-layout'
 import type { Cached, Layout } from './explorer-layout'
+import { markViewed, recentSplit, viewedList } from './explorer-recent'
 import { MIXED, treeMarks } from './explorer-status'
 import type { TreeMarks } from './explorer-status'
 import { OPEN_EDITOR_SH, cleanLine, gitDiff, gitStatus, listDir, listNames, loadFile, latestOf, projectRoot, statOf } from './explorer-load'
@@ -73,6 +74,8 @@ type State = {
   find?: { open: boolean; text: string; pending: boolean; result: FindResult; spans: Spans; current: number; lit?: { from: number; to: number } }
   // `lit`: the result Down and Up have lit, an index into `rows`.
   names?: { text: string; entries: NameEntry[]; rows: NameEntry[]; loading?: boolean; capped?: boolean; tree?: number; lit?: number; follow?: boolean }
+  // `lit`: the row Down and Up have lit, an index into the filtered list.
+  recent?: { text: string; lit?: number }
   toggles: { matchCase: boolean; word: boolean; regex: boolean }
   rev: number
   // The last atom rev the module state has taken.
@@ -126,6 +129,13 @@ function endNames(): void {
   nameGen++
 }
 
+// Closes the Recent field and drops its text.
+function endRecent(): void {
+  if (state.recent) blankOnce.next = true
+  state.recent = undefined
+  recentGen++
+}
+
 // Remembers the spot, moves through `change`, and restores the spot of an entry it landed on.
 function moveTo(change: (nav: Nav) => Nav): boolean {
   const remembered = remember(state.nav, (state.names?.text ? state.names.tree : state.top) ?? 0, state.lit?.from)
@@ -135,6 +145,7 @@ function moveTo(change: (nav: Nav) => Nav): boolean {
   endFlash()
   endFind()
   endNames()
+  endRecent()
   if (entry.kind === 'file' && entry.path !== state.loaded?.path) {
     state.diff = state.reloadMarks = state.editDiff = undefined
     showMarks()
@@ -362,6 +373,7 @@ const FIELD = 'explorer:find'
 // Bumped on each submit: the engine drops a redrawn value equal to the last one it had, so a new key remounts the field.
 let gen = 0
 let nameGen = 0
+let recentGen = 0
 // A focused Input needs the text cells plus cursor, gap, enter mark, space and its submit word (measured live). Under the
 // cap it sizes itself, so a key the engine draws before the redraw stays centred; past it a fixed width keeps it inside the header.
 const capWidth = (text: string, submit: string, cap: number) => (cellsOf(text) + 5 + submit.length > cap ? cap : undefined)
@@ -374,6 +386,12 @@ export const fieldPad = (label: string, text: string, submit: string, mid: numbe
 const PLACEHOLDER = 'type text to find'
 const NAME = 'explorer:name'
 const NAME_PLACEHOLDER = 'type a name'
+const RECENT = 'explorer:recent'
+const RECENT_UP = `${RECENT}:up`
+const RECENT_DOWN = `${RECENT}:down`
+const RECENT_PLACEHOLDER = 'type a file name'
+const RECENT_LABEL = 'file named '
+const recentKey = (): string => (recentGen ? `${RECENT}:${recentGen}` : RECENT)
 
 // The pane's base open arguments; register adds Escape handling.
 export const paneBase = { id: 'margin', title: 'Margin', columns: 40 } as const
@@ -388,14 +406,14 @@ async function takeKeys($: EngineInterface, key: string): Promise<void> {
   await $.ui.focus({ requestId: 'margin', key }).catch(() => undefined)
 }
 
-// Whether a find or name field is open.
-export const fieldOpen = (): boolean => !!(state.find?.open || state.names)
+// Whether a find, name or Recent field is open.
+export const fieldOpen = (): boolean => !!(state.find?.open || state.names || state.recent)
 
 // The text of the open field; empty when none is open.
-export const fieldText = (): string => (state.find?.open ? state.find.text : state.names?.text) ?? ''
+export const fieldText = (): string => (state.find?.open ? state.find.text : (state.names ?? state.recent)?.text) ?? ''
 
-// Whether Escape closes the open field: the name field always, the find field only while empty.
-export const fieldTakesEscape = (): boolean => (state.find?.open ? !state.find.text : !!state.names)
+// Whether Escape closes the open field: the name and Recent fields always, the find field only while empty.
+export const fieldTakesEscape = (): boolean => (state.find?.open ? !state.find.text : !!(state.names || state.recent))
 
 // Whether the menu card is pinned.
 export const menuPinned = (): boolean => state.menuPinned
@@ -421,15 +439,17 @@ export async function closeEmptyField($: EngineInterface, e?: { element?: string
     blankOnce.next = true
     gen++
   } else if (state.names && !state.names.text && (!e || leavesField(e, nameKey()))) endNames()
+  else if (state.recent && !state.recent.text && (!e || leavesField(e, recentKey()))) endRecent()
   else return false
   await update($, file, () => placeOf())
   return true
 }
 
-// Escape: closes the name field with its text, or an empty find field.
+// Escape: closes the name or Recent field with its text, or an empty find field.
 export async function closeOnEscape($: EngineInterface): Promise<boolean> {
-  if (!state.find?.open && state.names) {
+  if (!state.find?.open && (state.names || state.recent)) {
     endNames()
+    endRecent()
     await update($, file, () => placeOf())
     return true
   }
@@ -488,6 +508,46 @@ async function submitName($: EngineInterface): Promise<void> {
   if (top) await openPlace($, { path: `${current(state.nav).path.replace(/\/$/, '')}/${top.path}`, kind: top.kind === 'dir' ? 'folder' : undefined })
   // No match: only a redraw puts the new key, and so the text, on screen.
   else $.ui.invalidate('ui.render')
+}
+
+async function openRecent($: EngineInterface): Promise<void> {
+  state.menuPinned = false
+  state.recent ??= { text: '' }
+  await update($, file, () => placeOf())
+  await takeKeys($, recentKey())
+}
+
+function typeRecent($: EngineInterface, text: string): void {
+  if (!state.recent) return
+  state.recent.text = text
+  state.recent.lit = undefined
+  $.ui.invalidate('ui.render')
+}
+
+// The remembered files the field lists, in row order.
+async function recentRows($: EngineInterface, text: string): Promise<string[]> {
+  const { today, earlier } = recentSplit(viewedList(), await $.clock.now(), text)
+  return [...today, ...earlier].map(r => r.path)
+}
+
+// Down and Up from the Recent field: the first Down lights the top row. False for any other element.
+export async function stepRecent($: EngineInterface, element: string | undefined): Promise<boolean> {
+  const by = element === RECENT_DOWN ? 1 : element === RECENT_UP ? -1 : 0
+  if (!by || !state.recent) return false
+  const lit = Math.min((state.recent.lit ?? -1) + by, (await recentRows($, state.recent.text)).length - 1)
+  if (state.recent) state.recent.lit = lit < 0 ? undefined : lit
+  await update($, file, () => placeOf())
+  return true
+}
+
+// Opens the lit row, or the top one; the open file is the top row, so it only closes the field.
+async function submitRecent($: EngineInterface): Promise<void> {
+  recentGen++
+  const path = (await recentRows($, state.recent?.text ?? ''))[state.recent?.lit ?? 0]
+  if (!path) return $.ui.invalidate('ui.render')
+  if (path !== current(state.nav).path) return openPlace($, { path })
+  endRecent()
+  await update($, file, () => placeOf())
 }
 
 async function openFind($: EngineInterface): Promise<void> {
@@ -729,6 +789,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   let focus: number | undefined
   if (state.editDiff && state.loaded?.path === state.editDiff.path) focus = await applyEdit($)
   const place = current(state.nav)
+  if (place.kind === 'file') markViewed(place.path, await $.clock.now())
   if (place.kind === 'folder') state.afterFolder = true
   const rows = Math.max(0, props.scroll.bodyRows)
   const findOpen = !!state.find?.open && place.kind === 'file'
@@ -1009,6 +1070,12 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   )
   const shown = headOf(place.path, state.root, home, MID)
   const inRoot = state.root !== '/' && (place.path === state.root || place.path.startsWith(`${state.root}/`))
+  // The path's last part opens the Recent field on a file page and the name search on a folder page.
+  const last = (name: string) => (
+    <Button key="explorer:path-last" plain onPress={() => (place.kind === 'file' ? openRecent($) : openNames($))}>
+      <Text bold color="claude">{name}</Text>
+    </Button>
+  )
   let path: JSX.Element[] | string = shown
   if (inRoot) {
     const parts = place.path === state.root ? [] : place.path.slice(state.root.length + 1).split('/')
@@ -1037,9 +1104,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
               <Text>{name}</Text>
             </Button>
           ) : (
-            <Text key="last" bold color="claude">
-              {name}
-            </Text>
+            last(name)
           ),
         )
       })
@@ -1186,10 +1251,10 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       </Button>
     </Box>
   )
-  const editing = (state.find?.open && place.kind === 'file') || (state.names && place.kind === 'folder')
+  const editing = (state.find?.open && place.kind === 'file') || (state.names && place.kind === 'folder') || (state.recent && place.kind === 'file')
   // The stand-ins beside the name field that Down and Up move the ring to, so stepName can catch them.
   // Drawn as long as the field is: one drawn in later before the field drops the ring off it.
-  const stepping = !!state.names
+  const stepping = !!(state.names || state.recent)
   // A closed field reopens under the same key, so it seeds afresh.
   if (!editing) seeds.clear()
   // A field's room: the path's, plus the 3 cells of the search and menu buttons it hides.
@@ -1198,6 +1263,8 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const labelFor = (text: string, label: string, placeholder: string) => (!text ? `${placeholder} ` : cellsOf(text) > ROOM - cellsOf(label) - 9 ? '' : label)
   const findLabel = labelFor(state.find?.text ?? '', 'lines with ', PLACEHOLDER)
   const nameLabel = labelFor(state.names?.text ?? '', state.names?.capped ? 'named (capped) ' : 'named ', NAME_PLACEHOLDER)
+  const recentLabel = labelFor(state.recent?.text ?? '', RECENT_LABEL, RECENT_PLACEHOLDER)
+  const recentL = ' '.repeat(fieldPad(recentLabel, state.recent?.text ?? '', 'open', MID, ROOM))
   const findL = ' '.repeat(fieldPad(findLabel, state.find?.text ?? '', 'next', MID, ROOM))
   const nameL = ' '.repeat(fieldPad(nameLabel, state.names?.text ?? '', 'open', MID, ROOM))
   return {
@@ -1218,6 +1285,16 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
                   <Input key={findKey()} value={seedOf(findKey(), state.find.text)} submitLabel="next" autoFocus onInput={v => typeFind($, fitField($, v, ROOM - 9, state.find?.text ?? '', () => gen++))} onSubmit={() => (gen++, stepFind($, 1))} />
                 </Box>
               </Box>
+            ) : state.recent && place.kind === 'file' ? (
+              <Box key="recent" flexShrink={0}>
+                <Text>{recentL}</Text>
+                <Text color={HUD.faint}>{recentLabel}</Text>
+                <Box width={capWidth(state.recent.text, 'open', ROOM - (state.recent.text ? cellsOf(recentLabel) : 0))} flexShrink={0}>
+                  <Button plain key={RECENT_UP} onPress={() => undefined}><Text>{''}</Text></Button>
+                  <Input key={recentKey()} value={seedOf(recentKey(), state.recent.text)} submitLabel="open" autoFocus onInput={v => typeRecent($, fitField($, v, ROOM - 9, state.recent?.text ?? '', () => recentGen++))} onSubmit={() => submitRecent($)} />
+                  <Button plain key={RECENT_DOWN} onPress={() => undefined}><Text>{''}</Text></Button>
+                </Box>
+              </Box>
             ) : state.names && place.kind === 'folder' ? (
               <Box key="names" flexShrink={0}>
                 <Text>{nameL}</Text>
@@ -1234,7 +1311,14 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
                 <Text color="claude">{cutStart(printable(state.notice), MID - (state.noticeVerb?.length ?? 0) - 1)}</Text>
               </Text>
             ) : typeof path === 'string' ? (
-              <Text color={HUD.action}>{path}</Text>
+              path.endsWith('/') ? (
+                <Text color={HUD.action}>{path}</Text>
+              ) : (
+                <Box key="parts" flexShrink={0}>
+                  <Text color={HUD.action}>{path.slice(0, path.lastIndexOf('/') + 1)}</Text>
+                  {last(path.slice(path.lastIndexOf('/') + 1))}
+                </Box>
+              )
             ) : (
               <Box key="parts" flexShrink={0}>{path}</Box>
             )}

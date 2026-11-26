@@ -241,3 +241,7 @@ test('an other-kind entry lists as a file', async () => {
   expect(await walkNames(list, '/r')).toEqual([{ path: 'sock', kind: 'file' }])
   expect(asked).toEqual(['/r'])
 })
+
+test("leavesField: the Recent field's Down and Up do not leave it", () => {
+  expect(leavesField({ element: 'explorer:recent:down' }, 'explorer:recent')).toBe(false)
+})
