@@ -117,7 +117,7 @@ check "fresh: delegate hook in settings" grep -q 'delegate-nudge.mjs' "$H/.claud
 check "fresh: experimental hook in settings" grep -q 'experimental.mjs' "$H/.claude/settings.json"
 check "fresh: agent-name hook in settings" grep -q 'agent-name.mjs' "$H/.claude/settings.json"
 check "fresh: doctor hook in settings" grep -q 'doctor.mjs' "$H/.claude/settings.json"
-check "fresh: doctor hook runs on startup and /clear" ssMatcher doctor.mjs 'startup|clear'
+check "fresh: doctor hook runs on startup, /clear and resume" ssMatcher doctor.mjs 'startup|clear|resume'
 check_eq "fresh: agent teams 0 from base" '"0"' "$(q "$H/.claude/settings.json" .env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS)"
 HT=$(new_home); mkdir -p "$HT/.claude"; echo '{"env":{"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS":"1"}}' > "$HT/.claude/settings.overrides.json"; run_install "$HT"
 check_eq "overrides: a user's 1 wins over base 0" '"1"' "$(q "$HT/.claude/settings.json" .env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS)"
