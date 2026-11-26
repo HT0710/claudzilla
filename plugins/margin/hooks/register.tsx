@@ -1029,12 +1029,14 @@ export const keepNewest = <K, V>(map: Map<K, V>, key: K, value: V, max: number) 
 let pin: { timestamp: number; after: number } | undefined
 const SETTLE = 300
 let settleAt = -Infinity
+let lastTab: Tab | undefined
 let settleSeq = 0
 const SCROLL_SETTLE = 300
 // Tests only.
 export const resetScrollState = () => {
   paneDue = moveAt = settleAt = -Infinity
   moveUnplaced = false
+  lastTab = undefined
   settleSeq++
   shown.clear()
 }
@@ -1636,6 +1638,9 @@ export const register: Register = (on, options) => {
     // A tab saved before it was hidden falls back to the first shown.
     const saved = await read($, tab)
     const current = TABS.find(one => one === saved) ?? TABS[0]!
+    // History drawn after another tab, or after a move the pane missed: its rows may be stale.
+    if (current === 'History' && (lastTab !== 'History' || moveUnplaced)) $.clock.after(0, () => settle($))
+    lastTab = current
 
     // Tries the transcript's id first, then the drawn row's, until one scrolls. The pin's settle
     // starts again once the scroll lands, as the search before it can be slow.
