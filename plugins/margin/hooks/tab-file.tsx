@@ -837,8 +837,6 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const MID = W - 5 - hdrRight - 2 * GAP
   const home = await $.env.get('HOME').catch(() => undefined)
   const basic = await basicGlyphs($)
-  const loaded = place.kind === 'file' && state.loaded?.path === place.path ? state.loaded : undefined
-  const lines = loaded?.lines ?? []
   let fileMark: string | undefined
   let inRepo = false
   if (place.kind === 'file' && state.root && place.path.startsWith(`${state.root}/`)) {
@@ -847,6 +845,9 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     fileMark = status?.files.get(place.path)
     if (current(state.nav).path !== place.path) return draw($, ctx)
   }
+  // After the status await: a reload during it must not leave old lines drawn with new marks.
+  const loaded = place.kind === 'file' && state.loaded?.path === place.path ? state.loaded : undefined
+  const lines = loaded?.lines ?? []
   const digits = String(lines.length).length
   const G = digits + 3
   const C = W - G - 1
