@@ -12,8 +12,8 @@ mkdir -p "$CLAUDE_CONFIG_DIR"
 n=0
 RG="$REPO/claude/hooks/rules-guard.mjs"
 STATE="$TMP/claudzilla-rules-$(id -u)"
-# hook <event> [key=value ...]: build the event JSON (dotted keys nest) and run rules-guard in $PWD
-hook() {
+# node builder: handles every value; hook falls back to it for the rare ones bash cannot escape
+hook_node() {
   node -e '
 const [event, ...kv] = process.argv.slice(1);
 const o = { session_id: process.env.SID, hook_event_name: event, cwd: process.cwd() };
@@ -23,6 +23,35 @@ for (const p of kv) {
   t[ks[0]] = p.slice(i + 1);
 }
 console.log(JSON.stringify(o));' "$@" | node "$RG"
+}
+# jesc <value>: JSON-escape into J; fails on a backslash or control char, which hook_node handles
+jesc() {
+  local q='"' nl=$'\n' cr=$'\r' tb=$'\t' rq='\"' rn='\n' rr='\r' rt='\t'
+  [[ $1 == *\\* ]] && return 1
+  J=${1//"$q"/$rq}; J=${J//"$nl"/$rn}; J=${J//"$cr"/$rr}; J=${J//"$tb"/$rt}
+  [[ $J != *[[:cntrl:]]* ]]
+}
+# hook <event> [key=value ...]: build the event JSON (dotted keys nest, one level) and run rules-guard in $PWD
+hook() {
+  local ev=$1 p k v g= sep= seen= o J; shift
+  jesc "$SID" && o='{"session_id":"'$J'"' && jesc "$ev" && o=$o',"hook_event_name":"'$J'"' && jesc "$(pwd -P)" && o=$o',"cwd":"'$J'"' || { hook_node "$ev" "$@"; return; }
+  for p in "$@"; do
+    k=${p%%=*}; v=${p#*=}
+    case $k in ""|*[!A-Za-z0-9_.]*|.*|*.|*.*.*) hook_node "$ev" "$@"; return;; esac
+    jesc "$v" || { hook_node "$ev" "$@"; return; }
+    case $k in
+      *.*)
+        if [ "${k%%.*}" != "$g" ]; then
+          [ -n "$g" ] && o=$o'}'
+          case " $seen " in *" ${k%%.*} "*) hook_node "$ev" "$@"; return;; esac
+          g=${k%%.*}; seen="$seen $g"; o=$o',"'$g'":{'; sep=
+        fi
+        o=$o$sep'"'${k#*.}'":"'$J'"'; sep=,;;
+      *) [ -n "$g" ] && { o=$o'}'; g=; }; o=$o',"'$k'":"'$J'"';;
+    esac
+  done
+  [ -n "$g" ] && o=$o'}'
+  printf '%s}\n' "$o" | node "$RG"
 }
 new_session() { SID="s$((++n))"; }
 denied() { has "$1" '"permissionDecision":"deny"'; }
@@ -343,7 +372,7 @@ out=$(sh_ 'git commit -F msg.txt')
 check "body: -F file subject is read" has "$out" "over 72 columns"
 check "body: -F file subject not denied" not denied "$out"
 rm msg.txt
-mkfifo p.fifo; export RG; export -f hook sh_
+mkfifo p.fifo; export RG; export -f hook hook_node jesc sh_
 check "body: fifo -F returns" perl -e 'alarm 5; exec @ARGV' bash -c 'sh_ "git commit -F p.fifo"'
 rm p.fifo
 touch b1 b2 b3; git add b1 b2
