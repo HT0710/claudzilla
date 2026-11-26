@@ -64,3 +64,29 @@ export function iconOf(name: string, kind: 'file' | 'dir', state?: { open: boole
   const hit = FILE_ICONS.get(name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : '')
   return hit ? { ...hit } : { glyph: g(0xf15b), color: 'faint' }
 }
+
+const guides = new Map<string, number>()
+const rowIds = new Map<string, number>()
+const idOf = (map: Map<string, number>, path: string) => {
+  let n = map.get(path)
+  if (n === undefined) map.set(path, (n = map.size))
+  return n
+}
+
+/** The hover group of one folder's guide line. */
+export function scopeOf(path: string): string {
+  return `g:${idOf(guides, path)}`
+}
+
+/** The hover group of one tree row's own highlight. */
+export function rowScopeOf(path: string): string {
+  return `r:${idOf(rowIds, path)}`
+}
+
+/** Folders strictly between root and path, outermost first: the guide lines that pass through the row. */
+export function guideFolders(path: string, root: string): string[] {
+  const base = root.replace(/\/$/, '')
+  if (!path.startsWith(`${base}/`)) return []
+  const parts = path.slice(base.length + 1).split('/').slice(0, -1)
+  return parts.map((_, i) => `${base}/${parts.slice(0, i + 1).join('/')}`)
+}
