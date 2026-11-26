@@ -139,6 +139,16 @@
         "hooks": [
           { "type": "command", "command": "node \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/agent-name.mjs\"", "timeout": 5 }
         ]
+      },
+      {
+        "matcher": "startup|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/doctor.mjs\" --hook",
+            "timeout": 5
+          }
+        ]
       }
     ]
   },
