@@ -1317,7 +1317,10 @@ export const register: Register = on => {
     const ids = memberIds(e)
     // The engine re-keys a group once it ends: the new row takes the old one's place in its section.
     // A group that also holds a call a live row placed takes that row's place too; growGroup adds its new calls.
-    const placedId = e.component === 'ToolGroup' ? ids?.find(id => runs.has(id)) : undefined
+    // A group with a call folio doesn't fold has no member ids: it takes the place of that call's lone row by its frame.
+    const placedId = e.component === 'ToolGroup'
+      ? (ids ?? e.props.calls.map((c: ToolGroupCall) => c.tool_use_id)).find((id?: string) => id && (runs.has(id) || frames.has(id)))
+      : undefined
     const old = placedId ? frameOf(placedId) : undefined
     if (old) {
       if (e.viewport?.isFullscreen) frames.set(e.requestId, old)
@@ -1328,6 +1331,8 @@ export const register: Register = on => {
         promptBefore.set(e.requestId, prompt)
         if (joinRow.get(prompt) === id) { joinRow.set(prompt, e.requestId); joinNote('move', prompt, { row: e.requestId, from: id }) }
       }
+      // A group with an unfolded call ends the run, as on the path below: a later row must not join a run it swallowed.
+      if (!ids) current = undefined
       return
     }
     // A finished row of a call a run already holds stays in that run: as a run of its own it would cut the next live row off.

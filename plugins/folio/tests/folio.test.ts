@@ -4009,6 +4009,26 @@ test('a prompt queued after the turn joined its rail takes ╭ for the rows belo
   expect(await ruleOf(q)).toBe('╭')
 })
 
+test('a group that swallows a lone ToolSearch row keeps the join: the card gives ╭', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  const card = await prompt($, 'hi')
+  await mountRow($, 'ToolSearch', 'x', { input: { query: 'select:a' } }, '', 'ts1')
+  await mountGroup($, 'g1', [call('ts1', 'ToolSearch', { query: 'select:a' }), call('m1', 'mcp__a__b', {})])
+  expect(await ruleOf(card)).toBe('╭')
+})
+
+test('a row after a group that swallowed a lone ToolSearch row and a folded row still draws', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  await prompt($, 'hi')
+  await mountRow($, 'ToolSearch', 'x', { input: { query: 'select:a' } }, '', 'ts1')
+  await mountRow($, 'mcp__a__b', {}, { input: {} }, '', 'm1')
+  await mountGroup($, 'g1', [call('ts1', 'ToolSearch', { query: 'select:a' }), call('m1', 'mcp__a__b', {})])
+  const later = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  expect(await textOf(later, 'r1')).toContain('Read')
+})
+
 test('a queued prompt the engine re-keys twice takes ╭ on its last key', async ($, on) => {
   native(on)
   nativePrompt(on)
