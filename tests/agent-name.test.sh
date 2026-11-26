@@ -22,7 +22,6 @@ let s = ""; for await (const c of process.stdin) s += c;
 const kind = (n) => /^[a-z]+-\d+$/.test(n) ? "codename" : n.includes("-the-") ? "epithet"
   : ["fantasy", "animal"].find((k) => STYLES[k][0].includes(n.split("-")[0]) && STYLES[k][1].includes(n.split("-")[1]));
 console.log(new Set(s.split("\n").filter(Boolean).map(kind)).size)'; }
-eq() { [ "$1" = "$2" ]; }
 empty() { [ -z "$1" ]; }
 nonempty() { [ -n "$1" ]; }
 kebab24() { [[ "$1" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] && [ "${#1}" -le 24 ]; }
@@ -124,4 +123,4 @@ check "no session id: no output" empty "$out"
 
 check "settings: base env sets agent teams 0" eq "$(node -p 'require(process.argv[1]).env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS' "$REPO/settings.base.json")" 0
 
-echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
+summary agent-name

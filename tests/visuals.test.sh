@@ -112,5 +112,4 @@ check "assets: every asset is referenced"     assets_used_ok
 check "assets: GIFs <= 2 MB"                  gif_size_ok
 check "captions: speed stated"                speed_ok
 
-echo "pass=$pass fail=$fail"
-[ "$fail" -eq 0 ]
+summary visuals

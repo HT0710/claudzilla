@@ -451,5 +451,4 @@ hud_guarded() {
 }
 check "state hud: a planted or open state dir is never used" hud_guarded
 
-echo "hud: $pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+summary hud

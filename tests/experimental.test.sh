@@ -164,4 +164,4 @@ check "steward feature: names the fallback" names_fallback
 check "steward feature: carries the authority lines" has_authority
 check "steward feature: carries the naming rule" grep -qF 'kebab case' "$AR"
 
-echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
+summary experimental

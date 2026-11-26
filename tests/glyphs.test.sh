@@ -13,5 +13,4 @@ raw() {
 none_raw() { local hits; hits="$(raw)"; [ -z "$hits" ] || { echo "$hits"; return 1; }; }
 check "no raw Nerd Font icons outside kit.tsx" none_raw
 
-echo "pass=$pass fail=$fail"
-[ "$fail" -eq 0 ]
+summary glyphs

@@ -49,5 +49,4 @@ check "sections in their part" members_ok
 check "every topic has text" body_ok
 check "bestiary groups match" names_ok
 
-echo "pass=$pass fail=$fail"
-[ "$fail" -eq 0 ]
+summary guide

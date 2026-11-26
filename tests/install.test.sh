@@ -998,4 +998,4 @@ for s in $SECTIONS; do
   cat "$TMP/$s.out"
   if [ -f "$TMP/$s.count" ]; then read -r p f < "$TMP/$s.count"; pass=$((pass+p)); fail=$((fail+f)); else fail=$((fail+1)); echo "FAIL: $s did not finish"; fi
 done
-echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
+summary install
