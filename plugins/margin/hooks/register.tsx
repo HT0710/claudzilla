@@ -836,7 +836,7 @@ export const nearestCommandId = (text: string, prompt: Prompt) => {
 const rowIds = new Map<string, string>()
 // Redraws within 100 ms, once however many rows moved or drew meanwhile. It redraws every chat row
 // this plugin hooks too, which is what makes the rows that did not move say where they are again
-// (see FRESH in tab-history.tsx). Due by the clock, not a flag: a timer dropped with the draw that set it holds off
+// (History lights only rows reported since the last settle). Due by the clock, not a flag: a timer dropped with the draw that set it holds off
 // nothing past its 100 ms.
 let due = -Infinity
 const redrawSoon = async ($: EngineInterface) => {
@@ -1698,6 +1698,7 @@ export const register: Register = (on, options) => {
         },
         rowTimes: keys => rowTimes($, keys),
         rowIds,
+        settledAt: () => settleAt,
         awaited,
         shown,
         pin: () => pin,

@@ -2098,6 +2098,7 @@ test('the stamp search finds a row by uuid either way round, a tool call by its 
 })
 
 test('History lights the prompt whose turn is on screen, not the newest', async ($, on) => {
+  resetScrollState()
   const start = Date.now() - 60_000
   const history = ['a', 'b', 'c']
     .map((display, i) => JSON.stringify({ display, timestamp: start + i * 10_000, sessionId: 'chat-1' }))
@@ -2136,6 +2137,7 @@ test('History lights the prompt whose turn is on screen, not the newest', async 
 })
 
 test('History rereads at most once a second while the chat scrolls', async ($, on) => {
+  resetScrollState()
   const history = JSON.stringify({ display: 'a', timestamp: 1, sessionId: 'chat-1' })
   let greps = 0
   const clock = mock.clock(on, { now: 2_000_000 })
@@ -2215,12 +2217,12 @@ test('a move with History current redraws only the pane, 100 ms later', async ($
   const before = count.draws
   const lit = [await color('a'), await color('b'), await color('c')]
 
-  await a.redraw({ ...rowProps, onScreen: { first: 1, last: 3, of: 10 } })
+  await b.redraw({ ...rowProps, onScreen: null })
   await clock.advance(100)
 
   expect(count.draws).toBe(before + 1)
   expect([await color('a'), await color('b'), await color('c')]).not.toEqual(lit)
-  for (const row of [a, b]) await row.redraw({ ...rowProps, onScreen: null })
+  await a.redraw({ ...rowProps, onScreen: null })
 })
 
 test('a move with Git current redraws no chat row', async ($, on) => {
@@ -2378,6 +2380,7 @@ test("a tool call's command and output rows, at different places, settle after o
 })
 
 test('chat moves redraw the panel once, 100 ms later', async ($, on) => {
+  resetScrollState()
   const start = Date.now() - 60_000
   const history = ['a', 'b', 'c']
     .map((display, i) => JSON.stringify({ display, timestamp: start + i * 10_000, sessionId: 'chat-1' }))
@@ -2500,13 +2503,14 @@ test('the wheel scrolls the History list under a fixed header, up to its end; â†
 })
 
 test('after a long jump, rows left on the old screen no longer stretch the lit range', async ($, on) => {
+  resetScrollState()
   const start = Date.now() - 60_000
   const history = ['a', 'b', 'c']
     .map((display, i) => JSON.stringify({ display, timestamp: start + i * 10_000, sessionId: 'chat-1' }))
     .join('\n')
-  const stamped: Record<string, number> = { 'old-1': start + 5_000, 'new-1': start + 25_000, 'new-2': start + 26_000 }
-  let now = 1_000_000
-  on('clock.now', () => ({ value: now }))
+  const stamped: Record<string, number> = { 'old-1': start + 25_000, 'new-1': start + 15_000 }
+  const clock = mock.clock(on, { now: 1_000_000 })
+  on('ui.panes', () => ({ value: [{ id: 'margin', isPlaced: true }] }))
   on('env.get', () => ({ value: '/home/me' }))
   on('session.id', () => ({ value: 'chat-1' }))
   on('session.root', () => ({ value: '/proj' }))
@@ -2523,25 +2527,31 @@ test('after a long jump, rows left on the old screen no longer stretch the lit r
   // Stands for the engine's own drawing of the row.
   on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text' as const, children: ['reply'] }))
   const reply = { text: 'a reply', origin: { kind: 'composer' as const }, isExpanded: false }
+  const onScreen = { first: 0, last: 2, of: 3 }
   const mount = (requestId: string) =>
-    $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId,
-      props: { ...reply, onScreen: { first: 0, last: 2, of: 3 } } })
+    $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId, props: { ...reply, onScreen } })
 
-  // On screen in a's turn; the jump never reports it gone.
+  // The old screen's row sits on the newest prompt; the jump unmounts it without a word.
   const old = await mount('old-1')
-  now += 5_000
-  const fresh = [await mount('new-1'), await mount('new-2')]
   const ui = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'Pane', props, requestId: 'margin' })
   await ui.press({ key: 'History' })
   const color = async (text: string) => (await ui.find({ type: 'Text', text: new RegExp(`^${text}\\s*$`) }))?.props.color
+  await clock.advance(50)
+  const fresh = await mount('new-1')
+  await clock.advance(210)
+  await old.redraw({ ...reply, onScreen })
+  await clock.advance(10)
+  old.unmount()
+  await clock.advance(300)
 
-  expect(await color('c')).toBe('claude')
-  expect(await color('b')).toBeUndefined()
+  expect(await color('b')).toBe('claude')
+  expect(await color('c')).toBeUndefined()
   expect(await color('a')).toBeUndefined()
-  for (const row of [old, ...fresh]) await row.redraw({ ...reply, onScreen: null })
+  await fresh.redraw({ ...reply, onScreen: null })
 })
 
 test('a moved row the chat file does not hold (a tool group) leaves the highlight where it is', async ($, on) => {
+  resetScrollState()
   const start = Date.now() - 60_000
   const history = ['a', 'b', 'c']
     .map((display, i) => JSON.stringify({ display, timestamp: start + i * 10_000, sessionId: 'chat-1' }))
@@ -2609,6 +2619,7 @@ const inViewSetup = (on: Parameters<TestBody>[1], stamped: (start: number) => Re
 const reply = { text: 'a reply', origin: { kind: 'composer' as const }, isExpanded: false }
 
 test('a tool group at the bottom of the screen lights its turn, found by its first call', async ($, on) => {
+  resetScrollState()
   inViewSetup(on, start => ({ 'b-row': start + 15_000, toolu_c1: start + 25_000 }))
   const top = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId: 'b-row',
     props: { ...reply, onScreen: { first: 4, last: 9, of: 10 } } })
@@ -2627,6 +2638,7 @@ test('a tool group at the bottom of the screen lights its turn, found by its fir
 })
 
 test('a row still on screen counts after a move; one that left without a report does not', async ($, on) => {
+  resetScrollState()
   const clock = inViewSetup(on, start => ({ 'b-top': start + 15_000, 'c-mid': start + 25_000 }))
   const mount = (requestId: string, first: number) =>
     $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId,
@@ -2648,6 +2660,7 @@ test('a row still on screen counts after a move; one that left without a report 
 })
 
 test('a row is looked up in the chat file once, not on every redraw', async ($, on) => {
+  resetScrollState()
   const setup = inViewSetup(on, start => ({ 'b-once': start + 15_000 }))
   const row = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId: 'b-once',
     props: { ...reply, onScreen: { first: 0, last: 2, of: 3 } } })
@@ -2665,6 +2678,7 @@ test('a row is looked up in the chat file once, not on every redraw', async ($, 
 })
 
 test('a row the chat file does not hold yet is looked for at most once a second', async ($, on) => {
+  resetScrollState()
   // Mid-turn: the reply streaming in is on screen before the chat file holds it.
   const setup = inViewSetup(on, start => ({ 'b-row': start + 15_000 }))
   const mount = (requestId: string, first: number) =>
@@ -2689,6 +2703,7 @@ test('a row the chat file does not hold yet is looked for at most once a second'
 })
 
 test('a row growing below the screen, as a reply streams in, redraws nothing', async ($, on) => {
+  resetScrollState()
   const setup = inViewSetup(on, start => ({ 'c-grow': start + 25_000 }))
   const row = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId: 'c-grow',
     props: { ...reply, onScreen: { first: 0, last: 9, of: 10 } } })
@@ -2730,6 +2745,7 @@ test('a clicked prompt stays lit until a move after its jump settles', () => {
 })
 
 test('a jump that finds nothing drops its pin: the turn on screen stays lit', async ($, on) => {
+  resetScrollState()
   inViewSetup(on, start => ({ 'b-stay': start + 15_000 }))
   on('ui.toast', () => ({ value: undefined }))
   const row = await $.ui.mount({ plugin: 'margin', surface: 'terminal', component: 'UserMessage', requestId: 'b-stay',
