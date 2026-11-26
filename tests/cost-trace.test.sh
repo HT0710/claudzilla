@@ -140,7 +140,6 @@ printf '%s\n' '{"type":"user","uuid":"p10","timestamp":"2026-11-12T10:50:00.000Z
 find "$CFG4/projects" -name '*.jsonl' -exec touch -t 202611121000 {} +
 touch -t 202611121100 "$R4/s-b.jsonl"
 rp() { CLAUDE_CONFIG_DIR="$CFG4" node "$SCRIPT" report "$@"; }
-has() { grep -qF -- "$2" <<<"$1"; }
 SA=$(rp --session s-a); SOLD=$(rp --session s-old); SC=$(rp --session s-c); SD=$(rp --session s-d); AL=$(rp all --cwd /proj/a)
 check "session report: every line fits 80 columns" bash -c 'printf "%s\n" "$1" "$2" | awk "length > 80 { bad = 1 } END { exit bad }"' _ "$SA" "$AL"
 check "session report: header fields" bash -c 'for w in "routing on" "prompts 3" API "computed list" "cost-state list" "untracked list" "per prompt list"; do grep -qF -- "$w" <<<"$1" || exit 1; done' _ "$SA"
@@ -209,5 +208,4 @@ gate '{"experimental":{"steward":false}}'; CLAUDE_CONFIG_DIR="$GDIR" node "$SCRI
 check "settings: own entry at index 1, async" [ "$(node -p 'const e=require(process.argv[1]).hooks.SessionStart;[e[1].matcher, e[1].hooks[0].command.includes("cost-trace.mjs"), e[1].hooks[0].async]' "$REPO/settings.base.json")" = '[ undefined, true, true ]' ]
 check "settings: trace entry unchanged" [ "$(node -p 'require(process.argv[1]).hooks.SessionStart[0].hooks[0].command.includes("--session-start")' "$REPO/settings.base.json")" = true ]
 
-echo "cost-trace: $pass passed, $fail failed"
-[ "$fail" = 0 ]
+summary cost-trace

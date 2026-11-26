@@ -6,7 +6,6 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 export CLAUDE_CONFIG_DIR="$TMP/cfg"; mkdir -p "$CLAUDE_CONFIG_DIR"
 . "$REPO/tests/lib.sh"
-has_() { grep -qF -- "$2" <<<"$1"; }
 RG="$REPO/claude/hooks/rules-guard.mjs"
 # js <expr>: evaluate with rules-guard exports in scope as `m`, print result
 js() { node --input-type=module -e "import * as m from '$RG'; console.log(JSON.stringify(await (async () => $1)()))" </dev/null; }
@@ -281,11 +280,11 @@ SLUG=$(git -C "$REPO" remote get-url origin | sed -E 's#.*github\.com[:/]##; s#\
 out=$(PATH="$BIN:$PATH" node "$SCAN" --share)
 check "share: gh called with label" grep -qx 'rule-report' "$TMP/gh-args"
 check "share: gh repo from origin" grep -qxF "$SLUG" "$TMP/gh-args"
-check "share: prints issue url" has_ "$out" "issues/1"
+check "share: prints issue url" has "$out" "issues/1"
 printf '#!/bin/sh\nexit 1\n' > "$BIN/gh"
 out=$(PATH="$BIN:$PATH" node "$SCAN" --share); rc=$?
 check "share: gh fails -> exit 0" [ "$rc" -eq 0 ]
-check "share: gh fails -> prefilled url" has_ "$out" "github.com/$SLUG/issues/new?labels=rule-report"
+check "share: gh fails -> prefilled url" has "$out" "github.com/$SLUG/issues/new?labels=rule-report"
 echo '{broken' > "$REPORTS/2999-01-01.json"
 check "issue: corrupt report -> one-line error" [ "$(node "$SCAN" --issue 2>&1 | grep -c '^rule-review: ')" = 1 ]
 d="$REPORTS/$(node -p 'new Date().toISOString().slice(0,10)').json"; rm -f "$REPORTS/2999-01-01.json" "$d"; mkdir -p "$d"
@@ -329,7 +328,7 @@ check "nudge: shown once" [ -z "$(nudge)" ]
 rm -rf "$REPORTS"; report "$today" 0 0
 check "nudge: zero slips -> silent" [ -z "$(nudge)" ]
 rm -rf "$REPORTS"; report "$today" 0 2
-check "nudge: top rule by slips" has_ "$(nudge)" "most: pushVerify 2×"
+check "nudge: top rule by slips" has "$(nudge)" "most: pushVerify 2×"
 rm -rf "$REPORTS"; reset_proj; session a '[["user","ship"],["bash","git push"]]'
 node "$SCAN" --dir "$TMP/projects" --save >/dev/null
 check "nudge: after manual save -> silent" [ -z "$(nudge)" ]
@@ -350,7 +349,7 @@ nudge >/dev/null; sleep 1
 check "nudge: opt-out -> no scan" [ ! -e "$REPORTS/$today.json" ]
 echo '{"rulesGuard":{"reviewNudge":"no"}}' > "$CLAUDE_CONFIG_DIR/claudzilla.json"
 report "$today" 2 0
-check "nudge: invalid value -> stays on" has_ "$(nudge)" "systemMessage"
+check "nudge: invalid value -> stays on" has "$(nudge)" "systemMessage"
 rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"
 R="$TMP/optout"; mkdir -p "$R/.claude"; git -C "$R" init -q
 echo '{"rulesGuard":{"reviewNudge":false}}' > "$R/.claude/claudzilla.json"
@@ -370,5 +369,4 @@ check "skill: user-only" grep -qx 'disable-model-invocation: true' "$SK"
 check "skill: name" grep -qx 'name: rule-review' "$SK"
 check "skill: CI runs tests" grep -q 'tests/rule-review.test.sh' "$REPO/.github/workflows/test.yml"
 
-echo "$pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+summary rule-review

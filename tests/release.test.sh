@@ -31,5 +31,4 @@ check "CI release has no schedule" bash -c "! grep -q 'schedule:' '$REPO/.github
 check "CI release runs on demand" grep -q '^  workflow_dispatch:' "$REPO/.github/workflows/test.yml"
 check "CI releases per push" grep -q "if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'" "$REPO/.github/workflows/test.yml"
 
-echo "$pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+summary release

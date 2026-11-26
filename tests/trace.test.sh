@@ -143,5 +143,4 @@ check "perl trace_write keeps caller's \$@" [ "$err" = outer ]
 fresh; err=$(perl -e 'require $ARGV[0]; trace_write(undef); trace_write("x"); trace_write([]); print "ok"' "$TP" 2>&1 </dev/null)
 check "perl trace_write with non-hashref: no die, no stderr" [ "$err" = ok ]
 
-echo "trace: $pass passed, $fail failed"
-[ "$fail" = 0 ]
+summary trace

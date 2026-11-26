@@ -18,7 +18,6 @@ warm() { prompt; ev PreToolUse Grep >/dev/null; ev PreToolUse Grep >/dev/null; }
 denied() { [[ "$1" == *'"deny"'* ]] && echo yes || echo no; }
 bash_ev() { ev PreToolUse Bash "$(node -e 'process.stdout.write(JSON.stringify({tool_input:{command:process.argv[1]}}))' "$1")"; }
 grepTool() { ev PreToolUse Grep "$(node -e 'process.stdout.write(JSON.stringify({tool_input:{path:process.argv[1]}}))' "$1")"; }
-eq() { [ "$1" = "$2" ]; }
 on
 
 check "Read never counts" eq "$(prompt; denied "$(ev PreToolUse Read; ev PreToolUse Read; ev PreToolUse Read)")" no
@@ -128,4 +127,4 @@ ungated() {
 }
 check "settings: both nudge commands start node with no config, pass stdin" ungated
 
-echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
+summary delegate-nudge

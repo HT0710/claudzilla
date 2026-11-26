@@ -25,10 +25,8 @@ for (const p of kv) {
 console.log(JSON.stringify(o));' "$@" | node "$RG"
 }
 new_session() { SID="s$((++n))"; }
-has() { grep -qF -- "$2" <<<"$1"; }
 denied() { has "$1" '"permissionDecision":"deny"'; }
 asked() { has "$1" '"permissionDecision":"ask"'; }
-not() { ! "$@"; }
 state() { node -p "JSON.stringify(require('$STATE/$SID.json')$1)"; }
 
 # --- UserPromptSubmit ---
@@ -908,7 +906,7 @@ cp "$REPO"/claude/hooks/{claudzilla-update.sh,rules-guard.mjs,trace.mjs,trace.pl
 printf '#!/bin/sh\nprintf "%%s askpass=[%%s]\\n" "$*" "${GIT_ASKPASS-unset}" >> "%s/ssh.rec"\nexit 1\n' "$TMP" > "$TMP/fakessh"; chmod +x "$TMP/fakessh"
 git -C "$TMP/uclone2" remote set-url origin ssh://git@example.invalid/x/y.git; git -C "$TMP/uclone2" config core.sshCommand "$TMP/fakessh"
 CLAUDE_CONFIG_DIR="$UC" sh "$TMP/uclone2/claude/hooks/claudzilla-update.sh" >/dev/null
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ -s "$TMP/ssh.rec" ] && break; sleep 0.25; done
+wait_for "$TMP/ssh.rec"
 check "updater fetch: ssh gets BatchMode, GIT_ASKPASS empty" bash -c "grep -q -- '-o BatchMode=yes' '$TMP/ssh.rec' && grep -q 'askpass=\[\]' '$TMP/ssh.rec'"
 # GIT_SSH (plink) alone takes no ssh options, so the updater leaves it alone
 git clone -q "$TMP/uorigin" "$TMP/uclone3"; mkdir -p "$TMP/uclone3/claude/hooks"
@@ -916,7 +914,7 @@ cp "$REPO"/claude/hooks/{claudzilla-update.sh,rules-guard.mjs,trace.mjs,trace.pl
 sed 's/ssh.rec/plink.rec/' "$TMP/fakessh" > "$TMP/fakeplink"; chmod +x "$TMP/fakeplink"
 git -C "$TMP/uclone3" remote set-url origin ssh://git@example.invalid/x/y.git
 GIT_SSH="$TMP/fakeplink" CLAUDE_CONFIG_DIR="$UC" sh "$TMP/uclone3/claude/hooks/claudzilla-update.sh" >/dev/null
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ -s "$TMP/plink.rec" ] && break; sleep 0.25; done
+wait_for "$TMP/plink.rec"
 check "updater fetch: GIT_SSH used as is, no BatchMode" bash -c "[ -s '$TMP/plink.rec' ] && ! grep -q BatchMode '$TMP/plink.rec'"
 # core.sshCommand beats GIT_SSH in git, so it still gets BatchMode; a plink one gets none
 git clone -q "$TMP/uorigin" "$TMP/uclone4"; mkdir -p "$TMP/uclone4/claude/hooks"
@@ -924,14 +922,14 @@ cp "$REPO"/claude/hooks/{claudzilla-update.sh,rules-guard.mjs,trace.mjs,trace.pl
 sed 's/ssh.rec/ssh4.rec/' "$TMP/fakessh" > "$TMP/fakessh4"; chmod +x "$TMP/fakessh4"
 git -C "$TMP/uclone4" remote set-url origin ssh://git@example.invalid/x/y.git; git -C "$TMP/uclone4" config core.sshCommand "$TMP/fakessh4"
 GIT_SSH="$TMP/fakeplink" CLAUDE_CONFIG_DIR="$UC" sh "$TMP/uclone4/claude/hooks/claudzilla-update.sh" >/dev/null
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ -s "$TMP/ssh4.rec" ] && break; sleep 0.25; done
+wait_for "$TMP/ssh4.rec"
 check "updater fetch: core.sshCommand beats GIT_SSH, gets BatchMode" bash -c "grep -q -- '-o BatchMode=yes' '$TMP/ssh4.rec'"
 git clone -q "$TMP/uorigin" "$TMP/uclone5"; mkdir -p "$TMP/uclone5/claude/hooks"
 cp "$REPO"/claude/hooks/{claudzilla-update.sh,rules-guard.mjs,trace.mjs,trace.pl} "$TMP/uclone5/claude/hooks/"
 sed 's/ssh.rec/plink5.rec/' "$TMP/fakessh" > "$TMP/fakeplink5"; chmod +x "$TMP/fakeplink5"
 git -C "$TMP/uclone5" remote set-url origin ssh://git@example.invalid/x/y.git; git -C "$TMP/uclone5" config core.sshCommand "$TMP/fakeplink5"
 CLAUDE_CONFIG_DIR="$UC" sh "$TMP/uclone5/claude/hooks/claudzilla-update.sh" >/dev/null
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ -s "$TMP/plink5.rec" ] && break; sleep 0.25; done
+wait_for "$TMP/plink5.rec"
 check "updater fetch: plink core.sshCommand, no BatchMode" bash -c "[ -s '$TMP/plink5.rec' ] && ! grep -q BatchMode '$TMP/plink5.rec'"
 # margin's Git tab auto-fetch follows the same ssh order, run as the plugin runs it
 qf=$(sed -n "s/^const QUIET_FETCH = '\(.*\)'$/\1/p" "$REPO/plugins/margin/hooks/tab-git.tsx")
@@ -1034,4 +1032,4 @@ git branch -D -q release/1.9 release/1.10
 check "release sync: no release branch, no reminder" [ -z "$(sh_ 'gh pr merge 5 --rebase')" ]
 rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"
 
-echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
+summary hooks

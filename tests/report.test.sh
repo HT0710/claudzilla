@@ -201,5 +201,4 @@ check "fit keeps snapshot and steps" bash -c 'f=$1; [ "$(wc -c < "$f")" -le 6500
 printf '# t\nsk-%s\n' "$(printf 'a%.0s' {1..30})" > "$TMP/m.md"; rep --fit "$TMP/m.md" >/dev/null
 check "fit masks the body" bash -c '! grep -q sk-aaaa "$1" && grep -q "\[masked\]" "$1"' _ "$TMP/m.md"
 
-echo "report: $pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+summary report
