@@ -740,10 +740,10 @@ sec_plugins() {
 S=$(new_stub); H=$(new_home); seedbase "$H"; echo '[{"id":"margin@claudzilla"}]' > "$S/list"; pinst "$H" "$S" --remove margin
 check "plugins: remove panel uninstalls it" grep -q 'plugin uninstall margin@claudzilla' "$S/log"
 S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S" --remove margin
-check "plugins: setup ran the claude stub (no uninstall)" [ -s "$S/log" ]
+check "plugins: setup listed the installed plugins (no uninstall)" grep -q '^plugin list' "$S/log"
 check "plugins: unpicked but not installed: no uninstall call" bash -c "! grep -q 'plugin uninstall' '$S/log'"
 S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S"
-check "plugins: setup ran the claude stub (all picked)" [ -s "$S/log" ]
+check "plugins: setup listed the installed plugins (all picked)" grep -q '^plugin list' "$S/log"
 check "plugins: re-run with all picked: no uninstall call" bash -c "! grep -q 'plugin uninstall' '$S/log'"
 S=$(new_stub); H=$(new_home); seedbase "$H"; pinst "$H" "$S" --remove margin
 check "plugins: kept part still installed" grep -q 'plugin install ballot@claudzilla' "$S/log"
