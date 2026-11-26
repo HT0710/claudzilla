@@ -1857,6 +1857,7 @@ test('a ! shell command resolves to its bash-input row', () => {
 })
 
 test('a slash row stays dim until its output line is drawn in the chat', async ($, on) => {
+  resetScrollState()
   const clock = mock.clock(on)
   const history = ['kept', '/model']
     .map((display, i) => JSON.stringify({ display, timestamp: Date.now() - 2 + i, sessionId: 'chat-1' }))
@@ -1950,6 +1951,7 @@ test('jumping to a prompt gone from the chat says so without searching', async (
 })
 
 test('a mid-turn prompt stays dim until its row is drawn in the chat', async ($, on) => {
+  resetScrollState()
   const clock = mock.clock(on)
   const history = ['kept', 'sent mid-turn']
     .map((display, i) => JSON.stringify({ display, timestamp: Date.now() - 2 + i, sessionId: 'chat-1' }))
@@ -2222,7 +2224,7 @@ test('a move with History current redraws only the pane, 100 ms later', async ($
 
   expect(count.draws).toBe(before + 1)
   expect([await color('a'), await color('b'), await color('c')]).not.toEqual(lit)
-  await a.redraw({ ...rowProps, onScreen: null })
+  for (const row of [a, b]) await row.redraw({ ...rowProps, onScreen: null })
 })
 
 test('a move with Git current redraws no chat row', async ($, on) => {
