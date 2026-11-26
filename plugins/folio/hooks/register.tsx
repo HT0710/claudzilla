@@ -19,7 +19,7 @@ const stateColour = (state: State) => ({ running: 'claude', working: 'claude', r
 // margin's noun, mirrored: listing margin as a dependency would stop this plugin loading without it.
 declare module 'claude-code' {
   interface EngineInterface {
-    margin: { show: (at: { path: string; line: number }) => Promise<void> }
+    margin: { show: (at: { path: string; line?: number; diff?: string }) => Promise<void> }
   }
 }
 
@@ -142,17 +142,6 @@ const graphemes = new Intl.Segmenter()
 const cells = (text: string) =>
   [...graphemes.segment(text)].reduce((sum, { segment }) =>
     sum + (segment === '\t' || /\p{Emoji_Presentation}|[\u1100-\u115F\u2329\u232A\u2600-\u27BF\u2B50\u2B55\u2E80-\uA4CF\uA960-\uA97C\uAC00-\uD7A3\uF900-\uFAFF\uFE10-\uFE19\uFE30-\uFE4F\uFE50-\uFE6B\uFF00-\uFF60\uFFE0-\uFFE6\u{16FE0}-\u{18CFF}\u{1AFF0}-\u{1B2FF}\u{1F000}-\u{1FAFF}\u{20000}-\u{3FFFF}]/u.test(segment) ? 2 : 1), 0)
-
-// Rows the Code element draws for a diff `width` cells wide: a `...` row between hunks, and each line one row
-// plus its wraps under the hunk's gutter (the widest line number, a space, a marker). `\ No newline` draws none.
-export function diffRows(diff: string, width: number) {
-  return diff.split(/^(?=@@ )/m).reduce((sum, hunk, i) => {
-    const [head = '', ...lines] = hunk.replace(/\n$/, '').split('\n')
-    const [a = 0, b = 1, c = 0, d = 1] = (head.match(/^@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@/) ?? []).slice(1).map(n => (n === '' ? 1 : +n))
-    const room = Math.max(width - String(Math.max(a + b, c + d) - 1).length - 3, 1)
-    return sum + (i ? 1 : 0) + lines.filter(line => line[0] !== '\\').reduce((rows, line) => rows + Math.max(1, Math.ceil(cells(line.slice(1)) / room)), 0)
-  }, 0)
-}
 
 // A path cut in the middle to fit `max`: the first folder, then as many last segments as fit. The file name goes last.
 // A path with `.` and `..` folded, joined under `base` unless absolute.
@@ -639,6 +628,16 @@ const linksOf = new Map<string, Map<string, Link>>()
 // Repo root, else the start cwd: relative spans fall back to it once a `cd` moved the session cwd.
 let root = ''
 let toldNoPanel = false
+const showInMargin = async ($: EngineInterface, at: { path: string; line?: number; diff?: string }) => {
+  try {
+    await $.margin.show(at)
+  } catch (err) {
+    // A missing noun throws TypeError; any other failure is margin's to report. The hooks loader refuses `$.margin` read as a value, so no typeof check.
+    if (!(err instanceof TypeError) || toldNoPanel) return
+    toldNoPanel = true
+    $.ui.toast('folio: install the margin part to preview files; ctrl+click opens them')
+  }
+}
 // shortcut: one cols-<session> file per session stays in TMPDIR ($.fs has no delete); clean it on session.end if $.fs gains one.
 let wroteColumns = 0
 // The session's folio.hideEditDiff; read at session.start.
@@ -813,8 +812,7 @@ export const register: Register = on => {
   const skills = new Map<string, string>()
   // Bash commands' first line by tool_use_id, for a background command's finish notification.
   const shells = new Map<string, string>()
-  // Files each Bash call changed, by tool_use_id; and the Bash groups a click opened, by requestId, to the file rows
-  // whose diff a click opened.
+  // Files each Bash call changed, by tool_use_id.
   type BashEdit = { file: string; add: number; del: number; isNew: boolean; diff?: string }
   const bashEdits = new Map<string, BashEdit[]>()
   // Past 500 records all go, with their shell lines, so a dropped write draws as a lost one, not as a plain command.
@@ -825,7 +823,7 @@ export const register: Register = on => {
   }
   // Bash writes drawn as a Ran row because folio holds no record of them, as after a reload.
   const lostWrites = new Set<string>()
-  const openGroups = new Map<string, Set<string>>()
+  const openGroups = new Set<string>()
   // A file's name from the session root, cut to a share of the chat, so a wide terminal shows more of a path.
   const namer = (cwd: string, columns = 80) => {
     const room = Math.max(NAME_FLOOR, Math.floor(columns * NAME_SHARE))
@@ -958,17 +956,6 @@ export const register: Register = on => {
       </Box>
     ), 1 + shown.length, 1, undefined, id)
   }
-  // An opened file's diff under its tree row, the tree line beside it; `hasNext` runs the line on to the next row.
-  const diffBox = ({ Box, Code, Text }: Elements['terminal'], columns: number, entry: { file: string; diff?: string }, hasNext = false) => entry.diff && (
-    <Box paddingLeft={2}>
-      {/* Counted, not clipped: a clipped box scrolled past its top draws from the screen's top row and overruns. */}
-      <Text color="promptBorder">{Array(diffRows(entry.diff, columns - 4) + (hasNext ? 1 : 0)).fill('│').join('\n')}</Text>
-      <Box paddingLeft={1} flexGrow={1}>
-        <Code source={entry.diff} path={entry.file} format="diff" />
-      </Box>
-    </Box>
-  )
-
   on('agent.spawn', async ($, e, next) => {
     const result = await next(e)
     if (!result.deny && result.agentId && e.tool_use_id) {
@@ -1208,12 +1195,12 @@ export const register: Register = on => {
     const header: Piece[] = [{ text: mark, color }, { text: ' ' }, ...(title ?? [...parts, ...tail])]
     const counts = add + del ? countPieces(add, del) : []
     const TREE_INDENT = 4
-    // A file row with a diff is the fold's Client, keyed by call and file, so a press opens the diff under it.
-    type Row = { pieces: Piece[]; key?: string; edit?: { file: string; diff?: string }; out?: 'first' | 'more' }
+    // A file row with a diff is the fold's Client, keyed by call and file, so a press shows the diff in margin.
+    type Row = { pieces: Piece[]; key?: string; out?: 'first' | 'more' }
     const rows = isOpen ? calls.flatMap((c): Row[] => {
       const edits = (c.tool_use_id && !c.isErrored && (bashEdits.get(c.tool_use_id) ?? editOf.get(c.tool_use_id))) || []
       if (edits.length) {
-        const files = edits.map((f, i): Row => ({ key: f.diff && `file:${c.tool_use_id}:${i}`, edit: f, pieces: [{ text: f.isNew ? 'Created' : EDIT.Edit!, bold: true },
+        const files = edits.map((f, i): Row => ({ key: f.diff && `file:${c.tool_use_id}:${i}`, pieces: [{ text: f.isNew ? 'Created' : EDIT.Edit!, bold: true },
           { text: ' (', color: 'promptBorder' }, ...namePieces(name(f.file)), { text: ')', color: 'promptBorder' }, ...countPieces(f.add, f.del, f.isNew)] }))
         // A script's output follows its file rows: three lines, then a count of the rest.
         if (!scripts.has(c.tool_use_id!)) return files
@@ -1253,21 +1240,17 @@ export const register: Register = on => {
     }) : []
     const last = rows.findLastIndex(r => r.out !== 'more')
     const frame = frameOf(requestId)
-    // The frame takes 2 columns from the diff beside it.
-    const inner = frame ? columns - 2 : columns
-    const diffLines = (entry: { diff?: string }, hasNext = false) => (entry.diff ? diffRows(entry.diff, inner - 4) + (hasNext ? 1 : 0) : 0)
 
     return framed(elements, frame, (
       <Box flexDirection="column">
         <Client key={`fold:${requestId}`} module="./fold.tsx" width="100%" height={1} props={{ pieces: header, tail: counts, lit: LIT }} />
-        {rows.flatMap(({ pieces, key, edit, out }, i) => {
-          const isShown = !!key && !!openGroups.get(requestId)?.has(key)
-          const line = [{ text: out === 'more' ? '    ' : i === last && !isShown ? '  └ ' : '  ├ ', color: 'promptBorder' }, ...pieces]
-          return key ? [<Client key={key} module="./fold.tsx" width="100%" height={1} props={{ pieces: line, lit: LIT }} />, isShown && diffBox(elements, inner, edit!, i < rows.length - 1)]
-            : [<Text wrap="truncate-end">{line.map(({ text, color, bold }) => <Text color={color} bold={bold}>{text}</Text>)}</Text>]
+        {rows.map(({ pieces, key, out }, i) => {
+          const line = [{ text: out === 'more' ? '    ' : i === last ? '  └ ' : '  ├ ', color: 'promptBorder' }, ...pieces]
+          return key ? <Client key={key} module="./fold.tsx" width="100%" height={1} props={{ pieces: line, lit: LIT }} />
+            : <Text wrap="truncate-end">{line.map(({ text, color, bold }) => <Text color={color} bold={bold}>{text}</Text>)}</Text>
         })}
       </Box>
-    ), 1 + rows.length + rows.reduce((sum, r, i) => sum + (r.key && openGroups.get(requestId)?.has(r.key) ? diffLines(r.edit!, i < rows.length - 1) : 0), 0), 1, undefined, requestId)
+    ), 1 + rows.length, 1, undefined, requestId)
   }
 
   // A run lies in one transcript: an agent's rows must not take in the main chat's.
@@ -1682,13 +1665,13 @@ export const register: Register = on => {
   on('ui.message', async ($, e, next) => {
     const element = typeof e.element === 'string' ? e.element : ''
     const isPress = !!(e.data as { press?: boolean } | undefined)?.press
-    const shown = openGroups.get(e.requestId)
+    const file = isPress ? element.match(/^file:(.+):(\d+)$/) : null
     if (isPress && element === `fold:${e.requestId}`) {
-      if (!openGroups.delete(e.requestId)) openGroups.set(e.requestId, new Set())
+      if (!openGroups.delete(e.requestId)) openGroups.add(e.requestId)
       $.ui.invalidate('ui.render')
-    } else if (isPress && shown && element.startsWith('file:')) {
-      if (!shown.delete(element)) shown.add(element)
-      $.ui.invalidate('ui.render')
+    } else if (file) {
+      const edit = (bashEdits.get(file[1]!) ?? editOf.get(file[1]!))?.[+file[2]!]
+      if (edit) await showInMargin($, { path: edit.file, diff: edit.diff })
     }
 
     return next(e)
@@ -1884,14 +1867,7 @@ export const register: Register = on => {
                 onLinkPress={async link => {
                   const target = at.get(link.href)
                   if (!target) return
-                  try {
-                    await $.margin.show(target)
-                  } catch (err) {
-                    // A missing noun throws TypeError; any other failure is margin's to report.
-                    if (!(err instanceof TypeError) || toldNoPanel) return
-                    toldNoPanel = true
-                    $.ui.toast('folio: install the margin part to preview files; ctrl+click opens them')
-                  }
+                  await showInMargin($, target)
                 }}
               />
             </Box>

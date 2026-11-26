@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { stamp, cells } from '../hooks/prompt'
-import { agentLabel, cutPath, diffRows, durationText, runText, split, writeTargets } from '../hooks/register'
+import { agentLabel, cutPath, durationText, runText, split, writeTargets } from '../hooks/register'
 
 const text = '━━━━\n\n**TL;DR** x\n\n──\n\n## H\n\n┈┈\n\nmore\n\n```text\n━━━━\n```\n\n━━━━'
 const props = { text, isFirstOfReply: true }
@@ -1537,7 +1537,12 @@ test('a live run draws one running fold, then folds as its edits land', async ($
   expect(await textOf(first, 'e1')).toBe('◼ Edited (2 files)  +2')
 })
 
-const diffOf = async (ui: any) => (await ui.find({ type: 'Code' }))?.props.source
+// The arguments margin's `show` gets, for a margin the test stands in for.
+const shows = (on: any) => {
+  const list: unknown[] = []
+  on('engine.create', async (_$: any, e: any, next: any) => ({ ...(await next(e)), margin: { show: async (a: unknown) => { list.push(a) } } }))
+  return list
+}
 
 test('a click on the fold opens its file tree, and another closes it', async ($, on) => {
   native(on)
@@ -1647,29 +1652,27 @@ test('the header bolds only its verb, and colours the count', async ($, on) => {
   expect((await piece(/^\)$/))?.props.color).toBe('promptBorder')
 })
 
-test('a click on a file opens its diff alone, and closing the fold closes it', async ($, on) => {
+test('a press on a file row shows its edit in margin', async ($, on) => {
   native(on)
+  const list = shows(on)
   const first = await mountRow($, 'Edit', hunk(' a', '+b'), {}, '/p/a.txt', 'e1')
   await mountRow($, 'Edit', hunk(' a', '+c'), {}, '/p/b.txt', 'e2')
   await click(first, 'fold:e1')
-  expect(await diffOf(first)).toBeUndefined()
+  expect(list).toEqual([])
   await click(first, 'file:e2:0')
-  expect(await diffOf(first)).toBe('@@ -3,1 +3,2 @@\n a\n+c')
-  await click(first, 'fold:e1')
-  expect(await diffOf(first)).toBeUndefined()
+  expect(list).toEqual([{ path: '/p/b.txt', diff: '@@ -3,1 +3,2 @@\n a\n+c' }])
+  expect(await first.find({ type: 'Code' })).toBeUndefined()
 })
 
-test('the tree line runs beside every open diff', async ($, on) => {
+test('a press on a file row with no margin part toasts once', async ($, on) => {
   native(on)
+  const toasts: string[] = []
+  on('ui.toast', (_: any, e: any) => { toasts.push(e.text); return { value: undefined } })
   const first = await mountRow($, 'Edit', hunk(' a', '+b'), {}, '/p/a.txt', 'e1')
-  await mountRow($, 'Edit', hunk(' a', '+c'), {}, '/p/b.txt', 'e2')
   await click(first, 'fold:e1')
   await click(first, 'file:e1:0')
-  await click(first, 'file:e2:0')
-  const lines = await first.findAll({ type: 'Text', text: /^│/ })
-  expect(lines.map((l: any) => l.props.color)).toEqual(['promptBorder', 'promptBorder'])
-  // One row per diff line, and one more for the gap before the next file.
-  expect(lines.map((l: any) => l.text.split('\n').length)).toEqual([3, 2])
+  await click(first, 'file:e1:0')
+  expect(toasts).toEqual(['folio: install the margin part to preview files; ctrl+click opens them'])
 })
 
 test('durationText takes milliseconds and keeps the units that are not zero', () => {
@@ -1688,69 +1691,56 @@ test('agentLabel drops the namespace and cavecrew-, and names a missing type age
   expect(agentLabel('caveman:')).toBe('agent')
 })
 
-test('diffRows counts what the Code element draws', () => {
-  const head = '@@ -3,1 +3,2 @@'
-  expect(diffRows(`${head}\n a\n+b`, 40)).toBe(2)
-  // A `...` row between hunks; `\ No newline` draws none.
-  expect(diffRows(`${head}\n a\n+b\n@@ -50,1 +51,1 @@\n-c\n+d\n\\ No newline at end of file`, 40)).toBe(5)
-  // 36 cells of room past a 1-digit gutter: 37 wraps once, a tab or a wide character takes two.
-  expect(diffRows(`${head}\n+${'x'.repeat(36)}`, 40)).toBe(1)
-  expect(diffRows(`${head}\n+${'x'.repeat(37)}`, 40)).toBe(2)
-  expect(diffRows(`${head}\n+\t${'x'.repeat(35)}`, 40)).toBe(2)
-  expect(diffRows(`${head}\n+漢${'x'.repeat(35)}`, 40)).toBe(2)
-  // A joined emoji draws two cells; a 3-digit hunk gutter leaves 34 cells of room.
-  expect(diffRows(`${head}\n+👨\u200D👩\u200D👧${'x'.repeat(34)}`, 40)).toBe(1)
-  expect(diffRows(`@@ -98,3 +98,3 @@\n ${'x'.repeat(34)}`, 40)).toBe(1)
-  expect(diffRows(`@@ -98,3 +98,3 @@\n ${'x'.repeat(35)}`, 40)).toBe(2)
-})
-
-test('the last row turns its corner to a tee while its diff is open', async ($, on) => {
+test('the last row keeps its corner when pressed', async ($, on) => {
   native(on)
+  shows(on)
   const first = await mountRow($, 'Edit', hunk(' a', '+b'), {}, '/p/a.txt', 'e1')
   await mountRow($, 'Edit', hunk(' a', '+c'), {}, '/p/b.txt', 'e2')
   await click(first, 'fold:e1')
   expect(await textOf(first, 'file:e2:0')).toMatch(/^  └ /)
   await click(first, 'file:e2:0')
-  expect(await textOf(first, 'file:e2:0')).toMatch(/^  ├ /)
-  await click(first, 'file:e2:0')
   expect(await textOf(first, 'file:e2:0')).toMatch(/^  └ /)
+})
+
+test('a file too big for a diff has no row to press, and shows nothing', async ($, on) => {
+  native(on)
+  const list = shows(on)
+  const first = await mountRow($, 'Write', created(`${'x'.repeat(100_000)}\n`), {}, '/p/a.txt', 'e1')
+  expect(await textOf(first, 'e1')).toBe('◼ Wrote (1 file)  +1')
+  await click(first, 'fold:e1')
+  expect((await first.findAll({ type: 'Client' })).map((x: any) => x.key)).toEqual(['fold:e1'])
+  expect(await textOf(first, 'e1')).toBe('◻ Wrote (1 file)  +1')
+  expect(list).toEqual([])
 })
 
 test('a diff drops the control characters the Code element refuses', async ($, on) => {
   native(on)
+  const list = shows(on)
   const first = await mountRow($, 'Edit', hunk(' a\f', '+b\r', '+\tc\u001b[0m'), {}, '/p/a.txt', 'e1')
   await click(first, 'fold:e1')
   await click(first, 'file:e1:0')
-  expect(await diffOf(first)).toBe('@@ -3,1 +3,2 @@\n a\n+b\n+\tc[0m')
+  expect(list).toEqual([{ path: '/p/a.txt', diff: '@@ -3,1 +3,2 @@\n a\n+b\n+\tc[0m' }])
 })
 
-test('a diff too big for the Code element opens nothing, and the row stays', async ($, on) => {
+test('a press on a new file shows it as all added lines', async ($, on) => {
   native(on)
-  const first = await mountRow($, 'Write', created(`${'x'.repeat(100_000)}\n`), {}, '/p/a.txt', 'e1')
-  expect(await textOf(first, 'e1')).toBe('◼ Wrote (1 file)  +1')
-  await click(first, 'fold:e1')
-  expect(await diffOf(first)).toBeUndefined()
-  expect(await textOf(first, 'e1')).toBe('◻ Wrote (1 file)  +1')
-})
-
-test('a new file opens as all added lines', async ($, on) => {
-  native(on)
+  const list = shows(on)
   const first = await mountRow($, 'Write', created('a\nb\n'), {}, '/p/a.txt', 'e1')
   await click(first, 'fold:e1')
   await click(first, 'file:e1:0')
-  expect(await diffOf(first)).toBe('@@ -0,0 +1,2 @@\n+a\n+b')
+  expect(list).toEqual([{ path: '/p/a.txt', diff: '@@ -0,0 +1,2 @@\n+a\n+b' }])
 })
 
-test('a lone edit opens its file row on a press, and its diff on a second', async ($, on) => {
+test("a lone edit's row shows it in margin on a press", async ($, on) => {
   native(on)
+  const list = shows(on)
   const first = await mountRow($, 'Edit', hunk(' a', '+b'), {}, '/p/a.txt', 'e1')
   await click(first, 'fold:e1')
-  expect(await diffOf(first)).toBeUndefined()
   expect(await textOf(first, 'file:e1:0')).toBe('  └ Updated (a.txt)  +1')
   await click(first, 'file:e1:0')
-  expect(await diffOf(first)).toBe('@@ -3,1 +3,2 @@\n a\n+b')
+  expect(list).toEqual([{ path: '/p/a.txt', diff: '@@ -3,1 +3,2 @@\n a\n+b' }])
+  expect(await textOf(first, 'file:e1:0')).toBe('  └ Updated (a.txt)  +1')
   expect(await textOf(first, 'e1')).toBe('◻ Edited (1 file)  +1')
-  expect((await first.find({ type: 'Text', text: /^│/ }))?.props.color).toBe('promptBorder')
 })
 
 test('a surface other than the terminal keeps the native rows', async ($, on) => {
@@ -2358,29 +2348,31 @@ async function twoWrites($: any, on: any, viewport: object = VIEW) {
   return $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolUse', requestId: 'b1', props: call('b1', 'Bash', { command: 'echo x | tee a.txt sub/b.txt' }), viewport })
 }
 
-test('a press on a standalone Bash write of two files opens a tree of them, and a file row its diff', async ($, on) => {
+test('a press on a standalone Bash write of two files opens a tree of them, and a file row shows its diff', async ($, on) => {
+  const list = shows(on)
   const ui = await twoWrites($, on)
   expect(await treeOf(ui)).toEqual([])
   await click(ui, 'fold:b1')
   expect(await textOf(ui, 'fold:b1')).toBe('◻ Ran (1 command) · Edited (2 files)  +2')
   expect(await treeOf(ui)).toEqual(['  ├ Updated (a.txt)  +1', '  └ Created (sub/b.txt)  +1'])
   await click(ui, 'file:b1:0')
-  expect(await diffOf(ui)).toBe('@@ -1,1 +1,2 @@\n a\n+x')
+  expect(list).toEqual([{ path: '/p/a.txt', diff: '@@ -1,1 +1,2 @@\n a\n+x' }])
   await click(ui, 'fold:b1')
   expect(await treeOf(ui)).toEqual([])
 })
 
-test('a press on a standalone Bash write of one file opens its file row, and a second its diff', async ($, on) => {
+test('a press on a standalone Bash write of one file shows its diff', async ($, on) => {
   native(on)
+  const list = shows(on)
   bashFs(on, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))
   await bash($, 'echo b > a.txt')
   const ui = await useRow($, call('b1', 'Bash', { command: 'echo b > a.txt' }))
   await click(ui, 'fold:b1')
   expect(await textOf(ui, 'fold:b1')).toBe('◻ Ran (1 command) · Edited (1 file)  +1 −1')
   expect(await treeOf(ui)).toEqual(['  └ Updated (a.txt)  +1 −1'])
-  expect(await diffOf(ui)).toBeUndefined()
+  expect(list).toEqual([])
   await click(ui, 'file:b1:0')
-  expect(await diffOf(ui)).toBe('@@ -1,1 +1,1 @@\n-a\n+b')
+  expect(list).toEqual([{ path: '/p/a.txt', diff: '@@ -1,1 +1,1 @@\n-a\n+b' }])
 })
 
 test('a Ran header draws its counts apart from the cut, so a narrow row never cuts them', async ($, on) => {
@@ -2393,12 +2385,13 @@ test('a Ran header draws its counts apart from the cut, so a narrow row never cu
 
 test('a standalone Bash write of one file too big for a diff opens a plain file row', async ($, on) => {
   native(on)
+  const list = shows(on)
   bashFs(on, { '/p/a.txt': lines(2100) }, files => (files['/p/a.txt'] = lines(2100, 4)))
   await bash($, "sed -i 's/l5/X/' a.txt")
   const ui = await useRow($, call('b1', 'Bash', { command: "sed -i 's/l5/X/' a.txt" }))
   await click(ui, 'fold:b1')
   expect(await treeOf(ui)).toEqual(['  └ Updated (a.txt)  +1 −1'])
-  expect(await diffOf(ui)).toBeUndefined()
+  expect(list).toEqual([])
 })
 
 test('off the fullscreen layout a standalone Bash write keeps a plain row per file', async ($, on) => {
@@ -2473,33 +2466,34 @@ const bashTree = async ($: any, on: any, before: Record<string, string>, command
 }
 const lines = (n: number, at = -1) => Array.from({ length: n }, (_, i) => (i === at ? 'X' : `l${i + 1}`)).join('\n') + '\n'
 
-test('a press on a Bash edit row in a group opens its diff, and another closes it', async ($, on) => {
+test('a press on a Bash edit row in a group shows its diff in margin', async ($, on) => {
+  const list = shows(on)
   const ui = await bashTree($, on, { '/p/a.txt': lines(9) }, "sed -i 's/l5/X/' a.txt", { '/p/a.txt': lines(9, 4) })
-  expect(await diffOf(ui)).toBeUndefined()
+  expect(list).toEqual([])
   await click(ui, 'file:b1:0')
-  expect(await diffOf(ui)).toBe('@@ -2,7 +2,7 @@\n l2\n l3\n l4\n-l5\n+X\n l6\n l7\n l8')
-  expect((await ui.find({ type: 'Text', text: /^│/ }))?.props.color).toBe('promptBorder')
-  await click(ui, 'file:b1:0')
-  expect(await diffOf(ui)).toBeUndefined()
+  expect(list).toEqual([{ path: '/p/a.txt', diff: '@@ -2,7 +2,7 @@\n l2\n l3\n l4\n-l5\n+X\n l6\n l7\n l8' }])
 })
 
 test('a Bash edit diff splits changes far apart into hunks', async ($, on) => {
+  const list = shows(on)
   const ui = await bashTree($, on, { '/p/a.txt': lines(20) }, 'x > a.txt', { '/p/a.txt': lines(20).replace('l2\n', 'Y\n').replace('l19\n', '') })
   await click(ui, 'file:b1:0')
-  expect(await diffOf(ui)).toBe('@@ -1,5 +1,5 @@\n l1\n-l2\n+Y\n l3\n l4\n l5\n@@ -16,5 +16,4 @@\n l16\n l17\n l18\n-l19\n l20')
+  expect(list).toEqual([{ path: '/p/a.txt', diff: '@@ -1,5 +1,5 @@\n l1\n-l2\n+Y\n l3\n l4\n l5\n@@ -16,5 +16,4 @@\n l16\n l17\n l18\n-l19\n l20' }])
 })
 
-test('a file a Bash call made opens as all added lines', async ($, on) => {
+test('a file a Bash call made shows as all added lines', async ($, on) => {
+  const list = shows(on)
   const ui = await bashTree($, on, {}, 'printf "x\\ny\\n" > a.txt', { '/p/a.txt': 'x\ny\n' })
   await click(ui, 'file:b1:0')
-  expect(await diffOf(ui)).toBe('@@ -0,0 +1,2 @@\n+x\n+y')
+  expect(list).toEqual([{ path: '/p/a.txt', diff: '@@ -0,0 +1,2 @@\n+x\n+y' }])
 })
 
-test("a group's last Bash edit row turns its corner to a tee while its diff is open", async ($, on) => {
+test("a group's last Bash edit row keeps its corner when pressed", async ($, on) => {
+  shows(on)
   const ui = await bashTree($, on, { '/p/a.txt': 'a\n' }, 'echo b > a.txt', { '/p/a.txt': 'b\n' })
   expect(await treeOf(ui)).toEqual(['  ├ ls', '  ├ Read (a.txt)', '  └ Updated (a.txt)  +1 −1'])
   await click(ui, 'file:b1:0')
-  expect((await treeOf(ui))[2]).toBe('  ├ Updated (a.txt)  +1 −1')
+  expect((await treeOf(ui))[2]).toBe('  └ Updated (a.txt)  +1 −1')
 })
 
 test('only Bash edit rows in a group take a press: commands and reads stay plain text', async ($, on) => {
@@ -2507,12 +2501,10 @@ test('only Bash edit rows in a group take a press: commands and reads stay plain
   expect((await ui.findAll({ type: 'Client' })).map((x: any) => x.key)).toEqual([`fold:g${groups}`, 'file:b1:0'])
 })
 
-test('closing a group closes its open diffs', async ($, on) => {
+test('closing a group closes its file rows', async ($, on) => {
   const ui = await bashTree($, on, { '/p/a.txt': 'a\n' }, 'echo b > a.txt', { '/p/a.txt': 'b\n' })
-  await click(ui, 'file:b1:0')
   await click(ui, `fold:g${groups}`)
-  await click(ui, `fold:g${groups}`)
-  expect(await diffOf(ui)).toBeUndefined()
+  expect(await treeOf(ui)).toEqual([])
 })
 
 test('a Bash edit of a file too big to diff keeps its row, which opens nothing', async ($, on) => {
@@ -2819,8 +2811,9 @@ function gitFs(on: any, head: Record<string, string>, files: Record<string, stri
   return { seen, git }
 }
 
-test('a script that edits a clean tracked file keeps its command and output, and a press opens the file and its diff from HEAD', async ($, on) => {
+test('a script that edits a clean tracked file keeps its command and output, and a press shows its diff from HEAD', async ($, on) => {
   native(on)
+  const list = shows(on)
   gitFs(on, { '/p/a.txt': 'a\n' }, { '/p/a.txt': 'a\n' }, files => (files['/p/a.txt'] = 'b\n'))
   await bash($, 'python fix.py')
   const ui = await useRow($, call('b1', 'Bash', { command: 'python fix.py' }))
@@ -2828,7 +2821,7 @@ test('a script that edits a clean tracked file keeps its command and output, and
   await click(ui, 'fold:b1')
   expect(await treeOf(ui)).toEqual(['  └ Updated (a.txt)  +1 −1'])
   await click(ui, 'file:b1:0')
-  expect(await diffOf(ui)).toBe('@@ -1,1 +1,1 @@\n-a\n+b')
+  expect(list).toEqual([{ path: '/p/a.txt', diff: '@@ -1,1 +1,1 @@\n-a\n+b' }])
   const result = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolResult', requestId: 'b1',
     props: { tool_use_id: 'b1', tool: 'Bash', output: { stdout: 'ok' }, isErrored: false }, viewport: VIEW })
   expect((await result.find({ type: 'Text' }))?.text).toBeUndefined()
@@ -3252,12 +3245,13 @@ test('a Bash write the parse saw unchanged still folds the files the engine diff
   expect(await treeOf(ui)).toEqual(['  ├ Updated (f.txt)  +1 −1', '  └ created'])
 })
 
-test('a reloaded Bash edit opens its diff on a press of the file row', async ($, on) => {
+test('a reloaded Bash edit shows its diff on a press of the file row', async ($, on) => {
   native(on)
+  const list = shows(on)
   const ui = await useRow($, reloaded('python fix.py', [HUNK]))
   await click(ui, 'fold:b1')
   await click(ui, 'file:b1:0')
-  expect(await diffOf(ui)).toBe('@@ -1,2 +1,1 @@\n k\n-a\n+b')
+  expect(list).toEqual([{ path: '/p/f.txt', diff: '@@ -1,2 +1,1 @@\n k\n-a\n+b' }])
 })
 
 test('a reloaded Bash edit with one hunk and no old lines is a new file', async ($, on) => {
