@@ -759,26 +759,50 @@ test('handoffNote: a long compact summary keeps its head and its end', () => {
   expect(n).not.toContain('~')
 })
 
-test('handoffNote: away recap older than the last reply still shows, with time and line', () => {
-  const reply = asst([{ type: 'text', text: 'done' }], { timestamp: '2026-01-01T10:00:00Z' })
-  const n = note(J({ type: 'system', subtype: 'away_summary', content: 'RECAP push pending', timestamp: '2026-01-01T09:00:00Z' }), reply)
-  expect(n).toContain('RECAP push pending')
-  expect(n).toContain('line 1, 2026-01-01T09:00:00Z')
+test('handoffNote: away recap: no section', () => {
+  const recap = J({ type: 'system', subtype: 'away_summary', content: 'RECAP push pending' })
+  const n = note(recap, typed('later'))
+  expect(n).not.toContain('RECAP')
+  expect(n).not.toContain('## Away recap')
 })
 
-test('handoffNote: away recap older than the last typed prompt says so', () => {
-  const recap = J({ type: 'system', subtype: 'away_summary', content: 'RECAP' })
-  const line = 'Older than the last prompt; its Next may be done.'
-  expect(note(recap, typed('later'))).toContain(line)
-  expect(note(typed('earlier'), recap)).not.toContain(line)
-  expect(note(recap, typed('tool', { isMeta: true }))).not.toContain(line)
+test('handoffNote: where we were shows for an intent after the last typed prompt, with a lag line first', () => {
+  const n = note(typed('ask'), tool('mcp__margin__intent', { wants: 'NEW' }))
+  expect(n).toContain('## Where we were\n\nMay lag: Recent turns wins.\nNEW')
 })
 
-test('handoffNote: away recap before the last compact summary is dropped', () => {
-  const recap = J({ type: 'system', subtype: 'away_summary', content: 'RECAP' })
-  expect(note(recap, typed('S', { isCompactSummary: true }))).not.toContain('RECAP')
-  expect(handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: tail(recap), summary: '5:' + typed('S', { isCompactSummary: true }) })).not.toContain('RECAP')
-  expect(note(typed('S', { isCompactSummary: true }), recap)).toContain('RECAP')
+test('handoffNote: where we were is hidden when the intent is before the last typed prompt, and the wants stays in earlier asks', () => {
+  const intents = '1:' + tool('mcp__margin__intent', { wants: 'CURRENT' })
+  const n = handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: tail(tool('mcp__margin__intent', { wants: 'CURRENT' }), typed('later')), intents })
+  expect(n).not.toContain('## Where we were')
+  expect(n.slice(n.indexOf('## Earlier asks'))).toContain('- Line 1: CURRENT')
+})
+
+test('handoffNote: earlier asks lists the newest 10 Overview topics, oldest first, when there are topics', () => {
+  const topics = Array.from({ length: 12 }, (_, i) => `topic ${i + 1}`)
+  const n = handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: tail(typed('hi')), overview: { topics }, intents: '1:' + tool('mcp__margin__intent', { wants: 'PAST' }) })
+  const list = n.slice(n.indexOf('## Earlier asks')).split('\n').filter(l => l.startsWith('- topic'))
+  expect(list).toEqual(topics.slice(2).map(t => `- ${t}`))
+  expect(n).not.toContain('PAST')
+})
+
+test('handoffNote: earlier asks keeps the current wants after 9 topics when where we were is hidden', () => {
+  const topics = Array.from({ length: 12 }, (_, i) => `topic ${i + 1}`)
+  const n = handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: tail(tool('mcp__margin__intent', { wants: 'CURRENT' }), typed('later')), overview: { topics } })
+  expect(n).not.toContain('## Where we were')
+  const list = n.slice(n.indexOf('## Earlier asks')).split('\n').filter(l => l.startsWith('- topic') || l.includes('CURRENT'))
+  expect(list).toEqual([...topics.slice(3).map(t => `- ${t}`), '- CURRENT'])
+})
+
+test('handoffNote: esc stop with a stale intent says the last turn, not a step', () => {
+  const n = note(tool('mcp__margin__intent', { wants: 'OLD' }), tool('mcp__margin__intent', { now: 2 }), typed('later'), typed('[Request interrupted by user]'))
+  expect(n).toContain('stopped the last turn with Esc')
+  expect(n).not.toContain('step 2')
+})
+
+test('handoffNote: earlier asks falls back to past wants with no Overview topics', () => {
+  const n = handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: tail(typed('hi')), overview: { topics: [] }, intents: '1:' + tool('mcp__margin__intent', { wants: 'PAST' }) })
+  expect(n).toContain('- Line 1: PAST')
 })
 
 const wt = (path: string, git = 'Branch: b\nHEAD: abc') => ({ path, git })
@@ -920,13 +944,11 @@ test('handoffNote: model-written sections are capped', () => {
   const big = (c: string) => c.repeat(5000)
   const n = handoffNote({
     sessionId: 's1', path: 'p', now: 0,
-    numbered: tail(tool('mcp__margin__intent', { wants: big('W'), steps: [{ text: big('S') }, ...Array.from({ length: 30 }, (_, i) => ({ text: `step${i}` }))] }), J({ type: 'system', subtype: 'away_summary', content: big('R') })),
+    numbered: tail(tool('mcp__margin__intent', { wants: big('W'), steps: [{ text: big('S') }, ...Array.from({ length: 30 }, (_, i) => ({ text: `step${i}` }))] })),
     draft: '42:' + tool('mcp__primer__compact_draft', { keep: big('K'), drop: big('D') }),
   })
   for (const c of 'WSKD') expect(n).toContain(c.repeat(500) + '…')
   for (const c of 'WSKD') expect(n).not.toContain(c.repeat(501))
-  expect(n).toContain('R'.repeat(2000) + '…')
-  expect(n).not.toContain('R'.repeat(2001))
   expect(n).toContain('- step18')
   expect(n).not.toContain('- step19')
 })

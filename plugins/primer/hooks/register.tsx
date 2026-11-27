@@ -175,7 +175,7 @@ export function draft(input: { keep?: unknown; drop?: unknown; clear?: unknown }
   return keep ? `/compact Keep: ${keep}.` + (drop ? ` Drop: ${drop}.` : '') : undefined
 }
 
-export type HandoffInput = { sessionId: string; path: string; now: number; numbered: string; draft?: string; summary?: string; intents?: string; cwd?: string; worktrees?: { path: string; git: string }[]; agentEdits?: string[] }
+export type HandoffInput = { sessionId: string; path: string; now: number; numbered: string; draft?: string; summary?: string; intents?: string; overview?: { summary?: string; topics: string[] }; cwd?: string; worktrees?: { path: string; git: string }[]; agentEdits?: string[] }
 
 type Row = { type?: string; subtype?: string; content?: unknown; timestamp?: string; isSidechain?: boolean; isMeta?: boolean; isCompactSummary?: boolean; message?: { content?: unknown; model?: string } }
 type Block = { type?: string; text?: string; name?: string; input?: Record<string, unknown> }
@@ -229,9 +229,9 @@ export function handoffNote(input: HandoffInput): string {
   const rows = input.numbered.split('\n').map(numberedRow).filter((r): r is { n: number; row: Row } => !!r && !r.row.isSidechain)
   let wants: { wants: string; steps: { text?: string; status?: string }[] } | undefined
   let now: unknown
-  let away: { n: number; row: Row } | undefined
   const turns: { p: string; reply?: Row; limit?: boolean; acted?: boolean }[] = []
   let promptLine = 0
+  let intentLine = 0
   let stopped: number | undefined
   let housekeeping = false
   const houseLines = new Set<number>()
@@ -285,8 +285,8 @@ export function handoffNote(input: HandoffInput): string {
         })
         }
         if (b.name === 'mcp__margin__intent') {
-          if (typeof i.wants === 'string') { wants = { wants: i.wants, steps: Array.isArray(i.steps) ? i.steps : [] }; now = undefined }
-          if (i.now !== undefined) now = i.now
+          if (typeof i.wants === 'string') { wants = { wants: i.wants, steps: Array.isArray(i.steps) ? i.steps : [] }; now = undefined; intentLine = n }
+          if (i.now !== undefined) { now = i.now; intentLine = n }
         }
       }
     } else if (row.type === 'user' && !row.isMeta && !row.isCompactSummary) {
@@ -295,24 +295,24 @@ export function handoffNote(input: HandoffInput): string {
       if (/<command-message>claudzilla-compact|<command-name>\/compact|^\/compact/.test(t)) housekeeping = true
       else if (t.startsWith('[Request interrupted')) { if (!housekeeping) stopped = n }
       else if (t && !t.startsWith('<')) { if (!turns.length && orphan) turns.push({ p: '', reply: orphan }); turns.push({ p: t }); promptLine = n; housekeeping = false; stopped = undefined }
-    } else if (row.type === 'user' && row.isCompactSummary) away = undefined
-    else if (row.type === 'system' && row.subtype === 'away_summary') away = { n, row }
+    }
   }
   if (!turns.length && orphan) turns.push({ p: '', reply: orphan })
   // Intent calls from the whole file: the last 5 distinct asks, newest last.
   // shortcut: houseLines covers the 1 MB tail only, so older compact asks still show; grep housekeeping prompts file-wide if they do.
+  const current = !!wants && intentLine > promptLine
   const asks = new Map<string, number>()
   for (const line of (input.intents ?? '').split('\n')) {
     const r = numberedRow(line)
     for (const b of r?.row.type === 'assistant' ? blocks(r.row) : []) {
       const w = b.name === 'mcp__margin__intent' && b.input?.wants
-      if (typeof w === 'string' && w !== wants?.wants && !houseLines.has(r!.n)) { asks.delete(w); asks.set(w, r!.n) }
+      if (typeof w === 'string' && !(current && w === wants?.wants) && !houseLines.has(r!.n)) { asks.delete(w); asks.set(w, r!.n) }
     }
   }
   const out = [`# Handoff from ${input.sessionId}`, '', `Written ${new Date(input.now).toISOString()}. Resume the old session with \`claude --resume ${input.sessionId}\`. Its transcript: ${input.path}`]
   const add = (heading: string, body: string) => out.push('', `## ${heading}`, '', body)
-  const stop = stopped === undefined ? undefined : `The user stopped ${wants && now !== undefined ? `step ${now}` : 'the last turn'} with Esc (line ${stopped}). Never continue it unasked.`
-  if (wants) add('Where we were', [cut(wants.wants, 500), ...wants.steps.slice(0, 20).map(s => `- ${cut(String(s.text ?? ''), 500)}`), ...(now !== undefined ? [`Last step started: ${now}`] : []), ...(stop ? [stop] : [])].join('\n'))
+  const stop = stopped === undefined ? undefined : `The user stopped ${current && now !== undefined ? `step ${now}` : 'the last turn'} with Esc (line ${stopped}). Never continue it unasked.`
+  if (wants && current) add('Where we were', ['May lag: Recent turns wins.', cut(wants.wants, 500), ...wants.steps.slice(0, 20).map(s => `- ${cut(String(s.text ?? ''), 500)}`), ...(now !== undefined ? [`Last step started: ${now}`] : []), ...(stop ? [stop] : [])].join('\n'))
   else if (stop) add('Stopped', stop)
   const inside = (p: string, dir: string) => p === dir || p.startsWith(dir + '/')
   const lastTouch = (dir: string) => Math.max(-1, ...[...touched].filter(([p]) => inside(p, dir)).map(([, n]) => n))
@@ -331,7 +331,9 @@ export function handoffNote(input: HandoffInput): string {
   }
   const gits = shown.filter(w => w.git.trim()).map(gitBlock)
   if (gits.length) add('Git', gits.join('\n\n'))
-  if (asks.size) add('Earlier asks', [...asks].slice(-5).map(([w, n]) => `- Line ${n}: ${cut(w, 500)}`).join('\n'))
+  const topics = input.overview?.topics ?? []
+  if (topics.length) add('Earlier asks', [...topics.slice(wants && !current ? -9 : -10).map(t => `- ${cut(t, 500)}`), ...(wants && !current ? [`- ${cut(wants.wants, 500)}`] : [])].join('\n'))
+  else if (asks.size) add('Earlier asks', [...asks].slice(-5).map(([w, n]) => `- Line ${n}: ${cut(w, 500)}`).join('\n'))
   if (turns.length) {
     // Head and tail each end on a line break so no table row is split; a text with no break gets a hard cut.
     const quote = (row: Row, last: boolean) => {
@@ -358,7 +360,6 @@ export function handoffNote(input: HandoffInput): string {
     const t = textOf(sum.row)
     add('Last compact summary', `At line ${sum.n}.\n${t.length > 8000 ? `${t.slice(0, 3000)}…${t.slice(-5000)}\nCut; full text at line ${sum.n}.` : t}`)
   }
-  if (away && typeof away.row.content === 'string' && away.n > since) add('Away recap', `At line ${away.n}${away.row.timestamp ? `, ${away.row.timestamp}` : ''}.\n${cut(away.row.content, 2000)}${promptLine > away.n ? '\nOlder than the last prompt; its Next may be done.' : ''}`)
   const d = input.draft && numberedRow(input.draft)
   const call = d && blocks(d.row).find(b => b.type === 'tool_use' && b.name === 'mcp__primer__compact_draft')
   if (d && call?.input && d.n > since) add('Compact draft', `At line ${d.n}${d.row.timestamp ? `, ${d.row.timestamp}` : ''}.\nKeep: ${cut(String(call.input.keep ?? ''), 500)}\nDrop: ${cut(String(call.input.drop ?? ''), 500)}`)
@@ -464,12 +465,16 @@ async function writeHandoff($: EngineInterface, ask: string): Promise<{ text: st
     const paths = list.split('\n').filter(l => l.startsWith('worktree ')).map(l => l.slice(9))
     return Promise.all(paths.map(async path => ({ path, git: (await $.process.run(['sh', '-c', GIT, 'sh', path]).catch(() => undefined))?.stdout ?? '' })))
   }
-  const [numbered, draft, summary, intents, trees, edits] = await Promise.all([grep(NUMBERED), grep(DRAFT), grep(SUMMARY), grep(INTENTS), worktrees(), grep(AGENT_EDITS)])
+  const overviewRead = async () => {
+    const o = await read($, atom({ plugin: 'margin', key: 'overview' } as const, { topics: [] as string[], summary: undefined as string | undefined, running: false })).catch(() => undefined)
+    return o && Array.isArray(o.topics) ? { topics: o.topics.filter(t => typeof t === 'string'), summary: typeof o.summary === 'string' ? o.summary : undefined } : undefined
+  }
+  const [numbered, draft, summary, intents, trees, overview, edits] = await Promise.all([grep(NUMBERED), grep(DRAFT), grep(SUMMARY), grep(INTENTS), worktrees(), overviewRead(), grep(AGENT_EDITS)])
   const agentEdits = edits.split('\n').flatMap(l => { try { const v = Object.values(JSON.parse(`{${l}}`))[0]; return typeof v === 'string' ? [v] : [] } catch { return [] } })
   const file = `${dir}/claudzilla-handoff/${sessionId}.md`
   let note: string
   try {
-    note = handoffNote({ sessionId, path, now: await $.clock.now(), numbered, draft: draft.trim() || undefined, summary: summary.trim() || undefined, intents, cwd, worktrees: trees, agentEdits })
+    note = handoffNote({ sessionId, path, now: await $.clock.now(), numbered, draft: draft.trim() || undefined, summary: summary.trim() || undefined, intents, cwd, worktrees: trees, overview, agentEdits })
     await $.process.run(['sh', '-c', 'mkdir -p "$1" && chmod 700 "$1"', 'sh', `${dir}/claudzilla-handoff`])
     await $.fs.write(file, note)
   } catch (err) {
