@@ -789,6 +789,15 @@ test('git block: relative bash paths resolve against the session cwd', () => {
   expect(g).toContain(' M -la (not this session)')
 })
 
+test('git block: a file only a subagent edited has no suffix, and its worktree shows', () => {
+  const git = wt('/x/wt', dirtyGit(' M a.md', ' M b.md'))
+  const g = handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: tail(typed('hi')), worktrees: [git], agentEdits: ['/x/wt/a.md'] })
+  expect(g).toContain('### /x/wt')
+  expect(g).toContain(' M a.md\n')
+  expect(g).toContain(' M b.md (not this session)')
+  expect(g).not.toContain('Written:')
+})
+
 test('git block: a new untracked folder the session wrote into has no suffix', () => {
   const g = gitNote([tool('Write', { file_path: '/x/wt/newdir/x.md' })], [wt('/x/wt', dirtyGit('?? newdir/', '?? other/'))])
   expect(g).toContain('?? newdir/\n')
@@ -907,7 +916,7 @@ const NOTE = `${CFG}/claudzilla-handoff/s1.md`
 const done = (extra = {}) => ({ answer: 'x', reason: 'answer' as const, durationMs: 1, isAborted: false, turnId: 't1', ...extra })
 
 // A session idle after a reply: transcript found, greps answered, box as given.
-function handoffHost(on: Parameters<TestBody>[1], o: { find?: string; worktrees?: string[]; writeFails?: boolean; clearFails?: boolean; submitFails?: boolean; submitDrop?: boolean; filled?: boolean; drop?: boolean; git?: string } = {}) {
+function handoffHost(on: Parameters<TestBody>[1], o: { find?: string; worktrees?: string[]; writeFails?: boolean; clearFails?: boolean; submitFails?: boolean; submitDrop?: boolean; filled?: boolean; drop?: boolean; git?: string; agentEdits?: string } = {}) {
   const seen = { order: [] as string[], writes: [] as [string, string][], commands: [] as string[], fills: [] as string[], submits: [] as any[], argvs: [] as string[] }
   const clock = mock.clock(on, { now: 0 })
   const base = host(on, {
@@ -917,6 +926,7 @@ function handoffHost(on: Parameters<TestBody>[1], o: { find?: string; worktrees?
       if (c.startsWith('find ')) return ran(0, o.find ?? '/cfg/projects/p/s1.jsonl\n')
       if (c.includes('worktree list')) return ran(0, (o.worktrees ?? []).map(w => `worktree ${w}\nHEAD abc\n`).join('\n'))
       if (c.includes('rev-parse')) return o.git === undefined ? ran(0, '') : ran(0, o.git)
+      if (c.includes('subagents')) return ran(0, o.agentEdits ?? '')
       if (c.includes('compact_draft')) return ran(0, '7:{"x":1}\n')
       return ran(0, '1:{"type":"user","message":{"content":"hi"}}\n')
     },
@@ -1021,7 +1031,7 @@ test('/claudzilla handoff passes the transcript path as $1, not in the script', 
   await $.session.start(start)
   await handoff($)
   const sh = seen.argvs.filter(a => a.startsWith('sh -c') && !a.includes('chmod') && !a.includes('rev-parse'))
-  expect(sh).toHaveLength(4)
+  expect(sh).toHaveLength(5)
   for (const a of sh) {
     expect(a.split('/cfg/projects/p/s1.jsonl')).toHaveLength(2)
     expect(a.endsWith('/cfg/projects/p/s1.jsonl')).toBe(true)
@@ -1136,6 +1146,16 @@ test('writeHandoff: GIT runs once per listed worktree', async ($, on) => {
   const runs = seen.argvs.filter(a => a.includes('rev-parse --git-dir'))
   expect(runs.length).toBe(2)
   expect(runs.map(a => a.slice(a.lastIndexOf(' ') + 1)).sort()).toEqual(['/proj', '/proj-b'])
+})
+
+test('/claudzilla handoff passes subagent edit paths to the note', async ($, on) => {
+  const { seen } = handoffHost(on, { worktrees: ['/proj'], git: 'Branch: b\nDirty files:\n M a.md\n M b.md\n', agentEdits: '"file_path":"/proj/a.md"\n"notebook_path":"/proj/n.ipynb"\n' })
+  await $.session.start(start)
+  await handoff($)
+  expect(seen.argvs.find(a => a.includes('subagents'))).toContain('/subagents')
+  const n = seen.writes[0][1]
+  expect(n).toContain(' M a.md\n')
+  expect(n).toContain(' M b.md (not this session)')
 })
 
 test('/claudzilla handoff lists unpushed commits of HEAD only', async ($, on) => {
@@ -1259,4 +1279,63 @@ test('/claudzilla doctor fix hands off to claudzilla-doctor', async ($, on) => {
   expect(timers).toContain(500)
   expect(calls).toEqual([])
   expect(seen.opened).toHaveLength(0)
+})
+
+test('paths: written lists Edit, Write and NotebookEdit paths, deduplicated, newest 15', () => {
+  const rows = Array.from({ length: 17 }, (_, i) => tool(i % 2 ? 'Write' : 'Edit', { file_path: `/x/f${i}.ts` }))
+  rows.push(tool('NotebookEdit', { notebook_path: '/x/n.ipynb' }), tool('Edit', { file_path: '/x/f16.ts' }))
+  const n = note(...rows)
+  const sec = n.slice(n.indexOf('## Paths'), n.indexOf('## How to dig'))
+  expect(sec.match(/^- \/x\//gm)).toHaveLength(15)
+  expect(sec).toContain('/x/n.ipynb')
+  expect(sec.match(/\/x\/f16\.ts/g)).toHaveLength(1)
+  expect(sec).not.toContain('/x/f0.ts')
+  expect(sec).not.toContain('/x/f1.ts')
+  expect(sec).toContain('/x/f3.ts')
+})
+
+test('paths: cited takes paths from the last 2 assistant text replies', () => {
+  const n = note(asst([{ type: 'text', text: 'old docs/superpowers/specs/old.md' }]), asst([{ type: 'text', text: 'see docs/superpowers/plans/x.md and docs/chancery/a/ledger.md.' }]), asst([{ type: 'text', text: 'run /tmp/baton-ctx/ctx.py' }]))
+  const sec = n.slice(n.indexOf('## Paths'))
+  expect(sec).toContain('- docs/superpowers/plans/x.md')
+  expect(sec).toContain('- docs/chancery/a/ledger.md')
+  expect(sec).toContain('- /tmp/baton-ctx/ctx.py')
+  expect(sec).not.toContain('old.md')
+})
+
+test('paths: cited paths keep their absolute prefix and lose wrapping marks', () => {
+  const t = (text: string) => { const n = note(asst([{ type: 'text', text }])); return n.slice(n.indexOf('## Paths')) }
+  expect(t('spec at `/home/u/c/docs/chancery/2026-11-28-baton/spec.md`.')).toContain('- /home/u/c/docs/chancery/2026-11-28-baton/spec.md\n')
+  expect(t('see `/x/plan.ledger.md` now')).toContain('- /x/plan.ledger.md\n')
+  expect(t('see (/x/plan.ledger.md) now')).toContain('- /x/plan.ledger.md\n')
+  expect(t('progress in .superpowers/sdd/x/progress.md.')).toContain('- .superpowers/sdd/x/progress.md\n')
+})
+
+test('paths: commands keeps the last 5 distinct test or tmux commands', () => {
+  const cmds = ['claude plugin test plugins/primer', 'ls -la', 'bash tests/hooks.test.sh', 'tmux send-keys -t x', 'npm test', 'bun test a', 'pytest -q', 'claude plugin test plugins/primer']
+  const n = note(...cmds.map(command => tool('Bash', { command })))
+  const sec = n.slice(n.indexOf('## Paths'), n.indexOf('## How to dig'))
+  expect(sec).toContain('`claude plugin test plugins/primer`')
+  expect(sec).toContain('`tmux send-keys -t x`')
+  expect(sec).not.toContain('ls -la')
+  expect(sec).not.toContain('bash tests/hooks.test.sh')
+  expect(sec.match(/^- `/gm)).toHaveLength(5)
+})
+
+test('paths: section left out when empty', () => {
+  expect(note(typed('hi'), asst([{ type: 'text', text: 'plain reply' }]))).not.toContain('## Paths')
+})
+
+test('paths: a multi-line command shows its first line only', () => {
+  const n = note(tool('Bash', { command: 'claude plugin test plugins/primer\necho done' }))
+  const sec = n.slice(n.indexOf('## Paths'), n.indexOf('## How to dig'))
+  expect(sec.match(/^- `/gm)).toHaveLength(1)
+  expect(sec).toContain('`claude plugin test plugins/primer`')
+  expect(sec).not.toContain('echo done')
+})
+test('paths: a multi-line command shows the line that matches', () => {
+  const n = note(tool('Bash', { command: 'cd /x && W=1\nclaude plugin test plugins/folio' }))
+  const sec = n.slice(n.indexOf('## Paths'), n.indexOf('## How to dig'))
+  expect(sec).toContain('- `claude plugin test plugins/folio`')
+  expect(sec).not.toContain('cd /x')
 })
