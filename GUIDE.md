@@ -226,7 +226,7 @@ claudzilla adds these skills of its own:
 
 - **`pr`:** Claude runs it before it opens or edits a pull request: pre-PR checks, then the description template. The guard blocks a pull request without it.
 - **`blueprint`:** designs a feature or change before any build. It asks only what it must, writes a short spec, and waits for your go before planning.
-  - **Upstream brainstorming:** a deny rule blocks `superpowers:brainstorming`. To lift it, delete `Skill(superpowers:brainstorming)` from `permissions.deny` in `~/.claude/settings.json`. The next install adds it back, so this lasts only until then.
+  - **Upstream brainstorming:** a deny rule blocks `superpowers:brainstorming`. To lift it, delete `Skill(superpowers:brainstorming)` from `permissions.deny` in `~/.claude/settings.json`. The next install adds it back, so this lasts only until then. The rule stops only Claude: typing `/superpowers:brainstorming` yourself still runs it.
 - **`/rule-review`:** counts how often each claudzilla rule slipped, from your local transcripts. Only you run it; a weekly summary appears at startup. It shares the counts, never the text, as a GitHub issue only after you say yes.
 - **`claudzilla-report` and `claudzilla-compact`:** run by `/claudzilla report` and `/claudzilla compact`. See *Report a problem* and *Manage context*.
 
