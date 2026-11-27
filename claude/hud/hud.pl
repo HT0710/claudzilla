@@ -601,6 +601,39 @@ sub chart_row {
     my $nt = sub { map { [$_, pal('hud_note')] } split //, $_[0] };
     return cells_str($nt->('24h ago '), chart_cells($w - 12), $nt->(' now'));
 }
+sub money_cells { my ($v, $c) = @_; return map { [$_, $c] } split //, sprintf('$%.2f', $v) }
+sub spend_colours {
+    my $f = shift;
+    my $pct = $f->{spend_day} > 0 ? ($f->{spend_today} / $f->{spend_day} - 0.5) * 100 : 0;
+    $pct = 0 if $pct < 0; $pct = 100 if $pct > 100;
+    return { here => ramp(0.85), today => cch_colour($pct), month => ramp(0.6),
+             rate => pal('shared_muted'), day => pal('shared_muted') };
+}
+sub words_cells {
+    my $w = shift;
+    my $c = spend_colours(\%f); my $nc = pal('hud_note');
+    my $grp = sub {   # [[figure, unit-or-label, label?]...] -> cells joined by two spaces
+        my @o;
+        for my $p (@_) {
+            push @o, [' ', $nc], [' ', $nc] if @o;
+            push @o, money_cells($f{"spend_$p->[0]"}, $c->{$p->[0]});
+            push @o, map { [$_, $nc] } split //, $p->[1];
+        }
+        return @o;
+    };
+    my %t = (here => ' here', today => ' today', month => ' month', rate => '/h', day => '/day');
+    # D12 shed order: per day, month, rate, today; here stays
+    for my $drop ([], ['day'], ['day','month'], ['day','month','rate'], ['day','month','rate','today']) {
+        my %x = map { $_ => 1 } @$drop;
+        my @l = $grp->(map { [$_, $t{$_}] } grep { !$x{$_} } qw(here today month));
+        my @r = $grp->(map { [$_, $t{$_}] } grep { !$x{$_} } qw(rate day));
+        my $gap = $w - @l - @r;
+        next if $gap < (@r ? 1 : 0);
+        return cells_str(@l, (map { [' ', $nc] } 1 .. $gap), @r);
+    }
+    my @l = $grp->(['here', $t{here}]);
+    return cells_str(@l[0 .. ($w < @l ? $w : scalar @l) - 1], map { [' ', $nc] } 1 .. ($w - @l > 0 ? $w - @l : 0));
+}
 sub cells_str { return paint(map { [$_->[0], @{$_->[1]}] } @_) }   # [char, colour] cells -> string
 my $dim = sub { "\e[2m$_[0]\e[0m" };
 # meter titles: muted lilac - clear of the teal profile and the blue->orange ramp
@@ -753,14 +786,14 @@ if ($MIN) {
         my ($l, $r) = ($mv{(qw(ctx cch))[$i]}, $mv{(qw(5h wk))[$i]});
         push @out, ($l ? meter_line(@$l, $n, $twl, 3, 3) : ' ' x $CL)
                  . $DIV
-                 . ($r ? meter_line(@$r, $nr, $twr, 3, 3) : $API && $i ? chart_row($CRW) : ' ' x $CRW);
+                 . ($API ? ($i ? chart_row($CRW) : words_cells($CRW)) : $r ? meter_line(@$r, $nr, $twr, 3, 3) : ' ' x $CRW);
     }
 } else {
     for my $r (@m) {
         my ($label,$pct,$note) = @$r;
         push @out, meter_line($label, $pct, $note, $n, $tw, 3, 3);
     }
-    push @out, chart_row($W) if $API;
+    push @out, words_cells($W), chart_row($W) if $API;
 }
 
 push @out, rule(sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]])) unless $f{layout};
