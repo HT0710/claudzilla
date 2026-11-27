@@ -175,7 +175,7 @@ export function draft(input: { keep?: unknown; drop?: unknown; clear?: unknown }
   return keep ? `/compact Keep: ${keep}.` + (drop ? ` Drop: ${drop}.` : '') : undefined
 }
 
-export type HandoffInput = { sessionId: string; path: string; now: number; numbered: string; draft?: string; summary?: string; intents?: string; git?: string }
+export type HandoffInput = { sessionId: string; path: string; now: number; numbered: string; draft?: string; summary?: string; intents?: string; cwd?: string; worktrees?: { path: string; git: string }[] }
 
 type Row = { type?: string; subtype?: string; content?: unknown; timestamp?: string; isSidechain?: boolean; isMeta?: boolean; isCompactSummary?: boolean; message?: { content?: unknown } }
 type Block = { type?: string; text?: string; name?: string; input?: Record<string, unknown> }
@@ -191,6 +191,31 @@ function numberedRow(line: string): { n: number; row: Row } | undefined {
   } catch {
     return undefined
   }
+}
+
+// Git quotes odd paths C-style; undo it (octal escapes are UTF-8 bytes).
+function unquote(s: string): string {
+  if (!s.startsWith('"')) return s
+  const enc = new TextEncoder()
+  const inner = s.slice(1, s.lastIndexOf('"'))
+  const bytes: number[] = []
+  for (let i = 0; i < inner.length; i++) {
+    const oct = inner[i] === '\\' ? /^[0-7]{3}/.exec(inner.slice(i + 1)) : null
+    if (oct) { bytes.push(parseInt(oct[0], 8)); i += 3; continue }
+    const c = inner[i] === '\\' ? { t: '\t', n: '\n' }[inner[++i] as 't' | 'n'] ?? inner[i] : inner[i]
+    bytes.push(...enc.encode(c))
+  }
+  return new TextDecoder().decode(new Uint8Array(bytes))
+}
+
+// Joins a relative path to a directory and folds `.` and `..`.
+function resolve(dir: string, rel: string): string {
+  const parts: string[] = []
+  for (const seg of `${dir}/${rel}`.split('/')) {
+    if (seg === '..') parts.pop()
+    else if (seg && seg !== '.') parts.push(seg)
+  }
+  return '/' + parts.join('/')
 }
 
 const blocks = (row: Row): Block[] => (Array.isArray(row.message?.content) ? (row.message!.content as Block[]) : [])
@@ -210,6 +235,14 @@ export function handoffNote(input: HandoffInput): string {
   let stopped: number | undefined
   let housekeeping = false
   const houseLines = new Set<number>()
+  // Absolute paths the session touched, with the newest line that touched each; `edited` is the subset that may have changed.
+  const touched = new Map<string, number>()
+  const edited = new Set<string>()
+  const touch = (p: unknown, n: number, edit: boolean) => {
+    if (typeof p !== 'string' || !p.startsWith('/')) return
+    touched.set(p, n)
+    if (edit) edited.add(p)
+  }
   for (const { n, row } of rows) {
     if (row.type === 'assistant') {
       if (housekeeping) { houseLines.add(n); continue }
@@ -218,6 +251,16 @@ export function handoffNote(input: HandoffInput): string {
       for (const b of blocks(row)) {
         const i = b.input
         if (b.type !== 'tool_use' || !i) continue
+        if (b.name === 'Read') touch(i.file_path, n, false)
+        else if (b.name === 'Edit' || b.name === 'Write') touch(i.file_path, n, true)
+        else if (b.name === 'NotebookEdit') touch(i.notebook_path, n, true)
+        else if (b.name === 'Bash' && typeof i.command === 'string') i.command.split(/\s+/).forEach((w, k, all) => {
+          const word = w.replace(/^['"]+|['";]+$/g, '')
+          const dir = ['cd', '-C'].includes(all[k - 1] ?? '')
+          // shortcut: ignores an earlier cd in the same command, resolve against the running dir if that misattributes
+          const rel = input.cwd && word && !word.startsWith('/') && !word.startsWith('-') && (dir || /[/.]/.test(word))
+          touch(rel ? resolve(input.cwd!, word) : word, n, true)
+        })
         if (b.name === 'mcp__margin__intent') {
           if (typeof i.wants === 'string') { wants = { wants: i.wants, steps: Array.isArray(i.steps) ? i.steps : [] }; now = undefined }
           if (i.now !== undefined) now = i.now
@@ -246,7 +289,23 @@ export function handoffNote(input: HandoffInput): string {
   const stop = stopped === undefined ? undefined : `The user stopped ${wants && now !== undefined ? `step ${now}` : 'the last turn'} with Esc (line ${stopped}). Never continue it unasked.`
   if (wants) add('Where we were', [cut(wants.wants, 500), ...wants.steps.slice(0, 20).map(s => `- ${cut(String(s.text ?? ''), 500)}`), ...(now !== undefined ? [`Last step started: ${now}`] : []), ...(stop ? [stop] : [])].join('\n'))
   else if (stop) add('Stopped', stop)
-  if (input.git?.trim()) add('Git', '```text\n' + input.git.trim() + '\n```')
+  const inside = (p: string, dir: string) => p === dir || p.startsWith(dir + '/')
+  const lastTouch = (dir: string) => Math.max(-1, ...[...touched].filter(([p]) => inside(p, dir)).map(([, n]) => n))
+  let shown = (input.worktrees ?? []).filter(w => lastTouch(w.path) >= 0).sort((a, b) => lastTouch(b.path) - lastTouch(a.path)).slice(0, 3)
+  if (!shown.length) shown = (input.worktrees ?? []).filter(w => input.cwd && inside(input.cwd, w.path)).slice(0, 1)
+  const gitBlock = (w: { path: string; git: string }) => {
+    let dirty = false
+    const lines = w.git.trim().split('\n').map(line => {
+      if (line === 'Dirty files:') { dirty = true; return line }
+      if (!dirty || !/^[MADRCU?! ]{2} \S/.test(line)) { dirty = false; return line }
+      const name = unquote(/[RC]/.test(line.slice(0, 2)) && line.includes(' -> ') ? line.slice(line.lastIndexOf(' -> ') + 4) : line.slice(3))
+      const abs = `${w.path}/${name}`
+      return (name.endsWith('/') ? [...edited].some(e => e.startsWith(abs)) : edited.has(abs)) ? line : `${line} (not this session)`
+    })
+    return `### ${w.path}\n\n\`\`\`text\n${lines.join('\n')}\n\`\`\``
+  }
+  const gits = shown.filter(w => w.git.trim()).map(gitBlock)
+  if (gits.length) add('Git', gits.join('\n\n'))
   if (asks.size) add('Earlier asks', [...asks].slice(-5).map(([w, n]) => `- Line ${n}: ${cut(w, 500)}`).join('\n'))
   if (turns.length) {
     const quote = (row: Row) => {
@@ -316,7 +375,7 @@ const NUMBERED = `grep -n '' "$1" | tail -c 1000000`
 const DRAFT = `grep -n '"type":"tool_use","id":"[^"]*","name":"mcp__primer__compact_draft"' "$1" | tail -1`
 const SUMMARY = `grep -n '"isCompactSummary":true' "$1" | tail -1`
 const INTENTS = `grep -n '"type":"tool_use","id":"[^"]*","name":"mcp__margin__intent"' "$1" | tail -40`
-// $1 is the session cwd; prints nothing outside a git repo.
+// $1 is a worktree path; prints nothing outside a git repo.
 const GIT = `export GIT_OPTIONAL_LOCKS=0
 git -C "$1" rev-parse --git-dir >/dev/null 2>&1 || exit 0
 echo "Branch: $(git -C "$1" status -sb | head -1 | cut -c4-)"
@@ -354,12 +413,16 @@ async function writeHandoff($: EngineInterface, ask: string): Promise<{ text: st
   }
   const grep = async (script: string) => (await $.process.run(['sh', '-c', script, 'sh', path]).catch(() => undefined))?.stdout ?? ''
   const cwd = await $.session.cwd().catch(() => '')
-  const git = async () => (cwd ? (await $.process.run(['sh', '-c', GIT, 'sh', cwd]).catch(() => undefined))?.stdout ?? '' : '')
-  const [numbered, draft, summary, intents, gitOut] = await Promise.all([grep(NUMBERED), grep(DRAFT), grep(SUMMARY), grep(INTENTS), git()])
+  const worktrees = async () => {
+    const list = cwd ? (await $.process.run(['git', '-C', cwd, 'worktree', 'list', '--porcelain']).catch(() => undefined))?.stdout ?? '' : ''
+    const paths = list.split('\n').filter(l => l.startsWith('worktree ')).map(l => l.slice(9))
+    return Promise.all(paths.map(async path => ({ path, git: (await $.process.run(['sh', '-c', GIT, 'sh', path]).catch(() => undefined))?.stdout ?? '' })))
+  }
+  const [numbered, draft, summary, intents, trees] = await Promise.all([grep(NUMBERED), grep(DRAFT), grep(SUMMARY), grep(INTENTS), worktrees()])
   const file = `${dir}/claudzilla-handoff/${sessionId}.md`
   let note: string
   try {
-    note = handoffNote({ sessionId, path, now: await $.clock.now(), numbered, draft: draft.trim() || undefined, summary: summary.trim() || undefined, intents, git: gitOut.trim() || undefined })
+    note = handoffNote({ sessionId, path, now: await $.clock.now(), numbered, draft: draft.trim() || undefined, summary: summary.trim() || undefined, intents, cwd, worktrees: trees })
     await $.process.run(['sh', '-c', 'mkdir -p "$1" && chmod 700 "$1"', 'sh', `${dir}/claudzilla-handoff`])
     await $.fs.write(file, note)
   } catch (err) {
