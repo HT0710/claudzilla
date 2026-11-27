@@ -950,8 +950,6 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
     const ended = pr.state === 'merged' || pr.state === 'closed'
     const checks = sortChecks(ended ? pr.checks.map(c => (c.state === 'run' ? { ...c, state: 'ok' as const, time: '' } : c)) : pr.checks)
     const passed = checks.filter(c => c.state === 'ok').length
-    // The body 1 column in, numbers in counted()'s colour, code spans in the colour the engine gives them, fence
-    // lines through the engine's highlighter.
     const descRows = (width: number) => mdBody(ctx.el, view?.body ?? '', width)
     const desc = descRows(inner)
     // A failed check's last log lines, red-edged under its row at the name's column: the row names the check.
