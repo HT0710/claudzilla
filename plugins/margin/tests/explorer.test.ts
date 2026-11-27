@@ -1211,6 +1211,16 @@ test('the menu divider is plain rule cells over the padding, between the card bo
   const dashes = 'Copy absolute path'.length + 1 + 2
   expect(await ui.find({ type: 'Text', text: new RegExp(`^─{${dashes}}$`) })).toBeDefined()
   expect(await ui.find({ type: 'Box', marginX: -1 })).toBeDefined()
+  // one more rule cell over the covered border column, at the divider's row
+  const card = JSON.stringify(await nodeOf(ui, 'explorer:menu-card'))
+  expect(card).toMatch(/"top":5,"right":0[^]*?"─"/)
+})
+
+test('the rail joins the card bottom rows with a ┤ shown by the hovered scope', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
+  const tee = async (scope: string) => await ui.find({ type: 'Box', display: 'none', hover: { scope, display: 'flex' } })
+  expect(JSON.stringify(await tee('explorer:menu'))).toContain('┤')
+  expect(JSON.stringify(await tee('explorer:info'))).toContain('┤')
 })
 
 test('a tree row is a row Client in a Box that lights the whole row on hover', async ($, on) => {

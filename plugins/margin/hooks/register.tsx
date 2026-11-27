@@ -1761,13 +1761,19 @@ export const register: Register = (on, options) => {
     const worldsRow = both ? inner - 2 : -1
     // A modal hides the rules' rows from the person: nothing joins.
     const joined = new Set(modalShown ? [] : out.rules)
+    // A rail cell lit by a hovered scope shows ┤ over its │.
+    const tees = modalShown ? [] : out.tees ?? []
+    const edge = (row: number, line: JSX.Element) => {
+      const t = tees.find(t => t.row === row)
+      return t ? <Box>{line}<Box position="absolute" left={0} display="none" hover={{ scope: t.scope, display: 'flex' }}><Text color="promptBorder">┤</Text></Box></Box> : line
+    }
     const rail = Array.from({ length: inner }, (_, row) => {
       const at = row - top
       const one = at >= 0 && at % 2 === 0 ? RAIL[at / 2] : undefined
       const glyph = one ? ` ${basic ? KEYS[one] : ICON[one]} ` : ''
       return (
         <Box key={`rail:${row}`}>
-          <Text color="promptBorder">{row === cornerRow ? (joined.has(row) ? '┼' : '├') + '─'.repeat(RAIL_COLUMNS - 1) : joined.has(row) ? '┤' : '│'}</Text>
+          {edge(row, <Text color="promptBorder">{row === cornerRow ? (joined.has(row) ? '┼' : '├') + '─'.repeat(RAIL_COLUMNS - 1) : joined.has(row) ? '┤' : '│'}</Text>)}
           {row === cornerRow ? null : row === guideRow ? (
             <Box key="guide" width={RAIL_COLUMNS - 1}>
               <Button key="Guide" plain onPress={() => openGuide($)}>
@@ -1805,7 +1811,7 @@ export const register: Register = (on, options) => {
         const n = at >= 0 && at % 2 === 0 ? at / 2 : -1
         const one = RAIL[n]
         if (row === cornerRow) return <Text key="wide-bottom" color="promptBorder">{(joined.has(row) ? '┼' : '├') + '─'.repeat(WIDE - 1)}</Text>
-        const border = <Text color="promptBorder">{joined.has(row) ? '┤' : '│'}</Text>
+        const border = edge(row, <Text color="promptBorder">{joined.has(row) ? '┤' : '│'}</Text>)
         if (row === guideRow)
           return (
             <Box key="wide-row:guide" width={WIDE}>
