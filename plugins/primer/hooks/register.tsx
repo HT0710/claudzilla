@@ -758,8 +758,10 @@ export const register: Register = on => {
     const bodyRows = beside ? free : free - 1 - tocRows
     const tocEnd = Math.max(0, list.length - tocRows)
     const bodyEnd = Math.max(0, rows(text, sectionColumns) - bodyRows)
+    // Read even while pinned: the read subscribes the render, so the wheel's first move redraws it.
+    const wheeled = await read($, tocTop)
     // Clamped here too: the pane shrinks, or the divider grows a zone, after the wheel moved it.
-    let tocFrom = Math.min(pinned ?? (await read($, tocTop)), tocEnd)
+    let tocFrom = Math.min(pinned ?? wheeled, tocEnd)
     // The shown topic's row in `list`: a label row per part up to it, and a blank row before each but the first.
     const shown = current ? sections.indexOf(current) : -1
     const parts = sections.slice(0, shown + 1).filter((s, i) => s.part && s.part !== sections[i - 1]?.part).length
