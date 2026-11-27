@@ -15,6 +15,14 @@ export function setView(nav: Nav, md: boolean): Nav {
   return { ...nav, entries }
 }
 
+// Source does not inherit a Markdown row index as its top.
+function flipToSource(nav: Nav, here: Place & { kind: 'file' }): Nav {
+  const { top: _, ...rest } = here
+  const entries = nav.entries.slice()
+  entries[nav.at] = { ...rest, md: false }
+  return { ...nav, entries }
+}
+
 export function remember(nav: Nav, top: number, line?: number): Nav {
   const place = current(nav)
   const entries = nav.entries.slice()
@@ -25,10 +33,10 @@ export function remember(nav: Nav, top: number, line?: number): Nav {
 export function visit(nav: Nav, next: Place): Nav {
   const here = current(nav)
   const same = here.kind === next.kind && here.path === next.path
-  if (same && (next.kind === 'folder' || next.line === undefined)) return next.kind === 'file' && next.md === false ? setView(nav, false) : nav
-  // A file opened with no line starts where its latest entry was left.
+  if (same && (next.kind === 'folder' || next.line === undefined)) return next.kind === 'file' && next.md === false && here.kind === 'file' && here.md !== false ? flipToSource(nav, here) : nav
+  // A file opened with no line starts where its latest entry was left; a top left in source is not the Markdown top.
   const left = next.kind === 'file' && next.line === undefined ? nav.entries.filter(p => p.kind === 'file' && p.path === next.path).at(-1) : undefined
-  const entries = [...nav.entries.slice(0, nav.at + 1), left?.top === undefined ? next : { ...next, top: left.top }]
+  const entries = [...nav.entries.slice(0, nav.at + 1), left?.top === undefined || (left.kind === 'file' && left.md === false) ? next : { ...next, top: left.top }]
   while (entries.length > MAX_HISTORY) entries.shift()
   return { entries, at: entries.length - 1 }
 }

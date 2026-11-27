@@ -607,6 +607,13 @@ async function openFind($: EngineInterface): Promise<void> {
   state.find ??= { open: true, text: '', pending: false, result: { matches: [], bad: false, capped: false }, spans: new Map(), current: 0 }
   state.find.open = true
   state.menuPinned = state.infoPinned = false
+  // Matches run on source lines, so find needs the source view.
+  // The path decides, as in showPlace: the file may not be loaded yet.
+  const here = current(state.nav)
+  if (/\.md$/i.test(here.path) && here.kind === 'file' && here.md !== false) {
+    state.nav = setView(state.nav, false)
+    state.top = 0
+  }
   await update($, file, () => placeOf())
   await takeKeys($, findKey())
 }
@@ -1570,7 +1577,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
               {isMd && (
                 <Button key="explorer:markdown" plain onPress={() => {
                   state.nav = setView(state.nav, !viewMd)
-                  state.top = 0
+                  state.top = state.col = 0
                   if (!viewMd) state.lit = undefined
                   return update($, file, () => placeOf())
                 }}>
