@@ -260,6 +260,56 @@ sub spend_figures {
     $f{mid} = $mid - $ws if defined $mid && $mid - $ws > 0 && $mid - $ws < 86400;
     return \%f;
 }
+# --- OpenRouter billed spend, shared per config dir, mode 0600; tab lines: at, tried, daily, monthly ---
+sub or_load {
+    my %c;
+    open my $fh, '<', $_[0] or return \%c;
+    for (split /\n/, do { local $/; <$fh> // '' }) {
+        my ($k, $v) = split /\t/;
+        $c{$k} = $v + 0 if defined $v && $k =~ /^(?:at|tried|daily|monthly)\z/ && $v =~ /^\d+(?:\.\d+)?\z/;
+    }
+    return \%c;
+}
+sub or_save {
+    my ($file, $c) = @_;
+    my $tmp = "$file.$$.tmp";
+    sysopen(my $fh, $tmp, O_WRONLY | O_CREAT | O_TRUNC, 0600) or return;
+    print $fh map { "$_\t$c->{$_}\n" } grep { defined $c->{$_} } qw(at tried daily monthly);
+    close $fh and rename $tmp, $file or unlink $tmp;
+}
+# billed today and month for the key; a stale cache starts one detached fetch, so every session on the key shares one /key call a minute
+sub or_spend {
+    my ($dir, $key, $T) = @_;
+    my $file = "$dir/claudzilla-or-key.tsv";
+    my $c = or_load($file);
+    my $lk;
+    if (($c->{at} // 0) < $T - 60 && ($c->{tried} // 0) < $T - 60
+        && sysopen($lk, "$dir/claudzilla-or-key.lock", O_RDWR | O_CREAT, 0600) && flock($lk, LOCK_EX | LOCK_NB)) {
+        require POSIX; require IPC::Open2;
+        my $pid = fork;
+        if (defined $pid && !$pid) {
+            # the child keeps the lock and leaves the status line's stdout, so Claude Code never waits on the network
+            open STDIN, '<', '/dev/null'; open STDOUT, '>', '/dev/null'; open STDERR, '>', '/dev/null';
+            POSIX::setsid();
+            my $n = or_load($file);
+            POSIX::_exit(0) if ($n->{at} // 0) >= $T - 60 || ($n->{tried} // 0) >= $T - 60;
+            $n->{tried} = $T;
+            my $body = eval {
+                # key on stdin, never in argv where ps shows it
+                my $cp = IPC::Open2::open2(my $out, my $in, 'curl', '-sf', '--max-time', '10', '-H', '@-', 'https://openrouter.ai/api/v1/key');
+                print $in "Authorization: Bearer $key\n"; close $in;
+                my $b = do { local $/; <$out> }; waitpid $cp, 0;
+                $? ? undef : $b;
+            };
+            my $d = defined $body ? json_parse(dec($body)) : undef;
+            my ($dy, $mo) = (dig($d, 'data', 'usage_daily'), dig($d, 'data', 'usage_monthly'));
+            @$n{qw(at daily monthly)} = ($T, sprintf('%.6f', $dy), sprintf('%.6f', $mo)) if is_num($dy) && is_num($mo) && $dy >= 0 && $mo >= 0;
+            or_save($file, $n);
+            POSIX::_exit(0);
+        }
+    }
+    return ($c->{at} // 0) >= $T - 600 && defined $c->{daily} && defined $c->{monthly} ? $c : undef;
+}
 sub gather {
     my $raw = do { local $/; <STDIN> } // '';
     my $d = json_parse(dec($raw));
@@ -315,6 +365,11 @@ sub gather {
         my $cost = count(dig($d, 'cost', 'total_cost_usd'));
         my $sdir = defined $cdir ? $cdir : "$ENV{HOME}/.claude";
         my $sf = spend_figures(spend_tick($sdir, ($out{sid} =~ s/[^\w-]//gr), $cost, $T), $T);
+        # billed figures beat the ledger's estimate; the chart and rate stay local, /key has no buckets
+        my $ok = $ENV{ANTHROPIC_AUTH_TOKEN} || $ENV{ANTHROPIC_API_KEY} || '';
+        if ($out{login} eq 'openrouter.ai' && length $ok and my $or = or_spend($sdir, $ok, $T)) {
+            @$sf{qw(today month)} = @$or{qw(daily monthly)}; $sf->{day} = $or->{monthly} / (gmtime $T)[3];   # OpenRouter's month resets at UTC midnight (resets_at in /key)
+        }
         $out{spend_here} = sprintf '%.6f', $cost;
         $out{"spend_$_"} = sprintf '%.6f', $sf->{$_} for qw(today month rate day);
         $out{spend_slots} = join ',', map { sprintf '%.6f', $_ } @{ $sf->{slots} };
