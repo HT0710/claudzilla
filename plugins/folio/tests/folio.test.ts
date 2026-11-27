@@ -3731,6 +3731,15 @@ test('a SendMessage row after a prompt gives ╭', async ($, on) => {
   expect(await ruleOf(card)).toBe('╭')
 })
 
+test('a ListAgents row, drawn empty, leaves the join to the SendMessage row after it', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  const card = await prompt($, 'hi')
+  await mountRow($, 'ListAgents', 'nutmeg-owl', { input: {} }, '', 'l1')
+  await mountRow($, 'SendMessage', { success: true, message: 'Sent' }, { input: { to: 'nutmeg-owl', message: 'hi' } }, '', 'm1')
+  expect(await ruleOf(card)).toBe('╭')
+})
+
 test('a prompt followed by exactly one framed row gives ╭ above its ╰─', async ($, on) => {
   native(on)
   nativePrompt(on)
