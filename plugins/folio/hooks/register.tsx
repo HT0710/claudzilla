@@ -644,8 +644,8 @@ let wroteColumns = 0
 let hideEditDiff = true
 // Margin's intent report: its row draws nothing, so it must not break a run of edits.
 const INTENT_TOOL = 'mcp__margin__intent'
-// Tools another plugin hides with an empty row: folio never folds or counts them.
-const HIDDEN_TOOLS = new Set(['mcp__primer__compact_draft'])
+// Tools drawn as an empty row, by another plugin or the engine: folio never folds, counts or joins them.
+const HIDDEN_TOOLS = new Set(['mcp__primer__compact_draft', 'ListAgents'])
 // Tools whose rows fold into a run; any mcp__ tool too.
 const FOLDED = new Set(['Read', 'Grep', 'Glob', 'Bash', 'Edit', 'Write', 'WebFetch', 'WebSearch', 'TaskStop', 'SendMessage'])
 const isFolded = (tool: string) => FOLDED.has(tool) || (tool.startsWith('mcp__') && !HIDDEN_TOOLS.has(tool))
