@@ -634,6 +634,17 @@ sub words_cells {
     my @l = $grp->(['here', $t{here}]);
     return cells_str(@l[0 .. ($w < @l ? $w : scalar @l) - 1], map { [' ', $nc] } 1 .. ($w - @l > 0 ? $w - @l : 0));
 }
+sub text_cells {
+    my $w = shift;
+    my $nc = pal('hud_note'); my $c = spend_colours(\%f);
+    my @a = (money_cells($f{spend_here}, $c->{here}), map { [$_, $nc] } split //, ' here');
+    my @b = (money_cells($f{spend_month}, $c->{month}), map { [$_, $nc] } split //, ' month');
+    my $spare = $w - @a - @b - 3;
+    return () if $spare < 0;
+    my @g = map { int(($spare + 2 - $_) / 3) } 0 .. 2;   # spare cells split into three gaps, extras to the earlier ones
+    my $sp = sub { map { [' ', $nc] } 1 .. $_[0] };
+    return cells_str($sp->(1 + $g[0]), @a, $sp->(1 + $g[1]), @b, $sp->(1 + $g[2]));
+}
 sub cells_str { return paint(map { [$_->[0], @{$_->[1]}] } @_) }   # [char, colour] cells -> string
 my $dim = sub { "\e[2m$_[0]\e[0m" };
 # meter titles: muted lilac - clear of the teal profile and the blue->orange ramp
@@ -693,7 +704,10 @@ my $tw = $note_w->(qw(ctx cch 5h wk));
 # Each column right-aligns its own notes.
 my @one = grep { defined } @mv{qw(ctx cch 5h wk)};
 # a fixed note width of 5, not $tw: the row count must not flip as a reset countdown changes length
-my $ONE = $COMPACT && @one && int(($W - 3 * $#one) / @one) - 11 - 5 >= 8;
+my $NC = $API ? 4 : @one;   # API compact cells: cch, ctx, text, chart
+my $TXW = int(($W - 9) * 3 / 4) - int(($W - 9) * 2 / 4);   # API text cell width
+my $ONE = $COMPACT && $NC && int(($W - 3 * ($NC - 1)) / $NC) - 11 - 5 >= 8
+    && (!$API || text_cells($TXW));
 my $CL = int(($W - 3) / 2); my $CRW = $W - 3 - $CL;
 my $TWO = !$ONE && ($mv{'5h'} || $mv{wk} || $API) && $CL - 11 - $tw >= 8;
 my ($twl, $twr) = $TWO ? ($note_w->(qw(ctx cch)), $note_w->(qw(5h wk))) : ($tw, $tw);
@@ -767,16 +781,20 @@ if ($MIN) {
     }
     push @out, pad($left->(), $right->());
 } elsif ($ONE) {
-    @one = grep { defined } @mv{qw(cch ctx 5h wk)};     # the three usage fills sit together, the cache clock apart
-    my $room = $W - 3 * $#one;
+    @one = $API ? map { $mv{$_} // [$_, undef, ''] } qw(cch ctx)
+                : grep { defined } @mv{qw(cch ctx 5h wk)};     # the three usage fills sit together, the cache clock apart
+    my $room = $W - 3 * ($NC - 1);
     my @cols;
     for my $i (0 .. $#one) {
-        my $col = int($room * ($i + 1) / @one) - int($room * $i / @one);
+        my $col = int($room * ($i + 1) / $NC) - int($room * $i / $NC);
         my ($label, $pct, $note) = @{$one[$i]};
         $note =~ s/^ +//;
         # 2 spaces around the bar; it takes what short text leaves, so no uneven gaps
         my ($lw, $pw, $nw) = (1 + length $label, 1 + length($pct // '--'), length $note);
         push @cols, meter_line($label, $pct, $note, $col - 5 - $lw - $pw - $nw, $nw, $lw, $pw);
+    }
+    if ($API) {
+        @cols = (@cols, text_cells($TXW), cells_str(chart_cells($room - int($room * 3 / 4))));
     }
     push @out, join($DIV, @cols);
 } elsif ($TWO) {
