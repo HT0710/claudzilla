@@ -501,6 +501,8 @@ export async function closeOnEscape($: EngineInterface): Promise<boolean> {
 
 async function openNames($: EngineInterface): Promise<void> {
   state.menuPinned = state.infoPinned = false
+  // One field at a time: Recent and the name search share the header.
+  endRecent()
   const folder = current(state.nav).path
   let capped = false
   const listing = listNames($, folder, () => (capped = true))
@@ -555,6 +557,7 @@ async function submitName($: EngineInterface): Promise<void> {
 
 async function openRecent($: EngineInterface): Promise<void> {
   state.menuPinned = state.infoPinned = false
+  endNames()
   state.recent ??= { text: '' }
   await update($, file, () => placeOf())
   await takeKeys($, recentKey())
@@ -899,7 +902,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       </Box>,
     )
   }
-  if (place.kind === 'folder') {
+  if (place.kind === 'folder' && !state.recent) {
     const n = folders.begin()
     // A newer draw or a move since the awaits: this page is old, so draw the current one instead.
     const stale = () => !folders.isLatest(n) || current(state.nav).path !== place.path
@@ -961,8 +964,8 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       const faint = r.dim || r.broken
       const tone = (name: string) => (faint ? HUD.faint : ICON_COLORS()[name] ?? HUD.faint)
       const folders = guideFolders(r.path, place.path)
-      // One cell per indent column: the line of the open folder above it there, else a blank.
-      const lead = Array.from({ length: r.x }, (_, c) => (c < folders.length ? scopeOf(folders[c]!) : null))
+      // One cell per indent column: an open folder sits every 2nd column, with its line there; else a blank.
+      const lead = Array.from({ length: r.x }, (_, c) => (c % 2 === 0 && c / 2 < folders.length ? scopeOf(folders[c / 2]!) : null))
       const group = r.kind === 'dir' && r.open ? scopeOf(r.path) : folders.length ? scopeOf(folders[folders.length - 1]!) : undefined
       const left = [
         <Text color={HUD.faint}>{r.kind === 'dir' && !r.empty ? (r.open ? '▾' : '▸') : ' '}</Text>,
@@ -995,7 +998,9 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
         return update($, file, () => placeOf())
       },
     })
-  } else if (state.recent && place.kind === 'file') {
+  } else if (state.recent) {
+    // Drops a folder draw still awaiting its listing, so it cannot paint over this one.
+    folders.begin()
     const now = await $.clock.now()
     const { today, earlier } = recentSplit(viewedList(), now, state.recent.text)
     const inRoot = !!state.root && place.path.startsWith(`${state.root}/`)
@@ -1196,9 +1201,9 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   )
   const shown = headOf(place.path, state.root, home, MID)
   const inRoot = state.root !== '/' && (place.path === state.root || place.path.startsWith(`${state.root}/`))
-  // The path's last part opens the Recent field on a file page and the name search on a folder page.
+  // The path's last part opens the Recent field; the name search stays on the `/` button.
   const last = (name: string) => (
-    <Button key="explorer:path-last" plain onPress={() => (place.kind === 'file' ? openRecent($) : openNames($))}>
+    <Button key="explorer:path-last" plain onPress={() => openRecent($)}>
       <Text bold color="claude">{name}</Text>
     </Button>
   )
@@ -1324,7 +1329,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     <Box
       key="explorer:info-card"
       position="absolute"
-      top={short ? 0 : 2}
+      top={short ? 0 : 1}
       right={short ? 5 : 2}
       flexDirection="column"
       borderStyle="round"
@@ -1352,7 +1357,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     <Box
       key="explorer:menu-card"
       position="absolute"
-      top={short ? 0 : 2}
+      top={short ? 0 : 1}
       right={short ? hdrRight : 0}
       flexDirection="column"
       borderStyle="round"
@@ -1413,7 +1418,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       </Button>
     </Box>
   )
-  const editing = (state.find?.open && place.kind === 'file') || (state.names && place.kind === 'folder') || (state.recent && place.kind === 'file')
+  const editing = (state.find?.open && place.kind === 'file') || (state.names && place.kind === 'folder') || state.recent
   // The stand-ins beside the name field that Down and Up move the ring to, so stepName can catch them.
   // Drawn as long as the field is: one drawn in later before the field drops the ring off it.
   const stepping = !!(state.names || state.recent)
@@ -1447,7 +1452,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
                   <Input key={findKey()} value={seedOf(findKey(), state.find.text)} submitLabel="next" autoFocus onInput={v => typeFind($, fitField($, v, ROOM - 9, state.find?.text ?? '', () => gen++))} onSubmit={() => (gen++, stepFind($, 1))} />
                 </Box>
               </Box>
-            ) : state.recent && place.kind === 'file' ? (
+            ) : state.recent ? (
               <Box key="recent" flexShrink={0}>
                 <Text>{recentL}</Text>
                 <Text color={HUD.faint}>{recentLabel}</Text>

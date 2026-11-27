@@ -230,14 +230,14 @@ test('folders list before files, each by name', () => {
   expect(sortListing([{ name: 'b.ts', kind: 'file' }, { name: 'src', kind: 'dir' }, { name: 'a', kind: 'dir' }]).map(e => e.name)).toEqual(['a', 'src', 'b.ts'])
 })
 
-test('treeRows sorts each folder and indents a child folder 1 column, a child file 2', () => {
+test('treeRows sorts each folder and indents each level 2 columns', () => {
   const listed = new Map([
     ['/p', [{ name: 'src', kind: 'dir' as const }, { name: 'R.md', kind: 'file' as const }]],
     ['/p/src', [{ name: 'x.ts', kind: 'file' as const }, { name: 'lib', kind: 'dir' as const }]],
     ['/p/src/lib', [{ name: 'y.ts', kind: 'file' as const }]],
   ])
   const rows = treeRows('/p', new Set(['/p/src', '/p/src/lib']), listed)
-  expect(rows.map(r => [r.name, r.x])).toEqual([['src', 0], ['lib', 1], ['y.ts', 3], ['x.ts', 2], ['R.md', 0]])
+  expect(rows.map(r => [r.name, r.x])).toEqual([['src', 0], ['lib', 2], ['y.ts', 4], ['x.ts', 2], ['R.md', 0]])
 })
 
 test('an empty folder is known as empty, and a closed folder is not open', () => {
@@ -796,8 +796,18 @@ test('a tall tab body keeps the card below the header, with its divider', async 
   await ui.press({ key: 'menu' })
   await ui.redraw()
   const box = await ui.find({ key: 'explorer:menu-card' })
-  expect([box?.props.top, box?.props.right]).toEqual([2, 0])
+  expect([box?.props.top, box?.props.right]).toEqual([1, 0])
   expect(textOf(box)).toContain('─')
+})
+
+test('both cards start on the rule under the header buttons, and no menu item has its own hover', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/src/a.ts' }, lines(3))
+  const menu = await nodeOf(ui, 'explorer:menu-card')
+  const info = await nodeOf(ui, 'explorer:info-card')
+  expect([menu?.props?.top ?? menu?.top, info?.props?.top ?? info?.top]).toEqual([1, 1])
+  expect(menu?.hover).toEqual({ scope: 'explorer:menu', display: 'flex' })
+  expect(info?.hover).toEqual({ scope: 'explorer:info', display: 'flex' })
+  expect((await nodeOf(ui, 'copy-path'))?.hover).toBeUndefined()
 })
 
 test('a pinned card makes the pane take Escape; unpinning gives it back', async ($, on) => {
@@ -3050,11 +3060,30 @@ test("pressing the path's last part on a file page opens the Recent field", asyn
   expect(await ui.find({ type: 'Text', text: 'type a file name ' })).toBeDefined()
 })
 
-test("on a folder page the path's last part opens the name search", async ($, on) => {
+test("on a folder page the path's last part opens the Recent field", async ($, on) => {
   const ui = await nameRoot($, on)
   await ui.press({ key: 'explorer:path-last' })
   await ui.redraw()
-  expect(await ui.find({ key: 'explorer:name' })).toBeDefined()
+  expect(await keyMatching(ui, /^explorer:recent(:\d+)?$/)).toBeDefined()
+  expect(await ui.find({ key: 'explorer:name' })).toBeUndefined()
+})
+
+test('Recent on a folder page lists viewed files with none bold, and a row press opens that file', async ($, on) => {
+  const ui = await nameRoot($, on)
+  open({ path: '/repo/ab.ts' })
+  await ui.redraw()
+  open({ path: '/repo', kind: 'folder' })
+  await ui.redraw()
+  await recentOpen(ui)
+  const rows = await recentClients(ui)
+  expect(rows.map((r: any) => r.props.key)).toEqual([`row:x:recent:${fileKey('/repo/ab.ts')}`])
+  expect(rows[0].props.props.left.find((p: any) => p.text === 'ab.ts').bold).toBeUndefined()
+  const row = (await recentClients(ui))[0].props.key
+  await ui.resize({ columns: 30, rows: 1, in: row })
+  await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: row })
+  await ui.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: row })
+  await ui.redraw()
+  expect(await pathText(ui)).toBe('repo/ab.ts')
 })
 
 test("typing shows the faint 'file named ' label beside the text", async ($, on) => {
@@ -3609,6 +3638,16 @@ test('a guide cell carries its folder scope, and unlit it is blank', async ($, o
   expect(cell.props.position).toBe('absolute')
   const row = await treeRow(ui, 'a.ts')
   expect(row.props.props.left[0].text).toBe('  ')
+})
+
+test('guide cells sit under each open folder: columns 0 and 2 for a file two folders deep', async ($, on) => {
+  const ui = await explorerRoot($, on, { '/repo': [{ name: 'src', kind: 'dir' }], '/repo/src': [{ name: 'lib', kind: 'dir' }], '/repo/src/lib': [{ name: 'a.ts', kind: 'file' }] })
+  await tapTree(ui, 'src')
+  await tapTree(ui, 'lib')
+  await ui.drawn()
+  const cells = await guideBoxes(ui, 'a.ts')
+  expect(cells.map((c: any) => c.props.left)).toEqual([0, 2])
+  expect(new Set(cells.map((c: any) => c.hover.scope)).size).toBe(2)
 })
 
 test('a press on a lit guide cell runs the row press', async ($, on) => {
