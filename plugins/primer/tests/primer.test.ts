@@ -714,10 +714,88 @@ test('handoffNote: away recap before the last compact summary is dropped', () =>
   expect(note(typed('S', { isCompactSummary: true }), recap)).toContain('RECAP')
 })
 
-test('handoffNote: git output in its own section, omitted without it', () => {
-  const g = handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: tail(typed('hi')), git: 'Branch: b...origin/b [ahead 7]\nCommits on no remote: 7' })
+const wt = (path: string, git = 'Branch: b\nHEAD: abc') => ({ path, git })
+const gitNote = (rows: string[], worktrees: { path: string; git: string }[], cwd?: string) => handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: tail(...rows), cwd, worktrees })
+
+test('git block: a worktree touched by Read gets its own ### heading', () => {
+  const g = gitNote([tool('Read', { file_path: '/x/claudzilla-b/a.md' })], [wt('/x/claudzilla'), wt('/x/claudzilla-b')])
   expect(g).toContain('## Git')
-  expect(g).toContain('Commits on no remote: 7')
+  expect(g).toContain('### /x/claudzilla-b')
+  expect(g).not.toContain('### /x/claudzilla\n')
+  expect(g).toContain('Branch: b')
+})
+
+test('git block: a sibling prefix is not a match', () => {
+  const g = gitNote([tool('Read', { file_path: '/x/claudzilla-b/a.md' })], [wt('/x/claudzilla'), wt('/x/claudzilla-b')], '/x/claudzilla')
+  expect(g).not.toContain('### /x/claudzilla\n')
+  expect(g).toContain('### /x/claudzilla-b')
+})
+
+test('git block: a Bash word touches a worktree', () => {
+  const g = gitNote([tool('Bash', { command: "sed -i 's/a/b/' /x/claudzilla-b/a.md" })], [wt('/x/claudzilla'), wt('/x/claudzilla-b')])
+  expect(g).toContain('### /x/claudzilla-b')
+  expect(g).not.toContain('### /x/claudzilla\n')
+})
+
+test('git block: at most 3 worktrees, newest touch first', () => {
+  const g = gitNote(['a', 'b', 'c', 'd'].map(n => tool('Read', { file_path: `/x/${n}/f` })), ['a', 'b', 'c', 'd'].map(n => wt(`/x/${n}`)))
+  expect(g).not.toContain('### /x/a')
+  expect([...g.matchAll(/### (\/x\/\w)/g)].map(m => m[1])).toEqual(['/x/d', '/x/c', '/x/b'])
+})
+
+test('git block: cwd alone shows when nothing else was touched', () => {
+  expect(gitNote([typed('hi')], [wt('/x/wt')], '/x/wt')).toContain('### /x/wt')
+})
+
+const dirtyGit = (...lines: string[]) => ['Branch: b', 'Dirty files:', ...lines, ' 2 files changed, 2 insertions(+)'].join('\n')
+
+test('git block: a dirty file untouched by the session gets (not this session)', () => {
+  const g = gitNote([tool('Edit', { file_path: '/x/wt/a.md' })], [wt('/x/wt', dirtyGit(' M a.md', ' M b.md'))])
+  expect(g).toMatch(/ M a\.md\n/)
+  expect(g).toContain(' M b.md (not this session)')
+  expect(g).toContain(' 2 files changed, 2 insertions(+)\n')
+})
+
+test('git block: a Bash-touched dirty file has no suffix', () => {
+  const g = gitNote([tool('Bash', { command: 'sed -i s/a/b/ /x/wt/b.md' })], [wt('/x/wt', dirtyGit(' M b.md'))])
+  expect(g).toContain(' M b.md\n')
+})
+
+test('git block: a quoted rename uses the new path', () => {
+  const git = wt('/x/wt', dirtyGit('R  "a b.md" -> "c d.md"'))
+  expect(gitNote([tool('Edit', { file_path: '/x/wt/c d.md' })], [git])).toContain('"c d.md"\n')
+  expect(gitNote([tool('Read', { file_path: '/x/wt/z' })], [git])).toContain('"c d.md" (not this session)')
+})
+
+test('git block: a relative cd or git -C resolves against the session cwd', () => {
+  const trees = [wt('/x/claudzilla'), wt('/x/claudzilla-b')]
+  for (const command of ['cd ../claudzilla-b && ls', 'git -C ../claudzilla-b status']) {
+    const g = gitNote([tool('Bash', { command })], trees, '/x/claudzilla')
+    expect(g).toContain('### /x/claudzilla-b')
+    expect(g).not.toContain('### /x/claudzilla\n')
+  }
+})
+
+test('git block: relative bash paths resolve against the session cwd', () => {
+  const git = wt('/x/wt', dirtyGit(' M a.md', ' M b.md', ' M plugins/x.ts', ' M -la'))
+  let g = gitNote([tool('Bash', { command: 'git mv a.md b.md' })], [git], '/x/wt')
+  expect(g).toContain(' M a.md\n')
+  expect(g).toContain(' M b.md\n')
+  expect(g).toContain(' M plugins/x.ts (not this session)')
+  g = gitNote([tool('Bash', { command: "sed -i 's/a/b/' plugins/x.ts" })], [git], '/x/wt')
+  expect(g).toContain(' M plugins/x.ts\n')
+  expect(g).toContain(' M a.md (not this session)')
+  g = gitNote([tool('Bash', { command: 'ls -la' })], [git], '/x/wt')
+  expect(g).toContain(' M -la (not this session)')
+})
+
+test('git block: a new untracked folder the session wrote into has no suffix', () => {
+  const g = gitNote([tool('Write', { file_path: '/x/wt/newdir/x.md' })], [wt('/x/wt', dirtyGit('?? newdir/', '?? other/'))])
+  expect(g).toContain('?? newdir/\n')
+  expect(g).toContain('?? other/ (not this session)')
+})
+
+test('git block: no touch, no cwd, no worktree output: no Git section', () => {
   expect(note(typed('hi'))).not.toContain('## Git')
 })
 
@@ -829,7 +907,7 @@ const NOTE = `${CFG}/claudzilla-handoff/s1.md`
 const done = (extra = {}) => ({ answer: 'x', reason: 'answer' as const, durationMs: 1, isAborted: false, turnId: 't1', ...extra })
 
 // A session idle after a reply: transcript found, greps answered, box as given.
-function handoffHost(on: Parameters<TestBody>[1], o: { find?: string; writeFails?: boolean; clearFails?: boolean; submitFails?: boolean; submitDrop?: boolean; filled?: boolean; drop?: boolean; git?: string } = {}) {
+function handoffHost(on: Parameters<TestBody>[1], o: { find?: string; worktrees?: string[]; writeFails?: boolean; clearFails?: boolean; submitFails?: boolean; submitDrop?: boolean; filled?: boolean; drop?: boolean; git?: string } = {}) {
   const seen = { order: [] as string[], writes: [] as [string, string][], commands: [] as string[], fills: [] as string[], submits: [] as any[], argvs: [] as string[] }
   const clock = mock.clock(on, { now: 0 })
   const base = host(on, {
@@ -837,6 +915,7 @@ function handoffHost(on: Parameters<TestBody>[1], o: { find?: string; writeFails
       seen.argvs.push(c)
       if (c.includes('chmod 700')) seen.order.push('mkdir')
       if (c.startsWith('find ')) return ran(0, o.find ?? '/cfg/projects/p/s1.jsonl\n')
+      if (c.includes('worktree list')) return ran(0, (o.worktrees ?? []).map(w => `worktree ${w}\nHEAD abc\n`).join('\n'))
       if (c.includes('rev-parse')) return o.git === undefined ? ran(0, '') : ran(0, o.git)
       if (c.includes('compact_draft')) return ran(0, '7:{"x":1}\n')
       return ran(0, '1:{"type":"user","message":{"content":"hi"}}\n')
@@ -1042,15 +1121,25 @@ test('/claudzilla handoff toasts the note path when the send and the fill fail',
 })
 
 test('/claudzilla handoff runs git in the session cwd and puts it in the note', async ($, on) => {
-  const { seen } = handoffHost(on, { git: 'Branch: b\nCommits on no remote: 7\n' })
+  const { seen } = handoffHost(on, { git: 'Branch: b\nCommits on no remote: 7\n', worktrees: ['/proj'] })
   await $.session.start(start)
   await handoff($)
   expect(seen.argvs.some(a => a.includes('rev-parse') && a.endsWith(' /proj'))).toBe(true)
+  expect(seen.writes[0]![1]).toContain('### /proj')
   expect(seen.writes[0]![1]).toContain('Commits on no remote: 7')
 })
 
+test('writeHandoff: GIT runs once per listed worktree', async ($, on) => {
+  const { seen } = handoffHost(on, { git: 'Branch: b\n', worktrees: ['/proj', '/proj-b'] })
+  await $.session.start(start)
+  await handoff($)
+  const runs = seen.argvs.filter(a => a.includes('rev-parse --git-dir'))
+  expect(runs.length).toBe(2)
+  expect(runs.map(a => a.slice(a.lastIndexOf(' ') + 1)).sort()).toEqual(['/proj', '/proj-b'])
+})
+
 test('/claudzilla handoff lists unpushed commits of HEAD only', async ($, on) => {
-  const { seen } = handoffHost(on)
+  const { seen } = handoffHost(on, { worktrees: ['/proj'] })
   await $.session.start(start)
   await handoff($)
   const g = seen.argvs.find(a => a.includes('rev-parse'))!
@@ -1059,7 +1148,7 @@ test('/claudzilla handoff lists unpushed commits of HEAD only', async ($, on) =>
 })
 
 test('/claudzilla handoff git script prints HEAD after Branch', async ($, on) => {
-  const { seen } = handoffHost(on)
+  const { seen } = handoffHost(on, { worktrees: ['/proj'] })
   await $.session.start(start)
   await handoff($)
   const g = seen.argvs.find(a => a.includes('rev-parse --git-dir'))!
@@ -1067,7 +1156,7 @@ test('/claudzilla handoff git script prints HEAD after Branch', async ($, on) =>
   expect(g.indexOf('echo "Branch:')).toBeLessThan(g.indexOf('echo "HEAD:'))
 })
 
-test('/claudzilla handoff: no git output leaves the Git section out', async ($, on) => {
+test('/claudzilla handoff: no worktree output leaves the Git section out', async ($, on) => {
   const { seen } = handoffHost(on)
   await $.session.start(start)
   await handoff($)
