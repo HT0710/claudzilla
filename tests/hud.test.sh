@@ -304,6 +304,21 @@ check_eq "words: 40 cols has the subscription's row count" "$(data <<<"$full" | 
 check "words: no cost yet, 120 cols, starts with \$0.00 here" grep -qF '┃ $0.00 here' <<<"$(api_kv "$(seedS)" '{"session_id":"api2"}' | FROZEN_TIME=$T0 TZ=UTC PERL5LIB="$PL" COLUMNS=120 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g')"
 check "words: API spend wins over limit meters" bash -c 'o=$(cat); grep -qF "┃ \$1.24 here" <<<"$o" && grep -qF "24h ago" <<<"$o" && ! grep -q "5h" <<<"$o"' <<<"$(api_kv "$(seedS)" '{"session_id":"api3","cost":{"total_cost_usd":1.24},"rate_limits":{"five_hour":{"used_percentage":40,"resets_at":'$((T0+3600))'}}}' | FROZEN_TIME=$T0 TZ=UTC PERL5LIB="$PL" COLUMNS=120 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g')"
 
+# --- spend: compact ---
+check_eq "compact: API, 120 cols, 3 rows" 3 "$(api_row 120 compact | wc -l | tr -d ' ')"
+check "compact: text cell holds both figures with spaced gaps" grep -qF '┃   $1.24 here  $96.40 month  ┃ ' <<<"$(api_row 120 compact)"
+check "compact: chart cell has no labels" bash -c "! grep -q '24h ago' <<<'$(api_row 120 compact)'"
+check "compact: cch first" grep -q '^cch ' <<<"$(api_row 120 compact)"
+check_eq "compact: 108 cols falls back to 4 rows" 4 "$(api_row 108 compact | wc -l | tr -d ' ')"
+d=$(seedS); printf 'day\t2026-11-28\t999999.00\n' >> "$d/claudzilla-spend.tsv"; echo '{"hud":{"layout":"compact"}}' > "$d/claudzilla.json"
+check_eq "compact: text too wide falls back to 4 rows" 4 "$(api_kv "$d" | FROZEN_TIME=$T0 TZ=UTC PERL5LIB="$PL" COLUMNS=120 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | wc -l | tr -d ' ')"
+d=$(seedS); echo '{"hud":{"layout":"compact"}}' > "$d/claudzilla.json"
+nc=$(api_kv "$d" | grep -v '^ctx	' | FROZEN_TIME=$T0 TZ=UTC PERL5LIB="$PL" COLUMNS=120 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g')
+check_eq "compact: no ctx value, one row" 3 "$(wc -l <<<"$nc" | tr -d ' ')"
+check_eq "compact: no ctx value, three dividers" 3 "$(grep -o '┃' <<<"$nc" | wc -l | tr -d ' ')"
+check "compact: no ctx value, text cell kept" grep -qF '$1.24 here' <<<"$nc"
+check "compact: no ctx value, blank ctx meter drawn" grep -qE "ctx .*--% +┃" <<<"$nc"
+
 # --- hud.pl: render ---
 render() { data <<<"$1" | COLUMNS=120 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
 out=$(render "$full")
