@@ -7,8 +7,7 @@
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "0"
   },
   "permissions": {
-    "defaultMode": "default",
-    "deny": ["Skill(superpowers:brainstorming)"]
+    "defaultMode": "default"
   },
   "model": "opus[1m]",
   "hooks": {
@@ -53,7 +52,7 @@
         ]
       },
       {
-        "matcher": "Edit|Write|NotebookEdit",
+        "matcher": "Edit|Write|NotebookEdit|Skill",
         "hooks": [
           { "type": "command", "command": "node \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/rules-guard.mjs\"" }
         ]

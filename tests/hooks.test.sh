@@ -464,6 +464,15 @@ check "chancery: no superpowers line added" [ "$(grep -c superpowers "$L/.git/in
 N=$(mktemp -d "$REPOS/plain.XXXX")
 check "chancery: outside a repo is silent" silent hook PreToolUse tool_name=Write tool_input.file_path="$N/docs/chancery/2026-11-27-talk/spec.md"
 check "chancery: outside a repo makes no git dir" [ ! -e "$N/.git" ]
+new_session
+check "chancery off: blueprint denied" denied "$(hook PreToolUse tool_name=Skill tool_input.skill=blueprint)"
+check "chancery off: brainstorming runs" silent hook PreToolUse tool_name=Skill tool_input.skill=superpowers:brainstorming
+printf '{"experimental":{"chancery":true}}' > "$CLAUDE_CONFIG_DIR/claudzilla.json"
+check "chancery on: brainstorming denied" denied "$(hook PreToolUse tool_name=Skill tool_input.skill=superpowers:brainstorming)"
+check "chancery on: deny names blueprint" has "$(hook PreToolUse tool_name=Skill tool_input.skill=superpowers:brainstorming)" "blueprint"
+check "chancery on: blueprint runs" silent hook PreToolUse tool_name=Skill tool_input.skill=blueprint
+check "chancery on: other skill runs" silent hook PreToolUse tool_name=Skill tool_input.skill=superpowers:writing-plans
+rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"
 
 # --- Stop ---
 stop() { hook Stop "last_assistant_message=$1"; }
