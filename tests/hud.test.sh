@@ -7,6 +7,7 @@ HUD="$REPO/claude/hud"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 # keep every run (state files, trace) out of the real home
 export TMPDIR="$TMP" CLAUDE_CONFIG_DIR="$TMP/cfg"; mkdir -p "$CLAUDE_CONFIG_DIR"
+unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL
 . "$REPO/tests/lib.sh"
 iso() { node -p "new Date(Date.now() - $1 * 1000).toISOString()"; }
 now=$(date +%s)
@@ -39,6 +40,20 @@ JSON
 )
 data() { CLAUDE_CONFIG_DIR="$C" HUD_DUMP=1 perl "$HUD/hud.pl"; }
 key() { awk -F'\t' -v k="$1" '$1==k{print $2}' <<<"$2"; }
+T0=1795845600                                                            # 2026-11-28 06:00:00 UTC
+apiful='{"session_id":"api1","cost":{"total_cost_usd":1.24},"model":{"display_name":"Opus"}}'
+# seed S, the ledger at T0: 4.18 at 00:30 and 0.62 at 05:20 today; Nov 1 91.60, Nov 28 4.80
+printf 'slot\t1795825800\t4.18\nslot\t1795843200\t0.62\nday\t2026-11-01\t91.60\nday\t2026-11-28\t4.80\n' > "$TMP/seed-S.tsv"
+# api_kv <config dir> [payload]: KV of one API tick at AT (default T0), in ZONE (default UTC)
+api_kv() { printf '%s' "${2:-$apiful}" | FROZEN_TIME=${AT:-$T0} TZ=${ZONE:-UTC} PERL5LIB="$PL" ANTHROPIC_API_KEY=x CLAUDE_CONFIG_DIR="$1" HUD_DUMP=1 perl -MFrozen "$HUD/hud.pl"; }
+# seedS: fresh config dir holding seed S, prints its path
+seedS() { local d; d=$(mktemp -d -p "$TMP"); cp "$TMP/seed-S.tsv" "$d/claudzilla-spend.tsv"; echo "$d"; }
+# api_raw <cols> [layout]: rendered API frame with colours; api_row strips them
+api_raw() { local d; d=$(seedS); [ -n "${2:-}" ] && echo "{\"hud\":{\"layout\":\"$2\"}}" > "$d/claudzilla.json"; api_kv "$d" | FROZEN_TIME=${AT:-$T0} TZ=${ZONE:-UTC} PERL5LIB="$PL" COLUMNS=$1 HUD_KV=1 perl -MFrozen "$HUD/hud.pl"; }
+api_row() { api_raw "$@" | perl -pe 's/\e\[[0-9;]*m//g'; }
+# spend_at <epoch> <cost> <sid> <config dir>: one API tick at a frozen time; ZONE sets TZ (default UTC)
+spend_at() { printf '{"session_id":"%s","cost":{"total_cost_usd":%s}}' "$3" "$2" | ANTHROPIC_API_KEY=x FROZEN_TIME=$1 TZ=${ZONE:-UTC} PERL5LIB="$PL" CLAUDE_CONFIG_DIR="$4" HUD_DUMP=1 perl -MFrozen "$HUD/hud.pl"; }
+usd() { printf '%.2f' "$(key "$1" "$2")"; }   # usd <key> <kv>: two decimals
 
 # --- hud.pl: data ---
 kv=$(data <<<"$full")
@@ -59,6 +74,35 @@ check "data: short profile -> first char only" [ "$(key profile "$(CLAUDE_CONFIG
 check "data: up"        [ "$(key up "$kv")" = 90m ]
 check_eq "data: last skill" pr "$(key skill "$kv")"
 check_eq "data: thinking recent" 1 "$(key thinking "$kv")"
+mkdir -p "$TMP/noacct" "$TMP/badacct" "$TMP/apiacct" "$TMP/arracct" "$TMP/nullacct"
+echo '{"oauthAccount":null}' > "$TMP/nullacct/.claude.json"
+echo '{}' > "$TMP/apiacct/.claude.json"; echo '{bad' > "$TMP/badacct/.claude.json"; echo '[]' > "$TMP/arracct/.claude.json"
+check_eq "login: subscription sends no login" "" "$(key login "$(data <<<"$full")")"
+check_eq "login: key overrides OAuth" "api key" "$(key login "$(ANTHROPIC_API_KEY=x data <<<"$full")")"
+check_eq "login: API mode drops the email" "" "$(key profile "$(ANTHROPIC_API_KEY=x data <<<"$full")")"
+check_eq "login: auth token counts" "api key" "$(key login "$(ANTHROPIC_AUTH_TOKEN=x data <<<"$full")")"
+check_eq "login: empty key is no key" "" "$(key login "$(ANTHROPIC_API_KEY= data <<<"$full")")"
+check_eq "login: cost field but no .claude.json stays subscription" "" "$(key login "$(C="$TMP/noacct" data <<<"$apiful")")"
+check_eq "login: malformed .claude.json stays subscription" "" "$(key login "$(C="$TMP/badacct" data <<<"$apiful")")"
+check_eq "login: .claude.json that is not an object stays subscription" "" "$(key login "$(C="$TMP/arracct" data <<<"$apiful")")"
+check_eq "login: null oauthAccount stays subscription" "" "$(key login "$(C="$TMP/nullacct" data <<<"$apiful")")"
+check_eq "login: parsed, no oauthAccount, cost field gives API mode" "api key" "$(key login "$(C="$TMP/apiacct" data <<<"$apiful")")"
+check_eq "login: parsed, no oauthAccount, no cost field stays subscription" "" "$(key login "$(C="$TMP/apiacct" data <<<"$full")")"
+check_eq "login: OAuth account with a cost field stays subscription" "" "$(key login "$(data <<<"$apiful")")"
+while IFS='|' read -r url want; do
+  check_eq "login host: [$url]" "$want" "$(key login "$(ANTHROPIC_API_KEY=x ANTHROPIC_BASE_URL="$url" data <<<"$full")")"
+done <<'EOT'
+https://openrouter.ai/api/v1|openrouter.ai
+http://localhost:8080/v1|localhost
+https://u:p@gw.example.com:443/x?y=1|gw.example.com
+https://[::1]:4000/v1|[::1]
+openrouter.ai|openrouter.ai
+https://|api key
+|api key
+EOT
+r1=$(ANTHROPIC_API_KEY=x data <<<"$full" | COLUMNS=120 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g' | head -1)  # render() is not defined until line 158
+check "login: identity row shows the tag" grep -q 'api key' <<<"$r1"
+check "login: identity row drops the email" bash -c "! grep -q 'example.test' <<<'$r1'"
 
 nolim=$(node -e 'const j=JSON.parse(process.argv[1]);delete j.rate_limits;j.context_window.context_window_size=200000;console.log(JSON.stringify(j))' "$full")
 kv=$(data <<<"$nolim")

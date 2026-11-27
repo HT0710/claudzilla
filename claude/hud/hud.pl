@@ -34,12 +34,12 @@ sub git_out {
 
 # --- gather: statusline JSON on stdin + transcript + config -> cleaned key/value hash ---
 # Recursive-descent JSON on $_: objects -> hashref, arrays -> arrayref, true/false -> \1/\0, null -> undef.
-# Any parse error or trailing garbage gives {}.
+# Any parse error or trailing garbage gives undef; dig accepts it.
 sub json_parse {
     local $_ = shift // ""; pos($_) = 0;
     no warnings 'recursion';
     my $v = eval { my $r = jval(); /\G[ \t\n\r]*\z/gc or die; $r };
-    return $@ ? {} : $v;
+    return $@ ? undef : $v;
 }
 sub jval {
     /\G[ \t\n\r]*/gc;
@@ -113,6 +113,12 @@ sub iso_epoch {
     my $t = $days * 86400 + ($H // 0) * 3600 + ($M // 0) * 60 + ($S // 0);
     if ($z && $z ne 'Z') { my ($sg, $zh, $zm) = $z =~ /^([+-])(\d\d):(\d\d)/; $t -= ($sg eq '-' ? -1 : 1) * ($zh * 3600 + $zm * 60) }
     return $t;
+}
+# host of a base URL (brackets kept for IPv6), undef when empty
+sub api_host {
+    my ($u) = @_;
+    $u =~ s{^[a-z][a-z0-9+.-]*://}{}i; $u =~ s{[/?#].*}{}s; $u =~ s/^.*@//s; $u =~ s/:\d*\z//;
+    return length $u ? $u : undef;
 }
 # "2h5m" / "3d4h" until a reset given as seconds, milliseconds, a numeric string or a date; undef when past
 sub reset_in {
@@ -199,20 +205,25 @@ sub gather {
     my $cf = cache_file($sid);
     my $c = $cf ? cache_read($cf) // {} : {};
     my %cw;
+    my $acct_api = 0;
     my $ap = defined $cdir ? "$cdir/.claude.json" : "$ENV{HOME}/.claude.json";
     my ($ak, $ar) = file_key($ap);
-    if (defined $ak && ($c->{acct_key} // '') eq $ak) { $out{profile} = $c->{profile} if length($c->{profile} // '') }
+    if (defined $ak && ($c->{acct_key} // '') eq $ak && exists $c->{acct_api}) { $out{profile} = $c->{profile} if length($c->{profile} // ''); $acct_api = $c->{acct_api} }
     else {
         # first + last char of the local part only: tells accounts apart without showing the address on screen
         my $acct = slurp($ap);
+        my $parsed = defined $acct ? json_parse($acct) : undef;
+        $acct_api = ref $parsed eq 'HASH' && !exists $parsed->{oauthAccount} ? 1 : 0;
         # shortcut: a nested object or a brace in an earlier oauthAccount field defeats this match, parse the oauthAccount object with json_parse if Claude Code ever nests fields there
         if (defined $acct && $acct =~ /"oauthAccount"\s*:\s*\{[^{}]*?"emailAddress"\s*:\s*"((?:[^"\\]|\\.)*)"/s) {
             my $e = $1;
             $e =~ s/^(.).+(.)@/$1\x{2026}$2@/; $e =~ s/^(.).?@/$1\x{2026}@/;
             $out{profile} = $e;
         }
-        @cw{qw(acct_key profile)} = ($ak, $out{profile} // '') if defined $ak && !$ar;
+        @cw{qw(acct_key profile acct_api)} = ($ak, $out{profile} // '', $acct_api) if defined $ak && !$ar;
     }
+    my $api = length($ENV{ANTHROPIC_API_KEY} // '') || length($ENV{ANTHROPIC_AUTH_TOKEN} // '') || ($acct_api && ref(dig($d, 'cost')) eq 'HASH');
+    if ($api) { delete $out{profile}; $out{login} = api_host($ENV{ANTHROPIC_BASE_URL} // '') // 'api key' }
     # no reply yet: nothing of this chat to lose, show fresh
     $out{cch} = 0; $out{cch_note} = 'hot';
     my $tp = str(dig($d, 'transcript_path'));
@@ -371,7 +382,7 @@ if ($SID) {
 }
 my $cwd;
 if (my $e = $META_CWD) { my $h = $ENV{HOME} // ''; utf8::decode($h); $e =~ s/^\Q$h\E(?=\/|$)/~/ if $h; $cwd = $e; }
-my $profile = $f{profile};
+my $profile = $f{login} // $f{profile};
 # claudzilla version from the clone this script links into: the last release tag, or, when the
 # clone runs ahead of it, the tag CI would cut next (same script as .github/workflows/test.yml)
 my $ver;
