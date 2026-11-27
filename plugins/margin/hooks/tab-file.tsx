@@ -685,6 +685,8 @@ export async function goForward($: EngineInterface): Promise<void> {
 
 // Width of a menu label column; the mark column adds 1.
 const LABEL = 18
+// The menu's rows above its divider.
+const MENU_ITEMS = 4
 
 // The path as the header shows it: from the project root's name, else from ~, else whole; cut from the start to fit.
 function headOf(path: string, root: string, home: string | undefined, room: number): string {
@@ -1325,6 +1327,8 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       {value}
     </Box>
   )
+  // The rail rows of the cards' bottom borders: both cards sit at row 1.
+  const infoBottom = inRepo ? 7 : 5
   const infoCard = (
     <Box
       key="explorer:info-card"
@@ -1439,6 +1443,12 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
         </Box>
       )}
       {!short && <Box position="absolute" top={1} bottom={1} right={0} width={1} backgroundColor={CARD} />}
+      {/* The divider's last cell sits on the covered border column, so it is drawn over the cover. */}
+      {!short && (
+        <Box position="absolute" top={MENU_ITEMS + 1} right={0}>
+          <Text color="promptBorder">─</Text>
+        </Box>
+      )}
       {!short && (
         <Box position="absolute" bottom={0} right={0}>
           <Text color="promptBorder">─</Text>
@@ -1556,6 +1566,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     ),
     zones,
     trace: {},
-    rules: [1],
+    rules: [1, ...(short ? [] : state.menuPinned ? [MENU_ITEMS + 5] : state.infoPinned && place.kind === 'file' ? [infoBottom] : [])],
+    tees: short || state.menuPinned || state.infoPinned ? [] : [{ row: MENU_ITEMS + 5, scope: 'explorer:menu' }, ...(place.kind === 'file' ? [{ row: infoBottom, scope: 'explorer:info' }] : [])],
   }
 }

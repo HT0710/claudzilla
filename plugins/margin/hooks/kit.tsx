@@ -220,6 +220,8 @@ export type TabDraw = {
   fade?: { keep: Set<string>; open?: string }
   // The body rows holding a rule that runs up to the rail, as drawn: the rail joins each with ┤.
   rules?: number[]
+  // Body rows where hovering `scope` joins the rail with ┤, as a rule does.
+  tees?: { row: number; scope: string }[]
 }
 export type UseKind = 'files' | 'memory' | 'web' | 'skills' | 'other'
 export const USE_KINDS: UseKind[] = ['files', 'memory', 'web', 'skills', 'other']
