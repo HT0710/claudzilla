@@ -63,7 +63,7 @@ Shape:
 
 Specs + plans land in `docs/superpowers/` (`specs/`, `plans/`). Before first write in a repo:
 
-- `git ls-files docs/superpowers` empty → append `docs/superpowers/` to `$(git rev-parse --git-path info/exclude)` if missing. No ask.
+- `git ls-files docs/superpowers` empty → the guard adds `docs/superpowers/` to the exclude file on the first Write; don't append it yourself. `specExclude` off → append it to `$(git rev-parse --git-path info/exclude)` if missing. No ask.
 - Non-empty (repo tracks them) → ask: keep tracking, or exclude new ones?
 - User asks to commit specs/plans → skip exclude.
 - Excluded → skill step "commit spec/plan" → skip; report path (local, not committed).
