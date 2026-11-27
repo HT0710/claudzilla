@@ -197,7 +197,7 @@ To start every session in another mode, see *Customize claudzilla* (`/claudzilla
 ### Use skills
 <!-- topic: skills -->
 
-A *skill* is a file of instructions for one kind of task, such as debugging or writing a plan. Claude loads a skill when the task fits, or you run one by typing `/` and its name, such as `/superpowers:brainstorming`. A skill makes Claude follow a set method instead of improvising one. claudzilla installs the superpowers plugin, whose skills cover debugging, test-first coding, plans and reviews. claudzilla's rules adjust them to its reply style: no "I'm using the … skill" line, and progress and end reports use the same short format as any other reply.
+A *skill* is a file of instructions for one kind of task, such as debugging or writing a plan. Claude loads a skill when the task fits, or you run one by typing `/` and its name, such as `/blueprint`. A skill makes Claude follow a set method instead of improvising one. claudzilla installs the superpowers plugin, whose skills cover debugging, test-first coding, plans and reviews. claudzilla's rules adjust them to its reply style: no "I'm using the … skill" line, and progress and end reports use the same short format as any other reply.
 
 Claude uses these skills without asking when the task fits:
 
@@ -216,15 +216,17 @@ With caveman, a refactor or a migration runs `caveman:safe-refactor` or `caveman
 
 When your prompt contains words such as "bug", "error" or "crash", the guard reminds Claude to use the debugging skill.
 
-For bigger steps, Claude suggests a skill and waits. The reply names it on the **Recommend:** line, or ends with `say "go" and I'll run <name>`. Type `go` to run it. For example: `brainstorming`, then `writing-plans`, for a new feature; `subagent-driven-development` to carry out a plan; `finishing-a-development-branch` when a branch is done.
+For bigger steps, Claude suggests a skill and waits. The reply names it on the **Recommend:** line, or ends with `say "go" and I'll run <name>`. Type `go` to run it. For example: `blueprint`, then `writing-plans`, for a new feature; `subagent-driven-development` to carry out a plan; `finishing-a-development-branch` when a branch is done.
 
-When `brainstorming` has options for you, each reply asks one question as a Decision, so the ballot card lets you answer with a number.
+When `blueprint` has options for you, it asks its questions as Decisions, so the ballot card lets you answer with a number.
 
 Some skills hand tasks to *subagents*: helpers that each work in their own context and return a summary. They keep your context small, but their requests count toward the same usage limits. Every subagent gets a short name. Claude picks one, and a hook (`claude/hooks/agent-name.mjs`) fills one in when the name is missing or already used this session. The same hook hands Claude random start letters for the next names, so the same task doesn't get the same name every session.
 
-claudzilla adds four skills of its own:
+claudzilla adds these skills of its own:
 
 - **`pr`:** Claude runs it before it opens or edits a pull request: pre-PR checks, then the description template. The guard blocks a pull request without it.
+- **`blueprint`:** designs a feature or change before any build. It asks only what it must, writes a short spec, and waits for your go before planning.
+  - **Upstream brainstorming:** a deny rule blocks `superpowers:brainstorming`. To lift it, delete `Skill(superpowers:brainstorming)` from `permissions.deny` in `~/.claude/settings.json`. The next install adds it back, so this lasts only until then.
 - **`/rule-review`:** counts how often each claudzilla rule slipped, from your local transcripts. Only you run it; a weekly summary appears at startup. It shares the counts, never the text, as a GitHub issue only after you say yes.
 - **`claudzilla-report` and `claudzilla-compact`:** run by `/claudzilla report` and `/claudzilla compact`. See *Report a problem* and *Manage context*.
 
@@ -597,7 +599,7 @@ claudzilla does some things without being asked. This list names each one, so no
 - **Rule counts:** at startup, if the last `/rule-review` report is missing or a week old, a background job scans your transcripts in `~/.claude/projects/` and saves counts in `~/.claude/claudzilla-reports/`. When rules slipped, the next session shows a one-line summary once. The counts leave your machine only if you say yes in `/rule-review`. To stop the scan and the summary, put `{"rulesGuard":{"reviewNudge":false}}` in `~/.claude/claudzilla.json`.
 - **Command rewriting:** if you installed rtk, a hook passes each shell command Claude runs through rtk, which shortens the output Claude reads. Run `rtk gain` in a terminal to see the tokens it saved.
 - **Lines added to each prompt:** the guard tells Claude your terminal width, so its tables fit. If you use the margin, it also reminds Claude to send its intent report, and tells Claude on the next prompt when a reply skipped it; the margin's `intent` option turns both off. Past the `compactNudge` threshold it adds the compact reminder, and a prompt with words such as "bug" or "code review" gets a reminder to use the matching skill, unless it only asks to write or add failing tests; `compactNudge` `0` and the rules `debugTrigger` and `reviewTrigger` set to `off` drop them. To drop the width line, put `{"rulesGuard":{"rules":{"tableWidth":"off"}}}` in `~/.claude/claudzilla.json`.
-- **Plans kept out of git:** when Claude writes a spec or plan under `docs/superpowers/` in a repository that tracks no files there, the guard adds `docs/superpowers/` to the repository's `.git/info/exclude` file. Git then ignores those files, so they stay out of your commits. To stop it, put `{"rulesGuard":{"rules":{"specExclude":"off"}}}` in `~/.claude/claudzilla.json`.
+- **Plans kept out of git:** when Claude writes a spec or plan under `docs/chancery/` or `docs/superpowers/` in a repository that tracks no files in that folder, the guard adds that folder to the repository's `.git/info/exclude` file. Git then ignores those files, so they stay out of your commits. To stop it, put `{"rulesGuard":{"rules":{"specExclude":"off"}}}` in `~/.claude/claudzilla.json`.
 - **Settings reset on update:** each update runs the installer again, which puts claudzilla's values back in `~/.claude/settings.json`, such as the model or effort level that a `/model` or `/effort` pick saved. Put lasting choices in `~/.claude/settings.overrides.json`.
 - **Local trace:** the guard and other claudzilla parts write what they did to `~/.claude/claudzilla-trace/` on your machine. Nothing is uploaded. To turn it off, put `{"rulesGuard":{"trace":false}}` in `~/.claude/claudzilla.json`. See *Report a problem* (`/claudzilla bugs`).
 - **Messages between sessions:** if you installed the ledger plugin, a session about to edit a file that another session edited recently sends that session a message. An idle session wakes to read it, which starts one short turn there.
@@ -830,7 +832,7 @@ Some say yours will one day learn your world, with your names and your stories.
 On its back, creatures soon moved in. They live in three places:
 
 - **The print shop:** folio, margin, ledger, byline and primer set the type, keep the records and mind this guide.
-- **The court:** herald brings the news, ballot counts your vote, and steward decides who goes where.
+- **The court:** herald brings the news, ballot counts your vote, steward decides who goes where, and chancery drafts and files every job.
 - **The road:** atlas scouts the code and comes back with a map.
 
 Each release is a chapter in the story, and the *Chronicle* tells them all (`/claudzilla chronicle`).
@@ -887,6 +889,13 @@ Every part of claudzilla is a creature with a name. Most come from the print sho
   - **Habit:** the third inline search in a turn with no subagent call is refused, so a long lookup goes to a scout such as atlas.
   - **Taming:** it still counts as a wild one, so `/claudzilla experimental steward off` puts it back to sleep.
   - **First seen:** v1.8, then called agent routing.
+
+#### Summons (skills)
+
+- **chancery:** the court's keeper of papers. Summoned whenever a job needs designing, it keeps one folder for every job.
+  - **Habit:** `blueprint` is its first. It asks what you want, writes the spec, and waits for your go before a plan.
+  - **Lair:** `docs/chancery/`, one folder per job.
+  - **First seen:** v1.10.
 
 For each creature's full entry, and the rules for naming a new one, see [BESTIARY.md](https://github.com/HT0710/claudzilla/blob/main/BESTIARY.md).
 

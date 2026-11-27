@@ -32,6 +32,14 @@ Experiments are off by default unless the row says otherwise. Switch one with `/
 |---|---|
 | Steward (`steward`) | On by default. Picks, per task, whether Claude hands work to a subagent, and at which model and effort, for the best work per token spent. A steward manages the budget and assigns the work. |
 
+## Summons (skills)
+
+Each entry here is a skill that Claude calls up for one job. A summons leaves when the job is done.
+
+| name | what it does |
+|---|---|
+| `chancery` | The court's keeper of papers. Keeps one folder per job in `docs/chancery/`. Its first skill is `blueprint`, which designs a feature before any build. |
+
 ## Naming a new part
 
 - Pick a single word that fits the theme: a paper and print word, or an old role.
