@@ -30,6 +30,7 @@ Experiments are off by default unless the row says otherwise. Switch one with `/
 
 | name | what it does |
 |---|---|
+| Chancery (`chancery`) | Off by default. Claude designs features with the `blueprint` skill instead of `superpowers:brainstorming`. Its summons entry is below. |
 | Steward (`steward`) | On by default. Picks, per task, whether Claude hands work to a subagent, and at which model and effort, for the best work per token spent. A steward manages the budget and assigns the work. |
 
 ## Summons (skills)
@@ -38,7 +39,7 @@ Each entry here is a skill that Claude calls up for one job. A summons leaves wh
 
 | name | what it does |
 |---|---|
-| `chancery` | The court's keeper of papers. Keeps one folder per job in `docs/chancery/`. Its first skill is `blueprint`, which designs a feature before any build. |
+| `chancery` | The court's keeper of papers. Keeps one folder per job in `docs/chancery/`. Its first skill is `blueprint`, which designs a feature before any build. Still a wild one: it sleeps until the `chancery` experiment is on. |
 
 ## Naming a new part
 
