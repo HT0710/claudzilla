@@ -93,6 +93,39 @@ test('a line longer than chunk is skipped and the next row still resolves', asyn
   expect(await sentAt(fake(() => f), 'p', newScan(), 'b', 90)).toBe(T)
 })
 
+const att = (type: string, extra = '') => `{"type":"attachment","uuid":"x-${type}","attachment":{"type":"${type}"${extra}}}\n`
+// `calls`: the card re-reads on each render while its run is open, one chunk per call once its own row is found.
+const rows = async (f: string, id: string, chunk?: number, calls = 1) => {
+  const scan = newScan()
+  for (let i = 0; i < calls; i++) await sentAt(fake(() => f), 'p', scan, id, chunk)
+  return scan.rows.get(id) ?? 0
+}
+
+test('sentAt counts the drawn attachment rows under a prompt', async () => {
+  expect(await rows(row('a') + att('file') + att('hook_additional_context') + att('directory'), 'a')).toBe(2)
+})
+
+test('rows past a chunk edge count on the next read (chunk 100)', async () => {
+  const f = row('a') + att('file') + att('hook_additional_context') + att('directory')
+  expect(await rows(f, 'a', 100, 5)).toBe(2)
+})
+
+test('an attachment after a tool result or the reply counts for no prompt', async () => {
+  const tool = row('a') + row('t', ',"message":{"content":[{"type":"tool_result"}]}') + att('file')
+  expect(await rows(tool, 'a')).toBe(0)
+  expect(await rows(row('a') + '{"type":"assistant","uuid":"r"}\n' + att('file'), 'a')).toBe(0)
+})
+
+test('a queued prompt collects the rows after its queued_command attachment', async () => {
+  const f = '{"type":"attachment","uuid":"q","timestamp":"2026-11-24T10:00:00Z","attachment":{"type":"queued_command"}}\n' + att('file')
+  expect(await rows(f, 'q')).toBe(1)
+})
+
+test('an attachment with its type key not first keeps the run going', async () => {
+  const f = row('a') + '{"type":"attachment","uuid":"y","attachment":{"x":1,"type":"file"}}\n' + att('file')
+  expect(await rows(f, 'a')).toBe(1)
+})
+
 test('sentAt ignores a child row whose parentUuid is the id', async () => {
   const f = row('child', '', 'a')
   expect(await sentAt(fake(() => f), 'p', newScan(), 'a')).toBeUndefined()

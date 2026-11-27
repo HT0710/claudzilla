@@ -45,13 +45,23 @@ export const stamp = (ms: number, now = Date.now()) => {
 }
 
 export type ReadText = (path: string, offset: number, length: number) => Promise<string>
-export type Scan = { offset: number; times: Map<string, number>; run: Promise<unknown>; skipping: boolean }
-export const newScan = (): Scan => ({ offset: 0, times: new Map(), run: Promise.resolve(), skipping: false })
+// `rows`: per prompt id prefix, the attachment rows the engine draws under its card; `last` is the prompt still collecting them.
+export type Scan = { offset: number; times: Map<string, number>; rows: Map<string, number>; last: string; run: Promise<unknown>; skipping: boolean }
+export const newScan = (): Scan => ({ offset: 0, times: new Map(), rows: new Map(), last: '', run: Promise.resolve(), skipping: false })
+
+// Attachment types the engine's renderer draws as one `⎿` row; any other type renders null (Claude Code 2.1.332).
+const DRAWN = new Set(['file', 'directory', 'at_mention_reference', 'compact_file_reference', 'nested_memory', 'dynamic_skill', 'hook_system_message', 'skill_listing', 'hook_blocking_error'])
+const draws = (a: { type?: string; isInitial?: boolean; hookEvent?: string }) =>
+  a.type === 'skill_listing' ? !a.isInitial
+    : a.type === 'hook_blocking_error' ? a.hookEvent !== 'Stop' && a.hookEvent !== 'SubagentStop'
+      : DRAWN.has(a.type ?? '')
+const ATTACHMENT = /"attachment":\{"type":"(\w+)"/
 
 const bytes = (s: string) => new TextEncoder().encode(s).length
 
+// Reads at least once, so a known prompt still collects attachment rows written after it.
 const scanMore = async (read: ReadText, path: string, scan: Scan, id: string, chunk: number) => {
-  while (!scan.times.has(id)) {
+  for (let first = true; first || !scan.times.has(id); first = false) {
     let text = await read(path, scan.offset, chunk)
     if (!text) break
     const full = bytes(text) >= chunk
@@ -71,18 +81,32 @@ const scanMore = async (read: ReadText, path: string, scan: Scan, id: string, ch
     lines.pop()
     for (const line of lines) {
       scan.offset += bytes(line) + 1
+      const kind = ATTACHMENT.exec(line)?.[1]
+      if (kind && kind !== 'queued_command') {
+        if (scan.last && DRAWN.has(kind)) {
+          try { if (draws(JSON.parse(line).attachment)) scan.rows.set(scan.last, (scan.rows.get(scan.last) ?? 0) + 1) } catch {}
+        }
+        continue
+      }
+      // An attachment whose kind the regex missed loses only itself, not the rest of the run.
+      if (!kind && line.includes('"type":"attachment"') && !line.includes('"queued_command"')) continue
+      // Any other row, such as the reply, ends the run of attachments under the card.
+      scan.last = ''
       if (!line.includes('"type":"user"') && !line.includes('"queued_command"')) continue
       try {
         const row = JSON.parse(line)
         const ms = Date.parse(row.timestamp)
         const sent = row.type === 'user' || (row.type === 'attachment' && row.attachment?.type === 'queued_command')
         if (sent && typeof row.uuid === 'string' && Number.isFinite(ms)) scan.times.set(row.uuid.slice(0, ID_PREFIX), ms)
+        const tool = Array.isArray(row.message?.content) && row.message.content.some((c: { type?: string }) => c?.type === 'tool_result')
+        if (sent && typeof row.uuid === 'string' && !tool) scan.last = row.uuid.slice(0, ID_PREFIX)
       } catch {}
     }
     if (!lines.length) {
       if (dropped) continue
       if (!full) break
-      // shortcut: a prompt row longer than chunk gets no time; read on to its end if users paste that much
+      // shortcut: a prompt row longer than chunk gets no time, and a drawn attachment that long gets no rail row;
+      // read on to its end if users paste or mention that much
       scan.offset += chunk
       scan.skipping = true
     }
