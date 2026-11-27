@@ -852,6 +852,44 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const C = W - G - 1
   let body: JSX.Element[] = []
   const zones: TabDraw['zones'] = []
+  const Client = 'Client' in ctx.el ? ctx.el.Client : undefined
+  // `lead`: one guide scope per indent column, null for a blank; `group`: the guide line the pointer on this row lights.
+  // Guide cells are absolute, so a pointer on one reaches the Client below and a press in the indent hits the row.
+  const put = (path: string, left: JSX.Element[], right: JSX.Element[], press: () => unknown, lit = false, lead: (string | null)[] = [], group?: string, prefix = '') => {
+    const key = `x:${prefix}${fileKey(path)}`
+    rowHover.acts[key] = press
+    body.push(
+      // Keyed: the guide group is its own scope, and the row's highlight has another on the inner Box, so a lit guide never lights a row.
+      <Box key={key} flexDirection="column" height={1} hover={group ? { scope: group } : undefined} backgroundColor={lit ? LIT : undefined}>
+        <Box flexDirection="column" height={1} hover={{ scope: rowScopeOf(path), backgroundColor: LIT }}>
+          {Client ? (
+            <Box flexDirection="column" height={1}>
+              <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left: toPieces([<Text>{' '.repeat(lead.length)}</Text>, ...left]), right: toPieces(right) }} />
+              {lead.map((scope, c) =>
+                scope ? (
+                  <Box position="absolute" left={c} top={0} width={1} hover={{ scope }}>
+                    <Box display="none" hover={{ scope, display: 'flex' }}>
+                      {/* A lit │ takes the press the Client below would get, so it runs the row's press itself. */}
+                      <Button plain key={`lead:${key}:${c}`} onPress={press}>
+                        <Text color={DIMMED}>│</Text>
+                      </Button>
+                    </Box>
+                  </Box>
+                ) : null,
+              )}
+            </Box>
+          ) : (
+            <Box justifyContent="space-between" gap={2}>
+              <Button plain key={path} onPress={press}>
+                {[<Text>{' '.repeat(lead.length)}</Text>, ...left]}
+              </Button>
+              {right.length ? <Box flexShrink={0}>{right}</Box> : null}
+            </Box>
+          )}
+        </Box>
+      </Box>,
+    )
+  }
   if (place.kind === 'folder') {
     const n = folders.begin()
     // A newer draw or a move since the awaits: this page is old, so draw the current one instead.
@@ -889,44 +927,6 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     const top = state.top
     if (!total) body = [<Text key="empty" color={HUD.faint}>{hits ? (state.names?.loading ? 'listing…' : 'no match') : 'empty'}</Text>]
     rowHover.acts = {}
-    const Client = 'Client' in ctx.el ? ctx.el.Client : undefined
-    // `lead`: one guide scope per indent column, null for a blank; `group`: the guide line the pointer on this row lights.
-    // Guide cells are absolute, so a pointer on one reaches the Client below and a press in the indent hits the row.
-    const put = (path: string, left: JSX.Element[], right: JSX.Element[], press: () => unknown, lit = false, lead: (string | null)[] = [], group?: string) => {
-      const key = `x:${fileKey(path)}`
-      rowHover.acts[key] = press
-      body.push(
-        // Keyed: the guide group is its own scope, and the row's highlight has another on the inner Box, so a lit guide never lights a row.
-        <Box key={key} flexDirection="column" height={1} hover={group ? { scope: group } : undefined} backgroundColor={lit ? LIT : undefined}>
-          <Box flexDirection="column" height={1} hover={{ scope: rowScopeOf(path), backgroundColor: LIT }}>
-            {Client ? (
-              <Box flexDirection="column" height={1}>
-                <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left: toPieces([<Text>{' '.repeat(lead.length)}</Text>, ...left]), right: toPieces(right) }} />
-                {lead.map((scope, c) =>
-                  scope ? (
-                    <Box position="absolute" left={c} top={0} width={1} hover={{ scope }}>
-                      <Box display="none" hover={{ scope, display: 'flex' }}>
-                        {/* A lit │ takes the press the Client below would get, so it runs the row's press itself. */}
-                        <Button plain key={`lead:${key}:${c}`} onPress={press}>
-                          <Text color={DIMMED}>│</Text>
-                        </Button>
-                      </Box>
-                    </Box>
-                  ) : null,
-                )}
-              </Box>
-            ) : (
-              <Box justifyContent="space-between" gap={2}>
-                <Button plain key={path} onPress={press}>
-                  {[<Text>{' '.repeat(lead.length)}</Text>, ...left]}
-                </Button>
-                {right.length ? <Box flexShrink={0}>{right}</Box> : null}
-              </Box>
-            )}
-          </Box>
-        </Box>,
-      )
-    }
     for (const [i, hit] of (hits?.slice(top, top + codeRows) ?? []).entries()) {
       const name = hit.path.slice(hit.path.lastIndexOf('/') + 1)
       const parent = hit.path.slice(0, Math.max(0, hit.path.length - name.length - 1))
@@ -993,15 +993,12 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     const marks = inRoot ? await statusFor($, state.root!) : undefined
     const open = current(state.nav).path
     rowHover.acts = {}
-    const Client = 'Client' in ctx.el ? ctx.el.Client : undefined
     const putRecent = (path: string, at: number, lit: boolean) => {
-      const key = `x:recent:${fileKey(path)}`
       const press = () => {
         if (path !== open) return openPlace($, { path })
         endRecent()
         return update($, file, () => placeOf())
       }
-      rowHover.acts[key] = press
       const name = path.slice(path.lastIndexOf('/') + 1)
       const dir = relOf(path.slice(0, Math.max(0, path.length - name.length - 1)))
       const folder = dir === '.' ? '' : dir
@@ -1016,20 +1013,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
         ...(folder ? [<Text color={HUD.faint}>{` ${printable(folder)}`}</Text>] : []),
       ]
       const right = [<Text color={letter ? STATUS[letter] ?? HUD.faint : undefined}>{letter ?? ' '}</Text>, <Text>{'  '}</Text>, <Text>{ageText(here ? now : at, now)}</Text>]
-      body.push(
-        <Box key={key} flexDirection="column" height={1} hover={{ backgroundColor: LIT }} backgroundColor={lit ? LIT : undefined}>
-          {Client ? (
-            <Client key={`row:${key}`} module="./row.tsx" height={1} props={{ left: toPieces(left), right: toPieces(right) }} />
-          ) : (
-            <Box justifyContent="space-between" gap={2}>
-              <Button plain key={path} onPress={press}>
-                {left}
-              </Button>
-              <Box flexShrink={0}>{right}</Box>
-            </Box>
-          )}
-        </Box>,
-      )
+      put(path, left, right, press, lit, [], undefined, 'recent:')
     }
     let n = 0
     let room = codeRows
