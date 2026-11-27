@@ -2,7 +2,7 @@
 
 Tiers below override `using-superpowers` "invoke on 1% chance".
 Brevity governs output, not whether to invoke.
-Unprefixed names below = `superpowers:<name>` in the Skill tool; others carry their plugin prefix, or say built-in or `(claudzilla)`.
+Unprefixed names below = `superpowers:<name>` in the Skill tool; others carry their plugin prefix or say built-in.
 
 ## Auto — invoke without asking
 
@@ -22,7 +22,7 @@ Unprefixed names below = `superpowers:<name>` in the Skill tool; others carry th
 
 | trigger | skill |
 |---|---|
-| new feature, behaviour change, multi-file (not refactor / migration) | `blueprint` (claudzilla) → `writing-plans` |
+| new feature, behaviour change, multi-file (not refactor / migration) | `brainstorming` → `writing-plans` |
 | plan exists, execute it | `executing-plans` / `subagent-driven-development` |
 | 2+ independent tasks | `dispatching-parallel-agents` |
 | isolated feature work | `using-git-worktrees` — location `../<repo>-<slug>` (git.md); never `.worktrees/` or a `.gitignore` commit |
@@ -42,8 +42,8 @@ Shape:
 
 - git.md wins on push / PR. Skill commits = automation (git.md Commits): local, reorganized before push.
 - TDD: keep red-first order; test count per Ponytail (smallest check that fails).
-- Skill asks questions → ask only what changes the design or the request; the rest take a sane default, listed as one `Assumed:` line. Open question with no options yet → plain text; otherwise one `Decision — <topic>` table per reply. Never `AskUserQuestion`.
-- `brainstorming` would trigger, another skill names it, or plan mode wants a brainstorm first: use `blueprint` (claudzilla).
+- Skill asks questions (`brainstorming` included) → this beats its one-open-question-per-message flow: ask only what changes the design and the request, code or repo can't answer; the rest take a sane default, listed as one `Assumed:` line the user can correct. Open question with no options yet → plain text. Otherwise one `Decision — <topic>` table per reply (ballot draws the card), with Recommend + Why; next question after the answer. Never `AskUserQuestion`. Nothing design-changing left → present the design.
+- `brainstorming` builder check → add to its prompt: also read the code the spec cites, and list any two spec lines that disagree, with both line numbers.
 - Skill asks for a long spec/plan → keep response-format.md (TL;DR, tables, no prose).
 - Skill asks to announce itself ("Announce at start", "Using [skill] to…") → skip it; the skill name shows in the tool row.
 - Skill reports to the user (SDD / executing-plans progress, end report, finishing summary) → response-format.md, caveman voice. Ledgers and report files the skill reads back keep its format.
@@ -61,9 +61,9 @@ Shape:
 
 ## Spec/plan files — local only by default
 
-New jobs land in `docs/chancery/<YYYY-MM-DD>-<topic>/` (`spec.md`, `plan.md`); older specs + plans stay in `docs/superpowers/` (`specs/`, `plans/`). Before first write in a repo, per folder (`docs/chancery`, `docs/superpowers`):
+Specs + plans land in `docs/superpowers/` (`specs/`, `plans/`). Before first write in a repo:
 
-- `git ls-files <folder>` empty → the guard adds `<folder>/` to the exclude file on the first Write; don't append it yourself. `specExclude` off → append it to `$(git rev-parse --git-path info/exclude)` if missing. No ask.
+- `git ls-files docs/superpowers` empty → append `docs/superpowers/` to `$(git rev-parse --git-path info/exclude)` if missing. No ask.
 - Non-empty (repo tracks them) → ask: keep tracking, or exclude new ones?
 - User asks to commit specs/plans → skip exclude.
 - Excluded → skill step "commit spec/plan" → skip; report path (local, not committed).

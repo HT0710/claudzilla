@@ -806,6 +806,13 @@ function onPreTool(d) {
     prGates(pr, d.cwd ?? process.cwd(), JSON.stringify(d.tool_input ?? {}), s, hits);
     return report(hits);
   }
+  if (d.tool_name === "Skill") {
+    // A permissions.deny entry can't follow the experiment switch, so the chancery gate lives here.
+    const skill = String(d.tool_input?.skill ?? "");
+    if (isOn("chancery") ? skill === "superpowers:brainstorming" : skill === "blueprint")
+      deny(isOn("chancery") ? "Chancery is on: use the blueprint skill instead of superpowers:brainstorming." : "blueprint is off: the chancery experiment is not on. Use superpowers:brainstorming.");
+    return;
+  }
   if (!["Edit", "Write", "NotebookEdit"].includes(d.tool_name)) return;
   const { cfg } = loadConfig(d.cwd ?? process.cwd());
   const file = String(d.tool_input?.file_path ?? d.tool_input?.notebook_path ?? "");
@@ -964,6 +971,7 @@ function traceEvent(d, before, ts) {
   traceWrite({ session: d.session_id, part: "rules-guard", event: EVENT[d.hook_event_name], ts, end: new Date().toISOString(), data });
 }
 
+let isOn = () => false;
 const HANDLERS = { UserPromptSubmit: onPrompt, PreToolUse: onPreTool, PostToolUse: onPostTool, Stop: onStop };
 
 // Runs as a hook only when executed; rule-review imports the checks.
@@ -972,6 +980,7 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
   process.stdin.setEncoding("utf8");
   for await (const chunk of process.stdin) raw += chunk;
   try { ({ write: traceWrite } = await import("./trace.mjs")); } catch { /* run untraced */ }
+  try { ({ isOn } = await import("./experimental.mjs")); } catch { /* experiments stay off */ }
   let session;
   try {
     const d = JSON.parse(raw);
