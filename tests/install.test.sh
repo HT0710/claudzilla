@@ -687,6 +687,8 @@ W=$(new_home); seedbase "$W"; notty env -u CLAUDE_CONFIG_DIR -u CLAUDZILLA_TTY -
 check "wsl font: Linux-side font still asked (Windows needs it)" grep -q 'AskUserQuestion' "$W/install.log"
 O=$(new_home); clean_env HOME="$O" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT=off bash "$REPO/install.sh" >/dev/null 2>&1
 check "font: CLAUDZILLA_FONT=off declines" [ -f "$O/.claude/.claudzilla-basic-glyphs" ]
+G=$(new_home); clean_env HOME="$G" CLAUDZILLA_OFFLINE=1 CLAUDZILLA_FONT=no bash "$REPO/install.sh" --remove hud >/dev/null 2>&1
+check "font: margin without hud still writes the basic marker" [ -f "$G/.claude/.claudzilla-basic-glyphs" ]
 }
 
 sec_menu() {
