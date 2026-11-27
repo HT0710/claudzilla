@@ -175,7 +175,7 @@ export function draft(input: { keep?: unknown; drop?: unknown; clear?: unknown }
   return keep ? `/compact Keep: ${keep}.` + (drop ? ` Drop: ${drop}.` : '') : undefined
 }
 
-export type HandoffInput = { sessionId: string; path: string; now: number; numbered: string; draft?: string; summary?: string; intents?: string; cwd?: string; worktrees?: { path: string; git: string }[] }
+export type HandoffInput = { sessionId: string; path: string; now: number; numbered: string; draft?: string; summary?: string; intents?: string; cwd?: string; worktrees?: { path: string; git: string }[]; agentEdits?: string[] }
 
 type Row = { type?: string; subtype?: string; content?: unknown; timestamp?: string; isSidechain?: boolean; isMeta?: boolean; isCompactSummary?: boolean; message?: { content?: unknown } }
 type Block = { type?: string; text?: string; name?: string; input?: Record<string, unknown> }
@@ -243,24 +243,41 @@ export function handoffNote(input: HandoffInput): string {
     touched.set(p, n)
     if (edit) edited.add(p)
   }
+  // Subagent rows live outside the main transcript; their edits count as this session's, older than any main-chat touch.
+  for (const p of input.agentEdits ?? []) touch(p, 0, true)
+  // Insertion order is touch order; re-setting a path moves it to the end.
+  const written = new Set<string>()
+  const wrote = (p: unknown) => {
+    if (typeof p !== 'string' || !p.startsWith('/')) return
+    written.delete(p)
+    written.add(p)
+  }
+  const replies: string[] = []
+  const commands = new Set<string>()
   for (const { n, row } of rows) {
     if (row.type === 'assistant') {
       if (housekeeping) { houseLines.add(n); continue }
+      if (textOf(row)) replies.push(textOf(row))
       const cur = turns[turns.length - 1]
       if (textOf(row) && cur && textOf(row).length >= (cur.reply ? textOf(cur.reply).length : 0)) cur.reply = row
       for (const b of blocks(row)) {
         const i = b.input
         if (b.type !== 'tool_use' || !i) continue
         if (b.name === 'Read') touch(i.file_path, n, false)
-        else if (b.name === 'Edit' || b.name === 'Write') touch(i.file_path, n, true)
-        else if (b.name === 'NotebookEdit') touch(i.notebook_path, n, true)
-        else if (b.name === 'Bash' && typeof i.command === 'string') i.command.split(/\s+/).forEach((w, k, all) => {
+        else if (b.name === 'Edit' || b.name === 'Write') { touch(i.file_path, n, true); wrote(i.file_path) }
+        else if (b.name === 'NotebookEdit') { touch(i.notebook_path, n, true); wrote(i.notebook_path) }
+        else if (b.name === 'Bash' && typeof i.command === 'string') {
+          const c = i.command.trim()
+          const first = c.split('\n').map(l => l.trim()).find(l => /\b(claude plugin test|bash tests\/|npm test|pytest|bun test|tmux )/.test(l))
+          if (first) { commands.delete(first); commands.add(first) }
+          i.command.split(/\s+/).forEach((w, k, all) => {
           const word = w.replace(/^['"]+|['";]+$/g, '')
           const dir = ['cd', '-C'].includes(all[k - 1] ?? '')
           // shortcut: ignores an earlier cd in the same command, resolve against the running dir if that misattributes
           const rel = input.cwd && word && !word.startsWith('/') && !word.startsWith('-') && (dir || /[/.]/.test(word))
           touch(rel ? resolve(input.cwd!, word) : word, n, true)
         })
+        }
         if (b.name === 'mcp__margin__intent') {
           if (typeof i.wants === 'string') { wants = { wants: i.wants, steps: Array.isArray(i.steps) ? i.steps : [] }; now = undefined }
           if (i.now !== undefined) now = i.now
@@ -324,6 +341,10 @@ export function handoffNote(input: HandoffInput): string {
   const d = input.draft && numberedRow(input.draft)
   const call = d && blocks(d.row).find(b => b.type === 'tool_use' && b.name === 'mcp__primer__compact_draft')
   if (d && call?.input && d.n > since) add('Compact draft', `At line ${d.n}${d.row.timestamp ? `, ${d.row.timestamp}` : ''}.\nKeep: ${cut(String(call.input.keep ?? ''), 500)}\nDrop: ${cut(String(call.input.drop ?? ''), 500)}`)
+  const cited = new Set(replies.slice(-2).flatMap(t => t.match(/[^\s`'"(]*(?:docs\/(?:superpowers|chancery)\/|\.superpowers\/sdd\/|\/tmp\/)[^\s`'"()]*|[^\s`'"(]*\.ledger\.md/g) ?? []).map(p => p.replace(/[`'")\].,;:]+$/, '')))
+  const list = (label: string, items: string[]) => (items.length ? [`${label}:`, ...items.map(i => `- ${i}`)] : [])
+  const paths = [...list('Written', [...written].slice(-15)), ...list('Cited', [...cited]), ...list('Commands', [...commands].slice(-5).map(c => `\`${cut(c, 200)}\``))]
+  if (paths.length) add('Paths', paths.join('\n'))
   add('How to dig', [
     'If this note is your whole prompt: when the old session stopped mid-step on its own, continue that step; when the user stopped it, say which step and wait. When its last reply ended on an offer, end yours with that offer as your `Next:` line, unchanged, and wait. Otherwise say in one line what you loaded, then wait for the user\'s ask.',
     'Text after this note, with or without a `## User\'s ask` heading, is the user\'s ask: work on it instead of waiting.',
@@ -374,6 +395,10 @@ let handing = false
 const NUMBERED = `grep -n '' "$1" | tail -c 1000000`
 const DRAFT = `grep -n '"type":"tool_use","id":"[^"]*","name":"mcp__primer__compact_draft"' "$1" | tail -1`
 const SUMMARY = `grep -n '"isCompactSummary":true' "$1" | tail -1`
+// $1 is the main transcript; prints the file_path and notebook_path of subagent edits, nothing when there is no subagents folder.
+const AGENT_EDITS = `d="\${1%.jsonl}/subagents"
+[ -d "$d" ] || exit 0
+cat "$d"/*.jsonl 2>/dev/null | grep -E '"name":"(Edit|Write|NotebookEdit)"' | grep -oE '"(file_path|notebook_path)":"[^"]*"'`
 const INTENTS = `grep -n '"type":"tool_use","id":"[^"]*","name":"mcp__margin__intent"' "$1" | tail -40`
 // $1 is a worktree path; prints nothing outside a git repo.
 const GIT = `export GIT_OPTIONAL_LOCKS=0
@@ -418,11 +443,12 @@ async function writeHandoff($: EngineInterface, ask: string): Promise<{ text: st
     const paths = list.split('\n').filter(l => l.startsWith('worktree ')).map(l => l.slice(9))
     return Promise.all(paths.map(async path => ({ path, git: (await $.process.run(['sh', '-c', GIT, 'sh', path]).catch(() => undefined))?.stdout ?? '' })))
   }
-  const [numbered, draft, summary, intents, trees] = await Promise.all([grep(NUMBERED), grep(DRAFT), grep(SUMMARY), grep(INTENTS), worktrees()])
+  const [numbered, draft, summary, intents, trees, edits] = await Promise.all([grep(NUMBERED), grep(DRAFT), grep(SUMMARY), grep(INTENTS), worktrees(), grep(AGENT_EDITS)])
+  const agentEdits = edits.split('\n').flatMap(l => { try { const v = Object.values(JSON.parse(`{${l}}`))[0]; return typeof v === 'string' ? [v] : [] } catch { return [] } })
   const file = `${dir}/claudzilla-handoff/${sessionId}.md`
   let note: string
   try {
-    note = handoffNote({ sessionId, path, now: await $.clock.now(), numbered, draft: draft.trim() || undefined, summary: summary.trim() || undefined, intents, cwd, worktrees: trees })
+    note = handoffNote({ sessionId, path, now: await $.clock.now(), numbered, draft: draft.trim() || undefined, summary: summary.trim() || undefined, intents, cwd, worktrees: trees, agentEdits })
     await $.process.run(['sh', '-c', 'mkdir -p "$1" && chmod 700 "$1"', 'sh', `${dir}/claudzilla-handoff`])
     await $.fs.write(file, note)
   } catch (err) {
