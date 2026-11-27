@@ -191,7 +191,7 @@ sub spend_load {
     }
     return \%st;
 }
-# drops what D6 retires; returns how many lines went
+# drops slots and sessions older than 48 h and days outside this month; returns how many lines went
 sub spend_prune {
     my ($st, $T) = @_;
     my ($n, $cut, $mon) = (0, $T - 172800, substr(spend_date($T), 0, 7));
@@ -221,10 +221,6 @@ sub spend_tick {
     my $got = 0;
     for (1 .. 20) { last if $got = flock($lk, LOCK_EX | LOCK_NB); select(undef, undef, undef, 0.01) }
     return spend_load($file) unless $got;
-    if (opendir my $dh, $dir) {
-        for (grep { /^claudzilla-spend\.tsv\.\d+\.tmp\z/ } readdir $dh) { my @s = stat "$dir/$_"; unlink "$dir/$_" if @s && $s[9] < $T - 3600 }
-        closedir $dh;
-    }
     my $st = spend_load($file);
     my ($delta, $dirty) = (0, 0);
     my $old = $st->{sess}{$sid};
@@ -236,11 +232,17 @@ sub spend_tick {
     $dirty = 1 if $old && $old->[1] < $T - 600;
     $st->{sess}{$sid} = [$cost, $T] if $dirty;
     if (sprintf('%.6f', $delta) > 0) {
+        # shortcut: slots start on UTC 10-minute marks, so a zone whose offset is not a multiple of 10 min (+5:45, +12:45, +8:45) dates up to 5 min after local midnight into yesterday; upgrade to per-minute or offset-aligned slots
         my $s0 = int($T / 600) * 600;
         $st->{slot}{$s0} += $delta; $st->{day}{ spend_date($s0) } += $delta;
     }
     $dirty = 1 if spend_prune($st, $T);
     return $st unless $dirty;
+    # stale temp files of crashed ticks, swept only when this tick writes
+    if (opendir my $dh, $dir) {
+        for (grep { /^claudzilla-spend\.tsv\.\d+\.tmp\z/ } readdir $dh) { my @s = stat "$dir/$_"; unlink "$dir/$_" if @s && $s[9] < $T - 3600 }
+        closedir $dh;
+    }
     return spend_save($file, $st) ? $st : spend_load($file);
 }
 sub spend_figures {
@@ -294,7 +296,8 @@ sub gather {
     else {
         # first + last char of the local part only: tells accounts apart without showing the address on screen
         my $acct = slurp($ap);
-        my $parsed = defined $acct ? json_parse($acct) : undef;
+        # a file that names oauthAccount (object or null) is subscription: skip the slow pure-Perl parse
+        my $parsed = defined $acct && $acct !~ /"oauthAccount"\s*:/ ? json_parse($acct) : undef;
         $acct_api = ref $parsed eq 'HASH' && !exists $parsed->{oauthAccount} ? 1 : 0;
         # shortcut: a nested object or a brace in an earlier oauthAccount field defeats this match, parse the oauthAccount object with json_parse if Claude Code ever nests fields there
         if (defined $acct && $acct =~ /"oauthAccount"\s*:\s*\{[^{}]*?"emailAddress"\s*:\s*"((?:[^"\\]|\\.)*)"/s) {
@@ -305,7 +308,9 @@ sub gather {
         @cw{qw(acct_key profile acct_api)} = ($ak, $out{profile} // '', $acct_api) if defined $ak && !$ar;
     }
     my $api = length($ENV{ANTHROPIC_API_KEY} // '') || length($ENV{ANTHROPIC_AUTH_TOKEN} // '') || ($acct_api && ref(dig($d, 'cost')) eq 'HASH');
-    if ($api) { delete $out{profile}; $out{login} = api_host($ENV{ANTHROPIC_BASE_URL} // '') // 'api key' }
+    # rate_limits only come with subscription billing, whatever the environment says
+    $api = 0 if truthy(dig($d, 'rate_limits'));
+    if ($api) { delete @out{qw(profile 5h 5h_note wk wk_note)}; $out{login} = api_host($ENV{ANTHROPIC_BASE_URL} // '') // 'api key' }
     if (defined $out{login}) {
         my $cost = count(dig($d, 'cost', 'total_cost_usd'));
         my $sdir = defined $cdir ? $cdir : "$ENV{HOME}/.claude";
@@ -622,7 +627,7 @@ sub words_cells {
         return @o;
     };
     my %t = (here => ' here', today => ' today', month => ' month', rate => '/h', day => '/day');
-    # D12 shed order: per day, month, rate, today; here stays
+    # shed order: per day, month, rate, today; here stays
     for my $drop ([], ['day'], ['day','month'], ['day','month','rate'], ['day','month','rate','today']) {
         my %x = map { $_ => 1 } @$drop;
         my @l = $grp->(map { [$_, $t{$_}] } grep { !$x{$_} } qw(here today month));
@@ -740,6 +745,7 @@ if ($MIN) {
     my ($br, $dt, $mo, $notes) = ($branch, $dirty, $model, 1);
     my @ms = grep { defined } @mv{qw(cch ctx 5h wk)};
     my $bar = 12;
+    my $sp = 2;   # spend: 2 here and month, 1 here with label, 0 figure only, -1 none
     my $left = sub {
         my $l = cwd_str($path) . (defined $br ? $branch_str->($br) : '') . (defined $dt && $dt ne '' ? $dirty_str->($dt) : '');
         $l .= '  ' . fg('hud_model') . $mo . "\e[0m" . ($EFFORT ? "\e[2m  $EFFORT\e[0m" : '') if defined $mo;
@@ -764,16 +770,25 @@ if ($MIN) {
             }
             push @parts, cells_str(@cell);
         }
+        if ($API && $sp >= 0) {
+            my ($c, $nc) = (spend_colours(\%f), pal('hud_note'));
+            my $lbl = sub { map { [$_, $nc] } split //, $_[0] };
+            push @parts, cells_str(money_cells($f{spend_here}, $c->{here}), ($sp ? $lbl->(' here') : ()),
+                ($sp > 1 ? ($lbl->('  '), money_cells($f{spend_month}, $c->{month}), $lbl->(' month')) : ()));
+        }
         return join $DIV, @parts;
     };
     my $fits = sub { fits($left->(), $right->()) };
     for (8, 5, 3, 0) { last if $fits->(); $bar = $_ }                      # bars shrink, then go
     $mo =~ s/\s+[\d.]+$// if defined $mo && !$fits->();                    # model version
     @ms = grep { $_->[0] ne 'wk' } @ms unless $fits->();                     # weekly meter
+    $sp = 1 unless $fits->();                                                # spend: month
+    $sp = 0 unless $fits->();                                                # spend: here label
     $dt = undef unless $fits->();                                            # changes
     $notes = 0 unless $fits->();                                             # reset times, token count
     $mo = undef unless $fits->();                                            # model and effort
     $br = undef unless $fits->();                                            # branch
+    $sp = -1 unless $fits->();                                               # spend: gone
     for my $l (qw(5h cch)) { last if $fits->(); @ms = grep { $_->[0] ne $l } @ms }   # ctx stays
     if (!$fits->() && length($path) > 4) {                                   # finally trim the path from the left
         my $room = $W - vis($right->()) - 2;
