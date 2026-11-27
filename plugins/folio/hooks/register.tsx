@@ -1245,7 +1245,7 @@ export const register: Register = on => {
       <Box flexDirection="column">
         <Client key={`fold:${requestId}`} module="./fold.tsx" width="100%" height={1} props={{ pieces: header, tail: counts, lit: LIT }} />
         {rows.map(({ pieces, key, out }, i) => {
-          const line = [{ text: out === 'more' ? '    ' : i === last ? '  └ ' : '  ├ ', color: 'promptBorder' }, ...pieces]
+          const line = [{ text: out === 'more' ? i < last ? '  │ ' : '    ' : i === last ? '  └ ' : '  ├ ', color: 'promptBorder' }, ...pieces]
           return key ? <Client key={key} module="./fold.tsx" width="100%" height={1} props={{ pieces: line, lit: LIT }} />
             : <Text wrap="truncate-end">{line.map(({ text, color, bold }) => <Text color={color} bold={bold}>{text}</Text>)}</Text>
         })}

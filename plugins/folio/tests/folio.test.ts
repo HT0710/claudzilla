@@ -2564,6 +2564,14 @@ test('a group with a failed call counts it after the kinds and colours the mark 
   expect((await ui.find({ type: 'Text', text: /^◼$/, in: at }))?.props.color).toBe('error')
 })
 
+test('a failed call mid-tree keeps the trunk beside its error lines', async ($, on) => {
+  native(on)
+  const ui = await group($, [call('c2', 'Bash', { command: 'a' }, { isErrored: true, output: { stderr: 'e1\ne2' } }), call('c3', 'Read', { file_path: '/p/a.txt' })])
+  await click(ui, `fold:g${groups}`)
+  const rows = (await ui.findAll({ type: 'Text' })).filter((x: any) => x.props.wrap === 'truncate-end').map((x: any) => x.text)
+  expect(rows).toEqual(['  ├ a  failed', '  │ e1', '  │ e2', '  └ Read (a.txt)'])
+})
+
 test('a done group mark is the success colour', async ($, on) => {
   native(on)
   const ui = await group($, [call('c2', 'Read', { file_path: '/p/a.txt' }), call('c3', 'Read', { file_path: '/p/b.txt' })])
