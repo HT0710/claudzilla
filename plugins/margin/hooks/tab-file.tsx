@@ -1331,26 +1331,34 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       position="absolute"
       top={short ? 0 : 1}
       right={short ? 5 : 2}
-      flexDirection="column"
-      borderStyle="round"
-      borderColor="promptBorder"
-      backgroundColor={CARD}
-      paddingX={1}
       display={state.infoPinned ? 'flex' : 'none'}
       hover={state.infoPinned || state.menuPinned ? undefined : { scope: 'explorer:info', display: 'flex' }}
     >
-      {inRepo && infoRow('git', fileMark ? [<Text color={STATUS[fileMark] ?? HUD.faint}>{`${fileMark} ${wordOf(fileMark)}`}</Text>] : [<Text>clean</Text>])}
-      {inRepo &&
-        infoRow('changes', [
-          <Box gap={1}>
-            {churn.map(part => (
-              <Text color={part[0] === '+' ? STATUS.A : part[0] === '\u2212' ? STATUS.D : undefined}>{part}</Text>
-            ))}
-          </Box>,
-        ])}
-      {infoRow('edited', [<Text>{editedMs === undefined ? '\u2014' : `Claude \u00b7 ${clock(editedMs)}`}</Text>])}
-      {infoRow('type', [<Text>{langOf(place.path.slice(place.path.lastIndexOf('/') + 1))}</Text>])}
-      {infoRow('lines', [<Text>{String(lines.length)}</Text>])}
+      <Box flexDirection="column" borderStyle="round" borderColor="promptBorder" backgroundColor={CARD} paddingX={1}>
+        {inRepo && infoRow('git', fileMark ? [<Text color={STATUS[fileMark] ?? HUD.faint}>{`${fileMark} ${wordOf(fileMark)}`}</Text>] : [<Text>clean</Text>])}
+        {inRepo &&
+          infoRow('changes', [
+            <Box gap={1}>
+              {churn.map(part => (
+                <Text color={part[0] === '+' ? STATUS.A : part[0] === '\u2212' ? STATUS.D : undefined}>{part}</Text>
+              ))}
+            </Box>,
+          ])}
+        {infoRow('edited', [<Text>{editedMs === undefined ? '\u2014' : `Claude \u00b7 ${clock(editedMs)}`}</Text>])}
+        {infoRow('type', [<Text>{langOf(place.path.slice(place.path.lastIndexOf('/') + 1))}</Text>])}
+        {infoRow('lines', [<Text>{String(lines.length)}</Text>])}
+      </Box>
+      {/* On the rule, the top corners join it as tees; borderStyle takes only style names. */}
+      {!short && (
+        <Box position="absolute" top={0} left={0}>
+          <Text color="promptBorder">┬</Text>
+        </Box>
+      )}
+      {!short && (
+        <Box position="absolute" top={0} right={0}>
+          <Text color="promptBorder">┬</Text>
+        </Box>
+      )}
     </Box>
   )
   const card = (
@@ -1359,63 +1367,71 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       position="absolute"
       top={short ? 0 : 1}
       right={short ? hdrRight : 0}
-      flexDirection="column"
-      borderStyle="round"
-      borderColor="promptBorder"
-      backgroundColor={CARD}
-      paddingX={1}
       display={state.menuPinned ? 'flex' : 'none'}
       hover={state.menuPinned || state.infoPinned ? undefined : { scope: 'explorer:menu', display: 'flex' }}
     >
-      {item('copy-path', 'Copy path', async () => {
-        const rel = target()
-        if (await copyText($, rel)) notify($, 'copied', rel)
-      })}
-      {item('copy-abs', 'Copy absolute path', async () => {
-        const abs = place.path.replace(/(.)\/$/, '$1')
-        if (await copyText($, abs)) notify($, 'copied', abs)
-      })}
-      {item('mention', 'Mention to Claude', async () => {
-        const ref = `${target()}${place.kind === 'folder' ? '/' : ''}`
-        await $.prompt.fill({ text: /\s/.test(ref) ? `@"${ref}"` : `@${ref}`, mode: 'append' }).catch(() => undefined)
-      })}
-      {item('open-editor', 'Open in editor', async () => {
-        const launched = await $.process.run(['sh', '-c', OPEN_EDITOR_SH, 'sh', place.path]).catch(() => undefined)
-        if (launched?.exitCode === 0) notify($, 'opened', target())
-        else notify($, 'failed to open', target())
-      })}
+      <Box flexDirection="column" borderStyle="round" borderColor="promptBorder" backgroundColor={CARD} paddingX={1}>
+        {item('copy-path', 'Copy path', async () => {
+          const rel = target()
+          if (await copyText($, rel)) notify($, 'copied', rel)
+        })}
+        {item('copy-abs', 'Copy absolute path', async () => {
+          const abs = place.path.replace(/(.)\/$/, '$1')
+          if (await copyText($, abs)) notify($, 'copied', abs)
+        })}
+        {item('mention', 'Mention to Claude', async () => {
+          const ref = `${target()}${place.kind === 'folder' ? '/' : ''}`
+          await $.prompt.fill({ text: /\s/.test(ref) ? `@"${ref}"` : `@${ref}`, mode: 'append' }).catch(() => undefined)
+        })}
+        {item('open-editor', 'Open in editor', async () => {
+          const launched = await $.process.run(['sh', '-c', OPEN_EDITOR_SH, 'sh', place.path]).catch(() => undefined)
+          if (launched?.exitCode === 0) notify($, 'opened', target())
+          else notify($, 'failed to open', target())
+        })}
+        {!short && (
+          <Box marginX={-1}>
+            <Text color="promptBorder">{'─'.repeat(LABEL + 1 + 2)}</Text>
+          </Box>
+        )}
+        <Button
+          key="wrap"
+          plain
+          onPress={() => {
+            const old = state.layout?.layout
+            state.wrap = !state.wrap
+            if (old && place.kind === 'file' && loaded && !loaded.unreadable) keepTop(old, lines, C)
+            return update($, file, () => placeOf())
+          }}
+        >
+          <Text>{'Wrap lines'.padEnd(LABEL)}</Text>
+          <Text color="claude">{state.wrap ? (basic ? '✓' : String.fromCharCode(0xeab2)) : ' '}</Text>
+        </Button>
+        <Button
+          key="show-diff"
+          plain
+          onPress={() => {
+            const old = state.layout?.layout
+            state.showDiff = !state.showDiff
+            showMarks()
+            if (old && place.kind === 'file' && loaded && !loaded.unreadable) keepTop(old, lines, C)
+            return update($, file, () => placeOf())
+          }}
+        >
+          <Text>{'Show git diff'.padEnd(LABEL)}</Text>
+          <Text color="claude">{state.showDiff ? (basic ? '✓' : String.fromCharCode(0xeab2)) : ' '}</Text>
+        </Button>
+      </Box>
+      {/* On the rule, the top corners join it as tees; borderStyle takes only style names. */}
       {!short && (
-        <Box marginX={-1}>
-          <Text color="promptBorder">{'─'.repeat(LABEL + 1 + 2)}</Text>
+        <Box position="absolute" top={0} left={0}>
+          <Text color="promptBorder">┬</Text>
         </Box>
       )}
-      <Button
-        key="wrap"
-        plain
-        onPress={() => {
-          const old = state.layout?.layout
-          state.wrap = !state.wrap
-          if (old && place.kind === 'file' && loaded && !loaded.unreadable) keepTop(old, lines, C)
-          return update($, file, () => placeOf())
-        }}
-      >
-        <Text>{'Wrap lines'.padEnd(LABEL)}</Text>
-        <Text color="claude">{state.wrap ? (basic ? '✓' : String.fromCharCode(0xeab2)) : ' '}</Text>
-      </Button>
-      <Button
-        key="show-diff"
-        plain
-        onPress={() => {
-          const old = state.layout?.layout
-          state.showDiff = !state.showDiff
-          showMarks()
-          if (old && place.kind === 'file' && loaded && !loaded.unreadable) keepTop(old, lines, C)
-          return update($, file, () => placeOf())
-        }}
-      >
-        <Text>{'Show git diff'.padEnd(LABEL)}</Text>
-        <Text color="claude">{state.showDiff ? (basic ? '✓' : String.fromCharCode(0xeab2)) : ' '}</Text>
-      </Button>
+      {!short && (
+        <Box position="absolute" top={0} right={0}>
+          <Text color="promptBorder">┬</Text>
+        </Box>
+      )}
     </Box>
   )
   const editing = (state.find?.open && place.kind === 'file') || (state.names && place.kind === 'folder') || state.recent
