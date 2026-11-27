@@ -36,13 +36,13 @@ Which model:
 
 Effort defaults:
 
-- Haiku runs at low, except in the superpowers roles below that set another effort. Sonnet runs at medium, except as `blueprint` builder check.
+- Haiku runs at low, except in the superpowers roles below that set another effort. Sonnet runs at medium, except as `brainstorming` or `blueprint` builder check.
 - Work that already belongs on opus runs at high for process work such as debugging, and at xhigh for refactors. This line sets effort, not the model.
 - A task that fails at every effort needs a better brief, not a higher level.
 
 In superpowers skills:
 
-This table replaces the model choice in `subagent-driven-development` (its Model Selection section) and `executing-plans`, and sets the spec and plan roles for `blueprint` and `writing-plans`. Set both `model` and `effort` on every dispatch, because the skill templates leave effort out.
+This table replaces the model choice in `subagent-driven-development` (its Model Selection section) and `executing-plans`, and sets the spec and plan roles for `brainstorming`, `blueprint` and `writing-plans`. Set both `model` and `effort` on every dispatch, because the skill templates leave effort out.
 
 | role | model | effort |
 |---|---|---|
@@ -54,7 +54,7 @@ This table replaces the model choice in `subagent-driven-development` (its Model
 | fix rounds 4 and 5, after a stuck implementer | opus | high |
 | final whole-branch review (`caveman:cavecrew-reviewer`, see `superpowers.md`) | opus | high |
 | `dispatching-parallel-agents` agent, which finds and fixes its own problem | sonnet | medium |
-| `blueprint` builder check, a fresh agent that reads the spec and the code it cites before the user approves the spec | sonnet | high |
+| `brainstorming` or `blueprint` builder check, a fresh agent that reads the spec and the code it cites before the user approves the spec | sonnet | high |
 | plan writer, from a settled spec, and its fix round (SendMessage to the same agent) | haiku | xhigh |
 | plan reviewer, a fresh agent that reads the spec, plan and code before the user sees the plan; its prompt says a spec that contradicts itself is its own finding with both spec lines, never a side picked | opus | high |
 | plan re-check, scoped to the reviewer's findings | sonnet | medium |
