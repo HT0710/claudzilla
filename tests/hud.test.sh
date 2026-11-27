@@ -294,6 +294,16 @@ check "chart: DST afternoon, marker at EDT midnight (cell 9 of 45)" grep -qF "24
 out=$(api_row 40)
 check "chart: 40 cols stacks at full width" perl -CSA -e 'exit(($ARGV[0] =~ /^24h ago \S{24} now$/m) ? 0 : 1)' "$out"
 
+# --- spend: words row ---
+check "words: seed S, 120 cols" grep -qF '┃ $1.24 here  $4.80 today  $96.40 month  $0.62/h  $3.44/day' <<<"$(api_row 120)"
+check "words: the $ shares its number's colour" grep -qE $'\e''\[38;2;[0-9;]+m\$1\.24' <<<"$(api_raw 120)"
+check "words: 60 cols sheds per day, month and rate" grep -qE '┃ \$1\.24 here  \$4\.80 today +$' <<<"$(api_row 60)"
+check "words: 40 cols stacks, rate flush right, month shed" grep -qE 'today +\$0\.62/h$' <<<"$(api_row 40)"
+subcfg="$TMP/subcfg"; mkdir -p "$subcfg"; cp "$C/.claude.json" "$subcfg/"  # clean layout config; strip() is defined only at line 191
+check_eq "words: 40 cols has the subscription's row count" "$(data <<<"$full" | CLAUDE_CONFIG_DIR="$subcfg" COLUMNS=40 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g' | wc -l | tr -d ' ')" "$(api_row 40 | wc -l | tr -d ' ')"
+check "words: no cost yet, 120 cols, starts with \$0.00 here" grep -qF '┃ $0.00 here' <<<"$(api_kv "$(seedS)" '{"session_id":"api2"}' | FROZEN_TIME=$T0 TZ=UTC PERL5LIB="$PL" COLUMNS=120 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g')"
+check "words: API spend wins over limit meters" bash -c 'o=$(cat); grep -qF "┃ \$1.24 here" <<<"$o" && grep -qF "24h ago" <<<"$o" && ! grep -q "5h" <<<"$o"' <<<"$(api_kv "$(seedS)" '{"session_id":"api3","cost":{"total_cost_usd":1.24},"rate_limits":{"five_hour":{"used_percentage":40,"resets_at":'$((T0+3600))'}}}' | FROZEN_TIME=$T0 TZ=UTC PERL5LIB="$PL" COLUMNS=120 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g')"
+
 # --- hud.pl: render ---
 render() { data <<<"$1" | COLUMNS=120 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
 out=$(render "$full")
