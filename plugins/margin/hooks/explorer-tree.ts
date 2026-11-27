@@ -49,7 +49,7 @@ export function treeRows(root: string, expanded: ReadonlySet<string>, listed: Re
       const path = `${dir.replace(/\/$/, '')}/${e.name}`
       const kids = e.kind === 'dir' ? listed.get(path) : undefined
       const dim = dimmed || e.name.startsWith('.')
-      const x = px === null ? 0 : px + (e.kind === 'dir' ? 1 : 2)
+      const x = px === null ? 0 : px + 2
       const open = !!kids && expanded.has(path)
       rows.push({ path, name: e.name, kind: e.kind, x, depth, open, empty: kids?.length === 0, dim, broken: !!e.broken })
       if (open) walk(path, x, depth + 1, dim)
