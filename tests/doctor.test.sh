@@ -198,9 +198,19 @@ check "full: a fail then an updating line is still a failure" row "$(run --json)
 events '1\tfail\tx\n2\tlive\tclaudzilla: updating to v9.9.9\n3\tlive\tclaudzilla: updated to v9.9.9\n'
 check "full: a fail then the success line is ok" js "$(run --json)" '!r.some(x=>x.check=="update"&&!x.ok)'
 
+fixture; out=$(run --json)
+check "glyphs: sample shows every rail icon and HUD glyph, ok with an ask" row "$out" 'x.check=="glyphs"&&x.ok&&x.ask&&x.fix?.kind=="basic-glyphs"&&["\uEA70","\uEA82","\uEAF0","\uE702","\uEAA4","\uEB01","\u25B0","\u2387","\u2691"].every(g=>x.text.includes(g))'
+check "render: glyphs row starts with ?" grep -q '^? glyphs ' <<<"$(run)"
+check "render: glyphs hint names CLAUDZILLA_FONT=no" grep -qF 'CLAUDZILLA_FONT=no bash install.sh' <<<"$(run)"
+check "render: glyphs fix is not in Fix all" sh -c '! printf "%s" "$1" | grep -q "^Fix all"' _ "$(run)"
+: >"$CFG/.claudzilla-basic-glyphs"
+check "glyphs: basic marker gives a plain ok row" row "$(run --json)" 'x.check=="glyphs"&&x.ok&&!x.ask&&!x.fix&&x.text.includes("basic")'
+fixture; edit "$CFG/claudzilla.json" "j.install={skip:['rtk','hud','margin']}"
+check "glyphs: no hud and no margin gives no row" js "$(run --json)" '!r.some(x=>x.check=="glyphs")'
+
 fixture; proj_entry "$TMP/home/proj"; stale_margin
 out=$(run --quick --json)
-check "--quick --json: no full-only rows" js "$out" '!r.some(x=>["statusline","hooks","update"].includes(x.check))'
+check "--quick --json: no full-only rows" js "$out" '!r.some(x=>["statusline","hooks","update","glyphs"].includes(x.check))'
 check "--quick --json: path tokens become <path>" grep -qF '<path>' <<<"$out"
 check "--quick --json: no path left" sh -c '! printf "%s" "$1" | grep -qE "[\" ][/~]"' _ "$out"
 check "--quick --json: counts stay" grep -qE '[0-9]+/[0-9]+' <<<"$out"
@@ -221,6 +231,8 @@ fixture; git -C "$CL" worktree add -q "$TMP/wt" 2>/dev/null
 out=$(DD="$TMP/wt/claude/hooks/doctor.mjs" run --json)
 check "worktree: no install fix, says why" row "$out" 'x.check=="links"&&!x.ok&&!("fix" in x)&&x.why.includes("worktree")'
 check "worktree: no row offers install" js "$out" '!r.some(x=>x.fix?.kind=="install")'
+check "worktree: glyphs row offers no install.sh run" row "$out" 'x.check=="glyphs"&&!("fix" in x)&&x.why.includes("worktree")'
+check "worktree: render keeps the glyphs hint" grep -q 'boxes?.*worktree' <<<"$(DD="$TMP/wt/claude/hooks/doctor.mjs" run)"
 
 pidfile() { mkdir -p "$CFG/sessions"; printf '{"pid":123,"sessionId":"%s"}' "$1" >"$CFG/sessions/123.json"; }
 fixture; rm -rf "$SD"; pidfile s1; hook '{"session_id":"s1","source":"startup"}' >/dev/null

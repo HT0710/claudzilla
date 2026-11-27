@@ -19,10 +19,12 @@ Rules:
 | `install` | `cd '<cwd>' && bash install.sh` |
 | `update-plugin` | `claude plugin update '<id>'` |
 | `uninstall-project` | `cd '<cwd>' && claude plugin uninstall '<id>' --scope project` |
+| `basic-glyphs` | `cd '<cwd>' && CLAUDZILLA_FONT=no bash install.sh` |
 | `restart` | none |
 
-1. Run `R --json`. It only reads, so it needs no yes. Every row with `ok: true` needs nothing.
-2. No failed row: say claudzilla is healthy and stop.
+1. Run `R --json`. It only reads, so it needs no yes. Every row with `ok: true` needs nothing, except a row with `ask`.
+   - A row with `ask`: show its `text` in a code block and ask whether any symbol shows as a box. A box means the terminal font lacks the symbols. On yes, offer two choices: set MesloLGS NF as the terminal font, or switch to basic symbols. On the basic-symbols pick, run its `fix` now and tell the user to restart Claude. No `fix`: show its `why`.
+2. No failed row: once any `ask` row is handled, say claudzilla is healthy and stop.
 3. List each failed row in plain words: what is wrong, then its fix command, or its `why` when it has no `fix`.
 4. Ask for one yes for all the fixes. No yes: stop.
 5. Run each fix command in the order listed, `install` first, because it can fix the other rows too.
