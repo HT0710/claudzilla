@@ -3,11 +3,10 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Check, CheckState, CommitView, Counts, Gh, LogRow, Modal, ModalKey, Op, Pr, PrState, PrView, Stage, Word } from '../types'
 import { LOG_FORMAT, age, ago, branches, cutMiddle, fetchDue, fileKey, incomingPrs, ownPrs, parseHead, parseLog, parseMerge, parseNumstat, parseRebase, parseShortstat, parseStatusZ, printable, sortChecks, stashCount, syncMark, treeRows, untrackedFlag, worktrees, worst } from './git-data'
-import { AHEAD, BEHIND, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, basicGlyphs, nf, capped, card as kitCard, clock, configDir, contentFrame, counted as kitCounted, cues, dayName, dim, drawLayer as kitDrawLayer, emptyNote, fade, fadeBg, fit, heading as kitHeading, kv as kitKv, line as kitLine, modalFrame, modalZone, nudge, readTheme, row as kitRow, rowHovers, stackFrame, toPieces, colWidth, zoneWindow } from './kit'
+import { AHEAD, BEHIND, DIMMED, HUD, LIT, PAD, PILL_BG, PILL_CAPS, SCOPE, STATUS, TYPES, basicGlyphs, nf, capped, card as kitCard, clock, configDir, contentFrame, counted as kitCounted, cues, dayName, dim, drawLayer as kitDrawLayer, emptyNote, fade, fadeBg, fit, heading as kitHeading, mdBody, kv as kitKv, line as kitLine, modalFrame, modalZone, nudge, readTheme, row as kitRow, rowHovers, stackFrame, toPieces, colWidth, zoneWindow } from './kit'
 import type { Frame, Layer, LayerCtx, Piece, RowCtx, TabCtx, TabDraw, Zone } from './kit'
 import { firstChangeLine } from './explorer-diff'
 import { gitDiff, statOf } from './explorer-load'
-import { mdRows } from './markdown'
 import { openPlace } from './tab-file'
 
 const submitted = atom({ plugin: 'margin', key: 'submitted' } as const, 0)
@@ -199,7 +198,7 @@ export type GitCtx = TabCtx & {
 }
 
 export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
-  const { Box, Button, Code, Link, Text } = ctx.el
+  const { Box, Button, Link, Text } = ctx.el
   const Client = 'Client' in ctx.el ? ctx.el.Client : undefined
   const { props } = ctx
   const drawn: Zone[] = []
@@ -942,33 +941,6 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
     })()
     return [drawLayer('m', f, { top: f.top, left: f.left - PAD }, acts, [], rows, open!.top), stacked || null]
   }
-  // A Markdown body 1 column in, numbers in counted()'s colour, code spans in the colour the engine gives them,
-  // fence lines through the engine's highlighter.
-  const mdBody = (body: string, width: number) =>
-      mdRows(body, width - 1).map(r =>
-        'code' in r ? (
-          <Box paddingLeft={1}>
-            <Code source={r.code || ' '} language={r.language} wrap="truncate-end" />
-          </Box>
-        ) : (
-          <Text>
-            {' '.repeat(1 + r.indent)}
-            {r.spans.map(sp =>
-              sp.href ? (
-                <Link href={sp.href}>
-                  <Text>{sp.text}</Text>
-                </Link>
-              ) : sp.code ? (
-                <Text color="permission">{sp.text}</Text>
-              ) : (
-                <Text bold={sp.bold} italic={sp.italic}>
-                  {counted(sp.text)}
-                </Text>
-              ),
-            )}
-          </Text>
-        ),
-      )
   const VERB: Record<PrState, string> = { open: 'opened', draft: 'drafted', merged: 'merged', closed: 'closed' }
   // The PR modal: title and who and when, then its sections, each capped with "show all" opening it stacked.
   const prModal = () => {
@@ -980,7 +952,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
     const passed = checks.filter(c => c.state === 'ok').length
     // The body 1 column in, numbers in counted()'s colour, code spans in the colour the engine gives them, fence
     // lines through the engine's highlighter.
-    const descRows = (width: number) => mdBody(view?.body ?? '', width)
+    const descRows = (width: number) => mdBody(ctx.el, view?.body ?? '', width)
     const desc = descRows(inner)
     // A failed check's last log lines, red-edged under its row at the name's column: the row names the check.
     const logged = view?.log && checks.find(c => c.name === view.log!.check)
@@ -1065,7 +1037,7 @@ export async function draw($: EngineInterface, ctx: GitCtx): Promise<TabDraw> {
     const files = (width: number, layer: 'm' | 's' = 's') =>
       (view?.files ?? []).map(f => fileRow(<Text color={STATUS[f.status] ?? HUD.faint}>{` ${f.status}`}</Text>, f.path, f.additions, f.deletions, width, layer, f.status === 'D', cols))
     const sections: Section[] = [
-      ...(view?.body ? [{ label: 'DESCRIPTION', rows: mdBody(view.body, inner), full: (width: number) => mdBody(view.body, width) }] : []),
+      ...(view?.body ? [{ label: 'DESCRIPTION', rows: mdBody(ctx.el, view.body, inner), full: (width: number) => mdBody(ctx.el, view.body, width) }] : []),
       ...(view
         ? [{
             label: 'FILES',

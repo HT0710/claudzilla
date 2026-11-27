@@ -4,6 +4,8 @@ import type { Elements, EngineInterface, RenderPropsOf, RenderSurface } from 'cl
 import type { Intent, Modal, Overview, Tab } from '../types'
 import { scrollWindow } from './modal'
 import type { Frame } from './modal'
+import { mdRows } from './markdown'
+import type { MdRow } from './markdown'
 import { DEFAULTS } from './palette'
 import type { Palette } from './palette'
 
@@ -285,6 +287,39 @@ export const cues = (el: Els, key: string, inner: number, w: Win, setTop: (to: n
 // − stays.
 export const counted = (el: Els, text: string) =>
   text.split(/(?<![\w#+−.\/-])(\d+)(?![\w.\/-])/).map((part, i) => (part ? <el.Text color={i % 2 ? 'claude' : undefined}>{part}</el.Text> : null))
+// Markdown rows drawn: numbers in counted()'s colour, code spans in the colour the engine gives them, fence lines
+// through the engine's highlighter.
+export function mdView(el: Els, rows: MdRow[]): JSX.Element[] {
+  const { Box, Code, Link, Text } = el
+  return rows.map(r =>
+    'code' in r ? (
+      <Box paddingLeft={1}>
+        <Code source={r.code || ' '} language={r.language} wrap="truncate-end" />
+      </Box>
+    ) : (
+      <Text>
+        {' '.repeat(1 + r.indent)}
+        {r.spans.map(sp =>
+          sp.href ? (
+            <Link href={sp.href}>
+              <Text>{sp.text}</Text>
+            </Link>
+          ) : sp.code ? (
+            <Text color="permission">{sp.text}</Text>
+          ) : (
+            <Text bold={sp.bold} italic={sp.italic}>
+              {counted(el, sp.text)}
+            </Text>
+          ),
+        )}
+      </Text>
+    ),
+  )
+}
+// A Markdown body 1 column in.
+export function mdBody(el: Els, body: string, width: number): JSX.Element[] {
+  return mdView(el, mdRows(body, width - 1))
+}
 // A tab with nothing to list: a framed note, centered in `rows`.
 export const emptyNote = (el: Els, rows: number, title: string, ...lines: JSX.Element[]): JSX.Element => {
   const { Box, Text } = el
