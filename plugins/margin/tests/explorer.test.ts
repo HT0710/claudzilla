@@ -3197,6 +3197,7 @@ test('a refresh on a file page reads the git status again', async ($, on) => {
   statusOut.out = ''
   await ui.press({ key: 'refresh' })
   await ui.redraw()
+  await ui.redraw()
   expect((await icon())?.props.color).toBe('claude')
 })
 
@@ -3340,6 +3341,7 @@ test('the git row shows the status letter and word in its colour', async ($, on)
 
 test('the git row reads clean for an unchanged file', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  await ui.redraw()
   expect(await infoText(ui, 'git')).toContain('clean')
 })
 
@@ -3368,6 +3370,7 @@ test('the changes row colours + with STATUS.A and − with STATUS.D', async ($, 
 
 test('the changes row reads none for a file without a diff', async ($, on) => {
   const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  await ui.redraw()
   expect(await infoText(ui, 'changes')).toContain('none')
 })
 
@@ -3395,6 +3398,16 @@ test('a Claude Edit that ran and failed does not set the edited row', async ($, 
   await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts' } as any).catch(() => undefined)
   await ui.redraw()
   expect(await infoText(ui, 'edited')).toContain('—')
+})
+
+test('a pinned info card is gone once the page moves to a folder', async ($, on) => {
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  await ui.press({ key: 'info' })
+  await ui.redraw()
+  expect((await infoOf(ui)).display).toBe('flex')
+  open({ path: '/repo', kind: 'folder' })
+  await ui.redraw()
+  expect(await infoOf(ui)).toBeUndefined()
 })
 
 test('the lines row reads the loaded line count and the type row the language', async ($, on) => {
@@ -3606,6 +3619,24 @@ test('a press on a lit guide cell runs the row press', async ($, on) => {
   await ui.press({ key: `lead:x:${fileKey('/repo/src/a.ts')}:0` })
   await waitFor(() => reads.includes('/repo/src/a.ts'))
   expect(await pathText(ui)).toContain('a.ts')
+})
+
+test('a file page draws while the git status is still running, then marks the file once it settles', async ($, on) => {
+  hostOk(on)
+  const ui = await explorer($, on, { path: '/repo/a.ts' }, lines(3))
+  statusOut.out = ' M a.ts\0'
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/other.ts' } as any)
+  hold.status = []
+  await Promise.race([ui.redraw(), new Promise((_, no) => setTimeout(() => no(new Error('draw waited on git status')), 500))])
+  expect(await infoText(ui, 'git')).not.toContain('M modified')
+  await waitFor(() => hold.status!.length > 0)
+  hold.status.splice(0).forEach(release => release())
+  hold.status = undefined
+  await clock.advance(0)
+  await ui.redraw()
+  await clock.advance(0)
+  await ui.redraw()
+  expect(await infoText(ui, 'git')).toContain('M modified')
 })
 
 test('an Edit that lands while the status runs still shows the new text', async ($, on) => {

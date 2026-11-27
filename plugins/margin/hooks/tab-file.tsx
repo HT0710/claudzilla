@@ -98,7 +98,8 @@ const statuses = latestOf()
 // Edit reads count apart from loads, so a press never drops a load.
 const edits = latestOf()
 // The last git status run, kept while the root and the tool-call count stay the same.
-let statusCache: { key: string; changes: Promise<{ path: string; xy: string }[] | undefined> } | undefined
+let statusCache: { key: string; changes: Promise<{ path: string; xy: string }[] | undefined>; settled: boolean; redraw?: Promise<unknown> } | undefined
+let lastMarks: TreeMarks | undefined
 // Age scans by page folder, kept while the tool-call count stays the same.
 const scanSeq = new Map<string, number>()
 const pageAges = new Map<string, Promise<Scan | undefined>>()
@@ -309,17 +310,25 @@ async function scanFor($: EngineInterface, page: string): Promise<Scan | undefin
 }
 
 // Marks for the tree below `root`, with every listed folder known so a submodule takes a dot; none outside a repo.
-async function statusFor($: EngineInterface, root: string): Promise<TreeMarks | undefined> {
+// With `at`, an unsettled status returns the last settled marks and redraws once it lands, if that file is still shown.
+// The redraw rides a timer because a state write is denied while a render is dispatching.
+async function statusFor($: EngineInterface, root: string, at?: string): Promise<TreeMarks | undefined> {
   const key = `${root}:${await read($, toolCalls)}:${state.loaded?.mtimeMs}`
   if (statusCache?.key !== key) {
     const n = statuses.begin()
     const run = gitStatus($, root).then(r => (statuses.isLatest(n) ? r : undefined))
-    statusCache = { key, changes: run }
+    const cache = { key, changes: run, settled: false } as NonNullable<typeof statusCache>
+    statusCache = cache
+    void run.then(() => (cache.settled = true))
+  }
+  if (at && !statusCache.settled) {
+    statusCache.redraw ??= statusCache.changes.then(() => void $.clock.after(0, () => (current(state.nav).path === at ? void update($, file, () => placeOf()) : undefined)))
+    return lastMarks
   }
   const changes = await statusCache.changes
   const dirs = new Set<string>()
   for (const [folder, entries] of state.listed) for (const e of entries) if (e.kind === 'dir') dirs.add(`${folder}/${e.name}`)
-  return changes && treeMarks(root, changes, dirs)
+  return (lastMarks = changes && treeMarks(root, changes, dirs))
 }
 
 export async function reloadPlace($: EngineInterface, edit?: { oldText: string; newText: string; replaceAll: boolean }): Promise<void> {
@@ -839,12 +848,12 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   let fileMark: string | undefined
   let inRepo = false
   if (place.kind === 'file' && state.root && place.path.startsWith(`${state.root}/`)) {
-    const status = await statusFor($, state.root)
+    const status = await statusFor($, state.root, place.path)
     inRepo = !!status
     fileMark = status?.files.get(place.path)
     if (current(state.nav).path !== place.path) return draw($, ctx)
   }
-  // After the status await: a reload during it must not leave old lines drawn with new marks.
+  // After the awaits above: a reload during it must not leave old lines drawn with new marks.
   const loaded = place.kind === 'file' && state.loaded?.path === place.path ? state.loaded : undefined
   const lines = loaded?.lines ?? []
   const digits = String(lines.length).length
@@ -1509,7 +1518,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
         )}
         {findBar}
         {card}
-        {infoCard}
+        {place.kind === 'file' && infoCard}
       </Box>
     ),
     zones,
