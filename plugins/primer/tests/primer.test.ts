@@ -867,6 +867,15 @@ test('git block: a relative cd or git -C resolves against the session cwd', () =
   }
 })
 
+test('git block: a file only a subagent edited has no suffix, and its worktree shows', () => {
+  const git = wt('/x/wt', dirtyGit(' M a.md', ' M b.md'))
+  const g = handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: tail(typed('hi')), worktrees: [git], agentEdits: ['/x/wt/a.md'] })
+  expect(g).toContain('### /x/wt')
+  expect(g).toContain(' M a.md\n')
+  expect(g).toContain(' M b.md (not this session)')
+  expect(g).not.toContain('Written:')
+})
+
 test('git block: relative bash paths resolve against the session cwd', () => {
   const git = wt('/x/wt', dirtyGit(' M a.md', ' M b.md', ' M plugins/x.ts', ' M -la'))
   let g = gitNote([tool('Bash', { command: 'git mv a.md b.md' })], [git], '/x/wt')
@@ -878,15 +887,6 @@ test('git block: relative bash paths resolve against the session cwd', () => {
   expect(g).toContain(' M a.md (not this session)')
   g = gitNote([tool('Bash', { command: 'ls -la' })], [git], '/x/wt')
   expect(g).toContain(' M -la (not this session)')
-})
-
-test('git block: a file only a subagent edited has no suffix, and its worktree shows', () => {
-  const git = wt('/x/wt', dirtyGit(' M a.md', ' M b.md'))
-  const g = handoffNote({ sessionId: 's1', path: 'p', now: 0, numbered: tail(typed('hi')), worktrees: [git], agentEdits: ['/x/wt/a.md'] })
-  expect(g).toContain('### /x/wt')
-  expect(g).toContain(' M a.md\n')
-  expect(g).toContain(' M b.md (not this session)')
-  expect(g).not.toContain('Written:')
 })
 
 test('git block: a new untracked folder the session wrote into has no suffix', () => {
@@ -1000,15 +1000,108 @@ test('handoffNote: how to dig names grep, haiku and compact summaries', () => {
   for (const s of ['If this note is your whole prompt: when the old session stopped mid-step on its own, continue that step; when the user stopped it, say which step and wait. When its last reply ended on an offer, end yours with that offer as your `Next:` line, unchanged, and wait. Otherwise say in one line what you loaded, then wait for the user\'s ask.', 'Text after this note, with or without a `## User\'s ask` heading, is the user\'s ask: work on it instead of waiting.', 'Check git before saying what is pending. Don\'t restate the last reply.', 'grep -n', 'isCompactSummary', 'Never Read it whole', 'Read with `offset` and `limit`', 'the old transcript yourself, by line number']) expect(n).toContain(s)
 })
 
+const chainNote = (extra: Partial<Parameters<typeof handoffNote>[0]>, ...rows: string[]) => handoffNote({ sessionId: 'wwwwwwww-1', path: '/t/w.jsonl', now: 0, numbered: tail(...(rows.length ? rows : [typed('last ask')])), ...extra })
+const chainOf = (n: string) => (/## Chain\n\n([\s\S]*?)(\n\n## |\n$)/.exec(n)?.[1] ?? '')
+const E1 = '- 1 aaaaaaaa (root): goal one · /t/a.jsonl'
+const E2 = '- 2 bbbbbbbb: goal two · /t/b.jsonl'
+const earlier = (...entries: string[]) => ['# Handoff from bbbbbbbb-2', '', 'Written x. Its transcript: /t/b.jsonl', '', '## Chain', '', 'This is session 3 of a chain. Search an earlier transcript when the ask needs it.', ...entries, '', '## Paths', '', 'x'].join('\n')
+
+test('chain: inline form copies entries from the first prompt, then the writer', () => {
+  const n = chainNote({ firstPrompt: earlier(E1, E2), overview: { topics: [], summary: 'now goal' } })
+  expect(chainOf(n)).toBe(`This is session 4 of a chain. Search an earlier transcript when the ask needs it.\n\n${E1}\n${E2}\n- 3 wwwwwwww: now goal · /t/w.jsonl`)
+})
+
+test('chain: @ form copies entries from the earlier note file', () => {
+  const n = chainNote({ firstPrompt: '@/cfg/claudzilla-handoff/bbbbbbbb-2.md go', earlierNote: earlier(E1, E2), overview: { topics: [], summary: 'g' } })
+  expect(chainOf(n)).toContain(`${E1}\n${E2}\n- 3 wwwwwwww: g · /t/w.jsonl`)
+})
+
+test('chain: depth 1, earlier note with no Chain: its writer is entry 1 (root), from its header and Where we were line', () => {
+  const prev = ['# Handoff from aaaaaaaa-1', '', 'Written x. Its transcript: /t/a.jsonl', '', '## Where we were', '', 'May lag: Recent turns wins.', '', 'Fix the parser', '- step', '', '## Paths'].join('\n')
+  const n = chainNote({ firstPrompt: prev, overview: { topics: [], summary: 'g' } })
+  expect(chainOf(n)).toContain('- 1 aaaaaaaa (root): Fix the parser · /t/a.jsonl\n- 2 wwwwwwww: g · /t/w.jsonl')
+})
+
+test('chain: depth 1, earlier note with no Where we were: root goal is its last earlier ask', () => {
+  const prev = ['# Handoff from aaaaaaaa-1', '', 'Written x. Its transcript: /t/a.jsonl', '', '## Earlier asks', '', '- first ask', '- last ask', '', '## Paths'].join('\n')
+  const n = chainNote({ firstPrompt: prev, overview: { topics: [], summary: 'g' } })
+  expect(chainOf(n)).toContain('- 1 aaaaaaaa (root): last ask · /t/a.jsonl\n- 2 wwwwwwww: g · /t/w.jsonl')
+})
+
+test('chain: root entry marked (root), no other entry marked', () => {
+  const n = chainNote({ firstPrompt: earlier(E1, E2) })
+  expect(chainOf(n).match(/\(root\)/g)).toHaveLength(1)
+})
+
+test('chain: cap is first plus last 5', () => {
+  const all = Array.from({ length: 8 }, (_, i) => `- ${i + 1} id${i + 1}xxxxx${i ? '' : ' (root)'}: g${i + 1} · /t/${i + 1}.jsonl`)
+  const lines = chainOf(chainNote({ firstPrompt: earlier(...all.slice(0, 7)) })).split('\n').slice(2)
+  expect(lines).toHaveLength(6)
+  expect(lines[0]).toContain('- 1 ')
+  expect(lines[1]).toContain('- 4 ')
+  expect(lines[5]).toContain('- 8 ')
+})
+
+test('chain: writer goal is the Overview session line when present', () => {
+  const n = chainNote({ firstPrompt: earlier(E1), overview: { topics: [], summary: 'SESSION LINE' } }, tool('mcp__margin__intent', { wants: 'WANTS' }), typed('later'))
+  expect(chainOf(n)).toContain('wwwwwwww: SESSION LINE')
+})
+
+test('chain: goal is the last intent wants with no session line, else the last typed prompt cut to 200', () => {
+  expect(chainOf(chainNote({ firstPrompt: earlier(E1) }, typed('p'), tool('mcp__margin__intent', { wants: 'WANTS' })))).toContain('wwwwwwww: WANTS')
+  const long = 'x'.repeat(300)
+  expect(chainOf(chainNote({ firstPrompt: earlier(E1) }, typed(long)))).toContain(`wwwwwwww: ${'x'.repeat(200)}… ·`)
+})
+
+test('chain: @ form with the file gone: Earlier links lost. line, then an entry with the id from the path and no transcript path', () => {
+  const n = chainNote({ firstPrompt: '@/cfg/claudzilla-handoff/bbbbbbbb-2.md' })
+  expect(chainOf(n)).toBe('This is session 3 of a chain. Search an earlier transcript when the ask needs it.\n\nEarlier links lost.\n- 1 bbbbbbbb (root)\n- 2 wwwwwwww: last ask · /t/w.jsonl')
+})
+
+test('chain: @ form with an empty earlier note is lost, id from the path', () => {
+  const n = chainNote({ firstPrompt: '@/cfg/claudzilla-handoff/bbbbbbbb-2.md', earlierNote: '' })
+  expect(chainOf(n)).toContain('Earlier links lost.\n- 1 bbbbbbbb (root)\n- 2 wwwwwwww')
+})
+
+test('chain: @ form with a headerless earlier note takes the id from the path', () => {
+  const n = chainNote({ firstPrompt: '@/cfg/claudzilla-handoff/bbbbbbbb-2.md', earlierNote: 'just text' })
+  expect(chainOf(n)).toContain('- 1 bbbbbbbb (root)\n- 2 wwwwwwww')
+})
+
+test('/claudzilla handoff: the earlier note read throws, the written note says the links are lost', async ($, on) => {
+  const { seen } = handoffHost(on, { head: typed('@/x/claudzilla-handoff/bbbbbbbb-2.md') + '\n', files: p => { if (p.endsWith('bbbbbbbb-2.md')) throw new Error('ENOENT'); return undefined } })
+  await $.session.start(start)
+  await handoff($)
+  expect(seen.writes[0]![1]).toContain('Earlier links lost.\n- 1 bbbbbbbb (root)')
+})
+
+test('chain: header N is one past the last entry', () => {
+  expect(chainOf(chainNote({ firstPrompt: earlier(E1, E2) }))).toMatch(/^This is session 4 of a chain/)
+})
+
+test('chain: absent when the first prompt is not a handoff', () => {
+  expect(chainNote({ firstPrompt: 'fix the bug' })).not.toContain('## Chain')
+  expect(chainNote({})).not.toContain('## Chain')
+})
+
+test('/claudzilla handoff reads the first prompt from the transcript head and the earlier note for the @ form', async ($, on) => {
+  const { seen } = handoffHost(on, { head: [J({ type: 'user', isMeta: true, message: { content: 'meta' } }), typed('@/x/claudzilla-handoff/bbbbbbbb-2.md')].join('\n') + '\n', files: p => (p === '/cfg/claudzilla-handoff/bbbbbbbb-2.md' ? earlier(E1, E2) : undefined) })
+  await $.session.start(start)
+  await handoff($)
+  expect(seen.argvs.some(a => a.includes('head -c 200000'))).toBe(true)
+  expect(seen.writes[0]![1]).toContain(`${E2}\n- 3 s1:`)
+})
+
 const CFG = '/cfg'
 const NOTE = `${CFG}/claudzilla-handoff/s1.md`
 const done = (extra = {}) => ({ answer: 'x', reason: 'answer' as const, durationMs: 1, isAborted: false, turnId: 't1', ...extra })
 
 // A session idle after a reply: transcript found, greps answered, box as given.
-function handoffHost(on: Parameters<TestBody>[1], o: { find?: string; worktrees?: string[]; writeFails?: boolean; clearFails?: boolean; submitFails?: boolean; submitDrop?: boolean; filled?: boolean; drop?: boolean; git?: string; agentEdits?: string } = {}) {
+function handoffHost(on: Parameters<TestBody>[1], o: { find?: string; worktrees?: string[]; writeFails?: boolean; clearFails?: boolean; submitFails?: boolean; submitDrop?: boolean; filled?: boolean; drop?: boolean; git?: string; head?: string; agentEdits?: string; files?: (p: string) => string | undefined } = {}) {
   const seen = { order: [] as string[], writes: [] as [string, string][], commands: [] as string[], fills: [] as string[], submits: [] as any[], argvs: [] as string[] }
   const clock = mock.clock(on, { now: 0 })
   const base = host(on, {
+    files: o.files,
     proc: c => {
       seen.argvs.push(c)
       if (c.includes('chmod 700')) seen.order.push('mkdir')
@@ -1016,6 +1109,7 @@ function handoffHost(on: Parameters<TestBody>[1], o: { find?: string; worktrees?
       if (c.includes('worktree list')) return ran(0, (o.worktrees ?? []).map(w => `worktree ${w}\nHEAD abc\n`).join('\n'))
       if (c.includes('rev-parse')) return o.git === undefined ? ran(0, '') : ran(0, o.git)
       if (c.includes('subagents')) return ran(0, o.agentEdits ?? '')
+      if (c.includes('head -c 200000')) return ran(0, o.head ?? '')
       if (c.includes('compact_draft')) return ran(0, '7:{"x":1}\n')
       return ran(0, '1:{"type":"user","message":{"content":"hi"}}\n')
     },
@@ -1120,7 +1214,7 @@ test('/claudzilla handoff passes the transcript path as $1, not in the script', 
   await $.session.start(start)
   await handoff($)
   const sh = seen.argvs.filter(a => a.startsWith('sh -c') && !a.includes('chmod') && !a.includes('rev-parse'))
-  expect(sh).toHaveLength(5)
+  expect(sh).toHaveLength(6)
   for (const a of sh) {
     expect(a.split('/cfg/projects/p/s1.jsonl')).toHaveLength(2)
     expect(a.endsWith('/cfg/projects/p/s1.jsonl')).toBe(true)
