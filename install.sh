@@ -477,14 +477,14 @@ font() {
     fi
     if [ "$FONT_NEW" = 1 ]; then ans=yes   # HUD newly chosen this run = the "y" answer, after the guard above
     elif ! has_tty; then   # no terminal, e.g. Claude ran the install: let Claude ask in a dialog
-      echo "font: $FONT_FACE not installed - no terminal to ask. Claude: ask the user with AskUserQuestion (install the recommended font, or use basic statusline symbols), then run: CLAUDZILLA_FONT=yes $REPO/install.sh (or CLAUDZILLA_FONT=no)"
+      echo "font: $FONT_FACE not installed - no terminal to ask. Claude: ask the user with AskUserQuestion (install the recommended font, or use basic symbols), then run: CLAUDZILLA_FONT=yes $REPO/install.sh (or CLAUDZILLA_FONT=no)"
       return 0
     fi
-    printf 'claudzilla: install font %s so the statusline draws its symbols (recommended)? [Y/n] ' "$FONT_FACE"
+    printf 'claudzilla: install font %s so the statusline and margin draw their symbols (recommended)? [Y/n] ' "$FONT_FACE"
     read -r ans <"$TTY" || true; ans="${ans:-y}"
   fi
   case "$ans" in [nN]*|0|false|off)
-    : > "$basic"; echo "font: skipped - statusline uses basic symbols (re-run with CLAUDZILLA_FONT=yes to install)"; return 0 ;;
+    : > "$basic"; echo "font: skipped - statusline and margin use basic symbols; restart Claude (re-run with CLAUDZILLA_FONT=yes to install)"; return 0 ;;
   esac
   rm -f "$basic"
   mkdir -p "$dir" || { echo "font: cannot create $dir" >&2; return 0; }
@@ -706,7 +706,8 @@ main() {
   rm -f "$DEST/.settings.base.claudzilla"
   for p in $ALL_PARTS; do picked "$p" || unlink_part "$p"; done
   PICKED="$PICKED primer" keybindings
-  if picked hud; then truecolor; font; fi
+  if picked hud; then truecolor; fi
+  if picked hud || picked margin; then font; fi
   if picked core; then stamp_rules || echo "claudzilla: rule dates not saved - /rule-review skips undated rules until the next install" >&2; fi
   if picked ponytail; then ponytail_defaults || echo "claudzilla: could not save ponytail's defaults - its band stays shown" >&2; fi
   [ "$OFFLINE" = 1 ] || plugins
