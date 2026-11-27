@@ -1,5 +1,7 @@
 # Builder Check Prompt
 
+Adapted from the superpowers 7.0.2 builder check prompt, MIT License, Copyright (c) 2025 Jesse Vincent.
+
 Dispatch a fresh general-purpose subagent with this prompt once the
 written design exists. Fill in the domain and the document path.
 
@@ -18,7 +20,8 @@ Rank them by importance.
 
 Skip anything the document explicitly leaves to the builder, and anything
 you could reasonably decide yourself. Skip nitpicks about wording.
-Also read the files the spec cites, and list any two spec lines that disagree, with both line numbers.
 
-If nothing important is left and no spec lines disagree, say "nothing important left".
+Also read the files the document cites, and list any two lines in the document that disagree, with both line numbers.
+
+If nothing important is left and no lines disagree, say "nothing important left".
 ```
