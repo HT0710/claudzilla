@@ -198,6 +198,91 @@ check_eq "data: control chars dropped" "a ]52;c;aGk= b" "$(key model "$kv")"
 kv=$(data <<<'{"model":{"display_name":"a\u009d52;c;aGk=\u009cb"}}')
 check_eq "data: C1 control chars dropped" "a 52;c;aGk= b" "$(key model "$kv")"
 
+# --- spend: API ledger ---
+d=$TMP/sp1; mkdir -p "$d"
+spend_at $T0 0 s1 "$d" >/dev/null; spend_at $((T0+60)) 1.00 s1 "$d" >/dev/null
+check_eq "spend: deltas add up" 1.50 "$(usd spend_today "$(spend_at $((T0+120)) 1.50 s1 "$d")")"
+
+d=$TMP/sp2; mkdir -p "$d"
+spend_at $T0 0 s2 "$d" >/dev/null; spend_at $((T0+60)) 2.00 s2 "$d" >/dev/null; spend_at $((T0+120)) 0.30 s2 "$d" >/dev/null
+check_eq "spend: cost drop after /clear is a new baseline" 2.50 "$(usd spend_today "$(spend_at $((T0+180)) 0.80 s2 "$d")")"
+
+d=$TMP/sp2b; mkdir -p "$d"
+spend_at $T0 1.00 s2b "$d" >/dev/null; spend_at $((T0+60)) 0.90 s2b "$d" >/dev/null
+check_eq "spend: 1.00, 0.90, 1.00 adds 0.10 after the baseline" 0.10 "$(usd spend_today "$(spend_at $((T0+120)) 1.00 s2b "$d")")"
+
+d=$TMP/sp3; mkdir -p "$d"
+spend_at $T0 0 s3 "$d" >/dev/null; spend_at $((T0+60)) 1.00 s3 "$d" >/dev/null
+spend_at $((T0+60)) 0 s4 "$d" >/dev/null; spend_at $((T0+120)) 0.40 s4 "$d" >/dev/null
+check_eq "spend: two sessions add to today, no double count" 1.40 "$(usd spend_today "$(spend_at $((T0+180)) 1.00 s3 "$d")")"
+
+d=$TMP/sp4; mkdir -p "$d"
+spend_at $T0 0 s5 "$d" >/dev/null; spend_at $T0 0 s6 "$d" >/dev/null
+for i in $(seq 20); do spend_at $((T0+60)) 1.00 s5 "$d" >/dev/null & spend_at $((T0+60)) 0.50 s6 "$d" >/dev/null & done; wait
+check_eq "spend: parallel ticks count each delta once" 1.50 "$(usd spend_today "$(spend_at $((T0+60)) 1.00 s5 "$d")")"
+check_eq "spend: no temp file left behind" "claudzilla-spend.lock claudzilla-spend.tsv" "$(ls "$d" | tr '\n' ' ' | sed 's/ $//')"
+
+d=$TMP/sp5; mkdir -p "$d"
+printf 'garbage\nslot\tbad\t1\nslot\t%s\t0.75\nslot\t17' $((T0-600)) > "$d/claudzilla-spend.tsv"
+check_eq "spend: corrupt and truncated lines skipped" 0.75 "$(usd spend_today "$(spend_at $T0 0 s7 "$d")")"
+spend_at $T0 0 s7 "$d" >/dev/null; check "spend: corrupt file exits 0" [ $? -eq 0 ]
+
+check "spend: missing config dir still draws" [ -n "$(spend_at $T0 0 s8 "$TMP/absent")" ]
+check "spend: missing config dir writes nothing" [ ! -e "$TMP/absent" ]
+
+d=$TMP/sp7; mkdir -p "$d"; cp "$C/.claude.json" "$d/"
+CLAUDE_CONFIG_DIR="$d" HUD_DUMP=1 perl "$HUD/hud.pl" <<<"$full" >/dev/null
+check "spend: subscription writes no ledger" [ ! -e "$d/claudzilla-spend.tsv" ]
+
+d=$TMP/sp8; mkdir -p "$d"
+kv=$(printf '{"cost":{"total_cost_usd":1}}' | ANTHROPIC_API_KEY=x FROZEN_TIME=$T0 TZ=UTC PERL5LIB="$PL" CLAUDE_CONFIG_DIR="$d" HUD_DUMP=1 perl -MFrozen "$HUD/hud.pl")
+check "spend: no session id writes nothing" [ ! -e "$d/claudzilla-spend.tsv" ]
+check_eq "spend: here still shows the cost" 1.00 "$(usd spend_here "$kv")"
+
+d=$TMP/sp9; mkdir -p "$d"
+printf 'day\t2026-11-30\t5.00\nslot\t1796082600\t5.00\nslot\t%s\t9.00\nsess\ts9\t1.00\t%s\n' $((T0-259200)) $T0 > "$d/claudzilla-spend.tsv"
+kv=$(spend_at 1796083800 1.20 s9 "$d")
+check_eq "spend: rollover, today" 0.20 "$(usd spend_today "$kv")"
+check_eq "spend: rollover, month" 0.20 "$(usd spend_month "$kv")"
+check_eq "spend: rollover, per day on the 1st" 0.20 "$(usd spend_day "$kv")"
+check_eq "spend: rate crosses midnight" 5.20 "$(usd spend_rate "$kv")"
+check "spend: write drops last month and 48 h-old lines" bash -c "perl -ne 'exit 1 if /^day\t2026-11-30|^slot\t$((T0-259200))\t/' '$d/claudzilla-spend.tsv'"
+
+d=$TMP/sp10; mkdir -p "$d"; printf 'slot\t1793505000\t3.00\n' > "$d/claudzilla-spend.tsv"
+ZONE=America/New_York spend_at 1793505300 0 s10 "$d" >/dev/null
+kv=$(ZONE=America/New_York spend_at 1793506200 0.50 s10 "$d")
+check_eq "spend: today resets at New York midnight" 0.50 "$(usd spend_today "$kv")"
+check_eq "spend: rate crosses that midnight" 3.50 "$(usd spend_rate "$kv")"
+check_eq "spend: midnight offset in the window" 85200 "$(key spend_mid "$kv")"
+check_eq "spend: DST afternoon midnight is EDT midnight (17400, not 18000)" 17400 "$(key spend_mid "$(ZONE=America/New_York AT=1793574000 api_kv "$(mktemp -d -p "$TMP")")")"
+
+d=$TMP/sp11; mkdir -p "$d"; printf 'slot\t1795842000\t1.00\nslot\t1795842600\t0.20\n' > "$d/claudzilla-spend.tsv"
+kv=$(spend_at $T0 0 s11 "$d")
+check_eq "spend: rate is the last six slots" 0.20 "$(usd spend_rate "$kv")"
+check_eq "spend: today is the whole local day" 1.20 "$(usd spend_today "$kv")"
+
+d=$TMP/sp12; mkdir -p "$d"; : > "$d/claudzilla-spend.tsv.111.tmp"; : > "$d/claudzilla-spend.tsv.222.tmp"
+perl -e 'utime $ARGV[0], shift, @ARGV' $((T0-7200)) "$d/claudzilla-spend.tsv.111.tmp"; perl -e 'utime $ARGV[0], shift, @ARGV' $((T0-60)) "$d/claudzilla-spend.tsv.222.tmp"
+spend_at $T0 0 s12 "$d" >/dev/null
+check "spend: temp file over 1 h old swept, fresh one kept" bash -c "[ ! -e '$d/claudzilla-spend.tsv.111.tmp' ] && [ -e '$d/claudzilla-spend.tsv.222.tmp' ]"
+
+d="$TMP/sp 13/cfg"; mkdir -p "$d"; : > "$TMP/sp"; : > "$d/claudzilla-spend.tsv.333.tmp"
+perl -e 'utime $ARGV[0], shift, @ARGV' $((T0-10800)) "$TMP/sp" "$d/claudzilla-spend.tsv.333.tmp"
+spend_at $T0 0 s13 "$d" >/dev/null
+check "spend: sweep ignores a decoy before a space in the dir" bash -c "[ -e '$TMP/sp' ] && [ ! -e '$d/claudzilla-spend.tsv.333.tmp' ]"
+
+kv=$(api_kv "$(seedS)")
+check_eq "spend: seed S here" 1.24 "$(usd spend_here "$kv")"
+check_eq "spend: seed S today" 4.80 "$(usd spend_today "$kv")"
+check_eq "spend: seed S month" 96.40 "$(usd spend_month "$kv")"
+check_eq "spend: seed S rate" 0.62 "$(usd spend_rate "$kv")"
+check_eq "spend: seed S per day" 3.44 "$(usd spend_day "$kv")"
+check_eq "spend: 144 chart slots" 144 "$(key spend_slots "$kv" | tr ',' '\n' | wc -l | tr -d ' ')"
+check_eq "spend: slot 110 holds 00:30" 4.18 "$(printf '%.2f' "$(key spend_slots "$kv" | cut -d, -f111)")"
+check_eq "spend: slot 139 holds 05:20" 0.62 "$(printf '%.2f' "$(key spend_slots "$kv" | cut -d, -f140)")"
+check_eq "spend: seed S midnight offset" 64200 "$(key spend_mid "$kv")"
+check_eq "spend: no cost yet shows 0.00 here" 0.00 "$(usd spend_here "$(api_kv "$(seedS)" '{"session_id":"api2"}')")"
+
 # --- hud.pl: render ---
 render() { data <<<"$1" | COLUMNS=120 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
 out=$(render "$full")
