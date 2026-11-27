@@ -1330,7 +1330,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       key="explorer:info-card"
       position="absolute"
       top={short ? 0 : 1}
-      right={short ? 5 : 2}
+      right={short ? 5 : -PAD}
       display={state.infoPinned ? 'flex' : 'none'}
       hover={state.infoPinned || state.menuPinned ? undefined : { scope: 'explorer:info', display: 'flex' }}
     >
@@ -1348,7 +1348,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
         {infoRow('type', [<Text>{langOf(place.path.slice(place.path.lastIndexOf('/') + 1))}</Text>])}
         {infoRow('lines', [<Text>{String(lines.length)}</Text>])}
       </Box>
-      {/* On the rule, the top corners join it as tees; borderStyle takes only style names. */}
+      {/* The left corner joins the rule as a tee; the right border is covered so the rail, one column on, reads as the edge. */}
       {!short && (
         <Box position="absolute" top={0} left={0}>
           <Text color="promptBorder">┬</Text>
@@ -1356,7 +1356,13 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       )}
       {!short && (
         <Box position="absolute" top={0} right={0}>
-          <Text color="promptBorder">┬</Text>
+          <Text color="promptBorder">─</Text>
+        </Box>
+      )}
+      {!short && <Box position="absolute" top={1} bottom={1} right={0} width={1} backgroundColor={CARD} />}
+      {!short && (
+        <Box position="absolute" bottom={0} right={0}>
+          <Text color="promptBorder">─</Text>
         </Box>
       )}
     </Box>
@@ -1366,7 +1372,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       key="explorer:menu-card"
       position="absolute"
       top={short ? 0 : 1}
-      right={short ? hdrRight : 0}
+      right={short ? hdrRight : -PAD}
       display={state.menuPinned ? 'flex' : 'none'}
       hover={state.menuPinned || state.infoPinned ? undefined : { scope: 'explorer:menu', display: 'flex' }}
     >
@@ -1421,7 +1427,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
           <Text color="claude">{state.showDiff ? (basic ? '✓' : String.fromCharCode(0xeab2)) : ' '}</Text>
         </Button>
       </Box>
-      {/* On the rule, the top corners join it as tees; borderStyle takes only style names. */}
+      {/* The left corner joins the rule as a tee; the right border is covered so the rail, one column on, reads as the edge. */}
       {!short && (
         <Box position="absolute" top={0} left={0}>
           <Text color="promptBorder">┬</Text>
@@ -1429,7 +1435,13 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       )}
       {!short && (
         <Box position="absolute" top={0} right={0}>
-          <Text color="promptBorder">┬</Text>
+          <Text color="promptBorder">─</Text>
+        </Box>
+      )}
+      {!short && <Box position="absolute" top={1} bottom={1} right={0} width={1} backgroundColor={CARD} />}
+      {!short && (
+        <Box position="absolute" bottom={0} right={0}>
+          <Text color="promptBorder">─</Text>
         </Box>
       )}
     </Box>

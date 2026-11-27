@@ -796,7 +796,7 @@ test('a tall tab body keeps the card below the header, with its divider', async 
   await ui.press({ key: 'menu' })
   await ui.redraw()
   const box = await ui.find({ key: 'explorer:menu-card' })
-  expect([box?.props.top, box?.props.right]).toEqual([1, 0])
+  expect([box?.props.top, box?.props.right]).toEqual([1, -1])
   expect(textOf(box)).toContain('─')
 })
 
