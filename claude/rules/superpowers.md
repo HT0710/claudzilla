@@ -63,7 +63,7 @@ Shape:
 
 New jobs land in `docs/chancery/<YYYY-MM-DD>-<topic>/` (`spec.md`, `plan.md`); older specs + plans stay in `docs/superpowers/` (`specs/`, `plans/`). Before first write in a repo, per folder (`docs/chancery`, `docs/superpowers`):
 
-- `git ls-files <folder>` empty → append `<folder>/` to `$(git rev-parse --git-path info/exclude)` if missing. No ask.
+- `git ls-files <folder>` empty → the guard adds `<folder>/` to the exclude file on the first Write; don't append it yourself. `specExclude` off → append it to `$(git rev-parse --git-path info/exclude)` if missing. No ask.
 - Non-empty (repo tracks them) → ask: keep tracking, or exclude new ones?
 - User asks to commit specs/plans → skip exclude.
 - Excluded → skill step "commit spec/plan" → skip; report path (local, not committed).
