@@ -777,15 +777,17 @@ function report(hits) {
   if (reminders) out("PreToolUse", { additionalContext: reminders });
 }
 
-function excludeSpecs(file) {
+const SPEC_DIRS = ["docs/superpowers", "docs/chancery"];
+
+function excludeSpecs(file, specDir) {
   let dir = dirname(file);
   while (!existsSync(dir) && dir !== dirname(dir)) dir = dirname(dir);
   const top = git(dir, "rev-parse", "--show-toplevel");
-  if (!top || git(top, "ls-files", "docs/superpowers") || gitOk(top, "check-ignore", "-q", "--no-index", file)) return;
+  if (!top || git(top, "ls-files", specDir) || gitOk(top, "check-ignore", "-q", "--no-index", file)) return;
   const ex = resolve(top, git(top, "rev-parse", "--git-path", "info/exclude"));
   mkdirSync(dirname(ex), { recursive: true });
   const cur = existsSync(ex) ? readFileSync(ex, "utf8") : "";
-  appendFileSync(ex, `${cur && !cur.endsWith("\n") ? "\n" : ""}docs/superpowers/\n`);
+  appendFileSync(ex, `${cur && !cur.endsWith("\n") ? "\n" : ""}${specDir}/\n`);
 }
 
 function onPreTool(d) {
@@ -807,7 +809,8 @@ function onPreTool(d) {
   if (!["Edit", "Write", "NotebookEdit"].includes(d.tool_name)) return;
   const { cfg } = loadConfig(d.cwd ?? process.cwd());
   const file = String(d.tool_input?.file_path ?? d.tool_input?.notebook_path ?? "");
-  if (cfg.rules.specExclude === "on" && d.tool_name === "Write" && file.includes("/docs/superpowers/")) excludeSpecs(file);
+  const specDir = SPEC_DIRS.find((s) => file.includes(`/${s}/`));
+  if (cfg.rules.specExclude === "on" && d.tool_name === "Write" && specDir) excludeSpecs(file, specDir);
   let ctx;
   if (cfg.rules.debugGate === "remind" && s.debug && !s.debugNudged) { s.debugNudged = true; ctx = nudge("debugGate"); }
   if (!notWork(file)) s.edited = true;

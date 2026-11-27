@@ -449,6 +449,21 @@ check "spec: now ignored" git -C "$S" check-ignore -q "$spec"
 T=$(repo); mkdir -p "$T/docs/superpowers"; touch "$T/docs/superpowers/a.md"; git -C "$T" add docs
 hook PreToolUse tool_name=Write tool_input.file_path="$T/docs/superpowers/b.md" >/dev/null
 check "spec: tracked repo untouched" [ "$(grep -c superpowers "$T/.git/info/exclude")" -eq 0 ]
+J=$(repo); jspec="$J/docs/chancery/2026-11-27-rate-limit/spec.md"
+hook PreToolUse tool_name=Write tool_input.file_path="$jspec" >/dev/null
+hook PreToolUse tool_name=Write tool_input.file_path="$jspec" >/dev/null
+check "chancery: excluded once" [ "$(grep -cx 'docs/chancery/' "$J/.git/info/exclude")" -eq 1 ]
+check "chancery: now ignored" git -C "$J" check-ignore -q "$jspec"
+K=$(repo); mkdir -p "$K/docs/chancery/2026-11-27-x"; touch "$K/docs/chancery/2026-11-27-x/a.md"; git -C "$K" add docs
+hook PreToolUse tool_name=Write tool_input.file_path="$K/docs/chancery/2026-11-27-x/b.md" >/dev/null
+check "chancery: tracked repo untouched" [ "$(grep -c chancery "$K/.git/info/exclude")" -eq 0 ]
+L=$(repo); mkdir -p "$L/docs/superpowers"; touch "$L/docs/superpowers/a.md"; git -C "$L" add docs
+hook PreToolUse tool_name=Write tool_input.file_path="$L/docs/chancery/2026-11-27-x/spec.md" >/dev/null
+check "chancery: superpowers-tracked repo still excludes chancery" [ "$(grep -cx 'docs/chancery/' "$L/.git/info/exclude")" -eq 1 ]
+check "chancery: no superpowers line added" [ "$(grep -c superpowers "$L/.git/info/exclude")" -eq 0 ]
+N=$(mktemp -d "$REPOS/plain.XXXX")
+check "chancery: outside a repo is silent" silent hook PreToolUse tool_name=Write tool_input.file_path="$N/docs/chancery/2026-11-27-talk/spec.md"
+check "chancery: outside a repo makes no git dir" [ ! -e "$N/.git" ]
 
 # --- Stop ---
 stop() { hook Stop "last_assistant_message=$1"; }
@@ -697,6 +712,8 @@ check "config: prSkill off" silent sh_ 'gh pr edit 1 --title x'
 mcfg '{"rulesGuard":{"rules":{"specExclude":"off"}}}'
 X=$(repo); hook PreToolUse tool_name=Write tool_input.file_path="$X/docs/superpowers/s.md" >/dev/null
 check "config: specExclude off" [ "$(grep -c superpowers "$X/.git/info/exclude")" -eq 0 ]
+Y=$(repo); hook PreToolUse tool_name=Write tool_input.file_path="$Y/docs/chancery/2026-11-27-x/spec.md" >/dev/null
+check "config: specExclude off covers chancery" [ "$(grep -c chancery "$Y/.git/info/exclude")" -eq 0 ]
 mcfg '{"statusline":{"x":1}}'
 new_session; check "config: file without rulesGuard is silent" silent hook UserPromptSubmit prompt=hi
 printf '{bad' > "$CLAUDE_CONFIG_DIR/claudzilla.json"
