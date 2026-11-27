@@ -25,6 +25,9 @@ const linkable = (href: string) => {
   }
 }
 
+// A code span opens and closes on backtick runs of one length.
+const MARK = /(`+)(.+?)\1(?!`)|\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)\s]+)\)|(?<![\w*])\*(?!\s)([^*]+?)\*(?![\w*])/g
+
 // Words with their style; `glue`: no space before it, as in "(`a.ts`)".
 const words = (text: string, base: Style) => {
   const out: { text: string; style: Style; glue: boolean }[] = []
@@ -35,10 +38,8 @@ const words = (text: string, base: Style) => {
       else if (piece) out.push({ text: piece, style: { ...base, ...style }, glue: !space }), (space = false)
     }
   }
-  // A code span opens and closes on backtick runs of one length.
-  const mark = /(`+)(.+?)\1(?!`)|\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)\s]+)\)|(?<![\w*])\*(?!\s)([^*]+?)\*(?![\w*])/g
   let at = 0
-  for (const m of text.matchAll(mark)) {
+  for (const m of text.matchAll(MARK)) {
     push(text.slice(at, m.index), {})
     if (m[1] !== undefined) push(m[2]!, { code: true })
     else if (m[3] !== undefined) push(m[3], { bold: true })
@@ -99,7 +100,8 @@ const blockRows = (lines: string[], width: number): MdRow[] => {
   if (table)
     lines = lines.slice(2).map(line => {
       const [first, ...rest] = cells(line)
-      return `**${first}** — ${rest.join(' · ')}`
+      // Marks don't nest: a cell with its own keeps them, unbolded.
+      return `${first && first.search(MARK) < 0 ? `**${first}**` : first} — ${rest.join(' · ')}`
     })
   const items: { lead: number; marker: string; text: string; style: Style }[] = []
   for (const raw of lines) {

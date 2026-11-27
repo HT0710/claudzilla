@@ -42,6 +42,16 @@ test('a fence draws one code row per line with its language; a table becomes one
   expect(mdRows('', 8)).toEqual([])
 })
 
+test('a table first cell with its own marks keeps them instead of bold', () => {
+  expect(mdRows('| a | b |\n|---|---|\n| **foo** | 1 |\n| `x.ts` | 2 |\n| [x](./a.md) | 3 |\n| plain | 4 |\n|  | 5 |', 80)).toEqual([
+    { indent: 0, spans: [{ bold: true, text: 'foo' }, { text: ' — 1' }] },
+    { indent: 0, spans: [{ code: true, text: 'x.ts' }, { text: ' — 2' }] },
+    { indent: 0, spans: [{ text: 'x — 3' }] },
+    { indent: 0, spans: [{ bold: true, text: 'plain' }, { text: ' — 4' }] },
+    { indent: 0, spans: [{ text: '— 5' }] },
+  ])
+})
+
 test('inline triple backticks are a code span, not a fence; quotes lose > on every line; comments and empty blocks draw nothing', () => {
   expect(texts('```foo``` bar\n\nnext', 80)).toEqual(['foo bar', '', 'next'])
   expect(texts('> a\n> b', 80)).toEqual(['a b'])
