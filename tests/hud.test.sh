@@ -283,6 +283,17 @@ check_eq "spend: slot 139 holds 05:20" 0.62 "$(printf '%.2f' "$(key spend_slots 
 check_eq "spend: seed S midnight offset" 64200 "$(key spend_mid "$kv")"
 check_eq "spend: no cost yet shows 0.00 here" 0.00 "$(usd spend_here "$(api_kv "$(seedS)" '{"session_id":"api2"}')")"
 
+bars="$(printf '▁%.0s' $(seq 33))╎█$(printf '▁%.0s' $(seq 8))▂▁"
+check "chart: seed S, 120 cols, exact bars" grep -qF "24h ago $bars now" <<<"$(api_row 120)"
+flat_raw=$(api_kv "$(mktemp -d -p "$TMP")" | FROZEN_TIME=$T0 TZ=UTC PERL5LIB="$PL" COLUMNS=120 HUD_KV=1 perl -MFrozen "$HUD/hud.pl")
+check "chart: empty ledger draws track-coloured ▁" grep -q $'\e\\[38;2;30;42;58m▁' <<<"$flat_raw"
+flat=$(perl -pe 's/\e\[[0-9;]*m//g' <<<"$flat_raw")
+check "chart: empty ledger, marker at midnight, flat elsewhere" grep -qF "24h ago $(printf '▁%.0s' $(seq 33))╎$(printf '▁%.0s' $(seq 11)) now" <<<"$flat"
+dst=$(printf '%s' "$apiful" | FROZEN_TIME=1793574000 TZ=America/New_York PERL5LIB="$PL" ANTHROPIC_API_KEY=x CLAUDE_CONFIG_DIR="$(mktemp -d -p "$TMP")" HUD_DUMP=1 perl -MFrozen "$HUD/hud.pl" | FROZEN_TIME=1793574000 TZ=America/New_York PERL5LIB="$PL" COLUMNS=120 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g')
+check "chart: DST afternoon, marker at EDT midnight (cell 9 of 45)" grep -qF "24h ago $(printf '▁%.0s' $(seq 9))╎$(printf '▁%.0s' $(seq 35)) now" <<<"$dst"
+out=$(api_row 40)
+check "chart: 40 cols stacks at full width" perl -CSA -e 'exit(($ARGV[0] =~ /^24h ago \S{24} now$/m) ? 0 : 1)' "$out"
+
 # --- hud.pl: render ---
 render() { data <<<"$1" | COLUMNS=120 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
 out=$(render "$full")
