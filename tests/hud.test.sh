@@ -309,15 +309,19 @@ check "words: no cost yet, 120 cols, starts with \$0.00 here" grep -qF '┃ $0.0
 check "words: rate_limits mean subscription, so no spend text" bash -c 'o=$(cat); ! grep -qF "here" <<<"$o" && grep -qF "5h" <<<"$o"' <<<"$(api_kv "$(seedS)" '{"session_id":"api3","cost":{"total_cost_usd":1.24},"rate_limits":{"five_hour":{"used_percentage":40,"resets_at":'$((T0+3600))'}}}' | FROZEN_TIME=$T0 TZ=UTC PERL5LIB="$PL" COLUMNS=120 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g')"
 
 # --- spend: compact ---
-check_eq "compact: API, 120 cols, 3 rows" 3 "$(api_row 120 compact | wc -l | tr -d ' ')"
-check "compact: text cell holds both figures with spaced gaps" grep -qF '┃   $1.24 here  $96.40 month  ┃ ' <<<"$(api_row 120 compact)"
-check "compact: chart cell has no labels" bash -c "! grep -q '24h ago' <<<'$(api_row 120 compact)'"
-check "compact: cch first" grep -q '^cch ' <<<"$(api_row 120 compact)"
-check_eq "compact: 108 cols falls back to 4 rows" 4 "$(api_row 108 compact | wc -l | tr -d ' ')"
+check_eq "compact: API, 150 cols, 3 rows" 3 "$(api_row 150 compact | wc -l | tr -d ' ')"
+c=$(api_row 150 compact)
+check "compact: text left, divider, labelled chart" grep -qE '┃ \$1\.24 here  \$4\.80 today  \$96\.40 month ┃ 24h ago \S{20} now *$' <<<"$c"
+check_eq "compact: three dividers" 3 "$(head -2 <<<"$c" | tail -1 | grep -o '┃' | wc -l | tr -d ' ')"
 d=$(seedS); printf 'day\t2026-11-28\t999999.00\n' >> "$d/claudzilla-spend.tsv"; echo '{"hud":{"layout":"compact"}}' > "$d/claudzilla.json"
-check_eq "compact: text too wide falls back to 4 rows" 4 "$(api_kv "$d" | FROZEN_TIME=$T0 TZ=UTC PERL5LIB="$PL" COLUMNS=120 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | wc -l | tr -d ' ')"
+check "compact: longer text, fewer bars" grep -qE 'month ┃ 24h ago \S{15} now *$' <<<"$(api_kv "$d" | FROZEN_TIME=$T0 TZ=UTC PERL5LIB="$PL" COLUMNS=150 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g')"
+check "compact: cch first" grep -q '^cch ' <<<"$c"
+check_eq "compact: 120 cols too narrow for the chart falls back to 4 rows" 4 "$(api_row 120 compact | wc -l | tr -d ' ')"
+check_eq "compact: 108 cols falls back to 4 rows" 4 "$(api_row 108 compact | wc -l | tr -d ' ')"
+d=$(seedS); printf 'day\t2026-11-28\t9999999999999999999.00\n' >> "$d/claudzilla-spend.tsv"; echo '{"hud":{"layout":"compact"}}' > "$d/claudzilla.json"
+check_eq "compact: text too wide falls back to 4 rows" 4 "$(api_kv "$d" | FROZEN_TIME=$T0 TZ=UTC PERL5LIB="$PL" COLUMNS=150 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | wc -l | tr -d ' ')"
 d=$(seedS); echo '{"hud":{"layout":"compact"}}' > "$d/claudzilla.json"
-nc=$(api_kv "$d" | grep -v '^ctx	' | FROZEN_TIME=$T0 TZ=UTC PERL5LIB="$PL" COLUMNS=120 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g')
+nc=$(api_kv "$d" | grep -v '^ctx	' | FROZEN_TIME=$T0 TZ=UTC PERL5LIB="$PL" COLUMNS=150 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g')
 check_eq "compact: no ctx value, one row" 3 "$(wc -l <<<"$nc" | tr -d ' ')"
 check_eq "compact: no ctx value, three dividers" 3 "$(grep -o '┃' <<<"$nc" | wc -l | tr -d ' ')"
 check "compact: no ctx value, text cell kept" grep -qF '$1.24 here' <<<"$nc"
