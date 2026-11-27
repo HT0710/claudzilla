@@ -474,6 +474,7 @@ if ($SID) {
 my $cwd;
 if (my $e = $META_CWD) { my $h = $ENV{HOME} // ''; utf8::decode($h); $e =~ s/^\Q$h\E(?=\/|$)/~/ if $h; $cwd = $e; }
 my $profile = $f{login} // $f{profile};
+my $API = defined $f{login};
 # claudzilla version from the clone this script links into: the last release tag, or, when the
 # clone runs ahead of it, the tag CI would cut next (same script as .github/workflows/test.yml)
 my $ver;
@@ -571,6 +572,35 @@ sub fig_colour {
     return $wait ? pal('hud_note') : $cc // [map { int($_+0.5) } @{ ramp($x) }];
 }
 sub cch_colour { [map { int($_+0.5) } @{ ramp(0.1 + 0.9 * ($_[0]/100) ** 0.85) }] }
+sub chart_cells {
+    my $n = shift;
+    my @sl = length($f{spend_slots} // '') ? split(/,/, $f{spend_slots}) : ();
+    push @sl, 0 while @sl < 144;
+    my $mid = $f{spend_mid};
+    my $N = defined $mid ? $n - 1 : $n; my $L;
+    if (defined $mid) { $L = int($N * $mid / 86400 + 0.5); $L = $N - 1 if $L > $N - 1; $L = 1 if $L < 1 }
+    my $R = defined $mid ? $N - $L : 0;
+    my @sum = (0) x $N;
+    for my $k (0 .. 143) {
+        my $o = 600 * $k;
+        my $c = !defined $mid ? int($k * $N / 144) : $o < $mid ? int($o * $L / $mid) : $L + int(($o - $mid) * $R / (86400 - $mid));
+        $sum[$c] += $sl[$k];
+    }
+    my ($min, $max) = ($sum[0], $sum[0]);
+    for (@sum) { $min = $_ if $_ < $min; $max = $_ if $_ > $max }
+    my @g = split //, "\x{2581}\x{2582}\x{2583}\x{2584}\x{2585}\x{2586}\x{2587}\x{2588}";
+    my @cells = map {
+        if ($max > $min) { my $lv = ($_ - $min) / ($max - $min); [$g[int($lv * 7 + 0.5)], cch_colour(int($lv * 100 + 0.5))] }
+        else { [$g[0], pal('hud_track')] }
+    } @sum;
+    splice @cells, $L, 0, ["\x{254E}", pal('hud_clock')] if defined $mid;
+    return @cells;
+}
+sub chart_row {
+    my $w = shift;
+    my $nt = sub { map { [$_, pal('hud_note')] } split //, $_[0] };
+    return cells_str($nt->('24h ago '), chart_cells($w - 12), $nt->(' now'));
+}
 sub cells_str { return paint(map { [$_->[0], @{$_->[1]}] } @_) }   # [char, colour] cells -> string
 my $dim = sub { "\e[2m$_[0]\e[0m" };
 # meter titles: muted lilac - clear of the teal profile and the blue->orange ramp
@@ -632,7 +662,7 @@ my @one = grep { defined } @mv{qw(ctx cch 5h wk)};
 # a fixed note width of 5, not $tw: the row count must not flip as a reset countdown changes length
 my $ONE = $COMPACT && @one && int(($W - 3 * $#one) / @one) - 11 - 5 >= 8;
 my $CL = int(($W - 3) / 2); my $CRW = $W - 3 - $CL;
-my $TWO = !$ONE && ($mv{'5h'} || $mv{wk}) && $CL - 11 - $tw >= 8;
+my $TWO = !$ONE && ($mv{'5h'} || $mv{wk} || $API) && $CL - 11 - $tw >= 8;
 my ($twl, $twr) = $TWO ? ($note_w->(qw(ctx cch)), $note_w->(qw(5h wk))) : ($tw, $tw);
 my @m = $ONE || $MIN ? () : $TWO ? grep { defined } @mv{qw(ctx cch)} : @one;
 my $n  = ($TWO ? $CL : $W) - 4 - 5 - 2 - $twl;
@@ -723,13 +753,14 @@ if ($MIN) {
         my ($l, $r) = ($mv{(qw(ctx cch))[$i]}, $mv{(qw(5h wk))[$i]});
         push @out, ($l ? meter_line(@$l, $n, $twl, 3, 3) : ' ' x $CL)
                  . $DIV
-                 . ($r ? meter_line(@$r, $nr, $twr, 3, 3) : ' ' x $CRW);
+                 . ($r ? meter_line(@$r, $nr, $twr, 3, 3) : $API && $i ? chart_row($CRW) : ' ' x $CRW);
     }
 } else {
     for my $r (@m) {
         my ($label,$pct,$note) = @$r;
         push @out, meter_line($label, $pct, $note, $n, $tw, 3, 3);
     }
+    push @out, chart_row($W) if $API;
 }
 
 push @out, rule(sprintf(' %s %02d %s ', $DAY[$lt[6]], $lt[3], $MON[$lt[4]])) unless $f{layout};
