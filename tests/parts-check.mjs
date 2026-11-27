@@ -19,6 +19,6 @@ for (const [ev, list] of Object.entries(base.hooks ?? {}))
     const cmds = e.hooks.map((h) => h.command);
     once(`hook ${ev}[${i}]`, (n) => cmds.some((c) => parts[n].hooks?.some((s) => c.includes(s))));
   });
-for (const l of "CLAUDE.md RTK.md rules themes hud hooks/claudzilla-update.sh hooks/rules-guard.mjs hooks/md-display.pl skills/pr skills/rule-review hooks/doctor.mjs skills/claudzilla-doctor".split(" "))
+for (const l of "CLAUDE.md RTK.md rules themes hud hooks/claudzilla-update.sh hooks/rules-guard.mjs hooks/md-display.pl skills/pr skills/blueprint skills/rule-review hooks/doctor.mjs skills/claudzilla-doctor".split(" "))
   once(`link ${l}`, (n) => parts[n].links?.includes(l));
 if (bad.length) { console.error(bad.join("\n")); process.exit(1); }

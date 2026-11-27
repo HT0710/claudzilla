@@ -71,19 +71,22 @@ check "content: no omc" bash -c "! grep -rqi omc '$REPO/claude' '$REPO/settings.
 
 # --- parts ---
 check "parts: every base key/hook/plugin claimed exactly once" node "$REPO/tests/parts-check.mjs" "$REPO"
-check_eq "parts: links == old LINKS set" "CLAUDE.md RTK.md agents/atlas.md hooks/agent-name.mjs hooks/claudzilla-update.sh hooks/cost-trace.mjs hooks/delegate-nudge.mjs hooks/doctor.mjs hooks/experimental.mjs hooks/md-display.pl hooks/rules-guard.mjs hooks/trace.mjs hooks/trace.pl hud rules skills/claudzilla-compact skills/claudzilla-doctor skills/claudzilla-report skills/pr skills/rule-review themes" "$(node -p 'Object.values(require(process.argv[1])).flatMap(p=>p.links||[]).sort().join(" ")' "$REPO/parts.json")"
+check_eq "parts: links == old LINKS set" "CLAUDE.md RTK.md agents/atlas.md hooks/agent-name.mjs hooks/claudzilla-update.sh hooks/cost-trace.mjs hooks/delegate-nudge.mjs hooks/doctor.mjs hooks/experimental.mjs hooks/md-display.pl hooks/rules-guard.mjs hooks/trace.mjs hooks/trace.pl hud rules skills/blueprint skills/claudzilla-compact skills/claudzilla-doctor skills/claudzilla-report skills/pr skills/rule-review themes" "$(node -p 'Object.values(require(process.argv[1])).flatMap(p=>p.links||[]).sort().join(" ")' "$REPO/parts.json")"
 H=$(new_home); run_install "$H"; cp -a "$H/.claude" "$H/before"; run_install "$H"
 check "existing: re-run byte-identical" diff -r --exclude=.claudzilla-backup "$H/before" "$H/.claude"
 
 # --- fresh machine ---
 H=$(new_home); run_install "$H"; rc=$?
 check "fresh: exit 0" [ "$rc" -eq 0 ]
-for f in CLAUDE.md RTK.md rules themes hud agents/atlas.md hooks/claudzilla-update.sh hooks/cost-trace.mjs hooks/rules-guard.mjs hooks/experimental.mjs hooks/delegate-nudge.mjs hooks/agent-name.mjs hooks/trace.mjs hooks/trace.pl hooks/md-display.pl skills/pr skills/rule-review skills/claudzilla-report skills/claudzilla-compact skills/claudzilla-doctor hooks/doctor.mjs; do
+for f in CLAUDE.md RTK.md rules themes hud agents/atlas.md hooks/claudzilla-update.sh hooks/cost-trace.mjs hooks/rules-guard.mjs hooks/experimental.mjs hooks/delegate-nudge.mjs hooks/agent-name.mjs hooks/trace.mjs hooks/trace.pl hooks/md-display.pl skills/pr skills/blueprint skills/rule-review skills/claudzilla-report skills/claudzilla-compact skills/claudzilla-doctor hooks/doctor.mjs; do
   check "fresh: $f linked" [ "$(readlink "$H/.claude/$f")" = "$REPO/claude/$f" ]
 done
 H2=$(new_home); mkdir -p "$H2/.claude/skills/mine"; echo x > "$H2/.claude/skills/mine/SKILL.md"; run_install "$H2"
 check_eq "skills: own skill kept" x "$(cat "$H2/.claude/skills/mine/SKILL.md")"
 check "skills: pr linked beside own" [ "$(readlink "$H2/.claude/skills/pr")" = "$REPO/claude/skills/pr" ]
+HB=$(new_home); mkdir -p "$HB/.claude/skills/blueprint"; echo blueprint > "$HB/.claude/skills/blueprint/SKILL.md"; run_install "$HB"
+check "skills: own blueprint kept in backup" bash -c "grep -rqx blueprint '$HB/.claude/.claudzilla-backup'"
+check "skills: blueprint linked over own" [ "$(readlink "$HB/.claude/skills/blueprint")" = "$REPO/claude/skills/blueprint" ]
 HA=$(new_home); mkdir -p "$HA/.claude/agents"; echo x > "$HA/.claude/agents/mine.md"; run_install "$HA"
 check_eq "agents: own agent kept" x "$(cat "$HA/.claude/agents/mine.md")"
 check "agents: atlas linked beside own" [ "$(readlink "$HA/.claude/agents/atlas.md")" = "$REPO/claude/agents/atlas.md" ]
