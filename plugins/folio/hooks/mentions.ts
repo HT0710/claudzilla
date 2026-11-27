@@ -1,4 +1,4 @@
-export type Mention = { span: string; path: string; line: number }
+export type Mention = { span: string; path: string; line: number; bare: boolean }
 
 // A link Claude wrote, or a code span; the link is matched first so a span inside it stays the link's.
 const SPAN = /(\[[^\]\n]*\]\([^)\n]*\))|`([^`\n]+)`/g
@@ -26,7 +26,7 @@ export function mentions(text: string): Mention[] {
   spans(text, span => {
     const [, path, line] = span.match(PATH) ?? []
     if (path && !path.startsWith('-') && !VERSION.test(path) && (path.includes('/') || /\.\w+$/.test(path))) {
-      found.push({ span, path, line: line ? Number(line) : 1 })
+      found.push({ span, path, line: line ? Number(line) : 1, bare: !line })
     }
     return undefined
   })

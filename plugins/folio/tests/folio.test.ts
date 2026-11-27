@@ -208,6 +208,18 @@ test('a press calls panel.show with the path and line', async ($, on) => {
   expect(shown).toEqual([{ path: '/r/a.ts', line: 65 }])
 })
 
+test('a bare .md link sends no line to margin; a bare .ts link sends line 1; a.md:5 sends 5', async ($, on) => {
+  const shown: any[] = []
+  on('engine.create', async (_$, e, next) => ({ ...(await next(e)), margin: { show: async (a: unknown) => { shown.push(a) } } }))
+  files(on, { '/r/a.md': 'file', '/r/b.ts': 'file' })
+  const ui = await mount($, 'l18', { text: 'see `a.md` `b.ts` `a.md:5`', isFirstOfReply: true })
+  const key = (await ui.find({ type: 'Markdown' }))!.props.key
+  await ui.press({ key, link: { href: 'file:///r/a.md#L1' } })
+  await ui.press({ key, link: { href: 'file:///r/b.ts#L1' } })
+  await ui.press({ key, link: { href: 'file:///r/a.md#L5' } })
+  expect(shown.map(s => [s.path, 'line' in s ? s.line : 'none'])).toEqual([['/r/a.md', 'none'], ['/r/b.ts', 1], ['/r/a.md', 5]])
+})
+
 test("a linked block takes the engine's blank row and white bullet", async ($, on) => {
   files(on, { '/r/o.ts': 'file' })
   const ui = await mount($, 'l16', { text: 'see `o.ts`\n\n──\n\nmore `o.ts:2`', isFirstOfReply: true })

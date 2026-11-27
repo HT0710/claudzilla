@@ -617,7 +617,7 @@ async function shell($: EngineInterface, cmd: string, block: string) {
   if ('deny' in row && row.deny) $.ui.toast(`folio: Claude will not see this output (${row.deny})`)
 }
 
-type Link = { href: string; path: string; line: number }
+type Link = { href: string; path: string; line: number; bare: boolean }
 // Paths known to be files: a render repeats on scroll and resize.
 const files = new Set<string>()
 // Paths found missing, by when: a burst of redraws asks once, and a file made later links on a later draw.
@@ -687,7 +687,7 @@ async function links($: EngineInterface, text: string): Promise<Map<string, Link
     }
     for (const m of all) {
       const path = pathsOf(m.path).find(p => files.has(p))
-      if (path) found.set(m.span, { href: href(path, m.line), path, line: m.line })
+      if (path) found.set(m.span, { href: href(path, m.line), path, line: m.line, bare: m.bare })
     }
     if (linksOf.size > 500) linksOf.clear()
     linksOf.set(text, found)
@@ -1862,7 +1862,8 @@ export const register: Register = on => {
         let drawn = await next({ ...e, props: { ...e.props, text: p.text, isFirstOfReply: isFirst } })
         const chunk = found[i]
         if (chunk?.size) {
-          const at = new Map([...chunk.values()].map(l => [l.href, { path: l.path, line: l.line }]))
+          // A line makes margin show a .md as source; a bare .md link wants its rendered view.
+          const at = new Map([...chunk.values()].map(l => [l.href, { path: l.path, ...(l.bare && /\.md$/i.test(l.path) ? {} : { line: l.line }) }]))
           // Drawn by the plugin, the block lacks the engine's blank row above and its bullet.
           drawn = (
             <Box marginTop={1}>
