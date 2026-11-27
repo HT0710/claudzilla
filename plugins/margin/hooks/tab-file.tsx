@@ -14,14 +14,16 @@ import { ageOf } from './explorer-ages'
 import type { Scan } from './explorer-ages'
 import { OPEN_EDITOR_SH, cleanLine, gitDiff, gitStatus, listDir, listNames, loadFile, latestOf, projectRoot, scanAges, statOf } from './explorer-load'
 import type { Loaded } from './explorer-load'
-import { back, current, forward, navStart, remember, visit } from './explorer-nav'
+import { back, current, forward, navStart, remember, setView, visit } from './explorer-nav'
 import type { Nav } from './explorer-nav'
 import { tokenize } from './explorer-tokens'
 import type { Token } from './explorer-tokens'
 import { guideFolders, iconOf, itemsText, langOf, rowScopeOf, scopeOf, treeRows } from './explorer-tree'
 import type { Listing } from './explorer-tree'
 import { fileKey, printable } from './git-data'
-import { CARD, DIMMED, FLASH, HUD, LIT, PAD, PILL_BG, STATUS, TYPES, basicGlyphs, clock, emptyNote, mixHex, readTheme, rowHovers, themeHex, toPieces } from './kit'
+import { mdRows } from './markdown'
+import type { MdRow } from './markdown'
+import { CARD, DIMMED, FLASH, HUD, LIT, PAD, PILL_BG, STATUS, TYPES, basicGlyphs, clock, emptyNote, mdView, mixHex, readTheme, rowHovers, themeHex, toPieces } from './kit'
 import type { TabCtx, TabDraw } from './kit'
 
 // The open place, so a change redraws the pane; the draw applies a place whose rev it has not seen.
@@ -61,6 +63,8 @@ type State = {
   showDiff: boolean
   afterFolder?: boolean
   layout?: Cached
+  // The Markdown rows of the loaded file, kept while the file and width stay the same.
+  mdCache?: { of: Loaded; width: number; rows: MdRow[] }
   // Change cells of the bar, kept while the layout, marks, Show git diff and cell count stay the same.
   bar?: BarCache
   tokens: Map<number, Token[]>
@@ -255,7 +259,9 @@ async function applyEdit($: EngineInterface): Promise<number | undefined> {
 
 export function showPlace(place: { path: string; line?: number; kind?: 'file' | 'folder'; diff?: string }): number {
   const { diff, ...at } = place
-  moveTo(nav => visit(nav, { ...at, kind: at.kind ?? 'file' }))
+  // A line or an edit points into the source, and the file may not be loaded yet, so the path decides.
+  const source = (at.line !== undefined || diff !== undefined) && /\.md$/i.test(at.path)
+  moveTo(nav => visit(nav, { ...at, kind: at.kind ?? 'file', ...(source && { md: false }) }))
   if (diff !== undefined) {
     state.editDiff = { path: place.path, diff }
     endFlash()
@@ -695,6 +701,11 @@ function headOf(path: string, root: string, home: string | undefined, room: numb
   return cutStart(printable(shown), room)
 }
 
+// A readable `.md` file, which the tab can draw as Markdown.
+function mdFile(path: string, loaded: Loaded | undefined): boolean {
+  return !!loaded && !loaded.unreadable && loaded.path === path && /\.md$/i.test(path)
+}
+
 // Text cut from its start with `…` to fit room cells.
 function cutStart(clean: string, room: number): string {
   if (cellsOf(clean) <= room) return clean
@@ -844,10 +855,6 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   const findOpen = !!state.find?.open && place.kind === 'file'
   let codeRows = Math.max(0, rows - 2 - (findOpen ? 2 : 0))
   const W = props.bodyColumns - 2 * PAD
-  // The header's right buttons: search, info and menu on a file page, search and menu on a folder page.
-  const hdrRight = place.kind === 'file' ? 5 : 3
-  // The header centre's room: the width less the buttons (5 left, hdrRight right) and a 2-cell gap on each side.
-  const MID = W - 5 - hdrRight - 2 * GAP
   const home = await $.env.get('HOME').catch(() => undefined)
   const basic = await basicGlyphs($)
   let fileMark: string | undefined
@@ -860,11 +867,27 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   }
   // After the awaits above: a reload during it must not leave old lines drawn with new marks.
   const loaded = place.kind === 'file' && state.loaded?.path === place.path ? state.loaded : undefined
+  const isMd = mdFile(place.path, loaded)
+  const viewMd = isMd && place.kind === 'file' && place.md !== false
+  // The header's right buttons: search, info and menu on a file page, plus the Markdown switch on a readable .md file, search and menu on a folder page.
+  const hdrRight = place.kind === 'file' ? (isMd ? 7 : 5) : 3
+  // The header centre's room: the width less the buttons (5 left, hdrRight right) and a 2-cell gap on each side.
+  const MID = W - 5 - hdrRight - 2 * GAP
   const lines = loaded?.lines ?? []
   const digits = String(lines.length).length
   const G = digits + 3
   const C = W - G - 1
   let body: JSX.Element[] = []
+  const bar = (axis: 'v' | 'h', cells: number, total: number, top: number) => ({
+    axis,
+    cells,
+    total,
+    shown: cells,
+    top,
+    ...thumbOf(total, cells, top, cells),
+    glyph: String.fromCharCode(axis === 'v' ? 0x2590 : 0x2582),
+    color: 'promptBorder',
+  })
   const zones: TabDraw['zones'] = []
   const Client = 'Client' in ctx.el ? ctx.el.Client : undefined
   // `lead`: one guide scope per indent column, null for a blank; `group`: the guide line the pointer on this row lights.
@@ -1045,6 +1068,30 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
     if (!n) body = [<Text key="empty" color={HUD.faint}>no match</Text>]
   } else if (loaded?.unreadable) {
     body = [emptyNote(ctx.el, codeRows, "Can't show this file", <Text color={HUD.faint}>{loaded.missing ? 'It no longer exists.' : 'It is binary, unreadable or over 4 MiB.'}</Text>)]
+  } else if (loaded && viewMd) {
+    if (state.mdCache?.of !== loaded || state.mdCache.width !== C) state.mdCache = { of: loaded, width: C, rows: mdRows(lines.join('\n'), C - 1) }
+    const mdr = state.mdCache.rows
+    state.remapTop = false
+    const win = fileWindow(mdr.length, state.top ?? 0, codeRows)
+    state.top = win.top
+    body.push(
+      <Box key="view">
+        <Box flexDirection="column" width={C + G} flexShrink={0} height={codeRows}>{mdView(ctx.el, mdr.slice(win.top, win.last))}</Box>
+        {Client && <Client key="explorer:vbar" module="./explorer-bar.tsx" width={1} height={codeRows} props={bar('v', codeRows, mdr.length, win.top)} />}
+      </Box>,
+    )
+    zones.push({
+      tab: 'Explorer',
+      kind: 'list',
+      from: 2,
+      to: 2 + codeRows,
+      offset: 0,
+      fallback: true,
+      wheel: by => {
+        state.top = fileWindow(mdr.length, (state.top ?? 0) + by, codeRows).top
+        return update($, file, () => placeOf())
+      },
+    })
   } else if (loaded) {
     const was = state.layout?.layout
     state.layout = layoutFor(state.layout, loaded, C, state.wrap, lines, state.marks?.removed)
@@ -1123,16 +1170,6 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
         </Box>,
       )
     }
-    const bar = (axis: 'v' | 'h', cells: number, total: number, top: number) => ({
-      axis,
-      cells,
-      total,
-      shown: cells,
-      top,
-      ...thumbOf(total, cells, top, cells),
-      glyph: String.fromCharCode(axis === 'v' ? 0x2590 : 0x2582),
-      color: 'promptBorder',
-    })
     const matched: number[] = []
     if (findOpen)
       for (const n of state.find!.spans.keys())
@@ -1334,7 +1371,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       key="explorer:info-card"
       position="absolute"
       top={short ? 0 : 1}
-      right={short ? 5 : -PAD}
+      right={short ? hdrRight : -PAD}
       display={state.infoPinned ? 'flex' : 'none'}
       hover={state.infoPinned || state.menuPinned ? undefined : { scope: 'explorer:info', display: 'flex' }}
     >
@@ -1409,7 +1446,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
           onPress={() => {
             const old = state.layout?.layout
             state.wrap = !state.wrap
-            if (old && place.kind === 'file' && loaded && !loaded.unreadable) keepTop(old, lines, C)
+            if (old && place.kind === 'file' && loaded && !loaded.unreadable && !viewMd) keepTop(old, lines, C)
             return update($, file, () => placeOf())
           }}
         >
@@ -1423,7 +1460,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
             const old = state.layout?.layout
             state.showDiff = !state.showDiff
             showMarks()
-            if (old && place.kind === 'file' && loaded && !loaded.unreadable) keepTop(old, lines, C)
+            if (old && place.kind === 'file' && loaded && !loaded.unreadable && !viewMd) keepTop(old, lines, C)
             return update($, file, () => placeOf())
           }}
         >
@@ -1530,6 +1567,16 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
           </Box>
           {!editing && (
             <Box key="explorer:header-right" width={hdrRight} flexShrink={0} gap={1} justifyContent="flex-end">
+              {isMd && (
+                <Button key="explorer:markdown" plain onPress={() => {
+                  state.nav = setView(state.nav, !viewMd)
+                  state.top = 0
+                  if (!viewMd) state.lit = undefined
+                  return update($, file, () => placeOf())
+                }}>
+                  <Text color="claude" inverse={viewMd}>{basic ? 'M' : String.fromCharCode(0xeb1d)}</Text>
+                </Button>
+              )}
               {glyph('explorer:search', '/', 0xea6d, () => (place.kind === 'file' ? openFind($) : openNames($)))}
               {place.kind === 'file' && (
                 <Button key="info" plain hover={state.menuPinned ? undefined : { scope: 'explorer:info' }} onPress={() => {
