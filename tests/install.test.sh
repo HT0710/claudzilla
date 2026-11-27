@@ -94,6 +94,11 @@ check "fresh: CLAUDE.local.md created" [ -f "$H/.claude/CLAUDE.local.md" ]
 check "fresh: settings == base + ponytail seed" [ "$(node -p 'const j=require(process.argv[1]);delete j.pluginConfigs["ponytail@ponytail"];if(!Object.keys(j.pluginConfigs).length)delete j.pluginConfigs;JSON.stringify(j)' "$H/.claude/settings.json")" = "$(q "$REPO/settings.base.json" '')" ]
 check_eq "fresh: permissions ask by default" '"default"' "$(q "$H/.claude/settings.json" .permissions.defaultMode)"
 check_eq "fresh: no bypass-prompt skip" undefined "$(q "$H/.claude/settings.json" .skipDangerousModePermissionPrompt)"
+check_eq "fresh: brainstorming denied" true "$(node -p 'require(process.argv[1]).permissions.deny.includes("Skill(superpowers:brainstorming)")' "$H/.claude/settings.json")"
+HD=$(new_home); mkdir -p "$HD/.claude"; echo '{"permissions":{"deny":["Bash(rm -rf *)"]}}' > "$HD/.claude/settings.json"; run_install "$HD"
+check_eq "existing: user deny kept, brainstorming added" true "$(node -p 'const d=require(process.argv[1]).permissions.deny;d.includes("Bash(rm -rf *)")&&d.includes("Skill(superpowers:brainstorming)")' "$HD/.claude/settings.json")"
+run_install "$HD"
+check_eq "existing: rerun keeps one brainstorming entry" 1 "$(node -p 'require(process.argv[1]).permissions.deny.filter((x)=>x==="Skill(superpowers:brainstorming)").length' "$HD/.claude/settings.json")"
 check "fresh: update hook in settings" grep -q 'claudzilla-update.sh' "$H/.claude/settings.json"
 ssMatcher() { node -e 'const [p,re,m]=process.argv.slice(1),e=require(p).hooks.SessionStart.filter(x=>x.hooks.some(h=>new RegExp(re).test(h.command)));process.exit(e.length===1&&e[0].matcher===m?0:1)' "$H/.claude/settings.json" "$1" "$2"; }
 check "fresh: update hook runs on startup and /clear" ssMatcher claudzilla-update 'startup|clear'
