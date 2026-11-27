@@ -342,7 +342,7 @@ With `{"hud":{"layout":"minimal"}}`, the status line is one row: the folder, bra
 
 To change the status line colours, see *Customize claudzilla* (`/claudzilla customize`).
 
-The installer offers the MesloLGS NF font, which draws the symbols. If you said no, the status line uses basic symbols every font has: `■ □` instead of `▰ ▱` in the meters, `›` instead of `⎇` for the branch, and `▸` instead of `⚑` for the skill. To switch later, run `CLAUDZILLA_FONT=yes ~/claudzilla/install.sh`, then set MesloLGS NF as your terminal font. If you see boxes instead of symbols, see *Fix common problems* (`/claudzilla stuck`).
+The installer offers the MesloLGS NF font, which draws the symbols. If you said no, the status line and the margin rail use basic symbols every font has: `■ □` instead of `▰ ▱` in the meters, `›` instead of `⎇` for the branch, and `▸` instead of `⚑` for the skill, and letters such as `o` and `g` for the rail tabs. To switch later, run `CLAUDZILLA_FONT=yes ~/claudzilla/install.sh`, then set MesloLGS NF as your terminal font. If you see boxes instead of symbols, see *Fix common problems* (`/claudzilla stuck`).
 
 What to do with it:
 
@@ -650,6 +650,7 @@ It checks:
 - **Links, plugins and settings:** the files in `~/.claude` point into the clone, the parts you picked are installed and turned on, and `settings.json` still has claudzilla's hooks and status line.
 - **Tools:** `node`, `perl` and `git` are on your PATH, and `rtk` when you picked it.
 - **Status line, hooks and the last update:** the status line runs and shows the version, each hook file parses, and the last auto-update did not fail.
+- **Symbols:** the margin rail icons and status line symbols, printed so you can see them. Doctor cannot read your terminal's font, so this row starts with `?`. Boxes mean the font lacks them: set MesloLGS NF as your terminal font, or switch to basic symbols and restart Claude.
 
 ```text
 claudzilla doctor  v1.10.0 @ cee0f89

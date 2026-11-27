@@ -161,20 +161,22 @@ export function checks(ctx) {
   const gone = tools.filter((t) => !onPath(t));
   results.push(gone.length ? { check: "tools", label: "tools", ok: false, text: `not on PATH: ${gone.join(", ")}`, why: `install ${gone.join(", ")}` } : { check: "tools", label: "tools", ok: true, text: tools.join(", ") });
 
-  if (!ctx.quick) results.push(...fullChecks(ctx, links));
+  if (!ctx.quick) results.push(...fullChecks(ctx, links, on));
   // install.sh run from a worktree relinks ~/.claude to it; a quote would break out of the skill's quoting.
   const gd = run("git", ["-C", ctx.clone, "rev-parse", "--absolute-git-dir"]).out;
   const common = resolve(ctx.clone, run("git", ["-C", ctx.clone, "rev-parse", "--git-common-dir"]).out || ".");
   const worktree = gd && real(gd) !== real(common);
   for (const r of results) {
-    if (r.fix?.kind === "install" && worktree) { delete r.fix; r.why = "this is a git worktree; run install.sh in the main clone"; }
+    if ((r.fix?.kind === "install" || r.fix?.kind === "basic-glyphs") && worktree) { delete r.fix; r.why = "this is a git worktree; run install.sh in the main clone"; }
     else if (r.fix?.cwd?.includes("'")) { delete r.fix; r.why = "the path has a quote; fix it by hand"; }
   }
   return results;
 }
 
-export function fullChecks(ctx, links) {
+export function fullChecks(ctx, links, on = new Set()) {
   const results = [];
+  const glyphs = glyphRow(ctx, on);
+  if (glyphs) results.push(glyphs);
   const ver = version(ctx.clone);
   if (ver) {
     const tmp = mkdtempSync(join(tmpdir(), "claudzilla-doctor-"));
@@ -207,6 +209,19 @@ export function fullChecks(ctx, links) {
   return results;
 }
 
+// No shell call reads the terminal's font, so the row shows the glyphs and the person judges (ask).
+function glyphRow(ctx, on) {
+  if (!on.has("hud") && !on.has("margin")) return undefined;
+  if (existsSync(join(ctx.config, ".claudzilla-basic-glyphs"))) return { check: "glyphs", label: "glyphs", ok: true, text: "basic symbols" };
+  const read = (f) => { try { return readFileSync(join(ctx.clone, f), "utf8"); } catch { return ""; } };
+  const codes = (text, re) => [...text.matchAll(re)].map((m) => JSON.parse(`"\\u${m[1].padStart(4, "0")}"`)).join(" ");
+  const rail = on.has("margin") ? codes(read("plugins/margin/hooks/kit.tsx").match(/export const ICON = \{.*\}/)?.[0] ?? "", /\\u([0-9A-Fa-f]{4})/g) : "";
+  const hud = on.has("hud") ? codes(read("claude/hud/hud.pl").match(/^\s*: \(.*\);$/m)?.[0] ?? "", /\\x\{([0-9A-Fa-f]+)\}/g) : "";
+  const text = [rail, hud].filter(Boolean).join("   ");
+  if (!text) return undefined;
+  return { check: "glyphs", label: "glyphs", ok: true, text, ask: "boxes? set MesloLGS NF as your terminal font, or", fix: { kind: "basic-glyphs", cwd: ctx.clone } };
+}
+
 export function stripPaths(results) {
   const strip = (s) => s.split(/(\s+)/).map((t) => (/^[/~]/.test(t) ? "<path>" : t)).join("");
   return results.map((r) => ({ ...r, text: strip(r.text), ...(r.fix?.cwd ? { fix: { ...r.fix, cwd: "<path>" } } : {}) }));
@@ -223,6 +238,7 @@ const FIX = {
   install: (f) => `cd ${f.cwd} && bash install.sh`,
   "update-plugin": (f) => `claude plugin update ${f.id}`,
   "uninstall-project": (f) => `cd ${f.cwd} && claude plugin uninstall ${f.id} --scope project`,
+  "basic-glyphs": (f) => `cd ${f.cwd} && CLAUDZILLA_FONT=no bash install.sh`,
   restart: () => "restart, or ignore if you ran /reload-plugins",
 };
 
@@ -238,7 +254,11 @@ export function render(results, ctx) {
   }
   const seen = new Map();
   for (const r of results.filter((x) => x.ok)) seen.set(r.check, [...(seen.get(r.check) ?? []), r]);
-  for (const [check, rows] of seen) lines.push(`✓ ${check.padEnd(12)}${rows.length > 1 ? `${rows.length}/${rows.length} match the clone` : tilde(rows[0].text)}`);
+  for (const [check, rows] of seen) {
+    const r = rows[0];
+    if (!r.ask) { lines.push(`✓ ${check.padEnd(12)}${rows.length > 1 ? `${rows.length}/${rows.length} match the clone` : tilde(r.text)}`); continue; }
+    lines.push(`? ${r.label.padEnd(12)}${r.text}`, `  ${r.ask} ${r.fix ? `run ${tilde(FIX[r.fix.kind](r.fix))}, then restart Claude` : `use basic symbols (${r.why})`}`);
+  }
   if (results.some((x) => !x.ok && x.fix)) lines.push("Fix all: /claudzilla doctor fix");
   return lines.join("\n");
 }
