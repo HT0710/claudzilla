@@ -3,6 +3,7 @@
 # hud.layout in claudzilla.json: "compact" drops the rules and puts all meters on one row when the width allows;
 # "minimal" draws one row: place and model left, meters right.
 use strict; use warnings;
+use Fcntl qw(:flock O_RDWR O_WRONLY O_CREAT O_TRUNC);
 # stdin, files and `git` output are UTF-8 bytes: dec() decodes them, so non-ASCII paths aren't encoded twice.
 # Invalid bytes (a branch name git allows) become U+FFFD, quietly: a statusline has no stderr reader.
 binmode STDOUT, ':utf8';
@@ -176,6 +177,87 @@ sub cache_file {
     (my $sid = $_[0] // '') =~ s/[^\w-]//g;
     return "$dir/hud-" . (length $sid ? $sid : 'nosession') . '.cache';
 }
+# --- shared API spend ledger in the config dir, mode 0600; tab lines: slot <epoch> <usd>, day <date> <usd>, sess <sid> <cost> <seen> ---
+sub spend_date { my @t = localtime $_[0]; return sprintf '%04d-%02d-%02d', $t[5] + 1900, $t[4] + 1, $t[3] }
+sub spend_load {
+    my %st = (slot => {}, day => {}, sess => {});
+    open my $fh, '<:utf8', $_[0] or return \%st;
+    my ($u, $e) = (qr/\d+(?:\.\d+)?/, qr/\d+/);
+    for (split /\n/, do { local $/; <$fh> // '' }) {
+        my @f = split /\t/, $_, -1;
+        if    (@f == 3 && $f[0] eq 'slot' && $f[1] =~ /^$e\z/ && $f[2] =~ /^$u\z/)                  { $st{slot}{$f[1]} = $f[2] + 0 }
+        elsif (@f == 3 && $f[0] eq 'day' && $f[1] =~ /^\d{4}-\d\d-\d\d\z/ && $f[2] =~ /^$u\z/)      { $st{day}{$f[1]} = $f[2] + 0 }
+        elsif (@f == 4 && $f[0] eq 'sess' && length $f[1] && $f[2] =~ /^$u\z/ && $f[3] =~ /^$e\z/) { $st{sess}{$f[1]} = [$f[2] + 0, $f[3] + 0] }
+    }
+    return \%st;
+}
+# drops what D6 retires; returns how many lines went
+sub spend_prune {
+    my ($st, $T) = @_;
+    my ($n, $cut, $mon) = (0, $T - 172800, substr(spend_date($T), 0, 7));
+    for (keys %{ $st->{slot} }) { if ($_ < $cut) { delete $st->{slot}{$_}; $n++ } }
+    for (keys %{ $st->{sess} }) { if ($st->{sess}{$_}[1] < $cut) { delete $st->{sess}{$_}; $n++ } }
+    for (keys %{ $st->{day} }) { if (substr($_, 0, 7) ne $mon) { delete $st->{day}{$_}; $n++ } }
+    return $n;
+}
+sub spend_save {
+    my ($file, $st) = @_;
+    my $tmp = "$file.$$.tmp";
+    sysopen(my $fh, $tmp, O_WRONLY | O_CREAT | O_TRUNC, 0600) or return 0;
+    binmode $fh, ':utf8';
+    my @l = ((map { sprintf "slot\t%s\t%.6f\n", $_, $st->{slot}{$_} } keys %{ $st->{slot} }),
+             (map { sprintf "day\t%s\t%.6f\n", $_, $st->{day}{$_} } keys %{ $st->{day} }),
+             (map { sprintf "sess\t%s\t%.6f\t%d\n", $_, @{ $st->{sess}{$_} } } keys %{ $st->{sess} }));
+    print $fh sort @l;
+    return 1 if close($fh) && rename $tmp, $file;
+    unlink $tmp; return 0;
+}
+# one tick under an exclusive lock: a delta is counted once however many sessions tick at the same time
+sub spend_tick {
+    my ($dir, $sid, $cost, $T) = @_;
+    my $file = "$dir/claudzilla-spend.tsv";
+    return spend_load($file) unless length $sid;
+    sysopen(my $lk, "$dir/claudzilla-spend.lock", O_RDWR | O_CREAT, 0600) or return spend_load($file);
+    my $got = 0;
+    for (1 .. 20) { last if $got = flock($lk, LOCK_EX | LOCK_NB); select(undef, undef, undef, 0.01) }
+    return spend_load($file) unless $got;
+    if (opendir my $dh, $dir) {
+        for (grep { /^claudzilla-spend\.tsv\.\d+\.tmp\z/ } readdir $dh) { my @s = stat "$dir/$_"; unlink "$dir/$_" if @s && $s[9] < $T - 3600 }
+        closedir $dh;
+    }
+    my $st = spend_load($file);
+    my ($delta, $dirty) = (0, 0);
+    my $old = $st->{sess}{$sid};
+    if (!$old) { $dirty = 1 }
+    elsif (sprintf('%.6f', $cost) ne sprintf('%.6f', $old->[0])) {
+        $dirty = 1;
+        $delta = $cost - $old->[0] if $cost > $old->[0];
+    }
+    $dirty = 1 if $old && $old->[1] < $T - 600;
+    $st->{sess}{$sid} = [$cost, $T] if $dirty;
+    if (sprintf('%.6f', $delta) > 0) {
+        my $s0 = int($T / 600) * 600;
+        $st->{slot}{$s0} += $delta; $st->{day}{ spend_date($s0) } += $delta;
+    }
+    $dirty = 1 if spend_prune($st, $T);
+    return $st unless $dirty;
+    return spend_save($file, $st) ? $st : spend_load($file);
+}
+sub spend_figures {
+    my ($st, $T) = @_;
+    require POSIX;
+    my $s0 = int($T / 600) * 600; my $ws = $s0 - 143 * 600;
+    my ($today, $mon, @lt) = (spend_date($T), substr(spend_date($T), 0, 7), localtime $T);
+    my %f = (today => 0, month => 0, rate => 0);
+    $f{today} += $st->{slot}{$_} for grep { spend_date($_) eq $today } keys %{ $st->{slot} };
+    $f{month} += $st->{day}{$_} for grep { substr($_, 0, 7) eq $mon } keys %{ $st->{day} };
+    $f{rate} += $st->{slot}{$s0 - $_ * 600} // 0 for 0 .. 5;
+    $f{day} = $f{month} / $lt[3];
+    $f{slots} = [map { $st->{slot}{$ws + $_ * 600} // 0 } 0 .. 143];
+    my $mid = POSIX::mktime(0, 0, 0, $lt[3], $lt[4], $lt[5], 0, 0, -1);
+    $f{mid} = $mid - $ws if defined $mid && $mid - $ws > 0 && $mid - $ws < 86400;
+    return \%f;
+}
 sub gather {
     my $raw = do { local $/; <STDIN> } // '';
     my $d = json_parse(dec($raw));
@@ -224,6 +306,15 @@ sub gather {
     }
     my $api = length($ENV{ANTHROPIC_API_KEY} // '') || length($ENV{ANTHROPIC_AUTH_TOKEN} // '') || ($acct_api && ref(dig($d, 'cost')) eq 'HASH');
     if ($api) { delete $out{profile}; $out{login} = api_host($ENV{ANTHROPIC_BASE_URL} // '') // 'api key' }
+    if (defined $out{login}) {
+        my $cost = count(dig($d, 'cost', 'total_cost_usd'));
+        my $sdir = defined $cdir ? $cdir : "$ENV{HOME}/.claude";
+        my $sf = spend_figures(spend_tick($sdir, ($out{sid} =~ s/[^\w-]//gr), $cost, $T), $T);
+        $out{spend_here} = sprintf '%.6f', $cost;
+        $out{"spend_$_"} = sprintf '%.6f', $sf->{$_} for qw(today month rate day);
+        $out{spend_slots} = join ',', map { sprintf '%.6f', $_ } @{ $sf->{slots} };
+        $out{spend_mid} = $sf->{mid} if defined $sf->{mid};
+    }
     # no reply yet: nothing of this chat to lose, show fresh
     $out{cch} = 0; $out{cch_note} = 'hot';
     my $tp = str(dig($d, 'transcript_path'));
