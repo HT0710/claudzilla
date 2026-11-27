@@ -260,6 +260,65 @@ check_eq "spend: rate crosses that midnight" 3.50 "$(usd spend_rate "$kv")"
 check_eq "spend: midnight offset in the window" 85200 "$(key spend_mid "$kv")"
 check_eq "spend: DST afternoon midnight is EDT midnight (17400, not 18000)" 17400 "$(key spend_mid "$(ZONE=America/New_York AT=1793574000 api_kv "$(mktemp -d -p "$TMP")")")"
 
+# --- spend: OpenRouter billed figures ---
+# fake curl: logs argv and stdin, answers like /api/v1/key; FAKE_FAIL fails, FAKE_SLEEP delays
+FC="$TMP/fakecurl"; mkdir -p "$FC"
+cat > "$FC/curl" <<'EOF'
+#!/usr/bin/env bash
+d=$(dirname "$0"); echo "$*" >> "$d/argv"; cat > "$d/stdin"
+sleep "${FAKE_SLEEP:-0}"
+[ -n "${FAKE_FAIL:-}" ] && exit 22
+echo "{\"data\":{\"usage_daily\":${FAKE_DAILY:-7.5},\"usage_monthly\":77.1}}"
+EOF
+chmod +x "$FC/curl"
+or_kv() { printf '%s' "$apiful" | PATH="$FC:$PATH" FROZEN_TIME=${AT:-$T0} TZ=${ZONE:-UTC} PERL5LIB="$PL" ANTHROPIC_BASE_URL=https://openrouter.ai/api ANTHROPIC_AUTH_TOKEN=sk-or-test CLAUDE_CONFIG_DIR="$1" HUD_DUMP=1 timeout 5 perl -MFrozen "$HUD/hud.pl"; }
+orc() { printf 'at\t%s\ndaily\t5\nmonthly\t40\n' "$1" > "$2/claudzilla-or-key.tsv"; }
+# or_wait <dir> <line>: up to 3 s for the background fetch to write <line>
+or_wait() { for _ in $(seq 60); do grep -qx "$2" "$1/claudzilla-or-key.tsv" 2>/dev/null && return 0; sleep 0.05; done; return 1; }
+
+d=$(seedS); orc $((T0-30)) "$d"; rm -f "$FC/argv"
+kv=$(or_kv "$d")
+check_eq "or: fresh cache sets today" 5.00 "$(usd spend_today "$kv")"
+check_eq "or: fresh cache sets month" 40.00 "$(usd spend_month "$kv")"
+check_eq "or: per day from the billed month" 1.43 "$(usd spend_day "$kv")"
+check_eq "or: here stays local" 1.24 "$(usd spend_here "$kv")"
+sleep 0.2; check "or: fresh cache fetches nothing" [ ! -e "$FC/argv" ]
+
+d=$(seedS); orc $((T0-300)) "$d"; rm -f "$FC/argv"
+kv=$(or_kv "$d")
+check_eq "or: stale cache still shows while refetching" 5.00 "$(usd spend_today "$kv")"
+check "or: refetch writes the cache" or_wait "$d" "$(printf 'at\t%s' $T0)"
+check_eq "or: refetched daily" 7.500000 "$(key daily "$(cat "$d/claudzilla-or-key.tsv")")"
+check_eq "or: refetched monthly" 77.100000 "$(key monthly "$(cat "$d/claudzilla-or-key.tsv")")"
+check "or: key never in curl argv" bash -c "! grep -q sk-or-test '$FC/argv'"
+check "or: key sent on stdin" grep -q 'Authorization: Bearer sk-or-test' "$FC/stdin"
+check_eq "or: cache is private" 600 "$(stat -c %a "$d/claudzilla-or-key.tsv")"
+d=$(seedS); FAKE_DAILY=0.00005 or_kv "$d" >/dev/null; or_wait "$d" "$(printf 'at\t%s' $T0)"
+check_eq "or: tiny daily keeps the billed month" 77.10 "$(usd spend_month "$(AT=$((T0+1)) or_kv "$d")")"
+
+d=$(seedS); orc $((T0-700)) "$d"; rm -f "$FC/argv"
+kv=$(FAKE_FAIL=1 or_kv "$d")
+check_eq "or: cache past 10 min falls back to the ledger" "$(usd spend_today "$(api_kv "$(seedS)")")" "$(usd spend_today "$kv")"
+check "or: failed fetch notes the try" or_wait "$d" "$(printf 'tried\t%s' $T0)"
+rm -f "$FC/argv"; AT=$((T0+30)) or_kv "$d" >/dev/null; sleep 0.2
+check "or: failed fetch waits a minute to retry" [ ! -e "$FC/argv" ]
+
+# Dec 1 05:00 in Tokyo is still Nov 30 in UTC, where OpenRouter's month runs
+d=$(seedS); orc $((1796068800-30)) "$d"
+check_eq "or: per day counts UTC days" 1.33 "$(usd spend_day "$(ZONE=Asia/Tokyo AT=1796068800 or_kv "$d")")"
+
+d=$(seedS); rm -f "$FC/argv"
+for _ in $(seq 10); do FAKE_SLEEP=0.5 or_kv "$d" >/dev/null & done; wait
+or_wait "$d" "$(printf 'at\t%s' $T0)"
+check_eq "or: parallel sessions fetch once" 1 "$(wc -l < "$FC/argv")"
+
+d=$(seedS); s0=$(date +%s%N)
+x=$(FAKE_SLEEP=2 or_kv "$d")   # captured: a child holding stdout would make this wait
+check "or: status line does not wait for the fetch" [ $(( ($(date +%s%N) - s0) / 1000000 )) -lt 1500 ]
+
+d=$(seedS); api_kv "$d" >/dev/null
+check "or: other hosts never fetch" [ ! -e "$d/claudzilla-or-key.tsv" ]
+
 d=$TMP/sp11; mkdir -p "$d"; printf 'slot\t1795842000\t1.00\nslot\t1795842600\t0.20\n' > "$d/claudzilla-spend.tsv"
 kv=$(spend_at $T0 0 s11 "$d")
 check_eq "spend: rate is the last six slots" 0.20 "$(usd spend_rate "$kv")"
