@@ -177,7 +177,7 @@ export function draft(input: { keep?: unknown; drop?: unknown; clear?: unknown }
 
 export type HandoffInput = { sessionId: string; path: string; now: number; numbered: string; draft?: string; summary?: string; intents?: string; cwd?: string; worktrees?: { path: string; git: string }[]; agentEdits?: string[] }
 
-type Row = { type?: string; subtype?: string; content?: unknown; timestamp?: string; isSidechain?: boolean; isMeta?: boolean; isCompactSummary?: boolean; message?: { content?: unknown } }
+type Row = { type?: string; subtype?: string; content?: unknown; timestamp?: string; isSidechain?: boolean; isMeta?: boolean; isCompactSummary?: boolean; message?: { content?: unknown; model?: string } }
 type Block = { type?: string; text?: string; name?: string; input?: Record<string, unknown> }
 
 const cut = (t: string, n: number) => (t.length > n ? t.slice(0, n) + '…' : t)
@@ -230,7 +230,7 @@ export function handoffNote(input: HandoffInput): string {
   let wants: { wants: string; steps: { text?: string; status?: string }[] } | undefined
   let now: unknown
   let away: { n: number; row: Row } | undefined
-  const turns: { p: string; reply?: Row }[] = []
+  const turns: { p: string; reply?: Row; limit?: boolean; acted?: boolean }[] = []
   let promptLine = 0
   let stopped: number | undefined
   let housekeeping = false
@@ -253,11 +253,17 @@ export function handoffNote(input: HandoffInput): string {
     written.add(p)
   }
   const replies: string[] = []
+  // A 1 MB tail can hold replies but no typed prompt (task notifications only); the last reply must survive that.
+  let seg: Row | undefined
+  let orphan: Row | undefined
   const commands = new Set<string>()
   for (const { n, row } of rows) {
     if (row.type === 'assistant') {
       if (housekeeping) { houseLines.add(n); continue }
+      if (row.message?.model === '<synthetic>') { const t = turns[turns.length - 1]; if (t) t.limit = true; continue }
+      if (turns.length) turns[turns.length - 1].acted = true
       if (textOf(row)) replies.push(textOf(row))
+      if (textOf(row) && (!seg || textOf(row).length >= textOf(seg).length)) orphan = seg = row
       const cur = turns[turns.length - 1]
       if (textOf(row) && cur && textOf(row).length >= (cur.reply ? textOf(cur.reply).length : 0)) cur.reply = row
       for (const b of blocks(row)) {
@@ -284,13 +290,15 @@ export function handoffNote(input: HandoffInput): string {
         }
       }
     } else if (row.type === 'user' && !row.isMeta && !row.isCompactSummary) {
+      seg = undefined
       const t = textOf(row).trim()
       if (/<command-message>claudzilla-compact|<command-name>\/compact|^\/compact/.test(t)) housekeeping = true
       else if (t.startsWith('[Request interrupted')) { if (!housekeeping) stopped = n }
-      else if (t && !t.startsWith('<')) { turns.push({ p: t }); promptLine = n; housekeeping = false; stopped = undefined }
+      else if (t && !t.startsWith('<')) { if (!turns.length && orphan) turns.push({ p: '', reply: orphan }); turns.push({ p: t }); promptLine = n; housekeeping = false; stopped = undefined }
     } else if (row.type === 'user' && row.isCompactSummary) away = undefined
     else if (row.type === 'system' && row.subtype === 'away_summary') away = { n, row }
   }
+  if (!turns.length && orphan) turns.push({ p: '', reply: orphan })
   // Intent calls from the whole file: the last 5 distinct asks, newest last.
   // shortcut: houseLines covers the 1 MB tail only, so older compact asks still show; grep housekeeping prompts file-wide if they do.
   const asks = new Map<string, number>()
@@ -325,11 +333,24 @@ export function handoffNote(input: HandoffInput): string {
   if (gits.length) add('Git', gits.join('\n\n'))
   if (asks.size) add('Earlier asks', [...asks].slice(-5).map(([w, n]) => `- Line ${n}: ${cut(w, 500)}`).join('\n'))
   if (turns.length) {
-    const quote = (row: Row) => {
+    // Head and tail each end on a line break so no table row is split; a text with no break gets a hard cut.
+    const quote = (row: Row, last: boolean) => {
       const t = textOf(row)
-      return (t.length > 2000 ? t.slice(0, 800) + '…' + t.slice(-1200) : t).split('\n').map(l => `> ${l}`).join('\n')
+      const [max, h, e] = last ? [6000, 4800, 1200] : [2000, 800, 1200]
+      if (t.length <= max) return t.split('\n').map(l => `> ${l}`).join('\n')
+      const head = t.slice(0, h), tail = t.slice(-e)
+      const cutAt = t[h] === '\n' ? h : head.lastIndexOf('\n')
+      const hb = cutAt > 0 ? cutAt : -1
+      const nl = tail.indexOf('\n')
+      const tb = t[t.length - e - 1] === '\n' || nl === tail.length - 1 ? -1 : nl
+      const gap = hb >= 0 || tb >= 0 || t[t.length - e - 1] === '\n' ? '\n…\n' : '…'
+      return `${hb >= 0 ? head.slice(0, hb) : head}${gap}${tb >= 0 ? tail.slice(tb + 1) : tail}`.split('\n').map(l => `> ${l}`).join('\n')
     }
-    add('Recent turns', turns.slice(-3).map(({ p, reply }) => `- You: ${cut(p, 500)}` + (reply ? `\n\n${quote(reply)}` : '')).join('\n\n'))
+    // A turn answered only by usage-limit rows (no reply, no tool call) is empty; drop it unless nothing else is left.
+    const real = turns.filter(t => t.reply || t.acted || !t.limit)
+    const recent = (real.length ? real : turns).slice(-3)
+    const last = recent.map(t => !!t.reply).lastIndexOf(true)
+    add('Recent turns', recent.map(({ p, reply }, i) => [p && `- You: ${cut(p, 500)}`, reply && quote(reply, i === last)].filter(Boolean).join('\n\n')).join('\n\n'))
   }
   const sum = input.summary && numberedRow(input.summary)
   const since = sum ? sum.n : 0

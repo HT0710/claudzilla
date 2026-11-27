@@ -613,17 +613,84 @@ test('handoffNote: an Esc stop after the last prompt is named, and never to be c
   expect(note(...rows, typed('/compact Keep: x.'), esc)).not.toContain('The user stopped')
 })
 
-test('handoffNote: a long last reply keeps its head and its closing Next line', () => {
-  const long = 'a'.repeat(800) + 'Q'.repeat(1400) + 'z'.repeat(1200 - '\n**Next:** say "go"'.length) + '\n**Next:** say "go"'
-  expect(long.length).toBe(3400)
-  const n = note(typed('q'), asst([{ type: 'text', text: long }]))
-  expect(n).toContain('> ' + 'a'.repeat(800) + '…')
-  expect(n).toContain('**Next:** say "go"')
+const lines = (n: number, w: number) => Array.from({ length: n }, (_, i) => String(i).padStart(w, '0')).join('\n')
+const reply = (text: string) => note(typed('q'), asst([{ type: 'text', text }]))
+
+test('handoffNote: last reply up to 6000 characters is whole', () => {
+  const t = lines(1000, 5) + 'x'
+  expect(t.length).toBe(6000)
+  expect(reply(t)).toContain(t.split('\n').map(l => `> ${l}`).join('\n') + '\n')
+})
+
+test('handoffNote: last reply over 6000 keeps its first 4800 and last 1200 at line breaks', () => {
+  const t = lines(1200, 5) + '\n**Next:** say "go"'
+  const n = reply(t)
+  expect(n).toMatch(/> 00799\n> …\n> \d{5}\n/)
+  expect(n).toContain('> 00000\n> 00001\n')
+  expect(n).toContain('> **Next:** say "go"')
+  expect(n).not.toContain('> 00900\n')
+})
+
+test('handoffNote: a single line over 6000 falls back to a hard cut', () => {
+  const t = 'a'.repeat(4800) + 'Q'.repeat(2000) + 'z'.repeat(1200)
+  const n = reply(t)
+  expect(n).toContain('> ' + 'a'.repeat(4800) + '…' + 'z'.repeat(1200))
   expect(n).not.toContain('Q')
 })
 
+test('handoffNote: earlier replies over 2000 cut to 800 and 1200 at line breaks', () => {
+  const t = lines(500, 5)
+  const n = note(typed('p1'), asst([{ type: 'text', text: t }]), typed('p2'), asst([{ type: 'text', text: 'last' }]))
+  expect(n).toMatch(/> 00132\n> …\n> \d{5}\n/)
+  expect(n).not.toContain('> 00200\n')
+})
+
 test('handoffNote: a reply of 2000 characters or less is kept whole', () => {
-  expect(note(typed('q'), asst([{ type: 'text', text: 'x'.repeat(2000) }]))).toContain('> ' + 'x'.repeat(2000) + '\n')
+  const t = 'x'.repeat(2000)
+  expect(note(typed('p1'), asst([{ type: 'text', text: t }]), typed('p2'), asst([{ type: 'text', text: 'last' }]))).toContain('> ' + t + '\n')
+})
+
+test('handoffNote: a synthetic limit reply is not a turn\'s reply', () => {
+  const lim = asst([{ type: 'text', text: "You've hit your limit" }], { message: { model: '<synthetic>', usage: { input_tokens: 0, output_tokens: 0 }, content: [{ type: 'text', text: "You've hit your limit" }] } })
+  const n = note(typed('p1'), lim)
+  expect(n).toContain('- You: p1')
+  expect(n).not.toContain('hit your limit')
+})
+
+test('handoffNote: with no typed prompt in the tail the last reply is still quoted', () => {
+  const tn = typed('<task-notification>done</task-notification>')
+  const long = 'x'.repeat(50) + '\n' + 'y'.repeat(5000)
+  const n = note(tn, asst([{ type: 'text', text: 'older' }]), tn, asst([{ type: 'text', text: 'short' }]), asst([{ type: 'text', text: long }]), asst([{ type: 'text', text: 'tiny' }]))
+  expect(n).toContain('## Recent turns\n\n> ' + 'x'.repeat(50) + '\n> ' + 'y'.repeat(5000))
+  expect(n).toContain('> ' + 'y'.repeat(5000))
+  expect(n).not.toContain('- You:')
+})
+
+test('handoffNote: usage-limit turns do not push the real reply out of Recent turns', () => {
+  const lim = asst([{ type: 'text', text: "You've hit your limit" }], { message: { model: '<synthetic>', usage: { input_tokens: 0, output_tokens: 0 }, content: [{ type: 'text', text: "You've hit your limit" }] } })
+  const t = 'z'.repeat(5000)
+  const n = note(typed('real'), asst([{ type: 'text', text: t }]), typed('again'), lim, typed('again'), lim, typed('continue'), lim)
+  expect(n).toContain('- You: real\n\n> ' + t)
+  expect(n).not.toContain('- You: again')
+  expect(n).not.toContain('- You: continue')
+})
+
+test('handoffNote: a reply before the first typed prompt in the tail is kept, whole when no later turn has a reply', () => {
+  const t = 'q'.repeat(5000)
+  const n = note(asst([{ type: 'text', text: t }]), typed('push it'), typed('push it'))
+  expect(n).toContain('> ' + t)
+  expect(n).toContain('- You: push it')
+})
+
+test('handoffNote: a turn with tool calls and then a limit row keeps its prompt', () => {
+  const lim = asst([{ type: 'text', text: "You've hit your limit" }], { message: { model: '<synthetic>', usage: { input_tokens: 0, output_tokens: 0 }, content: [{ type: 'text', text: "You've hit your limit" }] } })
+  const n = note(typed('p1'), asst([{ type: 'text', text: 'R1' }]), typed('p2'), tool('Bash', { command: 'ls' }), lim)
+  expect(n).toContain('- You: p2')
+})
+
+test('handoffNote: a turn stopped with Esc and no reply keeps its prompt', () => {
+  const n = note(typed('p1'), asst([{ type: 'text', text: 'R1' }]), typed('p2'), typed('[Request interrupted by user]'))
+  expect(n).toContain('- You: p2')
 })
 
 test('handoffNote: every line of the last reply is quoted', () => {
@@ -1303,6 +1370,12 @@ test('paths: cited takes paths from the last 2 assistant text replies', () => {
   expect(sec).not.toContain('old.md')
 })
 
+test('recent turns: a closing line break with a long final line keeps the last 1200 characters', () => {
+  const n = note(typed('go'), asst([{ type: 'text', text: 'h'.repeat(5000) + '\n' + 'z'.repeat(2000) + '\n' }]))
+  expect(n).toContain('…' + 'z'.repeat(1199))
+  expect(n).toContain('h'.repeat(4800))
+})
+
 test('paths: cited paths keep their absolute prefix and lose wrapping marks', () => {
   const t = (text: string) => { const n = note(asst([{ type: 'text', text }])); return n.slice(n.indexOf('## Paths')) }
   expect(t('spec at `/home/u/c/docs/chancery/2026-11-28-baton/spec.md`.')).toContain('- /home/u/c/docs/chancery/2026-11-28-baton/spec.md\n')
@@ -1326,7 +1399,7 @@ test('paths: section left out when empty', () => {
   expect(note(typed('hi'), asst([{ type: 'text', text: 'plain reply' }]))).not.toContain('## Paths')
 })
 
-test('paths: a multi-line command shows its first line only', () => {
+test('paths: a multi-line command shows its matching line only', () => {
   const n = note(tool('Bash', { command: 'claude plugin test plugins/primer\necho done' }))
   const sec = n.slice(n.indexOf('## Paths'), n.indexOf('## How to dig'))
   expect(sec.match(/^- `/gm)).toHaveLength(1)
