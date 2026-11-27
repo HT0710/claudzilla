@@ -77,10 +77,14 @@ check_eq "data: thinking recent" 1 "$(key thinking "$kv")"
 mkdir -p "$TMP/noacct" "$TMP/badacct" "$TMP/apiacct" "$TMP/arracct" "$TMP/nullacct"
 echo '{"oauthAccount":null}' > "$TMP/nullacct/.claude.json"
 echo '{}' > "$TMP/apiacct/.claude.json"; echo '{bad' > "$TMP/badacct/.claude.json"; echo '[]' > "$TMP/arracct/.claude.json"
+norl=$(node -e 'const j=JSON.parse(process.argv[1]);delete j.rate_limits;console.log(JSON.stringify(j))' "$full")  # rate_limits mean subscription, so API-mode checks omit them
 check_eq "login: subscription sends no login" "" "$(key login "$(data <<<"$full")")"
-check_eq "login: key overrides OAuth" "api key" "$(key login "$(ANTHROPIC_API_KEY=x data <<<"$full")")"
-check_eq "login: API mode drops the email" "" "$(key profile "$(ANTHROPIC_API_KEY=x data <<<"$full")")"
-check_eq "login: auth token counts" "api key" "$(key login "$(ANTHROPIC_AUTH_TOKEN=x data <<<"$full")")"
+check_eq "login: key overrides OAuth" "api key" "$(key login "$(ANTHROPIC_API_KEY=x data <<<"$norl")")"
+check_eq "login: API mode drops the email" "" "$(key profile "$(ANTHROPIC_API_KEY=x data <<<"$norl")")"
+check_eq "login: auth token counts" "api key" "$(key login "$(ANTHROPIC_AUTH_TOKEN=x data <<<"$norl")")"
+check_eq "login: key with rate_limits stays subscription" "" "$(key login "$(ANTHROPIC_API_KEY=x data <<<"$full")")"
+check_eq "login: key with rate_limits keeps the 5h meter" 30 "$(key 5h "$(ANTHROPIC_API_KEY=x data <<<"$full")")"
+check_eq "login: token with rate_limits stays subscription" "" "$(key login "$(ANTHROPIC_AUTH_TOKEN=x data <<<"$full")")"
 check_eq "login: empty key is no key" "" "$(key login "$(ANTHROPIC_API_KEY= data <<<"$full")")"
 check_eq "login: cost field but no .claude.json stays subscription" "" "$(key login "$(C="$TMP/noacct" data <<<"$apiful")")"
 check_eq "login: malformed .claude.json stays subscription" "" "$(key login "$(C="$TMP/badacct" data <<<"$apiful")")"
@@ -90,7 +94,7 @@ check_eq "login: parsed, no oauthAccount, cost field gives API mode" "api key" "
 check_eq "login: parsed, no oauthAccount, no cost field stays subscription" "" "$(key login "$(C="$TMP/apiacct" data <<<"$full")")"
 check_eq "login: OAuth account with a cost field stays subscription" "" "$(key login "$(data <<<"$apiful")")"
 while IFS='|' read -r url want; do
-  check_eq "login host: [$url]" "$want" "$(key login "$(ANTHROPIC_API_KEY=x ANTHROPIC_BASE_URL="$url" data <<<"$full")")"
+  check_eq "login host: [$url]" "$want" "$(key login "$(ANTHROPIC_API_KEY=x ANTHROPIC_BASE_URL="$url" data <<<"$norl")")"
 done <<'EOT'
 https://openrouter.ai/api/v1|openrouter.ai
 http://localhost:8080/v1|localhost
@@ -100,7 +104,7 @@ openrouter.ai|openrouter.ai
 https://|api key
 |api key
 EOT
-r1=$(ANTHROPIC_API_KEY=x data <<<"$full" | COLUMNS=120 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g' | head -1)  # render() is not defined until line 158
+r1=$(ANTHROPIC_API_KEY=x data <<<"$norl" | COLUMNS=120 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g' | head -1)  # render() is not defined until line 158
 check "login: identity row shows the tag" grep -q 'api key' <<<"$r1"
 check "login: identity row drops the email" bash -c "! grep -q 'example.test' <<<'$r1'"
 
@@ -302,7 +306,7 @@ check "words: 40 cols stacks, rate flush right, month shed" grep -qE 'today +\$0
 subcfg="$TMP/subcfg"; mkdir -p "$subcfg"; cp "$C/.claude.json" "$subcfg/"  # clean layout config; strip() is defined only at line 191
 check_eq "words: 40 cols has the subscription's row count" "$(data <<<"$full" | CLAUDE_CONFIG_DIR="$subcfg" COLUMNS=40 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g' | wc -l | tr -d ' ')" "$(api_row 40 | wc -l | tr -d ' ')"
 check "words: no cost yet, 120 cols, starts with \$0.00 here" grep -qF '┃ $0.00 here' <<<"$(api_kv "$(seedS)" '{"session_id":"api2"}' | FROZEN_TIME=$T0 TZ=UTC PERL5LIB="$PL" COLUMNS=120 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g')"
-check "words: API spend wins over limit meters" bash -c 'o=$(cat); grep -qF "┃ \$1.24 here" <<<"$o" && grep -qF "24h ago" <<<"$o" && ! grep -q "5h" <<<"$o"' <<<"$(api_kv "$(seedS)" '{"session_id":"api3","cost":{"total_cost_usd":1.24},"rate_limits":{"five_hour":{"used_percentage":40,"resets_at":'$((T0+3600))'}}}' | FROZEN_TIME=$T0 TZ=UTC PERL5LIB="$PL" COLUMNS=120 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g')"
+check "words: rate_limits mean subscription, so no spend text" bash -c 'o=$(cat); ! grep -qF "here" <<<"$o" && grep -qF "5h" <<<"$o"' <<<"$(api_kv "$(seedS)" '{"session_id":"api3","cost":{"total_cost_usd":1.24},"rate_limits":{"five_hour":{"used_percentage":40,"resets_at":'$((T0+3600))'}}}' | FROZEN_TIME=$T0 TZ=UTC PERL5LIB="$PL" COLUMNS=120 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g')"
 
 # --- spend: compact ---
 check_eq "compact: API, 120 cols, 3 rows" 3 "$(api_row 120 compact | wc -l | tr -d ' ')"
@@ -318,6 +322,26 @@ check_eq "compact: no ctx value, one row" 3 "$(wc -l <<<"$nc" | tr -d ' ')"
 check_eq "compact: no ctx value, three dividers" 3 "$(grep -o '┃' <<<"$nc" | wc -l | tr -d ' ')"
 check "compact: no ctx value, text cell kept" grep -qF '$1.24 here' <<<"$nc"
 check "compact: no ctx value, blank ctx meter drawn" grep -qE "ctx .*--% +┃" <<<"$nc"
+
+# --- spend: minimal ---
+widest() { perl -CS -ne 'chomp; $m = length if length > $m; END { print $m }'; }
+check_eq "minimal: API, one row at 170 cols" 1 "$(api_row 170 minimal | wc -l | tr -d ' ')"
+check "minimal: spend part after ctx" grep -qE '┃ \$1\.24 here  \$96\.40 month *$' <<<"$(api_row 170 minimal)"
+o=$(api_row 170 minimal)
+check "minimal: no login tag, no chart" bash -c "[ -n \"\$1\" ] && ! grep -q 'api key' <<<\"\$1\" && ! grep -q '24h ago' <<<\"\$1\"" _ "$o"
+rl='"rate_limits":{"five_hour":{"used_percentage":40,"resets_at":'$((T0+3600))'},"seven_day":{"used_percentage":20,"resets_at":'$((T0+86400))'}}'
+d=$(seedS); echo '{"hud":{"layout":"minimal"}}' > "$d/claudzilla.json"
+o=$(api_kv "$d" '{"session_id":"api6","cost":{"total_cost_usd":1.24},'"$rl"'}' | FROZEN_TIME=$T0 TZ=UTC PERL5LIB="$PL" COLUMNS=170 HUD_KV=1 perl -MFrozen "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g')
+check "minimal: rate_limits mean subscription, 5h and wk shown, no spend" bash -c 'grep -qE "5h" <<<"$1" && grep -qE "wk" <<<"$1" && ! grep -qF "here" <<<"$1"' _ "$o"
+bad=0
+for w in $(seq 21 170); do
+  o=$(api_row $w minimal)
+  [ "$(wc -l <<<"$o" | tr -d ' ')" -eq 1 ] || bad=$((bad+1))
+  [ "$(widest <<<"$o")" -le $((w - 4)) ] || bad=$((bad+1))   # the row gets W = cols - 4
+  if grep -q 'month' <<<"$o"; then grep -q 'here' <<<"$o" || bad=$((bad+1)); fi
+  if grep -q 'here' <<<"$o"; then grep -qF '$1.24' <<<"$o" || bad=$((bad+1)); fi
+done
+check_eq "minimal: one row at every width, month sheds before here, here before the figure" 0 "$bad"
 
 # --- hud.pl: render ---
 render() { data <<<"$1" | COLUMNS=120 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
@@ -354,7 +378,6 @@ check "render: limits pending -> no warnings" [ ! -s "$TMP/warn" ]
 
 # strip <cols> <payload>: rendered rows, colours removed
 strip() { data <<<"$2" | COLUMNS=$1 HUD_KV=1 perl "$HUD/hud.pl" | perl -pe 's/\e\[[0-9;]*m//g'; }
-widest() { perl -CS -ne 'chomp; $m = length if length > $m; END { print $m }'; }
 check "render: default -> no clock on bottom row" bash -c "! tail -1 <<<\"\$1\" | grep -q ':'" _ "$(strip 170 "$full")"
 check "render: default -> 6 rows, 2 rules" [ "$(strip 170 "$full" | grep -c '━')/$(strip 170 "$full" | wc -l | tr -d ' ')" = 2/6 ]
 check "data: layout full by default" [ -z "$(key layout "$(data <<<"$full")")" ]
