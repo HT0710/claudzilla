@@ -3807,20 +3807,57 @@ test('two images: the row after paints over both', async ($, on) => {
   expect(await gaps(row)).toEqual({ marginTop: -2, gaps: 3 })
 })
 
-for (const [text, top, n] of [
-  ['@README.md @.git/ look', -2, 3],
-  ['@a.md look [Image #1]', -2, 3],
-  ['@claudzilla-4e and me@x.com look', undefined, 1],
-  ['ask @peer. see @a.md and @a.md.', -1, 2],
+const att = (type: string, extra: object = {}) => ({ type: 'attachment', uuid: `a-${type}`, attachment: { type, ...extra } })
+for (const [name, text, rows, top, n] of [
+  ['an @path file row', '@a.md look', [att('file')], -1, 2],
+  ['an @path file row and an image', '@a.md look [Image #1]', [att('file')], -2, 3],
+  ['a directory and a not-read mention', '@.git/ @b.md look', [att('directory'), att('at_mention_reference')], -2, 3],
+  ['a skill listing update', 'hi', [att('skill_listing', { isInitial: false, skillCount: 1 })], -1, 2],
+  ['the first skill listing, which draws nothing', 'hi', [att('skill_listing', { isInitial: true })], undefined, 1],
+  ['hidden attachments', '@peer look', [att('hook_additional_context'), att('peer_mention'), att('date')], undefined, 1],
+  ['a Stop hook error, which draws nothing', 'hi', [att('hook_blocking_error', { hookEvent: 'Stop' })], undefined, 1],
+  ['an @path with no attachment row', '@a.md look', [], undefined, 1],
+  ['a file row after the reply started', 'hi', [{ type: 'assistant', uuid: 'x1' }, att('file')], undefined, 1],
 ] as const) {
-  test(`the row after "${text}" paints over ${n - 1} engine rows`, async ($, on) => {
+  test(`the row after a prompt with ${name} paints over ${n - 1} engine rows`, async ($, on) => {
     native(on)
     nativePrompt(on)
-    await prompt($, text)
+    mock.clock(on, { now: 0 })
+    transcript(on, '/t/s.jsonl', [sentRow, ...rows])
+    const card = await prompt($, text)
+    await card.find({ type: 'Text', text: stamp(0) })
     const row = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
     expect(await gaps(row)).toEqual({ marginTop: top, gaps: n })
   })
 }
+
+test('a joined row drawn before the transcript is read gets the count once it is, as after a reload', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  mock.clock(on, { now: 0 })
+  transcript(on, '/t/s.jsonl', [sentRow, att('file'), { type: 'assistant', uuid: 'x1' }])
+  const card = await prompt($, '@a.md look')
+  const row = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  await card.find({ type: 'Text', text: stamp(0) })
+  await row.redraw()
+  expect(await gaps(row)).toEqual({ marginTop: -1, gaps: 2 })
+})
+
+test('an attachment row written after the prompt row still counts', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  mock.clock(on, { now: 0 })
+  let file = JSON.stringify(sentRow) + '\n'
+  on('session.info', () => ({ value: { transcriptPath: '/t/s.jsonl' } }))
+  on('fs.read', (_: any, e: any) => ({ value: file.slice(e.offset ?? 0, (e.offset ?? 0) + (e.length ?? file.length)) }))
+  const card = await prompt($, 'hi')
+  await card.find({ type: 'Text', text: stamp(0) })
+  file += JSON.stringify(att('skill_listing', { isInitial: false })) + '\n'
+  await card.redraw()
+  await card.redraw()
+  const row = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  expect(await gaps(row)).toEqual({ marginTop: -1, gaps: 2 })
+})
 
 test('a handoff quoting @a.md and [Image #1] paints over no engine rows: a plugin prompt expands neither', async ($, on) => {
   native(on)

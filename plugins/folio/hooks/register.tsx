@@ -1419,23 +1419,30 @@ export const register: Register = on => {
       if (i.transcriptPath && i.transcriptPath !== transcriptPath) { transcriptPath = i.transcriptPath; $.ui.invalidate('ui.render') }
     }, () => {})
     const path = transcriptPath
+    const key = id.slice(0, ID_PREFIX)
+    const images = (p.text.match(/\[Image #\d+\]/g) ?? []).length
+    let attached = 0
     if (path) {
       let scan = scans.get(path)
       if (!scan) scans.set(path, scan = newScan())
-      const ms = scan.times.get(id.slice(0, ID_PREFIX))
+      const ms = scan.times.get(key)
       if (ms !== undefined) time = stamp(ms)
-      else {
+      attached = scan.rows.get(key) ?? 0
+      // The newest prompt reads on until its reply starts, because its attachment rows can land after its own row.
+      if (ms === undefined || scan.last === key) {
+        const s = scan
         const read: ReadText = (f, offset, length) => $.fs.read(f, { offset, length }) as Promise<string>
-        void sentAt(read, path, scan, id).then(v => { if (v !== undefined) $.ui.invalidate('ui.render') }, () => {})
+        void sentAt(read, path, s, id).then(v => {
+          const now = s.rows.get(key) ?? 0
+          // Set before the redraw, so the joined row sees the new count even if it draws before the card.
+          if (!sent) promptImages.set(id, images + now)
+          if ((ms === undefined && v !== undefined) || now !== attached) $.ui.invalidate('ui.render')
+        }, () => {})
       }
     }
-    // The engine draws one `⎿` row per image and per `@path` under the card; the first framed row after it paints the rail over them.
-    // A peer `@name` draws none. The engine trims trailing punctuation off a mention, so `@peer.` is no path.
-    // shortcut: a path needs `/` or `.` and is not checked to exist; `@Makefile`, `@"a b.md"` and `@` after CJK marks are missed,
-    // a missing file or CLAUDE_CODE_DISABLE_FILE_MENTIONS over-counts; read the engine's rows if a render site ever exposes them.
-    const paths = (p.text.match(/(?<=^|\s)@\S+/g) ?? []).map(m => m.replace(/[^\w/]+$/, '')).filter(m => /[./]/.test(m.slice(1)))
-    // A plugin's prompt expands no image or @path, so the engine draws no rows under it.
-    promptImages.set(id, sent ? 0 : (p.text.match(/\[Image #\d+\]/g) ?? []).length + new Set(paths).size)
+    // The engine draws one `⎿` row per image, and one per drawn attachment such as an `@path` file or a skill listing update;
+    // the first framed row after the card paints the rail over them. A plugin's prompt expands none, so it draws no rows.
+    promptImages.set(id, sent ? 0 : images + attached)
     const tag = sent && time ? `${sent} · ${time}` : sent ?? time
     const corner = framedAfter.has(id) || (e.viewport?.isFullscreen && promptImages.get(id) && promptReply.has(id)) ? '╭' : '╌'
     joinNote('card', id, { row: id, corner })
