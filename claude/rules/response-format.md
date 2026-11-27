@@ -36,6 +36,7 @@ Goal: the reader follows it, understands it, and is convinced. Lazy reader scans
 - List otherwise: `**label** — sentence` bullets, or a numbered list. One idea per bullet, one line if possible.
   - Nest only for a parent's own details or steps, never as decoration. Numbers only when order matters (steps), at any level; else bullets. Each level picks its own marker; a numbered parent's children are bullets unless they run in order.
 - End with **Next:** — single action. Nothing pending → last line `Nothing pending.`, no `Next:` label. A plain answer to a question may omit it.
+  - `Nothing pending.` only after checking open session work: unpushed commits or no PR on the work branch, open handoff or plan steps, offers made earlier. Any open → it is the Next line.
   - Asks for a reply → one sentence: `say "<word>" and I'll <act>.` Word: `go` unless another fits. Condition first: `once CI passes, say "merge" and I'll merge PR #105.`
   - User must write their own words (what they saw, an open choice) → ask it plainly, no `say`.
   - Offer or open item in the reply ("when you ask, I'll X", spec not updated, question waiting) → it is the Next line, never only in prose. Skill gate excepted (`superpowers.md` Shape).
