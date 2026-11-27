@@ -175,7 +175,7 @@ export function draft(input: { keep?: unknown; drop?: unknown; clear?: unknown }
   return keep ? `/compact Keep: ${keep}.` + (drop ? ` Drop: ${drop}.` : '') : undefined
 }
 
-export type HandoffInput = { sessionId: string; path: string; now: number; numbered: string; draft?: string; summary?: string; intents?: string; overview?: { summary?: string; topics: string[] }; cwd?: string; worktrees?: { path: string; git: string }[]; agentEdits?: string[] }
+export type HandoffInput = { sessionId: string; path: string; now: number; numbered: string; draft?: string; summary?: string; intents?: string; overview?: { summary?: string; topics: string[] }; cwd?: string; worktrees?: { path: string; git: string }[]; firstPrompt?: string; earlierNote?: string; agentEdits?: string[] }
 
 type Row = { type?: string; subtype?: string; content?: unknown; timestamp?: string; isSidechain?: boolean; isMeta?: boolean; isCompactSummary?: boolean; message?: { content?: unknown; model?: string } }
 type Block = { type?: string; text?: string; name?: string; input?: Record<string, unknown> }
@@ -222,6 +222,40 @@ const blocks = (row: Row): Block[] => (Array.isArray(row.message?.content) ? (ro
 const textOf = (row: Row): string => {
   const c = row.message?.content
   return typeof c === 'string' ? c : blocks(row).filter(b => b.type === 'text').map(b => b.text ?? '').join('\n')
+}
+
+// Lines of a note's `## <heading>` section, up to the next `## `.
+function sectionOf(text: string, heading: string): string[] {
+  const lines = text.split('\n')
+  const at = lines.indexOf(`## ${heading}`)
+  if (at < 0) return []
+  const end = lines.findIndex((l, i) => i > at && l.startsWith('## '))
+  return lines.slice(at + 1, end < 0 ? undefined : end)
+}
+
+// The note's chain of earlier sessions, ending with this one; undefined when this session did not start from a handoff.
+function chainEntries(input: HandoffInput, wants: string | undefined, lastPrompt: string | undefined): string | undefined {
+  const first = input.firstPrompt?.trim() ?? ''
+  const link = /^@\S*claudzilla-handoff\/([^/\s]+)\.md/.exec(first)
+  const src = link ? input.earlierNote || undefined : first.startsWith('# Handoff from ') ? first : undefined
+  if (!link && src === undefined) return undefined
+  const one = (t: string) => t.replace(/\s+/g, ' ').trim()
+  const entry = (n: number, id: string, goal?: string, path?: string, root?: boolean) => `- ${n} ${id.slice(0, 8)}${root ? ' (root)' : ''}${goal ? `: ${goal}` : ''}${path ? ` · ${path}` : ''}`
+  const lines: string[] = []
+  let entries = sectionOf(src ?? '', 'Chain').filter(l => /^- \d+ /.test(l))
+  if (src === undefined) {
+    lines.push('Earlier links lost.')
+    entries = [entry(1, link![1], undefined, undefined, true)]
+  } else if (!entries.length) {
+    const id = /^# Handoff from (\S+)/.exec(src)?.[1] ?? link?.[1] ?? ''
+    const goal = sectionOf(src, 'Where we were').map(l => l.trim()).find(l => l && l !== 'May lag: Recent turns wins.') ?? sectionOf(src, 'Earlier asks').filter(l => l.startsWith('- ')).pop()?.slice(2)
+    entries = [entry(1, id, goal && cut(one(goal), 200), /^.*Its transcript: (.+)$/m.exec(src)?.[1], true)]
+  }
+  const n = Number(/^- (\d+) /.exec(entries[entries.length - 1])?.[1]) + 1
+  const goal = input.overview?.summary || wants || lastPrompt
+  entries.push(entry(n, input.sessionId, goal && cut(one(goal), 200), input.path))
+  const shown = entries.length > 6 ? [entries[0], ...entries.slice(-5)] : entries
+  return ['This is session ' + (n + 1) + ' of a chain. Search an earlier transcript when the ask needs it.', '', ...lines, ...shown].join('\n')
 }
 
 // The note a cold session leaves for its successor: built from the transcript tail, no model call.
@@ -363,6 +397,8 @@ export function handoffNote(input: HandoffInput): string {
   const d = input.draft && numberedRow(input.draft)
   const call = d && blocks(d.row).find(b => b.type === 'tool_use' && b.name === 'mcp__primer__compact_draft')
   if (d && call?.input && d.n > since) add('Compact draft', `At line ${d.n}${d.row.timestamp ? `, ${d.row.timestamp}` : ''}.\nKeep: ${cut(String(call.input.keep ?? ''), 500)}\nDrop: ${cut(String(call.input.drop ?? ''), 500)}`)
+  const chain = chainEntries(input, wants?.wants, turns[turns.length - 1]?.p)
+  if (chain) add('Chain', chain)
   const cited = new Set(replies.slice(-2).flatMap(t => t.match(/[^\s`'"(]*(?:docs\/(?:superpowers|chancery)\/|\.superpowers\/sdd\/|\/tmp\/)[^\s`'"()]*|[^\s`'"(]*\.ledger\.md/g) ?? []).map(p => p.replace(/[`'")\].,;:]+$/, '')))
   const list = (label: string, items: string[]) => (items.length ? [`${label}:`, ...items.map(i => `- ${i}`)] : [])
   const paths = [...list('Written', [...written].slice(-15)), ...list('Cited', [...cited]), ...list('Commands', [...commands].slice(-5).map(c => `\`${cut(c, 200)}\``))]
@@ -416,6 +452,8 @@ let handing = false
 
 const NUMBERED = `grep -n '' "$1" | tail -c 1000000`
 const DRAFT = `grep -n '"type":"tool_use","id":"[^"]*","name":"mcp__primer__compact_draft"' "$1" | tail -1`
+// Raw rows, not numbered: the first typed prompt sits near the top of the file.
+const HEAD = `head -c 200000 "$1" | grep '"type":"user"'`
 const SUMMARY = `grep -n '"isCompactSummary":true' "$1" | tail -1`
 // $1 is the main transcript; prints the file_path and notebook_path of subagent edits, nothing when there is no subagents folder.
 const AGENT_EDITS = `d="\${1%.jsonl}/subagents"
@@ -469,12 +507,22 @@ async function writeHandoff($: EngineInterface, ask: string): Promise<{ text: st
     const o = await read($, atom({ plugin: 'margin', key: 'overview' } as const, { topics: [] as string[], summary: undefined as string | undefined, running: false })).catch(() => undefined)
     return o && Array.isArray(o.topics) ? { topics: o.topics.filter(t => typeof t === 'string'), summary: typeof o.summary === 'string' ? o.summary : undefined } : undefined
   }
-  const [numbered, draft, summary, intents, trees, overview, edits] = await Promise.all([grep(NUMBERED), grep(DRAFT), grep(SUMMARY), grep(INTENTS), worktrees(), overviewRead(), grep(AGENT_EDITS)])
+  const [numbered, draft, summary, intents, trees, overview, head, edits] = await Promise.all([grep(NUMBERED), grep(DRAFT), grep(SUMMARY), grep(INTENTS), worktrees(), overviewRead(), grep(HEAD), grep(AGENT_EDITS)])
   const agentEdits = edits.split('\n').flatMap(l => { try { const v = Object.values(JSON.parse(`{${l}}`))[0]; return typeof v === 'string' ? [v] : [] } catch { return [] } })
+  let firstPrompt: string | undefined
+  for (const line of head.split('\n')) {
+    let row: Row
+    try { row = JSON.parse(line) as Row } catch { continue }
+    if (row.type !== 'user' || row.isMeta || row.isSidechain || row.isCompactSummary) continue
+    const t = textOf(row).trim()
+    if (t && !t.startsWith('<')) { firstPrompt = t; break }
+  }
+  const linked = firstPrompt && /^@\S*claudzilla-handoff\/([^/\s]+)\.md/.exec(firstPrompt)
+  const earlierNote = linked ? await $.fs.read(`${dir}/claudzilla-handoff/${linked[1]}.md`).catch(() => undefined) : undefined
   const file = `${dir}/claudzilla-handoff/${sessionId}.md`
   let note: string
   try {
-    note = handoffNote({ sessionId, path, now: await $.clock.now(), numbered, draft: draft.trim() || undefined, summary: summary.trim() || undefined, intents, cwd, worktrees: trees, overview, agentEdits })
+    note = handoffNote({ sessionId, path, now: await $.clock.now(), numbered, draft: draft.trim() || undefined, summary: summary.trim() || undefined, intents, cwd, worktrees: trees, overview, firstPrompt, earlierNote, agentEdits })
     await $.process.run(['sh', '-c', 'mkdir -p "$1" && chmod 700 "$1"', 'sh', `${dir}/claudzilla-handoff`])
     await $.fs.write(file, note)
   } catch (err) {
