@@ -197,7 +197,7 @@ To start every session in another mode, see *Customize claudzilla* (`/claudzilla
 ### Use skills
 <!-- topic: skills -->
 
-A *skill* is a file of instructions for one kind of task, such as debugging or writing a plan. Claude loads a skill when the task fits, or you run one by typing `/` and its name, such as `/blueprint`. A skill makes Claude follow a set method instead of improvising one. claudzilla installs the superpowers plugin, whose skills cover debugging, test-first coding, plans and reviews. claudzilla's rules adjust them to its reply style: no "I'm using the … skill" line, and progress and end reports use the same short format as any other reply.
+A *skill* is a file of instructions for one kind of task, such as debugging or writing a plan. Claude loads a skill when the task fits, or you run one by typing `/` and its name, such as `/superpowers:brainstorming`. A skill makes Claude follow a set method instead of improvising one. claudzilla installs the superpowers plugin, whose skills cover debugging, test-first coding, plans and reviews. claudzilla's rules adjust them to its reply style: no "I'm using the … skill" line, and progress and end reports use the same short format as any other reply.
 
 Claude uses these skills without asking when the task fits:
 
@@ -216,17 +216,17 @@ With caveman, a refactor or a migration runs `caveman:safe-refactor` or `caveman
 
 When your prompt contains words such as "bug", "error" or "crash", the guard reminds Claude to use the debugging skill.
 
-For bigger steps, Claude suggests a skill and waits. The reply names it on the **Recommend:** line, or ends with `say "go" and I'll run <name>`. Type `go` to run it. For example: `blueprint`, then `writing-plans`, for a new feature; `subagent-driven-development` to carry out a plan; `finishing-a-development-branch` when a branch is done.
+For bigger steps, Claude suggests a skill and waits. The reply names it on the **Recommend:** line, or ends with `say "go" and I'll run <name>`. Type `go` to run it. For example: `brainstorming`, then `writing-plans`, for a new feature; `subagent-driven-development` to carry out a plan; `finishing-a-development-branch` when a branch is done.
 
-When `blueprint` has options for you, it asks its questions as Decisions, so the ballot card lets you answer with a number.
+When `brainstorming` or `blueprint` has options for you, it asks its questions as Decisions, so the ballot card lets you answer with a number.
 
 Some skills hand tasks to *subagents*: helpers that each work in their own context and return a summary. They keep your context small, but their requests count toward the same usage limits. Every subagent gets a short name. Claude picks one, and a hook (`claude/hooks/agent-name.mjs`) fills one in when the name is missing or already used this session. The same hook hands Claude random start letters for the next names, so the same task doesn't get the same name every session.
 
 claudzilla adds these skills of its own:
 
 - **`pr`:** Claude runs it before it opens or edits a pull request: pre-PR checks, then the description template. The guard blocks a pull request without it.
-- **`blueprint`:** designs a feature or change before any build. It asks only what it must, writes a short spec, and waits for your go before planning.
-  - **Upstream brainstorming:** a deny rule blocks `superpowers:brainstorming`. To lift it, delete `Skill(superpowers:brainstorming)` from `permissions.deny` in `~/.claude/settings.json`. The next install or update adds it back, so this lasts only until then. The rule stops only Claude: typing `/superpowers:brainstorming` yourself still runs it.
+- **`blueprint`:** designs a feature or change before any build. It asks only what it must, writes a short spec, and waits for your go before planning. It is part of the Chancery experiment, off by default: run `/claudzilla experimental chancery on` to use it in place of `brainstorming`.
+  - **Switch:** while Chancery is off, the guard stops Claude from calling `blueprint`. While it is on, the guard stops Claude from calling `superpowers:brainstorming`. Typing either skill yourself still runs it.
 - **`/rule-review`:** counts how often each claudzilla rule slipped, from your local transcripts. Only you run it; a weekly summary appears at startup. It shares the counts, never the text, as a GitHub issue only after you say yes.
 - **`claudzilla-report` and `claudzilla-compact`:** run by `/claudzilla report` and `/claudzilla compact`. See *Report a problem* and *Manage context*.
 
@@ -560,6 +560,8 @@ An experimental feature is new behaviour that may change or be removed. Most are
 
 #### The features
 
+- **Chancery** (`chancery`): off by default; run `/claudzilla experimental chancery on` to turn it on. Claude designs features with the `blueprint` skill instead of `brainstorming`, and keeps each job's spec and plan in one folder under `docs/chancery/`.
+  - **Guard:** the guard blocks Claude's call to whichever skill is off: `blueprint` while Chancery is off, `superpowers:brainstorming` while it is on. This starts at the next tool call, while the rule text applies from the next session.
 - **Steward** (`steward`, called `agentRouting` before v1.9): on by default from v1.9; run `/claudzilla experimental steward off` to turn it off. Claude decides for each task whether to hand the work to a subagent. It picks the cheapest model and effort that does the job. Tracing code across files, such as following calls or imports, goes to a search subagent from the first step.
   - **Search limit:** with the feature on, the third search in one turn without a subagent call is refused with a note to delegate. Reads of a known file and a grep inside one known file stay allowed. The limit starts or stops at the next tool call, while the rule text applies from the next session. Scripts that run without the Agent tool: set `EVAL_ROUTING=off`, or turn the feature off.
   - **Superpowers skills:** subagent-driven development and parallel agents use a fixed model and effort per role. Implementers run on Sonnet, and the final review and stuck fixes run on Opus.
@@ -885,6 +887,8 @@ Every part of claudzilla is a creature with a name. Most come from the print sho
 
 #### Wild ones (experiments)
 
+- **chancery:** asleep by default. Awake, it designs every job with `blueprint` instead of `brainstorming`. Its full entry is under Summons.
+  - **Taming:** `/claudzilla experimental chancery on` wakes it.
 - **steward:** a court officer who stands behind every task. It decides which parts to send off to subagents, and on which model. Tamed in v1.9, it now runs by default.
   - **Habit:** the third inline search in a turn with no subagent call is refused, so a long lookup goes to a scout such as atlas.
   - **Taming:** it still counts as a wild one, so `/claudzilla experimental steward off` puts it back to sleep.
