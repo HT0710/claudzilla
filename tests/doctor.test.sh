@@ -208,13 +208,14 @@ check "glyphs: basic marker gives a plain ok row" row "$(run --json)" 'x.check==
 fixture; edit "$CFG/claudzilla.json" "j.install={skip:['rtk','hud','margin']}"
 check "glyphs: no hud and no margin gives no row" js "$(run --json)" '!r.some(x=>x.check=="glyphs")'
 
-fixture; proj_entry "$TMP/home/proj"; stale_margin
-out=$(run --quick --json)
+fixture; private="$TMP/home/My Private Project"; mkdir -p "$private"; proj_entry "$private"; stale_margin
+out=$(CWD="$private" run --quick --json)
+check "--quick --json: no project name fragments after a space" not grep -qF 'Private Project' <<<"$out"
 check "--quick --json: no full-only rows" js "$out" '!r.some(x=>["statusline","hooks","update","glyphs"].includes(x.check))'
 check "--quick --json: path tokens become <path>" grep -qF '<path>' <<<"$out"
 check "--quick --json: no path left" sh -c '! printf "%s" "$1" | grep -qE "[\" ][/~]"' _ "$out"
 check "--quick --json: counts stay" grep -qE '[0-9]+/[0-9]+' <<<"$out"
-check "--json keeps the cwd" row "$(run --json)" "x.check=='project'&&x.fix.cwd=='$TMP/home/proj'"
+check "--json keeps the cwd" row "$(CWD="$private" run --json)" "x.check=='project'&&x.fix.cwd=='$private'&&x.text.includes('$private')"
 
 fixture; proj_entry "$TMP/home/proj"; stale_margin; rm -rf "$TMP/tmp"; mkdir -p "$TMP/tmp" "$TMP/stub"
 printf '#!/bin/sh\ntouch "%s/claude-called"\n' "$TMP" >"$TMP/stub/claude"; chmod +x "$TMP/stub/claude"
