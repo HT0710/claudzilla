@@ -638,15 +638,15 @@ test('handoffNote: a single line over 6000 falls back to a hard cut', () => {
   expect(n).not.toContain('Q')
 })
 
-test('handoffNote: earlier replies over 2000 cut to 800 and 1200 at line breaks', () => {
+test('handoffNote: earlier replies over 600 cut to 300 and 300 at line breaks', () => {
   const t = lines(500, 5)
   const n = note(typed('p1'), asst([{ type: 'text', text: t }]), typed('p2'), asst([{ type: 'text', text: 'last' }]))
-  expect(n).toMatch(/> 00132\n> …\n> \d{5}\n/)
-  expect(n).not.toContain('> 00200\n')
+  expect(n).toMatch(/> 00049\n> …\n> \d{5}\n/)
+  expect(n).not.toContain('> 00100\n')
 })
 
-test('handoffNote: a reply of 2000 characters or less is kept whole', () => {
-  const t = 'x'.repeat(2000)
+test('handoffNote: an earlier reply of 600 characters or less is kept whole', () => {
+  const t = 'x'.repeat(600)
   expect(note(typed('p1'), asst([{ type: 'text', text: t }]), typed('p2'), asst([{ type: 'text', text: 'last' }]))).toContain('> ' + t + '\n')
 })
 
@@ -1008,24 +1008,30 @@ const earlier = (...entries: string[]) => ['# Handoff from bbbbbbbb-2', '', 'Wri
 
 test('chain: inline form copies entries from the first prompt, then the writer', () => {
   const n = chainNote({ firstPrompt: earlier(E1, E2), overview: { topics: [], summary: 'now goal' } })
-  expect(chainOf(n)).toBe(`This is session 4 of a chain. Search an earlier transcript when the ask needs it.\n\n${E1}\n${E2}\n- 3 wwwwwwww: now goal · /t/w.jsonl`)
+  expect(chainOf(n)).toBe(`This is session 4 of a chain. Search an earlier transcript when the ask needs it.\n\n${E1}\n${E2}\n- 3 wwwwwwww: now goal`)
 })
 
 test('chain: @ form copies entries from the earlier note file', () => {
   const n = chainNote({ firstPrompt: '@/cfg/claudzilla-handoff/bbbbbbbb-2.md go', earlierNote: earlier(E1, E2), overview: { topics: [], summary: 'g' } })
-  expect(chainOf(n)).toContain(`${E1}\n${E2}\n- 3 wwwwwwww: g · /t/w.jsonl`)
+  expect(chainOf(n)).toContain(`${E1}\n${E2}\n- 3 wwwwwwww: g`)
 })
 
 test('chain: depth 1, earlier note with no Chain: its writer is entry 1 (root), from its header and Where we were line', () => {
   const prev = ['# Handoff from aaaaaaaa-1', '', 'Written x. Its transcript: /t/a.jsonl', '', '## Where we were', '', 'May lag: Recent turns wins.', '', 'Fix the parser', '- step', '', '## Paths'].join('\n')
   const n = chainNote({ firstPrompt: prev, overview: { topics: [], summary: 'g' } })
-  expect(chainOf(n)).toContain('- 1 aaaaaaaa (root): Fix the parser · /t/a.jsonl\n- 2 wwwwwwww: g · /t/w.jsonl')
+  expect(chainOf(n)).toContain('- 1 aaaaaaaa (root): Fix the parser · /t/a.jsonl\n- 2 wwwwwwww: g')
 })
 
 test('chain: depth 1, earlier note with no Where we were: root goal is its last earlier ask', () => {
   const prev = ['# Handoff from aaaaaaaa-1', '', 'Written x. Its transcript: /t/a.jsonl', '', '## Earlier asks', '', '- first ask', '- last ask', '', '## Paths'].join('\n')
   const n = chainNote({ firstPrompt: prev, overview: { topics: [], summary: 'g' } })
-  expect(chainOf(n)).toContain('- 1 aaaaaaaa (root): last ask · /t/a.jsonl\n- 2 wwwwwwww: g · /t/w.jsonl')
+  expect(chainOf(n)).toContain('- 1 aaaaaaaa (root): last ask · /t/a.jsonl\n- 2 wwwwwwww: g')
+})
+
+test('chain: the writer entry has no path, and the next note adds it from the header', () => {
+  const n = chainNote({ firstPrompt: earlier(E1, '- 2 bbbbbbbb: goal two'), overview: { topics: [], summary: 'g' } })
+  expect(chainOf(n)).toContain(`${E1}\n${E2}\n- 3 wwwwwwww: g`)
+  expect(chainOf(n)).not.toContain('/t/w.jsonl')
 })
 
 test('chain: root entry marked (root), no other entry marked', () => {
@@ -1050,12 +1056,12 @@ test('chain: writer goal is the Overview session line when present', () => {
 test('chain: goal is the last intent wants with no session line, else the last typed prompt cut to 200', () => {
   expect(chainOf(chainNote({ firstPrompt: earlier(E1) }, typed('p'), tool('mcp__margin__intent', { wants: 'WANTS' })))).toContain('wwwwwwww: WANTS')
   const long = 'x'.repeat(300)
-  expect(chainOf(chainNote({ firstPrompt: earlier(E1) }, typed(long)))).toContain(`wwwwwwww: ${'x'.repeat(200)}… ·`)
+  expect(chainOf(chainNote({ firstPrompt: earlier(E1) }, typed(long)))).toMatch(new RegExp(`wwwwwwww: x{200}…$`))
 })
 
 test('chain: @ form with the file gone: Earlier links lost. line, then an entry with the id from the path and no transcript path', () => {
   const n = chainNote({ firstPrompt: '@/cfg/claudzilla-handoff/bbbbbbbb-2.md' })
-  expect(chainOf(n)).toBe('This is session 3 of a chain. Search an earlier transcript when the ask needs it.\n\nEarlier links lost.\n- 1 bbbbbbbb (root)\n- 2 wwwwwwww: last ask · /t/w.jsonl')
+  expect(chainOf(n)).toBe('This is session 3 of a chain. Search an earlier transcript when the ask needs it.\n\nEarlier links lost.\n- 1 bbbbbbbb (root)\n- 2 wwwwwwww: last ask')
 })
 
 test('chain: @ form with an empty earlier note is lost, id from the path', () => {
