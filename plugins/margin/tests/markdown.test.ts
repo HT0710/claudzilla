@@ -169,3 +169,7 @@ test('a list keeps its source lines: every wrapped piece of an entry, and the he
   expect(mdLayout('# T\n\n| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |', 4).lines).toEqual([0, 0, 4, 4, 5, 5])
   expect(mdLayout('# T\n\n| a | b |\n|---|---|', 4).lines).toEqual([0, 0, 2, 2])
 })
+
+test('each column aligns to its separator marker: left by default, center for :-:, right for --:', () => {
+  expect(texts('| abc | b | r | d |\n|:--|:-:|--:|---|\n| 1 | 222 | 33 | 4 |', 80)).toEqual(['abc │  b    r  d', '────┼───────────', '1   │ 222  33  4'])
+})

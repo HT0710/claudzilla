@@ -119,13 +119,21 @@ const tableRows = (lines: string[], at: number[], width: number): [MdRow, number
       : [[head.filter(Boolean).map(bold).join(' · '), at[0]!]]
     return texts.flatMap(([text, n]) => wrap(text, {}, Math.max(1, width)).map(spans => line(spans, n)))
   }
+  const marks = cells(lines[1]!)
   const row = (cols: MdSpan[][], n: number) =>
     line(
-      cols.flatMap((spans, c) => [
-        ...(c ? [{ text: c === 1 ? ' │ ' : '  ' }] : []),
-        ...spans,
-        ...(widths[c]! > drawn(spans) ? [{ text: ' '.repeat(widths[c]! - drawn(spans)) }] : []),
-      ]),
+      cols.flatMap((spans, c) => {
+        const pad = widths[c]! - drawn(spans)
+        const m = marks[c] ?? ''
+        // An odd centering gap puts the extra space on the right.
+        const before = m.endsWith(':') ? (m.startsWith(':') ? pad >> 1 : pad) : 0
+        return [
+          ...(c ? [{ text: c === 1 ? ' │ ' : '  ' }] : []),
+          ...(before ? [{ text: ' '.repeat(before) }] : []),
+          ...spans,
+          ...(pad > before ? [{ text: ' '.repeat(pad - before) }] : []),
+        ]
+      }),
       n,
     )
   const rule = head.length > 1 ? '─'.repeat(widths[0]! + 1) + '┼' + '─'.repeat(full - widths[0]! - 2) : '─'.repeat(full)
