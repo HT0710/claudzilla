@@ -4091,6 +4091,24 @@ test('a group the engine re-keys keeps the image overlay', async ($, on) => {
   expect(await gaps(final)).toEqual({ marginTop: -1, gaps: 2 })
 })
 
+for (const [name, second, running] of [
+  ['Bash call', call('b2', 'Bash', { command: 'echo 2' }), { isRunning: true }],
+  ['failed Edit', call('b2', 'Edit', { file_path: '/x', old_string: 'a', new_string: 'b' }, { isErrored: true, output: 'boom' }), { isRunning: true, isErrored: false, output: undefined }],
+] as const) {
+  test(`a regrouped ${name} placed while its live group still draws leaves the image overlay on the visible fold`, async ($, on) => {
+    native(on)
+    nativePrompt(on)
+    await prompt($, 'look [Image #2]')
+    const first = call('b1', 'Bash', { command: 'false' }, { isErrored: true })
+    const live = await mountGroup($, 'collapsed-toolu_b1', [first], { isActive: true })
+    await live.unmount()
+    const fold = await mountGroup($, 'collapsed-m1', [first])
+    // The next reply's call draws in its live group, and its stored group is placed before that draw records the call.
+    await Promise.all([mountGroup($, 'collapsed-toolu_b2', [{ ...second, ...running }], { isActive: true }), mountGroup($, 'collapsed-m2', [second])])
+    expect(await gaps(fold)).toEqual({ marginTop: -1, gaps: 2 })
+  })
+}
+
 test('a regrouped second read leaves the wrapped prompt rail on the visible fold', async ($, on) => {
   native(on)
   nativePrompt(on)

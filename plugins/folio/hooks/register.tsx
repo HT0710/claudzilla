@@ -1338,11 +1338,14 @@ export const register: Register = on => {
       if (lastRow && frameOf(lastRow) === old) lastRow = e.requestId
       const first = e.props.calls.find((c: ToolGroupCall) => c.tool_use_id && !HIDDEN_TOOLS.has(c.tool))?.tool_use_id
       const owner = first && segmentOf(first)?.owner
+      // Only the row this group grew from hands its join over: another row in the run keeps it, even while this group's
+      // live row has not recorded its calls yet or a failed edit cuts the run.
+      const grewFrom = (id: string) => !first || (callIds.get(id)?.includes(first) ?? true)
       for (const [id, prompt] of [...promptBefore]) {
         if (frameOf(id) !== old) continue
         promptBefore.set(e.requestId, prompt)
         // A later member shares the frame but draws nothing; the visible fold still paints the rail.
-        if ((!owner || owner === first) && joinRow.get(prompt) === id) { joinRow.set(prompt, e.requestId); joinNote('move', prompt, { row: e.requestId, from: id }) }
+        if ((!owner || owner === first) && joinRow.get(prompt) === id && grewFrom(id)) { joinRow.set(prompt, e.requestId); joinNote('move', prompt, { row: e.requestId, from: id }) }
       }
       // A group with an unfolded call ends the run, as on the path below: a later row must not join a run it swallowed.
       if (!ids) current = undefined
