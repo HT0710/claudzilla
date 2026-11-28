@@ -4188,6 +4188,24 @@ test('traces a plain prompt card, the row that joins it, and its corner', async 
   expect(steps).toContainEqual({ step: 'card', prompt: 'p1', row: 'p1', corner: '╭' })
 })
 
+test('a group drawn with only thinking draws its line on the rail and joins the card', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  const rows = sink(on, 'folio')
+  await prompt($, 'hi')
+  const thinking = await mountGroup($, 'collapsed-thinking', [])
+  expect(await rail(thinking, GAP)).toBe(1)
+  expect(await rail(thinking, OWN)).toBe(1)
+  const bash = await mountGroup($, 'collapsed-bash', [call('b1', 'Bash', { command: 'echo 1' })])
+  expect(await rail(bash, OWN)).toBe(1)
+  await $.session.end({ reason: 'other' })
+  const steps = rows().filter(r => r.event === 'folio.join').map(r => r.data)
+  expect(steps).toContainEqual({ step: 'join', prompt: 'p1', row: 'collapsed-thinking', imgs: 0 })
+  expect(steps.filter(s => s.row === 'collapsed-bash')).toEqual([])
+  expect(steps).toContainEqual({ step: 'card', prompt: 'p1', row: 'p1', corner: '╭' })
+})
+
 for (const [text, want] of [['look [Image #2]', [{ step: 'reply', prompt: 'p1', row: 'a1', imgs: 1 }]], ['hi', []]] as const) {
   test(`a reply after "${text}" traces ${want.length ? 'its join' : 'no reply join'}`, async ($, on) => {
     native(on)

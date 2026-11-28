@@ -1136,11 +1136,13 @@ export const register: Register = on => {
     const native = await next(e)
     const { calls, isActive, isExpanded } = e.props
     // Off the fullscreen layout a printed row cannot change: a live header would stay Running.
-    if (!hideEditDiff || e.surface !== 'terminal' || isExpanded || !e.viewport?.isFullscreen || !calls.length) return native
+    if (!hideEditDiff || e.surface !== 'terminal' || isExpanded || !e.viewport?.isFullscreen) return native
     const elements = $.ui.resolve(e)
+    const columns = e.viewport.columns ?? 80
+    // A group drawn before its first call holds only thinking: its native line sits on the rail and joins the card.
+    if (!calls.length) return framed(elements, frameOf(e.requestId), columns, native, 1, 1, undefined, e.requestId)
     if (!('Client' in elements)) return native
     const root = await $.session.root().catch(() => '')
-    const columns = e.viewport.columns ?? 80
     const known = calls.filter(c => c.tool_use_id && !HIDDEN_TOOLS.has(c.tool))
     // After a reload folio holds no record: the engine's diff gives the counts.
     for (const c of known) {
