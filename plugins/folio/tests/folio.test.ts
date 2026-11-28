@@ -1244,12 +1244,22 @@ test('CJK and tab lines keep the border aligned', async ($, on) => {
   expect(rows.map((b: any) => b.props.paddingLeft)).toEqual([60, 60, 60])
 })
 
+// Like the engine, each row with a uuid names the one before it as its parentUuid; log rows have neither.
+const chained = (rows: object[]) => {
+  let last: string | null = null
+  return rows.map((r: any) => {
+    if (typeof r.uuid !== 'string') return r
+    const row = { parentUuid: last, ...r }
+    last = r.uuid
+    return row
+  })
+}
 const transcript = (on: any, path: string, rows: object[]) => {
-  const file = rows.map(r => JSON.stringify(r)).join('\n') + '\n'
+  const file = chained(rows).map(r => JSON.stringify(r)).join('\n') + '\n'
   on('session.info', () => ({ value: { transcriptPath: path } }))
   on('fs.read', (_: any, e: any) => (e.path === path ? { value: file.slice(e.offset ?? 0, (e.offset ?? 0) + (e.length ?? file.length)) } : { deny: 'ENOENT' }))
 }
-const sentRow = { type: 'user', uuid: 'p1', timestamp: '1970-01-01T00:00:00.000Z' }
+const sentRow = { parentUuid: null, type: 'user', uuid: 'p1', timestamp: '1970-01-01T00:00:00.000Z' }
 for (const columns of [62, 80]) {
   test(`the card shows the time under its rule (${columns} cols)`, async ($, on) => {
     native(on)
@@ -3833,6 +3843,7 @@ for (const [name, text, rows, top, n] of [
   ['an @path file row and an image', '@a.md look [Image #1]', [att('file')], -2, 3],
   ['a directory and a not-read mention', '@.git/ @b.md look', [att('directory'), att('at_mention_reference')], -2, 3],
   ['a skill listing update', 'hi', [att('skill_listing', { isInitial: false, skillCount: 1 })], -1, 2],
+  ['a skill listing after request log rows', 'hi', [{ type: 'api-request-shape' }, { type: 'api-request-blob' }, att('skill_listing', { isInitial: false })], -1, 2],
   ['the first skill listing, which draws nothing', 'hi', [att('skill_listing', { isInitial: true })], undefined, 1],
   ['hidden attachments', '@peer look', [att('hook_additional_context'), att('peer_mention'), att('date')], undefined, 1],
   ['a Stop hook error, which draws nothing', 'hi', [att('hook_blocking_error', { hookEvent: 'Stop' })], undefined, 1],
@@ -3872,7 +3883,7 @@ test('an attachment row written after the prompt row still counts', async ($, on
   on('fs.read', (_: any, e: any) => ({ value: file.slice(e.offset ?? 0, (e.offset ?? 0) + (e.length ?? file.length)) }))
   const card = await prompt($, 'hi')
   await card.find({ type: 'Text', text: stamp(0) })
-  file += JSON.stringify(att('skill_listing', { isInitial: false })) + '\n'
+  file += JSON.stringify({ parentUuid: sentRow.uuid, ...att('skill_listing', { isInitial: false }) }) + '\n'
   await card.redraw()
   await card.redraw()
   const row = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
