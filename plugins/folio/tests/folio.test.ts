@@ -1087,8 +1087,8 @@ test('one file edited twice reads as one file', async ($, on) => {
   expect(await textOf(first, 'e1')).toBe('◼ Edited (1 file)  +2')
 })
 
-const mountGroup = ($: any, id: string, calls: object[], extra: object = {}) =>
-  $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolGroup', requestId: id, props: { calls, isActive: false, isExpanded: false, ...extra }, viewport: VIEW })
+const mountGroup = ($: any, id: string, calls: object[], extra: object = {}, columns = VIEW.columns) =>
+  $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolGroup', requestId: id, props: { calls, isActive: false, isExpanded: false, ...extra }, viewport: { ...VIEW, columns } })
 const reads = (a: string, b: string) => [call(a, 'Read', { file_path: '/p/a.txt' }), call(b, 'Read', { file_path: '/p/b.txt' })]
 
 test('a tool group between two edits joins their run', async ($, on) => {
@@ -4101,35 +4101,37 @@ test('a regrouped second read leaves the wrapped prompt rail on the visible fold
   const card = await prompt($, 'hi', 64)
   await card.find({ type: 'Text', text: stamp(0) })
   const [a, b] = reads('r1', 'r2')
-  const first = await mountGroup($, 'first', [a!])
+  const first = await mountGroup($, 'first', [a!], {}, 64)
   expect(await gaps(first)).toEqual({ marginTop: -4, gaps: 5 })
-  const second = await mountGroup($, 'second-live', [b!])
+  const second = await mountGroup($, 'second-live', [b!], {}, 64)
   await second.unmount()
-  const hidden = await mountGroup($, 'second-done', [b!])
+  const hidden = await mountGroup($, 'second-done', [b!], {}, 64)
   await first.redraw()
   expect(await gaps(first)).toEqual({ marginTop: -4, gaps: 5 })
   expect((await gaps(hidden)).gaps).toBe(0)
 })
 
-test('a fold drawn before its prompt card on resize gets the new hook height', async ($, on) => {
-  native(on)
-  nativePrompt(on)
-  mock.clock(on, { now: 0 })
-  transcript(on, '/t/s.jsonl', [sentRow, att('hook_system_message', {
-    hookName: 'UserPromptSubmit', hookEvent: 'UserPromptSubmit', content: 'x '.repeat(120).trim(),
-  }), { type: 'assistant', uuid: 'done' }])
-  const fold = (columns: number) => $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolGroup', requestId: 'group',
-    props: { calls: reads('r1', 'r2'), isActive: false, isExpanded: false }, viewport: { ...VIEW, columns } })
-  const card = await prompt($, 'hi', 100)
-  await card.find({ type: 'Text', text: stamp(0) })
-  const wide = await fold(100)
-  expect(await gaps(wide)).toEqual({ marginTop: -3, gaps: 4 })
-  await card.unmount()
-  await wide.unmount()
-  const narrow = await fold(66)
-  await prompt($, 'hi', 66)
-  expect(await gaps(narrow)).toEqual({ marginTop: -5, gaps: 6 })
-})
+for (const [from, to, oldHeight, newHeight] of [[100, 66, 3, 5], [66, 100, 5, 3]] as const) {
+  test(`a fold resizing from ${from} to ${to} paints the exact hook height before the card redraws`, async ($, on) => {
+    native(on)
+    nativePrompt(on)
+    mock.clock(on, { now: 0 })
+    transcript(on, '/t/s.jsonl', [sentRow, att('hook_system_message', {
+      hookName: 'UserPromptSubmit', hookEvent: 'UserPromptSubmit', content: 'x '.repeat(120).trim(),
+    }), { type: 'assistant', uuid: 'done' }])
+    const fold = (columns: number) => mountGroup($, 'group', reads('r1', 'r2'), {}, columns)
+    const card = await prompt($, 'hi', from)
+    await card.find({ type: 'Text', text: stamp(0) })
+    const old = await fold(from)
+    expect(await gaps(old)).toEqual({ marginTop: -oldHeight, gaps: oldHeight + 1 })
+    await card.unmount()
+    await old.unmount()
+    const resized = await fold(to)
+    expect(await gaps(resized)).toEqual({ marginTop: -newHeight, gaps: newHeight + 1 })
+    await prompt($, 'hi', to)
+    expect(await gaps(resized)).toEqual({ marginTop: -newHeight, gaps: newHeight + 1 })
+  })
+}
 
 test('traces which row joins an image prompt card, and its re-key', async ($, on) => {
   native(on)
