@@ -4111,6 +4111,26 @@ test('a regrouped second read leaves the wrapped prompt rail on the visible fold
   expect((await gaps(hidden)).gaps).toBe(0)
 })
 
+test('a fold drawn before its prompt card on resize gets the new hook height', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  mock.clock(on, { now: 0 })
+  transcript(on, '/t/s.jsonl', [sentRow, att('hook_system_message', {
+    hookName: 'UserPromptSubmit', hookEvent: 'UserPromptSubmit', content: 'x '.repeat(120).trim(),
+  }), { type: 'assistant', uuid: 'done' }])
+  const fold = (columns: number) => $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'ToolGroup', requestId: 'group',
+    props: { calls: reads('r1', 'r2'), isActive: false, isExpanded: false }, viewport: { ...VIEW, columns } })
+  const card = await prompt($, 'hi', 100)
+  await card.find({ type: 'Text', text: stamp(0) })
+  const wide = await fold(100)
+  expect(await gaps(wide)).toEqual({ marginTop: -3, gaps: 4 })
+  await card.unmount()
+  await wide.unmount()
+  const narrow = await fold(66)
+  await prompt($, 'hi', 66)
+  expect(await gaps(narrow)).toEqual({ marginTop: -5, gaps: 6 })
+})
+
 test('traces which row joins an image prompt card, and its re-key', async ($, on) => {
   native(on)
   nativePrompt(on)
