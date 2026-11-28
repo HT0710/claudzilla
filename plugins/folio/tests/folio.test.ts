@@ -4091,6 +4091,26 @@ test('a group the engine re-keys keeps the image overlay', async ($, on) => {
   expect(await gaps(final)).toEqual({ marginTop: -1, gaps: 2 })
 })
 
+test('a regrouped second read leaves the wrapped prompt rail on the visible fold', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  mock.clock(on, { now: 0 })
+  transcript(on, '/t/s.jsonl', [sentRow, att('hook_system_message', {
+    hookName: 'UserPromptSubmit', hookEvent: 'UserPromptSubmit', content: 'alpha beta gamma delta '.repeat(9).trim(),
+  })])
+  const card = await prompt($, 'hi', 64)
+  await card.find({ type: 'Text', text: stamp(0) })
+  const [a, b] = reads('r1', 'r2')
+  const first = await mountGroup($, 'first', [a!])
+  expect(await gaps(first)).toEqual({ marginTop: -4, gaps: 5 })
+  const second = await mountGroup($, 'second-live', [b!])
+  await second.unmount()
+  const hidden = await mountGroup($, 'second-done', [b!])
+  await first.redraw()
+  expect(await gaps(first)).toEqual({ marginTop: -4, gaps: 5 })
+  expect((await gaps(hidden)).gaps).toBe(0)
+})
+
 test('traces which row joins an image prompt card, and its re-key', async ($, on) => {
   native(on)
   nativePrompt(on)

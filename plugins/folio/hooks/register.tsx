@@ -1322,10 +1322,13 @@ export const register: Register = on => {
       if (e.viewport?.isFullscreen) frames.set(e.requestId, old)
       for (const [n, id] of tails) if (frameOf(id) === old) tails.set(n, e.requestId)
       if (lastRow && frameOf(lastRow) === old) lastRow = e.requestId
+      const first = e.props.calls.find((c: ToolGroupCall) => c.tool_use_id && !HIDDEN_TOOLS.has(c.tool))?.tool_use_id
+      const owner = first && segmentOf(first)?.owner
       for (const [id, prompt] of [...promptBefore]) {
         if (frameOf(id) !== old) continue
         promptBefore.set(e.requestId, prompt)
-        if (joinRow.get(prompt) === id) { joinRow.set(prompt, e.requestId); joinNote('move', prompt, { row: e.requestId, from: id }) }
+        // A later member shares the frame but draws nothing; the visible fold still paints the rail.
+        if ((!owner || owner === first) && joinRow.get(prompt) === id) { joinRow.set(prompt, e.requestId); joinNote('move', prompt, { row: e.requestId, from: id }) }
       }
       // A group with an unfolded call ends the run, as on the path below: a later row must not join a run it swallowed.
       if (!ids) current = undefined
