@@ -260,13 +260,13 @@ sub spend_figures {
     $f{mid} = $mid - $ws if defined $mid && $mid - $ws > 0 && $mid - $ws < 86400;
     return \%f;
 }
-# --- OpenRouter billed spend, shared per config dir, mode 0600; tab lines: at, tried, daily, monthly ---
+# --- OpenRouter billed spend, shared per config dir, mode 0600; tab lines: at, tried, usage, monthly, base, bday, kid ---
 sub or_load {
     my %c;
     open my $fh, '<', $_[0] or return \%c;
     for (split /\n/, do { local $/; <$fh> // '' }) {
         my ($k, $v) = split /\t/;
-        $c{$k} = $v + 0 if defined $v && $k =~ /^(?:at|tried|daily|monthly)\z/ && $v =~ /^\d+(?:\.\d+)?\z/;
+        $c{$k} = $v + 0 if defined $v && $k =~ /^(?:at|tried|usage|monthly|base|bday|kid)\z/ && $v =~ /^\d+(?:\.\d+)?\z/;
     }
     return \%c;
 }
@@ -274,7 +274,7 @@ sub or_save {
     my ($file, $c) = @_;
     my $tmp = "$file.$$.tmp";
     sysopen(my $fh, $tmp, O_WRONLY | O_CREAT | O_TRUNC, 0600) or return;
-    print $fh map { "$_\t$c->{$_}\n" } grep { defined $c->{$_} } qw(at tried daily monthly);
+    print $fh map { "$_\t$c->{$_}\n" } grep { defined $c->{$_} } qw(at tried usage monthly base bday kid);
     close $fh and rename $tmp, $file or unlink $tmp;
 }
 # billed today and month for the key; a stale cache starts one detached fetch, so every session on the key shares one /key call a minute
@@ -302,13 +302,19 @@ sub or_spend {
                 $? ? undef : $b;
             };
             my $d = defined $body ? json_parse(dec($body)) : undef;
-            my ($dy, $mo) = (dig($d, 'data', 'usage_daily'), dig($d, 'data', 'usage_monthly'));
-            @$n{qw(at daily monthly)} = ($T, sprintf('%.6f', $dy), sprintf('%.6f', $mo)) if is_num($dy) && is_num($mo) && $dy >= 0 && $mo >= 0;
+            my ($us, $mo) = (dig($d, 'data', 'usage'), dig($d, 'data', 'usage_monthly'));
+            if (is_num($us) && is_num($mo) && $us >= 0 && $mo >= 0) {
+                @$n{qw(at usage monthly)} = ($T, sprintf('%.6f', $us), sprintf('%.6f', $mo));
+                # usage_daily runs on the UTC day, so the local day counts from the first all-time usage read after local midnight; kid tells keys apart without storing one
+                require Digest::SHA;
+                my ($day, $kid) = (spend_date($T) =~ tr/-//dr, unpack('N', Digest::SHA::sha256($key)));
+                @$n{qw(base bday kid)} = ($n->{usage}, $day, $kid) if ($n->{bday} // 0) != $day || ($n->{kid} // -1) != $kid || $n->{usage} < ($n->{base} // 0);
+            }
             or_save($file, $n);
             POSIX::_exit(0);
         }
     }
-    return ($c->{at} // 0) >= $T - 600 && defined $c->{daily} && defined $c->{monthly} ? $c : undef;
+    return ($c->{at} // 0) >= $T - 600 && defined $c->{usage} && defined $c->{monthly} ? $c : undef;
 }
 sub gather {
     my $raw = do { local $/; <STDIN> } // '';
@@ -368,7 +374,9 @@ sub gather {
         # billed figures beat the ledger's estimate; the chart and rate stay local, /key has no buckets
         my $ok = $ENV{ANTHROPIC_AUTH_TOKEN} || $ENV{ANTHROPIC_API_KEY} || '';
         if ($out{login} eq 'openrouter.ai' && length $ok and my $or = or_spend($sdir, $ok, $T)) {
-            @$sf{qw(today month)} = @$or{qw(daily monthly)}; $sf->{day} = $or->{monthly} / (gmtime $T)[3];   # OpenRouter's month resets at UTC midnight (resets_at in /key)
+            $sf->{month} = $or->{monthly}; $sf->{day} = $or->{monthly} / (gmtime $T)[3];   # OpenRouter's month resets at UTC midnight (resets_at in /key)
+            # no base for this local day yet: the ledger's today stays
+            $sf->{today} = $or->{usage} - $or->{base} if defined $or->{base} && ($or->{bday} // 0) == spend_date($T) =~ tr/-//dr;
         }
         $out{spend_here} = sprintf '%.6f', $cost;
         $out{"spend_$_"} = sprintf '%.6f', $sf->{$_} for qw(today month rate day);
