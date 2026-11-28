@@ -240,3 +240,16 @@ test('an edit flip from Markdown to source drops the Markdown top', () => {
   nav = visit(nav, { kind: 'file', path: '/repo/a.md', md: false })
   expect(nav.entries.at(-1)).toEqual({ kind: 'file', path: '/repo/a.md', md: false })
 })
+
+test('flipping the view keeps the top source line', async ($, on) => {
+  const big = '# Title\n\n' + Array.from({ length: 200 }, (_, i) => `- item ${i}`).join('\n')
+  const ui = await explorer($, on, { path: '/repo/a.md' }, big)
+  for (let i = 0; i < 10; i++) await wheelBy($, ui, 10)
+  expect(await ui.find({ type: 'Text', text: 'item 100' })).toBeDefined()
+  await flip(ui)
+  expect(await ui.find({ key: 'row:103' })).toBeDefined()
+  expect(await ui.find({ key: 'row:1' })).toBeUndefined()
+  await flip(ui)
+  expect(await ui.find({ type: 'Text', text: 'item 100' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Title' })).toBeUndefined()
+})

@@ -21,7 +21,7 @@ import type { Token } from './explorer-tokens'
 import { guideFolders, iconOf, itemsText, langOf, rowScopeOf, scopeOf, treeRows } from './explorer-tree'
 import type { Listing } from './explorer-tree'
 import { fileKey, printable } from './git-data'
-import { mdRows } from './markdown'
+import { mdLayout, mdTopFor } from './markdown'
 import type { MdRow } from './markdown'
 import { CARD, DIMMED, FLASH, HUD, LIT, PAD, PILL_BG, STATUS, TYPES, basicGlyphs, clock, emptyNote, mdView, mixHex, readTheme, rowHovers, themeHex, toPieces } from './kit'
 import type { TabCtx, TabDraw } from './kit'
@@ -64,7 +64,9 @@ type State = {
   afterFolder?: boolean
   layout?: Cached
   // The Markdown rows of the loaded file, kept while the file and width stay the same.
-  mdCache?: { of: Loaded; width: number; rows: MdRow[] }
+  mdCache?: { of: Loaded; width: number; rows: MdRow[]; lines: number[] }
+  // The top source line index the Markdown switch keeps; the next draw turns it into that view's top.
+  keepLine?: number
   // Change cells of the bar, kept while the layout, marks, Show git diff and cell count stay the same.
   bar?: BarCache
   tokens: Map<number, Token[]>
@@ -1076,9 +1078,11 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
   } else if (loaded?.unreadable) {
     body = [emptyNote(ctx.el, codeRows, "Can't show this file", <Text color={HUD.faint}>{loaded.missing ? 'It no longer exists.' : 'It is binary, unreadable or over 4 MiB.'}</Text>)]
   } else if (loaded && viewMd) {
-    if (state.mdCache?.of !== loaded || state.mdCache.width !== C) state.mdCache = { of: loaded, width: C, rows: mdRows(lines.join('\n'), C - 1) }
+    if (state.mdCache?.of !== loaded || state.mdCache.width !== C) state.mdCache = { of: loaded, width: C, ...mdLayout(lines.join('\n'), C - 1) }
     const mdr = state.mdCache.rows
     state.remapTop = false
+    if (state.keepLine !== undefined) state.top = mdTopFor(state.mdCache.lines, state.keepLine)
+    state.keepLine = undefined
     const win = fileWindow(mdr.length, state.top ?? 0, codeRows)
     state.top = win.top
     body.push(
@@ -1118,6 +1122,8 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
       state.top = layout.starts[Math.max(0, Math.min(at, lines.length - 1))] ?? 0
     }
     state.remapTop = false
+    if (state.keepLine !== undefined) state.top = layout.starts[Math.max(0, Math.min(state.keepLine, lines.length - 1))] ?? 0
+    state.keepLine = undefined
     const Client = 'Client' in ctx.el ? ctx.el.Client : undefined
     const hbar = !!Client && !state.wrap && layout.widest > C
     if (hbar) codeRows = Math.max(0, codeRows - 1)
@@ -1576,6 +1582,7 @@ export async function draw($: EngineInterface, ctx: TabCtx): Promise<TabDraw> {
             <Box key="explorer:header-right" width={hdrRight} flexShrink={0} gap={1} justifyContent="flex-end">
               {isMd && (
                 <Button key="explorer:markdown" plain onPress={() => {
+                  state.keepLine = viewMd ? state.mdCache?.lines[state.top ?? 0] : state.layout && lineAt(state.layout.layout, state.top ?? 0)
                   state.nav = setView(state.nav, !viewMd)
                   state.top = state.col = 0
                   if (!viewMd) state.lit = undefined
