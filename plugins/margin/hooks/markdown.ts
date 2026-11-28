@@ -85,7 +85,16 @@ const wrap = (text: string, base: Style, room: number): MdSpan[][] => {
   return rows
 }
 
-const cells = (line: string) => line.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim())
+// `\|` is a pipe inside a cell, code spans included, as on GitHub.
+const cells = (line: string) =>
+  line
+    .trim()
+    .replace(/^\||(?<!\\)\|$/g, '')
+    .split(/(?<!\\)\|/)
+    .map(c => c.trim().replace(/\\\|/g, '|'))
+// Outer pipes are optional; a pipe-less `---` stays a paragraph line.
+const DELIM = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/
+const tableAt = (lines: string[], i: number) => lines[i]!.includes('|') && i + 1 < lines.length && lines[i + 1]!.includes('|') && DELIM.test(lines[i + 1]!)
 
 // One block's rows, each with the source line it starts at: a fence's lines as code; else headings, list items and paragraphs, each wrapped.
 const blockRows = (lines: string[], at: number[], width: number): [MdRow, number][] => {
@@ -95,8 +104,11 @@ const blockRows = (lines: string[], at: number[], width: number): [MdRow, number
     if (body.length && closes(fence[1]!, body.at(-1)!)) body.pop()
     return body.map((code, i) => [{ code, ...(fence[2] ? { language: fence[2] } : {}) }, at[i + 1]!])
   }
+  // A table may start mid-block, right under a paragraph.
+  const start = tableAt(lines, 0) ? -1 : lines.findIndex((_, i) => i > 0 && tableAt(lines, i))
+  if (start > 0) return [...blockRows(lines.slice(0, start), at.slice(0, start), width), ...blockRows(lines.slice(start), at.slice(start), width)]
   // A table reads as one row per data row: the first cell bold, the rest after it.
-  const table = lines.length > 1 && lines[0]!.startsWith('|') && /^\|[\s:|-]+\|$/.test(lines[1]!.trim())
+  const table = tableAt(lines, 0)
   if (table) {
     at = at.slice(2)
     lines = lines.slice(2).map(line => {
