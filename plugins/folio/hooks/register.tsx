@@ -1458,7 +1458,11 @@ export const register: Register = on => {
     }
     // The engine draws one `⎿` row per image, and one per drawn attachment such as an `@path` file or a skill listing update;
     // the first framed row after the card paints the rail over them. A plugin's prompt expands none, so it draws no rows.
-    promptImages.set(id, sent ? 0 : images + attached)
+    const previous = promptImages.get(id)
+    const count = sent ? 0 : images + attached
+    promptImages.set(id, count)
+    // On resize the rail may already have drawn at the previous height.
+    if (previous !== undefined && previous !== count) $.ui.invalidate('ui.render')
     const tag = sent && time ? `${sent} · ${time}` : sent ?? time
     const corner = framedAfter.has(id) || (e.viewport?.isFullscreen && promptImages.get(id) && promptReply.has(id)) ? '╭' : '╌'
     joinNote('card', id, { row: id, corner })
