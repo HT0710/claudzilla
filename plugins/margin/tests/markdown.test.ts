@@ -52,6 +52,17 @@ test('a table first cell with its own marks keeps them instead of bold', () => {
   ])
 })
 
+test('a table cell keeps an escaped pipe; a table after a paragraph or without outer pipes is still a table', () => {
+  expect(texts('| a | b |\n|---|---|\n| `x \\| y` | z \\| w |', 80)).toEqual(['x | y — z | w'])
+  expect(texts('Intro line\n| a | b |\n|---|---|\n| 1 | 2 |', 80)).toEqual(['Intro line', '1 — 2'])
+  expect(texts('a | b\n:--|--:\n1 | 2', 80)).toEqual(['1 — 2'])
+  expect(texts('a | b\nc', 80)).toEqual(['a | b c'])
+})
+
+test('a body row of only dashes stays a data row', () => {
+  expect(texts('| k | v |\n|---|---|\n| a | 1 |\n| - | - |\n| b | 2 |', 80)).toEqual(['a — 1', '- — -', 'b — 2'])
+})
+
 test('inline triple backticks are a code span, not a fence; quotes lose > on every line; comments and empty blocks draw nothing', () => {
   expect(texts('```foo``` bar\n\nnext', 80)).toEqual(['foo bar', '', 'next'])
   expect(texts('> a\n> b', 80)).toEqual(['a b'])
