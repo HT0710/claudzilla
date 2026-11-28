@@ -18,7 +18,7 @@ Design before building: find out what the user wants, write a spec, then plan. A
 
 ```text
 recon, reply 1 (TL;DR, found table, one why-question or Decisions), picks,
-spec, builder check (project only), approval, writing-plans
+spec, builder check, re-read, approval, writing-plans
 ```
 
 1. **Opt-out.** When the request already settles the design, or the user says to skip the questions, ask none and go to the spec. Repo rules about waiting for a go-ahead still apply.
@@ -37,7 +37,7 @@ spec, builder check (project only), approval, writing-plans
 8. **Show it.** Anything the user will look at gets each option rendered before you ask about it. Use a text sketch in the reply, or a mockup file in the job folder opened with the system's default opener (`open`, `xdg-open`, `wslview` or `start`). Look at the render yourself first, by screenshot or by running it in the real medium. If it can't be opened, print the path.
 9. **Size.** Always size the work. Small means one sitting, one part and a clear done. A project has several parts or sittings, or an unclear done. Split a request that is really several projects, and sequence the parts first. The user can override the size.
 10. **Spec.** Small work gets a short spec, a line or two per section. A project gets the full spec. Save it as `docs/chancery/<YYYY-MM-DD>-<topic>/spec.md`, dated the day it is written, unless the user names a path. A repo's design-doc home supplies the template only. Say where it went. If a planning doc or issue lists the item, link the spec there. Before showing the spec, check it against the writing rules.
-11. **Builder check, project only.** Give a one-line cost notice first. Then send a fresh agent the prompt in `builder-check-prompt.md`, with the domain and the spec path filled in. Settle what the conversation already answered, decide minor points and mark them in the spec, and bring only the user's points back as Decisions in one reply.
+11. **Builder check, every spec.** Give a one-line cost notice first. Then send a fresh agent the prompt in `builder-check-prompt.md`, with the domain and the spec path filled in. Settle what the conversation already answered, decide minor points and mark them in the spec. Then re-read the whole spec once, because the settling edits can leave stale lines or two lines that disagree. Fix what you find and list it. Bring only the user's points, from the check and the re-read, back as Decisions in one reply.
 12. **Gate.** Build nothing until the user approves the spec. The one exception is a spike the user agrees to, which stays throwaway (see `reference.md`). After approval, invoke `superpowers:writing-plans` and no other skill, and tell it to save the plan as `plan.md` in the job folder. Once the plan is approved and the context is large, suggest a fresh session for building.
 
 ## Spec layout
