@@ -17,19 +17,20 @@ const run = (cmd, args, input) => {
 };
 const onPath = (name) => (process.env.PATH ?? "").split(":").some((d) => { try { accessSync(join(d || ".", name), constants.X_OK); return true; } catch { return false; } });
 
-function readJson(file, results) {
+function readJson(file, results, showPath = String) {
   let text;
   try { text = readFileSync(file, "utf8"); } catch { return undefined; }
-  try { return JSON.parse(text); } catch { results.push({ check: "read", label: "read", ok: false, text: `could not read ${file}`, why: "fix or remove the file by hand" }); return undefined; }
+  try { return JSON.parse(text); } catch { results.push({ check: "read", label: "read", ok: false, text: `could not read ${showPath(file)}`, why: "fix or remove the file by hand" }); return undefined; }
 }
 
-function pickedParts(ctx, parts, results) {
+function pickedParts(ctx, parts, results, showPath) {
   const all = Object.keys(parts).filter((p) => p !== "primer");
-  const ins = readJson(join(ctx.config, "claudzilla.json"), results)?.install;
+  const file = join(ctx.config, "claudzilla.json");
+  const ins = readJson(file, results, showPath)?.install;
   const known = (v) => (Array.isArray(v) ? v.filter((p) => all.includes(p)) : []);
   let pick = all;
   if (ins && typeof ins === "object") {
-    if (ins.only?.length && !known(ins.only).length) results.push({ check: "read", label: "read", ok: false, text: `could not read ${join(ctx.config, "claudzilla.json")}: install names no known part`, why: "fix \"install\" in claudzilla.json" });
+    if (ins.only?.length && !known(ins.only).length) results.push({ check: "read", label: "read", ok: false, text: `could not read ${showPath(file)}: install names no known part`, why: "fix \"install\" in claudzilla.json" });
     else if (ins.only) pick = known(ins.only);
     else if (ins.skip) pick = all.filter((p) => !known(ins.skip).includes(p));
   }
@@ -90,15 +91,15 @@ function commitState(ctx, name, sha) {
   return run("git", ["-C", ctx.clone, "diff", "--quiet", sha, "HEAD", "--", `plugins/${name}`]).status === 0 ? "ok" : "stale";
 }
 
-export function checks(ctx) {
+export function checks(ctx, showPath = String) {
   const results = [];
   const parts = JSON.parse(readFileSync(join(ctx.clone, "parts.json"), "utf8"));
   const base = JSON.parse(readFileSync(join(ctx.clone, "settings.base.json"), "utf8"));
   const renames = JSON.parse(readFileSync(join(ctx.clone, ".claude-plugin/marketplace.json"), "utf8")).renames ?? {};
-  const installed = readJson(join(ctx.config, "plugins/installed_plugins.json"), results)?.plugins ?? {};
-  const settings = readJson(join(ctx.config, "settings.json"), results) ?? {};
-  const markets = readJson(join(ctx.config, "plugins/known_marketplaces.json"), results) ?? {};
-  const on = pickedParts(ctx, parts, results);
+  const installed = readJson(join(ctx.config, "plugins/installed_plugins.json"), results, showPath)?.plugins ?? {};
+  const settings = readJson(join(ctx.config, "settings.json"), results, showPath) ?? {};
+  const markets = readJson(join(ctx.config, "plugins/known_marketplaces.json"), results, showPath) ?? {};
+  const on = pickedParts(ctx, parts, results, showPath);
   const ids = new Set(Object.values(parts).flatMap((p) => p.plugins ?? []));
   const head = run("git", ["-C", ctx.clone, "rev-parse", "--short=7", "HEAD"]).out;
   const install = { kind: "install", cwd: ctx.clone };
@@ -118,8 +119,8 @@ export function checks(ctx) {
       } else if (e?.scope === "project" && typeof e.projectPath === "string" && here.has(real(e.projectPath))) {
         if (commitState(ctx, name, sha) === "ok") continue;
         const path = e.projectPath.replace(/\/+$/, "");
-        results.push(existsSync(join(path, ".claude/plugins/installed_plugins.json")) ? { check: "project", label: name, ok: false, text: `project install at ${short} for ${path}, whose .claude is also a profile`, why: "removing it edits that profile's settings" }
-          : { check: "project", label: name, ok: false, text: `project install at ${short} for ${path}, clone at ${head}`, fix: { kind: "uninstall-project", id, scope: "project", cwd: path } });
+        results.push(existsSync(join(path, ".claude/plugins/installed_plugins.json")) ? { check: "project", label: name, ok: false, text: `project install at ${short} for ${showPath(path)}, whose .claude is also a profile`, why: "removing it edits that profile's settings" }
+          : { check: "project", label: name, ok: false, text: `project install at ${short} for ${showPath(path)}, clone at ${head}`, fix: { kind: "uninstall-project", id, scope: "project", cwd: path } });
       }
     }
   }
@@ -169,6 +170,7 @@ export function checks(ctx) {
   for (const r of results) {
     if ((r.fix?.kind === "install" || r.fix?.kind === "basic-glyphs") && worktree) { delete r.fix; r.why = "this is a git worktree; run install.sh in the main clone"; }
     else if (r.fix?.cwd?.includes("'")) { delete r.fix; r.why = "the path has a quote; fix it by hand"; }
+    else if (r.fix?.cwd) r.fix = { ...r.fix, cwd: showPath(r.fix.cwd) };
   }
   return results;
 }
@@ -220,11 +222,6 @@ function glyphRow(ctx, on) {
   const text = [rail, hud].filter(Boolean).join("   ");
   if (!text) return undefined;
   return { check: "glyphs", label: "glyphs", ok: true, text, ask: "boxes? set MesloLGS NF as your terminal font, or", fix: { kind: "basic-glyphs", cwd: ctx.clone } };
-}
-
-export function stripPaths(results) {
-  const strip = (s) => s.split(/(\s+)/).map((t) => (/^[/~]/.test(t) ? "<path>" : t)).join("");
-  return results.map((r) => ({ ...r, text: strip(r.text), ...(r.fix?.cwd ? { fix: { ...r.fix, cwd: "<path>" } } : {}) }));
 }
 
 function version(clone) {
@@ -279,7 +276,7 @@ if (process.argv[1] && real(process.argv[1]) === real(fileURLToPath(import.meta.
       json: flags.has("--json"),
       hook,
     };
-    const results = checks(ctx);
+    const results = checks(ctx, !hook && ctx.quick && ctx.json ? () => "<path>" : String);
     if (hook) {
       const path = notePath(ctx);
       const fresh = input.source === "startup" || input.source === "resume";
@@ -290,7 +287,7 @@ if (process.argv[1] && real(process.argv[1]) === real(fileURLToPath(import.meta.
         const what = plugin ? `${plugin.label} out of date` : `${bad.length} problem${bad.length > 1 ? "s" : ""} found`;
         console.log(JSON.stringify({ systemMessage: `claudzilla: ${what}. Run /claudzilla-doctor, or ask Claude to fix claudzilla.`, hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: "claudzilla doctor found problems. If the user asks to fix claudzilla, run the claudzilla-doctor skill." } }));
       }
-    } else if (ctx.json) console.log(JSON.stringify(ctx.quick ? stripPaths(results) : results));
+    } else if (ctx.json) console.log(JSON.stringify(results));
     else if (!ctx.quick || results.some((r) => !r.ok)) console.log(render(results, ctx));
   } catch (e) {
     console.error(`claudzilla doctor: ${e.message}`);

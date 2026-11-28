@@ -683,6 +683,7 @@ claudzilla keeps a trace of each session so a problem can be reported with facts
 
 - **Where:** `~/.claude/claudzilla-trace/` (or `$CLAUDE_CONFIG_DIR/claudzilla-trace/`). The folder is readable only by you.
 - **What:** which claudzilla hooks and plugins (margin, ballot, primer and the rest) ran and what they decided, plus a snapshot of your setup. The snapshot lists enabled claudzilla plugins and the names of settings, never their values. Secrets, such as API keys and tokens, are masked before anything is written.
+- **Doctor:** the report snapshot replaces local project and configuration paths in doctor results with `<path>`. Running `/claudzilla doctor` yourself still shows the paths you need for repairs.
 - **How long:** files older than 7 days are removed, and the folder is kept under 50 MB. Both happen when a session starts.
 - **Off switch:** put `{"rulesGuard":{"trace":false}}` in `~/.claude/claudzilla.json`. It takes effect at the next session start. Traces already written stay and are removed after 7 days. With tracing off nothing is written, and a report uses the conversation plus a snapshot built on the spot.
 
