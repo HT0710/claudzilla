@@ -271,7 +271,7 @@ sleep "${FAKE_SLEEP:-0}"
 echo "{\"data\":{\"usage_daily\":${FAKE_DAILY:-7.5},\"usage_monthly\":77.1}}"
 EOF
 chmod +x "$FC/curl"
-or_kv() { printf '%s' "$apiful" | PATH="$FC:$PATH" FROZEN_TIME=${AT:-$T0} TZ=${ZONE:-UTC} PERL5LIB="$PL" ANTHROPIC_BASE_URL=https://openrouter.ai/api ANTHROPIC_AUTH_TOKEN=sk-or-test CLAUDE_CONFIG_DIR="$1" HUD_DUMP=1 timeout 5 perl -MFrozen "$HUD/hud.pl"; }
+or_kv() { printf '%s' "$apiful" | PATH="$FC:$PATH" FROZEN_TIME=${AT:-$T0} TZ=${ZONE:-UTC} PERL5LIB="$PL" ANTHROPIC_BASE_URL=https://openrouter.ai/api ANTHROPIC_AUTH_TOKEN=sk-or-test CLAUDE_CONFIG_DIR="$1" HUD_DUMP=1 perl -e 'alarm 5; exec @ARGV' perl -MFrozen "$HUD/hud.pl"; }
 orc() { printf 'at\t%s\ndaily\t5\nmonthly\t40\n' "$1" > "$2/claudzilla-or-key.tsv"; }
 # or_wait <dir> <line>: up to 3 s for the background fetch to write <line>
 or_wait() { for _ in $(seq 60); do grep -qx "$2" "$1/claudzilla-or-key.tsv" 2>/dev/null && return 0; sleep 0.05; done; return 1; }
