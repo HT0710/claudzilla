@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { compactCommand, parse } from '../hooks/register'
+import { compactCommand, handoffSpan, parse } from '../hooks/register'
 
 const BAND = {
   component: 'AbovePrompt' as const,
@@ -563,4 +563,100 @@ test('a palette muted colours "go ahead, except…"', async ($, on) => {
   await $.turn.complete(done(LONE))
   const ui = await $.ui.mount({ plugin: 'ballot', surface: 'terminal', ...BAND })
   expect((await ui.find({ type: 'Text', text: 'go ahead, except…' }))?.props.color).toBe('#112233')
+})
+
+const ASK = 'Continue SDD at Task 5. Trap: margin runs from the cache, so check live, or ask me first.'
+const NEXT = (ask: string) => `Done.\n\n**Next:** run \`/claudzilla handoff ${ask}\``
+
+test('handoffSpan: verbatim span from the Next line, ". " and ", or" inside', () => {
+  expect(handoffSpan(NEXT(ASK))).toBe(`/claudzilla handoff ${ASK}`)
+})
+
+test('handoffSpan: ignores a span inside a fence', () => {
+  expect(handoffSpan('```md\n' + NEXT(ASK) + '\n```')).toBeNull()
+})
+
+test('handoffSpan: ignores a quoted Next (> **Next:** run …)', () => {
+  expect(handoffSpan(`> **Next:** run \`/claudzilla handoff ${ASK}\``)).toBeNull()
+  expect(handoffSpan('  > **Next:** run `/claudzilla handoff go`')).toBeNull()
+})
+
+test('handoffSpan: no Next, or a Next without /claudzilla handoff, gives null', () => {
+  expect(handoffSpan('Done.')).toBeNull()
+  expect(handoffSpan('**Next:** run `/claudzilla compact`')).toBeNull()
+  expect(handoffSpan('Run `/claudzilla handoff go`.')).toBeNull()
+  expect(handoffSpan('**Next:** run `/claudzilla handoff   `')).toBeNull()
+})
+
+const shownOf = (on: any) => {
+  const shown: string[] = []
+  engine(on)
+  on('prompt.suggest', (_: any, e: any) => { shown.push(e.text); return { isShown: true } })
+  on('prompt.submit', (_: any, e: any) => ({ text: e.text }) as any)
+  on('session.messages', () => ({ value: [] }) as any)
+  return shown
+}
+const GUESS = { text: 'run the tests', origin: { kind: 'suggestion' } } as any
+
+test('handoff span: a long span of about 480 characters is suggested whole', async ($, on) => {
+  const shown = shownOf(on)
+  const ask = 'x'.repeat(480 - '/claudzilla handoff '.length)
+  await $.turn.complete(done(NEXT(ask)))
+  expect(shown).toEqual([`/claudzilla handoff ${ask}`])
+})
+
+test('handoff span: a Next split across two lines gives no span', async ($, on) => {
+  const shown = shownOf(on)
+  await $.turn.complete(done('Done.\n\n**Next:** run `/claudzilla handoff Continue\nat Task 5.`'))
+  await $.prompt.suggest(GUESS)
+  expect(shown).toEqual(['run the tests'])
+})
+
+test('handoff span: over a picked row', async ($, on) => {
+  const shown = shownOf(on)
+  await $.turn.complete(done(LONE.replace('**Picks:** 2', '**Picks:** 2\n\n**Next:** run `/claudzilla handoff go on`')))
+  await $.prompt.suggest(GUESS)
+  expect(shown).toEqual(['/claudzilla handoff go on', '/claudzilla handoff go on'])
+})
+
+test('handoff span: cleared on a typed prompt', async ($, on) => {
+  const shown = shownOf(on)
+  await $.turn.complete(done(NEXT(ASK)))
+  await $.prompt.submit({ text: 'hi' } as any)
+  await $.prompt.suggest(GUESS)
+  expect(shown).toEqual([`/claudzilla handoff ${ASK}`, 'run the tests'])
+})
+
+test('handoff span: cleared on a rewind past the reply', async ($, on) => {
+  let transcript = [{ role: 'user', text: 'hi', toolUses: [], uuid: 'u1' }, { role: 'assistant', text: NEXT(ASK), toolUses: [], uuid: 'a1' }]
+  const shown: string[] = []
+  engine(on)
+  on('session.messages', (_: any, e: any) => {
+    if (e.last) return { value: transcript.slice(-e.last) }
+    if (!e.after) return { value: transcript }
+    const at = transcript.findIndex(m => m.uuid === e.after)
+    return { value: at < 0 ? { deny: 'gone' } : transcript.slice(at + 1) } as any
+  })
+  on('prompt.change', (_: any, e: any) => ({ text: e.text }))
+  on('prompt.suggest', (_: any, e: any) => { shown.push(e.text); return { isShown: true } })
+  await $.turn.complete(done(NEXT(ASK)))
+  transcript = transcript.slice(0, 1)
+  await $.prompt.change({ text: 'hi', cursor: 2, origin: { kind: 'engine' } })
+  await $.prompt.suggest(GUESS)
+  expect(shown).toEqual([`/claudzilla handoff ${ASK}`, 'run the tests'])
+})
+
+test('handoff span: cleared on session end', async ($, on) => {
+  const shown = shownOf(on)
+  on('session.end', () => ({ sessionId: 's1' }))
+  await $.turn.complete(done(NEXT(ASK)))
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+  await $.prompt.suggest(GUESS)
+  expect(shown).toEqual([`/claudzilla handoff ${ASK}`, 'run the tests'])
+})
+
+test('handoff span: the Compact suggestion still shows when no handoff Next', async ($, on) => {
+  const shown = shownOf(on)
+  await $.turn.complete(done('Done.\n\n' + CLINE))
+  expect(shown).toEqual(['/claudzilla compact'])
 })

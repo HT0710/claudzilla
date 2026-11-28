@@ -17,6 +17,8 @@ let FAINT = DEFAULTS.shared.muted
 let offer: Offer | null = null
 // The command of the last reply's Compact reminder when it offered nothing else: the dim suggestion.
 let compact: string | null = null
+// The last reply's `/claudzilla handoff …` span from its Next: the dim suggestion, verbatim.
+let handoff: string | null = null
 // The transcript row of the reply the band and suggestion were read from; a /rewind past it removes it.
 let shownAt: string | undefined
 
@@ -223,6 +225,21 @@ export function compactCommand(answer: string): string | null {
   return found
 }
 
+// The one code span on a `**Next:** run` line that starts `/claudzilla handoff`, outside fences; a quoted Next has none.
+export function handoffSpan(answer: string): string | null {
+  let fence = ''
+  let found: string | null = null
+  for (const line of answer.split('\n')) {
+    const mark = line.match(/^\s*(```|~~~)/)?.[1]
+    if (mark && (!fence || fence === mark)) {
+      fence = fence ? '' : mark
+      continue
+    }
+    if (!fence) found = line.match(/^\s*\*\*Next:\*\* run `(\/claudzilla handoff [^`\s][^`]*)`/)?.[1] ?? found
+  }
+  return found
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await t.start(traceIo($))
@@ -236,7 +253,8 @@ export const register: Register = on => {
       offer = parsed ?? await carried($)
       // A Next that asks nothing still names the next step: the engine's guess of it stays.
       compact = offer || /^\*\*Next:\*\*/m.test(e.answer) ? null : compactCommand(e.answer)
-      const last = offer || compact ? await $.session.messages({ last: 1 }).catch(() => null) : null
+      handoff = handoffSpan(e.answer)
+      const last = offer || compact || handoff ? await $.session.messages({ last: 1 }).catch(() => null) : null
       shownAt = last && !('deny' in last) ? last.at(-1)?.uuid : undefined
       t.event('ballot.offer', {
         matched: !!offer,
@@ -249,7 +267,7 @@ export const register: Register = on => {
     } else t.event('ballot.offer', { skipped: e.agentId ? 'agent turn' : e.reason }, 'debug')
     const result = await next(e)
     // After next: the box takes no suggestion while the turn still runs.
-    const text = e.reason === 'answer' && !e.agentId ? (offer ? suggestion(offer) : compact) : null
+    const text = e.reason === 'answer' && !e.agentId ? (handoff ?? (offer ? suggestion(offer) : compact)) : null
     if (text) await $.prompt.suggest({ text })
     if (offer && e.reason === 'answer' && !e.agentId) t.event('ballot.suggest', { filled: !!text })
     return result
@@ -257,7 +275,7 @@ export const register: Register = on => {
 
   // The engine's own next-prompt guess would replace the pick; another mod's is left alone.
   on('prompt.suggest', async ($, e, next) => {
-    const text = e.origin.kind === 'suggestion' ? (offer ? suggestion(offer) : compact) : null
+    const text = e.origin.kind === 'suggestion' ? (handoff ?? (offer ? suggestion(offer) : compact)) : null
     if (offer && e.origin.kind === 'suggestion') t.event('ballot.suggest', { replaced: !!text }, 'debug')
     return next(text ? { ...e, text } : e)
   })
@@ -265,12 +283,13 @@ export const register: Register = on => {
   // /rewind sends no prompt but puts the rewound one back in the box: the reply the band came from is gone.
   on('prompt.change', async ($, e, next) => {
     const at = shownAt
-    const after = (offer || compact) && at ? await $.session.messages({ after: at }).catch(() => null) : null
+    const after = (offer || compact || handoff) && at ? await $.session.messages({ after: at }).catch(() => null) : null
     // A turn that completed during the read set its own row.
     if (after && 'deny' in after && shownAt === at) {
       t.event('ballot.offer', { cleared: 'reply rewound' }, 'debug')
       offer = null
       compact = null
+      handoff = null
       $.ui.invalidate('ui.render')
     }
     return next(e)
@@ -280,6 +299,7 @@ export const register: Register = on => {
     t.turn()
     void t.flush(traceIo($))
     compact = null
+    handoff = null
     if (offer) {
       t.event('ballot.offer', { cleared: 'prompt sent' }, 'debug')
       offer = null
@@ -291,6 +311,7 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     offer = null
     compact = null
+    handoff = null
     $.ui.invalidate('ui.render')
     await t.flush(traceIo($))
     return next(e)
