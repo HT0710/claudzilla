@@ -83,7 +83,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 
   *Real speed. Press 1: the option's id and text go into the prompt box; Enter sends it. Needs the `ballot` part.*
 
-- **Dividers and file links:** lines frame the TL;DR, `Next:` and each `---`, fitted to the chat width. A file path in a reply is a link: click it to see those lines in the margin. Each code block sits in a card with a Copy button. Two clicks on Run run a shell block, and its output streams into the card. An Edit or Write draws one row with its line counts in place of its diff, and a run of edits folds into one row; click it for the edited files and each diff ([details](plugins/folio/README.md)).
+- **Dividers and file links:** lines frame the TL;DR, `Next:` and each `---`, fitted to the chat width. A file path in a reply is a link: click it to see those lines in the margin. Each code block sits in a card with a Copy button. Two clicks on Run run a shell block, and its output streams into the card. An Edit or Write draws one row with its line counts in place of its diff, and a run of edits folds into one row; click it for the edited files, and click a file to open it in the margin's Explorer at the edit ([details](plugins/folio/README.md)).
 
   <img src=".github/assets/filelink.gif" alt="Clicking auth/token.js:3 in a reply opens the margin's Explorer tab with line 3 lit" width="720">
 
@@ -115,7 +115,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
 
   <img src=".github/assets/statusline.png" alt="The status line during a turn: the context meter and the loaded skill beside the model" width="720">
 
-  *During a real turn: the context meter and the skill Claude loaded. The `5h` and `wk` meters show only on a Claude subscription login, such as Pro, Max or Team. The symbols need the MesloLGS NF font; without it, basic symbols.*
+  *During a real turn: the context meter and the skill Claude loaded. The `5h` and `wk` meters show only on a Claude subscription login, such as Pro, Max or Team. With an API key, the spend here, today and this month and a 24-hour chart take their place; on OpenRouter, today and month come from its bill. The symbols need the MesloLGS NF font; without it, basic symbols.*
 
   <img src=".github/assets/statusline-compact.png" alt="The compact status line: four meters on one row, the time and date beside the session id" width="720">
 
@@ -131,7 +131,7 @@ Answer first, evidence cited, one fix proposed, nothing edited until you say go,
   <img src=".github/assets/overview.gif" alt="The margin's Overview tab during a fix: sketching a route, then ASK, TAKE and steps that tick off one by one, a named subagent under one of them, until done" width="720">
 
   *3× speed. After `sketching a route…`, Claude's reading of the request (ASK, TAKE) fills in, and each step goes ○ → ● → ✓ until the header reads `✓ done`. Docks beside the chat in the fullscreen layout, from 110 columns. Costs: a short tool call per report (the margin's `intent` option in `/config` turns it off), and while the Overview tab shows, an Opus request at low effort after each prompt to sort topics.*
-- **Toasts:** updates install in the background and say so; a toast also shows when the 5-hour or weekly limit passes 50%, 75% and 90%, and when context is worth compacting, including before the prompt cache goes cold while you are away ([details](plugins/herald/README.md)).
+- **Toasts:** updates install in the background and say so; a toast also shows when the 5-hour or weekly limit passes 50%, 75% and 90%, and when context is worth compacting, including before the prompt cache goes cold while you are away. When another open session finishes its turn or waits on you, a toast says so with its name and branch ([details](plugins/herald/README.md)).
 - **Theme + settings:** muted dark truecolor theme, `opus[1m]`, normal permission prompts.
 - **Local trace:** a record of what claudzilla's parts did, kept in `~/.claude/claudzilla-trace/`, never uploaded; `{"rulesGuard":{"trace":false}}` in `~/.claude/claudzilla.json` turns it off. See the guide topic `bugs` (`/claudzilla bugs`).
 
