@@ -14,6 +14,10 @@ Adds `/claudzilla`: a pane listing the guide's topics, grouped by part, with the
 
 `/claudzilla report [what happened]` has Claude draft a problem report from the local trace (`claudzilla-report` skill). `/claudzilla compact` has Claude draft a `/compact` line naming what to keep and drop; its `compact_draft` tool puts the line in the prompt box when the turn ends. `/claudzilla handoff` (or `/claudzilla-handoff`) writes a note from this session's transcript with no model call, clears the session, and sends the note as your first prompt. Text after the command, such as `/claudzilla handoff fix the failing test`, is sent under a `## User's ask` heading after the note, so the new session starts on it. If the send fails, it puts `@<note>` and your text in the prompt instead.
 
+The handoff note holds a git block for each of the last three worktrees the session touched, the last files it wrote, the plan and ledger paths it cited, and its last test or tmux commands.
+
+A session that started from a handoff passes on a chain of the sessions before it, each with its goal and transcript; a long chain keeps the first session and the last five.
+
 `/claudzilla doctor` checks that every claudzilla part runs the clone's version and prints the fix for each problem. `/claudzilla doctor fix` has Claude apply the fixes on your yes (`claudzilla-doctor` skill).
 
 It finds the claudzilla clone through the `~/.claude/hooks/claudzilla-update.sh` link (as herald does), reads `GUIDE.md` from it, and shows the version as the status line does. With no clone or no `GUIDE.md`, it shows the GitHub URL of `GUIDE.md`.
