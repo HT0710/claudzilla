@@ -1,0 +1,21 @@
+# Each picture in .github/assets and the source paths it draws, read by stale.sh.
+# Format: <picture>: <git pathspec>...  Globs such as explorer-* are git pathspecs.
+answer.png: claude/rules/response-format.md claude/hooks/md-display.pl plugins/folio/hooks/register.tsx plugins/folio/hooks/fold.tsx plugins/folio/hooks/prompt.ts plugins/folio/hooks/mentions.ts plugins/folio/hooks/palette.ts
+decision.png: claude/rules/response-format.md claude/hooks/md-display.pl plugins/folio/hooks/register.tsx plugins/folio/hooks/fold.tsx plugins/folio/hooks/prompt.ts plugins/folio/hooks/mentions.ts plugins/folio/hooks/palette.ts
+fix.png: claude/rules/response-format.md claude/hooks/md-display.pl plugins/folio/hooks/register.tsx plugins/folio/hooks/fold.tsx plugins/folio/hooks/prompt.ts plugins/folio/hooks/mentions.ts plugins/folio/hooks/palette.ts
+guard.png: claude/hooks/rules-guard.mjs claude/rules/git.md plugins/folio/hooks/register.tsx
+verify.png: claude/hooks/rules-guard.mjs plugins/folio/hooks/register.tsx
+ballot.gif: plugins/ballot/hooks claude/rules/response-format.md
+filelink.gif: plugins/folio/hooks/mentions.ts plugins/folio/hooks/register.tsx plugins/folio/hooks/palette.ts plugins/margin/hooks/register.tsx plugins/margin/hooks/footer.tsx plugins/margin/hooks/kit.tsx plugins/margin/hooks/palette.ts plugins/margin/hooks/tab-file.tsx plugins/margin/hooks/explorer-*
+run.gif: plugins/folio/hooks/register.tsx plugins/folio/hooks/palette.ts
+fold.png: plugins/folio/hooks/fold.tsx plugins/folio/hooks/register.tsx plugins/folio/hooks/prompt.ts plugins/folio/hooks/palette.ts
+edits.png: plugins/folio/hooks/fold.tsx plugins/folio/hooks/register.tsx plugins/folio/hooks/palette.ts
+statusline.png: claude/hud
+statusline-compact.png: claude/hud
+statusline-minimal.png: claude/hud
+overview.gif: plugins/margin/hooks/register.tsx plugins/margin/hooks/footer.tsx plugins/margin/hooks/kit.tsx plugins/margin/hooks/palette.ts plugins/margin/hooks/tab-overview.tsx plugins/margin/hooks/row.tsx
+git.png: plugins/margin/hooks/register.tsx plugins/margin/hooks/footer.tsx plugins/margin/hooks/kit.tsx plugins/margin/hooks/palette.ts plugins/margin/hooks/tab-git.tsx plugins/margin/hooks/git-data.ts
+history.png: plugins/margin/hooks/register.tsx plugins/margin/hooks/footer.tsx plugins/margin/hooks/kit.tsx plugins/margin/hooks/palette.ts plugins/margin/hooks/tab-history.tsx
+explorer.png: plugins/margin/hooks/register.tsx plugins/margin/hooks/footer.tsx plugins/margin/hooks/kit.tsx plugins/margin/hooks/palette.ts plugins/margin/hooks/tab-file.tsx plugins/margin/hooks/explorer-*
+primer.png: plugins/primer/hooks GUIDE.md
+worlds.png: plugins/primer/hooks GUIDE.md
