@@ -787,6 +787,17 @@ It asks first, then removes claudzilla's links, settings entries, keys and plugi
 
 Headline features of recent versions. Restart Claude after an update to use them.
 
+#### v1.10.0
+
+- **Edits open in Explorer:** an edit no longer fills the chat with its diff. Click the edit's row, then a file, and the margin's Explorer opens at the edit. Changed files show git's letters, and an open file shows its change inline (`/claudzilla margin`).
+- **Markdown in Explorer:** a `.md` file opens drawn as Markdown, and its tables draw as a grid when they fit. A switch shows the source (`/claudzilla margin`).
+- **Prompt cards:** each prompt you type shows as a card at the right edge, with its send time, so you find where each turn began (`/claudzilla replies`).
+- **Failed calls:** a failed tool call draws one row with up to three lines of its error, instead of the full red block (`/claudzilla replies`).
+- **Waiting sessions:** herald toasts when another open session finishes its turn or waits on you, with its name and branch. Each kind of toast takes its own time, and `0` turns it off (`/claudzilla plugins`).
+- **API spend:** with an API key, the status line shows what you spent in this session, today and this month, plus a 24-hour chart, instead of the `5h` and `wk` meters. On OpenRouter, today and month come from its bill (`/claudzilla hud`).
+- **Doctor:** `/claudzilla doctor` checks that every part runs your clone's version and prints the fix for each problem. `/claudzilla doctor fix` lets Claude apply the fixes once you say yes (`/claudzilla doctor`).
+- **Two new experiments, both off by default:** Chancery designs features with the `blueprint` skill and keeps each job's papers in one folder. Baton offers to continue a long job in a fresh session after `/claudzilla handoff` (`/claudzilla labs`).
+
 #### v1.9.0
 
 - **Steward on by default:** Claude now decides for each task whether to hand it to a subagent, and at which model and effort. Run `/claudzilla experimental steward off` to turn it off; an old `agentRouting: false` carries over. Scripts that run without the Agent tool should set `EVAL_ROUTING=off` (`/claudzilla labs`).
@@ -814,14 +825,6 @@ Headline features of recent versions. Restart Claude after an update to use them
 - **Git tab fetch:** while the Git tab shows, the margin fetches on its own every 15 minutes (`/claudzilla margin`).
 - **Wrap on code cards:** the `↩ Wrap` button on a code card wraps its long lines, or a shell card's output (`/claudzilla replies`).
 - **Experimental features:** try new behaviour before it becomes a rule, starting with Steward (`/claudzilla labs`).
-
-#### v1.7.0
-
-- **Git tab:** the margin's Git tab shows the branch with a mark only when it needs you, a rebase or merge in progress with continue, skip and abort, the branch's pull request with its checks and description, and a tree of every branch with a `worktrees` view. Hover a row for a card, and click it for the details.
-- **Changes and commits:** CHANGES lists each changed file with its status and line counts, and COMMITS each recent commit. Click a commit for its message and files, and, once pushed, a link to its page.
-- **Short edit rows:** an Edit or Write call draws one row with its line counts, and a run of edits folds into one row. Click the row for a tree of the edited files and each diff. `{"folio": {"hideEditDiff": false}}` keeps the diffs in the chat.
-- **Compact status line:** `{"hud":{"layout":"compact"}}` in `~/.claude/claudzilla.json` draws the status line in 3 rows.
-- **Brainstorm on the ballot card:** when `brainstorming` has options for you, each question comes as a Decision, so one key answers it.
 
 ## Worlds
 
