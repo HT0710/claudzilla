@@ -13,7 +13,7 @@ Each plugin installs as its own part, except `primer`, which always installs. Pi
 | `ballot` | After a reply with a Decision, shows a card above the prompt with numbered options, so you pick by key instead of typing. |
 | `byline` | Strips Claude session links and the "Generated with Claude Code" line from the commit and PR text Claude writes. |
 | `folio` | Draws the reply's frame and divider lines at the chat's live width, so they never wrap, and links file paths to the margin. |
-| `herald` | Toasts claudzilla update progress, usage limits passing 50, 75 and 90%, and when to compact. |
+| `herald` | Toasts claudzilla update progress, usage limits passing 50, 75 and 90%, when to compact, and when another open session finishes or waits on you. |
 | `ledger` | Pauses Claude's first edit of a file that another live session edited in the last 30 minutes, and tells that session. |
 | `margin` | Shows a side pane with what Claude plans and does, this chat's prompts, a file view and git. |
 | `primer` | Serves the guide in [GUIDE.md](GUIDE.md) one section at a time with `/claudzilla [topic]`, plus `/claudzilla report`, `/claudzilla compact` and `/claudzilla handoff`. |
