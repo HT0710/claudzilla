@@ -292,7 +292,7 @@ check_eq "or: refetched daily" 7.500000 "$(key daily "$(cat "$d/claudzilla-or-ke
 check_eq "or: refetched monthly" 77.100000 "$(key monthly "$(cat "$d/claudzilla-or-key.tsv")")"
 check "or: key never in curl argv" bash -c "! grep -q sk-or-test '$FC/argv'"
 check "or: key sent on stdin" grep -q 'Authorization: Bearer sk-or-test' "$FC/stdin"
-check_eq "or: cache is private" 600 "$(stat -c %a "$d/claudzilla-or-key.tsv")"
+check_eq "or: cache is private" 600 "$(perl -e 'printf "%o", (stat shift)[2] & 0777' "$d/claudzilla-or-key.tsv")"
 d=$(seedS); FAKE_DAILY=0.00005 or_kv "$d" >/dev/null; or_wait "$d" "$(printf 'at\t%s' $T0)"
 check_eq "or: tiny daily keeps the billed month" 77.10 "$(usd spend_month "$(AT=$((T0+1)) or_kv "$d")")"
 
@@ -310,7 +310,7 @@ check_eq "or: per day counts UTC days" 1.33 "$(usd spend_day "$(ZONE=Asia/Tokyo 
 d=$(seedS); rm -f "$FC/argv"
 for _ in $(seq 10); do FAKE_SLEEP=0.5 or_kv "$d" >/dev/null & done; wait
 or_wait "$d" "$(printf 'at\t%s' $T0)"
-check_eq "or: parallel sessions fetch once" 1 "$(wc -l < "$FC/argv")"
+check_eq "or: parallel sessions fetch once" 1 "$(wc -l < "$FC/argv" | tr -d " ")"
 
 d=$(seedS); s0=$(date +%s%N)
 x=$(FAKE_SLEEP=2 or_kv "$d")   # captured: a child holding stdout would make this wait
