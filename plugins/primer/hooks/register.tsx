@@ -250,10 +250,14 @@ function chainEntries(input: HandoffInput, wants: string | undefined, lastPrompt
     const id = /^# Handoff from (\S+)/.exec(src)?.[1] ?? link?.[1] ?? ''
     const goal = sectionOf(src, 'Where we were').map(l => l.trim()).find(l => l && l !== 'May lag: Recent turns wins.') ?? sectionOf(src, 'Earlier asks').filter(l => l.startsWith('- ')).pop()?.slice(2)
     entries = [entry(1, id, goal && cut(one(goal), 200), /^.*Its transcript: (.+)$/m.exec(src)?.[1], true)]
+  } else if (!/ · \/\S*$/.test(entries[entries.length - 1])) {
+    // The writer's own entry leaves its path to the header, so restore it here.
+    const path = /^.*Its transcript: (.+)$/m.exec(src)?.[1]
+    if (path) entries[entries.length - 1] += ` · ${path}`
   }
   const n = Number(/^- (\d+) /.exec(entries[entries.length - 1])?.[1]) + 1
   const goal = input.overview?.summary || wants || lastPrompt
-  entries.push(entry(n, input.sessionId, goal && cut(one(goal), 200), input.path))
+  entries.push(entry(n, input.sessionId, goal && cut(one(goal), 200)))
   const shown = entries.length > 6 ? [entries[0], ...entries.slice(-5)] : entries
   return ['This is session ' + (n + 1) + ' of a chain. Search an earlier transcript when the ask needs it.', '', ...lines, ...shown].join('\n')
 }
@@ -372,7 +376,7 @@ export function handoffNote(input: HandoffInput): string {
     // Head and tail each end on a line break so no table row is split; a text with no break gets a hard cut.
     const quote = (row: Row, last: boolean) => {
       const t = textOf(row)
-      const [max, h, e] = last ? [6000, 4800, 1200] : [2000, 800, 1200]
+      const [max, h, e] = last ? [6000, 4800, 1200] : [600, 300, 300]
       if (t.length <= max) return t.split('\n').map(l => `> ${l}`).join('\n')
       const head = t.slice(0, h), tail = t.slice(-e)
       const cutAt = t[h] === '\n' ? h : head.lastIndexOf('\n')
