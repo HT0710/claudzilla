@@ -4215,6 +4215,13 @@ test('an image prompt card draws no rail line under its rule', async ($, on) => 
   expect((await ruleOf(card))).toBe('╭')
 })
 
+// The main turn's next model requests: prompts queued before one count as delivered into the turn.
+const mainSteps = ($: any, on: any) => {
+  on('turn.step', async function* (_: any, e: any) { return { turnId: e.turnId, index: e.index, answer: '', toolUses: [] } } as any)
+  let index = 0
+  return async () => { for await (const _ of $.turn.step({ turnId: 't1', index: index++, model: 'm', messageCount: 1 } as any)); }
+}
+
 test("a prompt queued before the first tool row leaves ╭ to the turn's prompt", async ($, on) => {
   native(on)
   nativePrompt(on)
@@ -4232,11 +4239,13 @@ test('a prompt queued after the turn joined its rail takes ╭ for the rows belo
   native(on)
   nativePrompt(on)
   on('prompt.submit', (_$: any, e: any) => ({ text: e.text }))
+  const step = mainSteps($, on)
   const card = await prompt($, 'hi')
   await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
   await $.prompt.submit({ text: 'oke', turnId: 't1' } as any)
   const q = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'q1',
     props: { text: 'oke', origin: { kind: 'composer' } }, viewport: { columns: 80, rows: 20, isFullscreen: true } })
+  await step()
   await mountRow($, 'Read', 'y', {}, '/p/b.txt', 'r2')
   expect(await ruleOf(card)).toBe('╭')
   expect(await ruleOf(q)).toBe('╭')
@@ -4266,7 +4275,9 @@ test('a queued prompt the engine re-keys twice takes ╭ on its last key', async
   native(on)
   nativePrompt(on)
   on('prompt.submit', (_$: any, e: any) => ({ text: e.text }))
+  const step = mainSteps($, on)
   await prompt($, 'hi')
+  await step()
   await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
   const view = { columns: 80, rows: 20, isFullscreen: true }
   const mount = (requestId: string) => $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId, props: { text: 'oke', origin: { kind: 'composer' } }, viewport: view })
@@ -4275,6 +4286,7 @@ test('a queued prompt the engine re-keys twice takes ╭ on its last key', async
   await $.prompt.submit({ text: 'oke', turnId: 't1' } as any)
   await mount('q2')
   const q3 = await mount('q3')
+  await step()
   await mountRow($, 'Read', 'y', {}, '/p/b.txt', 'r2')
   expect(await ruleOf(q3)).toBe('╭')
 })
@@ -4283,6 +4295,7 @@ test('of two prompts queued in a row, only the later one takes ╭', async ($, o
   native(on)
   nativePrompt(on)
   on('prompt.submit', (_$: any, e: any) => ({ text: e.text }))
+  const step = mainSteps($, on)
   await prompt($, 'hi')
   await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
   await $.prompt.submit({ text: 'oke', turnId: 't1' } as any)
@@ -4290,9 +4303,68 @@ test('of two prompts queued in a row, only the later one takes ╭', async ($, o
   const view = { columns: 80, rows: 20, isFullscreen: true }
   const q1 = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'q1', props: { text: 'oke', origin: { kind: 'composer' } }, viewport: view })
   const q2 = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'q2', props: { text: 'also', origin: { kind: 'composer' } }, viewport: view })
+  await step()
   await mountRow($, 'Read', 'y', {}, '/p/b.txt', 'r2')
   expect(await ruleOf(q1)).toBe('╌')
   expect(await ruleOf(q2)).toBe('╭')
+})
+
+test('a prompt queued after a delivered one leaves ╭ to the delivered card', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('prompt.submit', (_$: any, e: any) => ({ text: e.text }))
+  const step = mainSteps($, on)
+  await prompt($, 'hi')
+  await step()
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  const view = { columns: 80, rows: 20, isFullscreen: true }
+  const mount = (requestId: string, text: string) => $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId, props: { text, origin: { kind: 'composer' } }, viewport: view })
+  // Each queued prompt draws once before its submit lands; the first is delivered into the turn under its stored key.
+  await mount('a1', 'oke')
+  await $.prompt.submit({ text: 'oke', turnId: 't1' } as any)
+  await mount('a2', 'oke')
+  const delivered = await mount('a3', 'oke')
+  await step()
+  await mount('b1', 'also')
+  await $.prompt.submit({ text: 'also', turnId: 't1' } as any)
+  const waiting = await mount('b2', 'also')
+  await mountRow($, 'Read', 'y', {}, '/p/b.txt', 'r2')
+  expect(await ruleOf(delivered)).toBe('╭')
+  expect(await ruleOf(waiting)).toBe('╌')
+})
+
+test('a prompt queued during the last reply takes ╭ when it starts the next turn under a new key', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('prompt.submit', (_$: any, e: any) => ({ text: e.text }))
+  on('turn.complete', () => ({ text: '' }))
+  const step = mainSteps($, on)
+  await prompt($, 'hi')
+  await step()
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  await $.prompt.submit({ text: 'oke', turnId: 't1' } as any)
+  const view = { columns: 80, rows: 20, isFullscreen: true }
+  const mount = (requestId: string) => $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId, props: { text: 'oke', origin: { kind: 'composer' } }, viewport: view })
+  await mount('q1')
+  await $.turn.complete({ turnId: 't1', reason: 'answer' } as any)
+  const next = await mount('q2')
+  await step()
+  await mountRow($, 'Read', 'y', {}, '/p/b.txt', 'r2')
+  expect(await ruleOf(next)).toBe('╭')
+})
+
+test('an agent row forks once a row drawn above a waiting queued prompt joins its section', async ($, on) => {
+  native(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+  on('prompt.submit', (_$: any, e: any) => ({ text: e.text }))
+  const step = mainSteps($, on)
+  await step()
+  await said($, 'a1')
+  const agent = await mountRow($, 'Agent', agentDone, { input: { description: 'Slow task' } }, '/p/a.txt', 'g1')
+  await $.prompt.submit({ text: 'oke', turnId: 't1' } as any)
+  await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'UserMessage', requestId: 'q1', props: { text: 'oke', origin: { kind: 'composer' } }, viewport: VIEW })
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  expect(await rail(agent, /^├─$/)).toBe(1)
 })
 
 test('a prompt queued in one turn opens its own section once the turn completes', async ($, on) => {
