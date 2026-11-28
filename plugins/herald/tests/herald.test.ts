@@ -1091,6 +1091,14 @@ test('herald.waiting in seconds sets the wait toast time', async ($, on) => {
   expect(w.seen.timeouts).toEqual([8000])
 })
 
+test('a probe session starts no waiting tail', async ($, on) => {
+  const w = waitSession(on, {}, { wait: [other(S)], pieces: [{ stream: 'stdout', text: END }], probe: '1' })
+  await $.session.start(start)
+  await until(() => w.seen.toasts.includes('end'))
+  expect(w.seen.waitSpawns).toBe(0)
+  expect(w.seen.toasts).toEqual(['end'])
+})
+
 test('herald.waiting 0 starts no waiting tail', async ($, on) => {
   const w = waitSession(on, { '/cfg/claudzilla.json': '{"herald":{"waiting":0}}' }, { wait: [sentinel], pieces: [{ stream: 'stdout', text: END }] })
   await $.session.start(start)

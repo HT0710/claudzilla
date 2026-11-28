@@ -369,7 +369,8 @@ async function watchWaiting($: EngineInterface): Promise<void> {
   tailing = true
   try {
     const timeoutMs = (await config($, await $.session.cwd())).toasts.waiting
-    if (!timeoutMs) return
+    // A probe session's screen can end up in a public picture: no other session's name or branch on it.
+    if (!timeoutMs || (await $.env.get('CLAUDZILLA_PROBE').catch(() => undefined))) return
     const path = await waitPath($)
     if (!path) return
     // shortcut: a line appended during the trim is lost, a few lines at most, only at session start; upgrade to a lock if it shows up
