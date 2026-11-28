@@ -30,4 +30,4 @@ Cover these over the conversation, without reading them out as a list of questio
 
 ## Requests that grow
 
-When a request grows mid-design, step it up a size and say so in one line. A small change that turns into a project gets the full spec and the builder check.
+When a request grows mid-design, step it up a size and say so in one line. A small change that turns into a project gets the full spec.
