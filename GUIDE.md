@@ -844,7 +844,7 @@ On its back, creatures soon moved in. They live in three places:
 
 - **The print shop:** folio, margin, ledger, byline and primer set the type, keep the records and mind this guide.
 - **The court:** herald brings the news, ballot counts your vote, steward decides who goes where, and chancery drafts and files every job.
-- **The road:** atlas scouts the code and comes back with a map.
+- **The road:** atlas scouts the code and comes back with a map, and baton runs a long job on to a fresh session.
 
 Each release is a chapter in the story, and the *Chronicle* tells them all (`/claudzilla chronicle`).
 
