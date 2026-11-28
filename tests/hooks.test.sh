@@ -599,11 +599,23 @@ check_eq "stop: TL;DR with colon inside bold ok" 0 "$(state .flags.length)"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'**TL;DR: fixed x.**\n'"$long" >/dev/null
 check_eq "stop: whole bold TL;DR line ok" 0 "$(state .flags.length)"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'\n**Yes, it is a bug.** x\n'"$long" >/dev/null
-check_eq "stop: bold answer first line ok" 0 "$(state .flags.length)"
+check "stop: bold answer first line flagged" has "$(state .flags)" "TL;DR"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'Plain answer.\n**Bold later.**\n'"$long" >/dev/null
 check "stop: bold below a plain first line flagged" has "$(state .flags)" "TL;DR"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'**Next:** go\n'"$long" >/dev/null
 check "stop: bold label first line flagged" has "$(state .flags)" "TL;DR"
+new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'| a | b |\n|---|---|\n'"$(printf 'x\n%.0s' {1..9})" >/dev/null
+check "stop: table and 11 lines flagged" has "$(state .flags)" "TL;DR"
+new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'x\n---\n'"$(printf 'x\n%.0s' {1..9})" >/dev/null
+check "stop: divider and 11 lines flagged" has "$(state .flags)" "TL;DR"
+new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'## A\n'"$(printf 'x\n%.0s' {1..10})" >/dev/null
+check "stop: heading and 11 lines flagged" has "$(state .flags)" "TL;DR"
+new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'## A\n\n'"$(printf 'x\n\n%.0s' {1..9})" >/dev/null
+check_eq "stop: heading and 10 non-blank lines ok" 0 "$(state .flags.length)"
+new_session; hook UserPromptSubmit prompt=q >/dev/null; stop $'## A\nx\n```text\n'"$(printf 'c\n%.0s' {1..20})"$'```\n' >/dev/null
+check_eq "stop: code block lines not counted" 0 "$(state .flags.length)"
+new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "$(printf 'x\n%.0s' {1..20})" >/dev/null
+check_eq "stop: long reply with no table, heading or divider ok" 0 "$(state .flags.length)"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop "Shipped 🚀" >/dev/null
 check "stop: emoji flagged" has "$(state .flags)" "emoji"
 new_session; hook UserPromptSubmit prompt=q >/dev/null; stop '| a | b<br>c |' >/dev/null
