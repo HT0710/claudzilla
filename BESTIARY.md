@@ -30,6 +30,7 @@ Experiments are off by default unless the row says otherwise. Switch one with `/
 
 | name | what it does |
 |---|---|
+| Baton (`baton`) | Off by default. Once context passes the `compactNudge` threshold, Claude can offer to continue the job in a fresh session after `/claudzilla handoff`, and ballot suggests the command. A runner hands a baton to the next one in a relay. |
 | Chancery (`chancery`) | Off by default. Claude designs features with the `blueprint` skill instead of `superpowers:brainstorming`. Its summons entry is below. |
 | Steward (`steward`) | On by default. Picks, per task, whether Claude hands work to a subagent, and at which model and effort, for the best work per token spent. A steward manages the budget and assigns the work. |
 
