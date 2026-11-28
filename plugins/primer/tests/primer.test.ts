@@ -650,10 +650,22 @@ test('handoffNote: an earlier reply of 600 characters or less is kept whole', ()
   expect(note(typed('p1'), asst([{ type: 'text', text: t }]), typed('p2'), asst([{ type: 'text', text: 'last' }]))).toContain('> ' + t + '\n')
 })
 
+const prevNote = ['# Handoff from aaaaaaaa-1', '', '## Where we were', '', 'old goal'].join('\n')
+
+test('handoffNote: a prompt holding an earlier note quotes only the user\'s ask', () => {
+  const n = note(typed(`${prevNote}\n\n## User's ask\n\nContinue.`), asst([{ type: 'text', text: 'done' }]))
+  expect(n).toContain('## Recent turns\n\n- User: Continue.\n\n> done\n')
+  expect(n).not.toContain('old goal')
+})
+
+test('handoffNote: an earlier note with no ask leaves only the reply in its turn', () => {
+  expect(note(typed(prevNote), asst([{ type: 'text', text: 'done' }]))).toContain('## Recent turns\n\n> done\n')
+})
+
 test('handoffNote: a synthetic limit reply is not a turn\'s reply', () => {
   const lim = asst([{ type: 'text', text: "You've hit your limit" }], { message: { model: '<synthetic>', usage: { input_tokens: 0, output_tokens: 0 }, content: [{ type: 'text', text: "You've hit your limit" }] } })
   const n = note(typed('p1'), lim)
-  expect(n).toContain('- You: p1')
+  expect(n).toContain('- User: p1')
   expect(n).not.toContain('hit your limit')
 })
 
@@ -670,27 +682,27 @@ test('handoffNote: usage-limit turns do not push the real reply out of Recent tu
   const lim = asst([{ type: 'text', text: "You've hit your limit" }], { message: { model: '<synthetic>', usage: { input_tokens: 0, output_tokens: 0 }, content: [{ type: 'text', text: "You've hit your limit" }] } })
   const t = 'z'.repeat(5000)
   const n = note(typed('real'), asst([{ type: 'text', text: t }]), typed('again'), lim, typed('again'), lim, typed('continue'), lim)
-  expect(n).toContain('- You: real\n\n> ' + t)
-  expect(n).not.toContain('- You: again')
-  expect(n).not.toContain('- You: continue')
+  expect(n).toContain('- User: real\n\n> ' + t)
+  expect(n).not.toContain('- User: again')
+  expect(n).not.toContain('- User: continue')
 })
 
 test('handoffNote: a reply before the first typed prompt in the tail is kept, whole when no later turn has a reply', () => {
   const t = 'q'.repeat(5000)
   const n = note(asst([{ type: 'text', text: t }]), typed('push it'), typed('push it'))
   expect(n).toContain('> ' + t)
-  expect(n).toContain('- You: push it')
+  expect(n).toContain('- User: push it')
 })
 
 test('handoffNote: a turn with tool calls and then a limit row keeps its prompt', () => {
   const lim = asst([{ type: 'text', text: "You've hit your limit" }], { message: { model: '<synthetic>', usage: { input_tokens: 0, output_tokens: 0 }, content: [{ type: 'text', text: "You've hit your limit" }] } })
   const n = note(typed('p1'), asst([{ type: 'text', text: 'R1' }]), typed('p2'), tool('Bash', { command: 'ls' }), lim)
-  expect(n).toContain('- You: p2')
+  expect(n).toContain('- User: p2')
 })
 
 test('handoffNote: a turn stopped with Esc and no reply keeps its prompt', () => {
   const n = note(typed('p1'), asst([{ type: 'text', text: 'R1' }]), typed('p2'), typed('[Request interrupted by user]'))
-  expect(n).toContain('- You: p2')
+  expect(n).toContain('- User: p2')
 })
 
 test('handoffNote: every line of the last reply is quoted', () => {
@@ -739,14 +751,14 @@ test('handoffNote: recent turns pair each prompt with its own last text reply', 
     typed('p1'), r('R1'), typed('p2'), r('R2a'), tool('Bash', {}), r('R2b'), typed('p3'), tool('Bash', {}),
     typed('p4'), r('R4'), typed('p5'), r('R5'),
   )
-  expect(n).toContain('## Recent turns\n\n- You: p3\n\n- You: p4\n\n> R4\n\n- You: p5\n\n> R5\n')
+  expect(n).toContain('## Recent turns\n\n- User: p3\n\n- User: p4\n\n> R4\n\n- User: p5\n\n> R5\n')
   for (const s of ['p1', 'p2', 'R2', 'Last reply', 'Last prompts']) expect(n).not.toContain(s)
 })
 
 test('handoffNote: a turn keeps its longest text reply, the later one on a tie', () => {
   const r = (text: string) => asst([{ type: 'text', text }])
   const n = note(typed('p1'), r('LONG result'), typed('<task-notification>done</task-notification>'), r('short'), typed('p2'), r('aa'), r('bb'))
-  expect(n).toContain('- You: p1\n\n> LONG result\n')
+  expect(n).toContain('- User: p1\n\n> LONG result\n')
   expect(n).not.toContain('short')
   expect(n).toContain('> bb')
   expect(n).not.toContain('> aa')

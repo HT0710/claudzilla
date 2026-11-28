@@ -182,6 +182,15 @@ type Block = { type?: string; text?: string; name?: string; input?: Record<strin
 
 const cut = (t: string, n: number) => (t.length > n ? t.slice(0, n) + '…' : t)
 
+// Joins a handoff note to the user's ask in the next session's first prompt.
+const ASK = "\n\n## User's ask\n\n"
+// A prompt holding an earlier note: only the ask after it is the user's.
+function askOf(t: string): string {
+  if (!t.startsWith('# Handoff from ')) return t
+  const at = t.lastIndexOf(ASK)
+  return at < 0 ? '' : t.slice(at + ASK.length).trim()
+}
+
 // A "N:<json>" line; undefined when the JSON is cut off (the first line of a tail) or not a row.
 function numberedRow(line: string): { n: number; row: Row } | undefined {
   const i = line.indexOf(':')
@@ -336,7 +345,7 @@ export function handoffNote(input: HandoffInput): string {
       const t = textOf(row).trim()
       if (/<command-message>claudzilla-compact|<command-name>\/compact|^\/compact/.test(t)) housekeeping = true
       else if (t.startsWith('[Request interrupted')) { if (!housekeeping) stopped = n }
-      else if (t && !t.startsWith('<')) { if (!turns.length && orphan) turns.push({ p: '', reply: orphan }); turns.push({ p: t }); promptLine = n; housekeeping = false; stopped = undefined }
+      else if (t && !t.startsWith('<')) { if (!turns.length && orphan) turns.push({ p: '', reply: orphan }); turns.push({ p: askOf(t) }); promptLine = n; housekeeping = false; stopped = undefined }
     }
   }
   if (!turns.length && orphan) turns.push({ p: '', reply: orphan })
@@ -394,7 +403,7 @@ export function handoffNote(input: HandoffInput): string {
     const real = turns.filter(t => t.reply || t.acted || !t.limit)
     const recent = (real.length ? real : turns).slice(-3)
     const last = recent.map(t => !!t.reply).lastIndexOf(true)
-    add('Recent turns', recent.map(({ p, reply }, i) => [p && `- You: ${cut(p, 500)}`, reply && quote(reply, i === last)].filter(Boolean).join('\n\n')).join('\n\n'))
+    add('Recent turns', recent.map(({ p, reply }, i) => [p && `- User: ${cut(p, 500)}`, reply && quote(reply, i === last)].filter(Boolean).join('\n\n')).join('\n\n'))
   }
   const sum = input.summary && numberedRow(input.summary)
   const since = sum ? sum.n : 0
@@ -553,7 +562,7 @@ async function writeHandoff($: EngineInterface, ask: string): Promise<{ text: st
         return lost()
       }
       // Inline, because a plugin's prompt does not expand @file.
-      const sent = await $.prompt.submit({ text: ask ? `${note}\n\n## User's ask\n\n${ask}` : note, asUser: true }).then(r => !r.drop, () => false)
+      const sent = await $.prompt.submit({ text: ask ? `${note}${ASK}${ask}` : note, asUser: true }).then(r => !r.drop, () => false)
       if (sent) return
       const { isFilled } = await $.prompt.fill({ text: `@${file} ${ask}` }).catch(() => ({ isFilled: false }))
       if (!isFilled) lost()
