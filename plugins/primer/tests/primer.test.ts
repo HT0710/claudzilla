@@ -828,6 +828,22 @@ test('git block: a Bash word touches a worktree', () => {
   expect(g).not.toContain('### /x/claudzilla\n')
 })
 
+test('git block: a relative Bash word after a cd resolves against that dir, not the cwd', () => {
+  const g = gitNote([tool('Bash', { command: 'cd /x/claudzilla-b && cat a.md' })], [wt('/x/claudzilla'), wt('/x/claudzilla-b')], '/x/claudzilla')
+  expect(g).toContain('### /x/claudzilla-b')
+  expect(g).not.toContain('### /x/claudzilla\n')
+})
+
+test('git block: after a cd it cannot follow, relative Bash words touch nothing', () => {
+  const rows = [tool('Read', { file_path: '/x/claudzilla-b/z' }), tool('Bash', { command: 'cd ~/y && cat a.md' })]
+  expect([...gitNote(rows, [wt('/x/claudzilla'), wt('/x/claudzilla-b')], '/x/claudzilla').matchAll(/### (\S+)/g)].map(m => m[1])).toEqual(['/x/claudzilla-b'])
+})
+
+test('git block: a bare cd takes no shell operator as its dir', () => {
+  const rows = [tool('Read', { file_path: '/x/claudzilla-b/z' }), tool('Bash', { command: 'cd && cat a.md' })]
+  expect([...gitNote(rows, [wt('/x/claudzilla'), wt('/x/claudzilla-b')], '/x/claudzilla').matchAll(/### (\S+)/g)].map(m => m[1])).toEqual(['/x/claudzilla-b'])
+})
+
 test('git block: at most 3 worktrees, newest touch first', () => {
   const g = gitNote(['a', 'b', 'c', 'd'].map(n => tool('Read', { file_path: `/x/${n}/f` })), ['a', 'b', 'c', 'd'].map(n => wt(`/x/${n}`)))
   expect(g).not.toContain('### /x/a')

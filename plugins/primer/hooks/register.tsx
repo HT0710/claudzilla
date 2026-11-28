@@ -314,12 +314,16 @@ export function handoffNote(input: HandoffInput): string {
           const c = i.command.trim()
           const first = c.split('\n').map(l => l.trim()).find(l => /\b(claude plugin test|bash tests\/|npm test|pytest|bun test|tmux )/.test(l))
           if (first) { commands.delete(first); commands.add(first) }
+          // shortcut: a cd counts only inside its own command, carry it across calls if a later command misattributes
+          let at = input.cwd
           i.command.split(/\s+/).forEach((w, k, all) => {
           const word = w.replace(/^['"]+|['";]+$/g, '')
-          const dir = ['cd', '-C'].includes(all[k - 1] ?? '')
-          // shortcut: ignores an earlier cd in the same command, resolve against the running dir if that misattributes
-          const rel = input.cwd && word && !word.startsWith('/') && !word.startsWith('-') && (dir || /[/.]/.test(word))
-          touch(rel ? resolve(input.cwd!, word) : word, n, true)
+          const prev = all[k - 1] ?? ''
+          const rel = at && word && !/^[/~$&|;()-]/.test(word) && (['cd', '-C'].includes(prev) || /[/.]/.test(word))
+          const abs = rel ? resolve(at!, word) : word
+          touch(abs, n, true)
+          // A cd this can't follow (no dir, ~, -, $VAR) leaves the words after it unresolved.
+          if (prev === 'cd') at = abs.startsWith('/') ? abs : undefined
         })
         }
         if (b.name === 'mcp__margin__intent') {
