@@ -16,7 +16,7 @@ Goal: the reader follows it, understands it, and is convinced. Lazy reader scans
 
 - **TL;DR** first line when the reply has a table, heading, `---` or Decision and >10 non-blank lines outside code blocks — answer, not preamble. ≤30 words; answer or verdict first, stakes in the same or next sentence. Security or irreversible warning → the line right under it.
   - Label is the literal `**TL;DR**`; a bold verdict alone doesn't count.
-  - Skill-driven replies too (design, plan, review): TL;DR before the first heading.
+  - Skill-driven replies (design, plan, review): same condition; TL;DR before the first heading.
 - `##` / `###` headers to split every distinct chunk. More headers, not fewer.
 - `---` where content group changes, groups in order: found (evidence, cause, findings) → choose (decisions, options, drafts) → do (plan, checks, state). Group by content, not count: 6 decisions = one group. One group → none. Blank line before it.
 - Any other reply → no TL;DR label; the first line gives the answer. Reply ≤10 non-blank lines, one chunk, no table or Decision → no headers either.

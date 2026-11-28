@@ -43,7 +43,7 @@ Optional JSON files, applied in this order. Later files win; objects merge and a
 2. `<repo>/.claude/claudzilla.json`: shared, commit it
 3. `<repo>/.claude/claudzilla.local.json`: yours, git-ignore it
 
-An example; some values are not the defaults. Defaults: `subjectMax` 50, `commitTypes` without `ci`, `coldCompact` 2.
+An example; some values are not the defaults. Defaults: `subjectMax` 50, `commitTypes` without `ci`, `coldCompact` 2, `tldrMinLines` 10 (non-blank lines outside code blocks).
 
 ```json
 {"rulesGuard": {

@@ -121,7 +121,7 @@ Expired tokens still pass for one second. Pick how much to change.
 **Next:** say "go" and I'll change line 42.
 ```
 
-- **TL;DR** (short for "too long; didn't read"): a reply over ten lines, not counting code, that has a table, header, divider or decision opens with a labelled answer in 30 words or fewer. Other replies open with the answer, unlabelled.
+- **TL;DR** (short for "too long; didn't read"): a reply over ten non-blank lines, not counting code, that has a table, header, divider or decision opens with a labelled answer in 30 words or fewer. Other replies open with the answer, unlabelled.
 - **Headers and tables:** headers split each part; a table appears only when you compare items down a column, such as files and their status; otherwise it is a list. Its header row is bold, and so is its `#` column when it has one.
 - **Evidence:** a claim carries a `file:line` reference (file and line number) or the command that showed it. A claim Claude did not check is marked *unverified*; treat it as a guess.
 - **Example:** a decision, or a new idea the answer depends on, comes with one concrete example, such as a sample line or a before and after. Claude skips it when the table already shows code, numbers or a mock, when the choice is a plain yes or no, or in a short reply.
