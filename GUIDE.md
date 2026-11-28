@@ -1054,14 +1054,32 @@ Every subagent now gets a name, and margin and folio show it. A hook that refuse
 
 Instead, a hook fills in a name when Claude forgets.
 
-#### v1.10, Ink on Every Paw *(coming soon)*
+#### v1.10, Ink on Every Paw
 
-This chapter is not yet written. Only rumours drift back from the fog: tracks half seen, creatures not yet named. Some may never arrive, some may arrive under other names, and others no one has spotted yet may join them on the way.
+The rumour came true: your own words now sit to the right. Prompts looked like every other line, so scrolling back made it hard to find where a turn began. folio now sets each prompt as a card, with its send time under it.
 
-Word is that the File tab may grow whole. Its tree could learn git's marks, showing which scrolls changed and where, with the unwritten change drawn inline. A click under the Git tab's changes might open a diff right there, edit diffs from the chat may follow it in, and `.md` scrolls may unroll already drawn.
+Edits filled long turns with their diffs, shown out of context. folio stopped drawing them. A click on the edited file opens the margin's Explorer at the edit, and the new lines flash there.
 
-Long hunts make the beast heavy, and few sessions think to pass the work on before they tire. A wild one, for now called Baton, has been seen near the end of long sessions. If it comes, the next Decision may carry one more row: hand the job to a fresh session, with a continue prompt ready and a line naming what gets left on the trail.
+Explorer learned git's marks too. A changed file shows its change inline, and removed lines are drawn faint, so they never read as live code.
 
-Some say the creatures may learn to call across sessions. When one session waits on the tamer, the others might hear its cry, with its name, its branch and the reason. How loud, and how often, is still argued around the fire.
+`.md` scrolls showed only their raw source. Explorer borrowed the Git tab's renderer instead of building its own, and a switch still shows the source. Tables came next: a grid when they fit, and a list that keeps each column name when they do not.
 
-Smaller tracks may follow, if the season allows. Commit bodies could get a gentle growl, and your own words might sit to the right like a voice across the fire.
+herald learned to carry a cry between sessions. When one session finishes or waits on the tamer, every other open session hears it, with its name and branch.
+
+A line pinned under the prompt was turned down, because it did not scale to many sessions. Each kind of toast got its own time instead, and `0` silences it.
+
+API-key logins saw empty `5h` and `wk` meters. The status line now shows what was spent here, today and this month, with a 24-hour chart.
+
+On OpenRouter, Claude Code's own estimate once ran 51% over the bill in a 10-minute window, so today and month now come from the bill. The rest stays local, because OpenRouter keeps no count per session.
+
+A status line once said v1.9 while margin still ran v1.8, and nothing told the tamer. The doctor arrived. It reads every part with no model call, and speaks at start only when something is wrong.
+
+The doctor never writes config, and `doctor fix` waits for the tamer's yes. At the gate it also learned to hide whole paths from problem reports.
+
+Commit bodies got their gentle growl. An audit of 100 commits found 40 with a body line over 72 columns. The new rule reminds and never blocks.
+
+The v1.9 gate missed 8 stale pictures, because nothing tied a picture to the code it draws. Now a map ties 19 pictures to their sources, and a script lists what changed since each one was taken.
+
+Two wild ones were caught, and both sleep until woken. Chancery designs each job with `blueprint` and files its papers in one folder. Baton, once only tracks near long sessions, now offers to hand a long job to a fresh session.
+
+The handoff note grew for it: a git block for each worktree touched, the files written, the whole last reply, and a chain of the sessions before it.
