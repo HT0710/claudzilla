@@ -1051,7 +1051,7 @@ Every subagent now gets a name, and margin and folio show it. A hook that refuse
 
 Instead, a hook fills in a name when Claude forgets.
 
-#### v1.10, The Scrolls Unroll *(coming soon, title not final)*
+#### v1.10, Ink on Every Paw *(coming soon)*
 
 This chapter is not yet written. Only rumours drift back from the fog: tracks half seen, creatures not yet named. Some may never arrive, some may arrive under other names, and others no one has spotted yet may join them on the way.
 
