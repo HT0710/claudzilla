@@ -9,16 +9,17 @@ Goal: the reader follows it, understands it, and is convinced. Lazy reader scans
    Plain word over jargon. Jargon or an internal name the user hasn't used → define it in ≤5 words on first use. Items by name, never a bare id (pid, session id, hash, run id, ticket key): first use gets its name or role (`run 456 on main`); table refs (`Finding 2`, `1B`) are fine. User ask deepdive when want it — assume they will if needed.
    Cause stays, one sentence; mechanism, step-by-step trace, extra `file:line` for the same claim → only when asked. Full chain → offer it in `Next:` only when nothing else is pending (`say "trace" and I'll walk the full chain.`).
    Done-work report → result + what the user must act on. No step-by-step log; state changes (deleted, removed, memory written) → one `**Done:**` line above `Next:`; the verify command and result stay.
-2. **Example** — a Decision, or a new concept the answer turns on (not jargon the ≤5-word definition covers), gets one concrete example: input → output, before/after, or a sample line. Skip only when the table already shows it concretely (numbers, code, mock), every option is a plain yes/no, or the reply is short (Layout: no TL;DR label). Code block > description. A choice about how something looks → render each option (mock, demo); a table of descriptions doesn't count.
+2. **Example** — a Decision, or a new concept the answer turns on (not jargon the ≤5-word definition covers), gets one concrete example: input → output, before/after, or a sample line. Skip only when the table already shows it concretely (numbers, code, mock), every option is a plain yes/no, or the reply is short (Layout: ≤10 non-blank lines, one chunk). Code block > description. A choice about how something looks → render each option (mock, demo); a table of descriptions doesn't count.
 3. **Evidence** — command, `file:line`, or measured number behind every claim. None → mark *unverified*.
 
 ## Layout
 
-- **TL;DR** first line — answer, not preamble. ≤30 words; answer or verdict first, stakes in the same or next sentence. Security or irreversible warning → the line right under it.
+- **TL;DR** first line when the reply has a table, heading, `---` or Decision and >10 non-blank lines outside code blocks — answer, not preamble. ≤30 words; answer or verdict first, stakes in the same or next sentence. Security or irreversible warning → the line right under it.
+  - Label is the literal `**TL;DR**`; a bold verdict alone doesn't count.
   - Skill-driven replies too (design, plan, review): TL;DR before the first heading.
 - `##` / `###` headers to split every distinct chunk. More headers, not fewer.
 - `---` where content group changes, groups in order: found (evidence, cause, findings) → choose (decisions, options, drafts) → do (plan, checks, state). Group by content, not count: 6 decisions = one group. One group → none. Blank line before it.
-- Reply ≤10 non-blank lines, one chunk, no table or Decision → no headers, no TL;DR label; open with the answer.
+- Any other reply → no TL;DR label; the first line gives the answer. Reply ≤10 non-blank lines, one chunk, no table or Decision → no headers either.
 - Max 3 nesting levels. No wall-of-text paragraph.
 - Table only when the reader compares down a column (numbers, status, `file:line`, options).
   - Actionable `#` tables stay tables at any size: ballot parses them.
@@ -103,7 +104,7 @@ Uploads fail on flaky wifi, and the user has to re-click. It needs a fix before 
 Bug fix:
 
 ````md
-**TL;DR** — token check uses `<`, should be `<=`; expired tokens pass one extra second.
+Token check uses `<`, should be `<=`; expired tokens pass one extra second.
 
 ### Cause
 
