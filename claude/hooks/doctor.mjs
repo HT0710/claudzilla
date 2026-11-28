@@ -91,6 +91,7 @@ function commitState(ctx, name, sha) {
   return run("git", ["-C", ctx.clone, "diff", "--quiet", sha, "HEAD", "--", `plugins/${name}`]).status === 0 ? "ok" : "stale";
 }
 
+// Report snapshots need whole paths redacted before they become part of a message.
 export function checks(ctx, showPath = String) {
   const results = [];
   const parts = JSON.parse(readFileSync(join(ctx.clone, "parts.json"), "utf8"));

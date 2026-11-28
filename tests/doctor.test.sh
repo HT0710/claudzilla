@@ -119,6 +119,8 @@ fixture; printf '{' >"$(IP)"
 out=$(run --json); rc=$?
 check "read: malformed installed_plugins.json gives one read row" js "$out" 'r.filter(x=>x.check=="read").length==1&&r.some(x=>x.check=="read"&&x.text.includes("could not read"))'
 check "read: malformed file still exits 0" [ "$rc" -eq 0 ]
+ln -s "$CFG" "$TMP/My Private Config"
+check "--quick --json: malformed config path with spaces is redacted" row "$(CFG="$TMP/My Private Config" run --quick --json)" 'x.check==="read"&&!x.ok&&x.text==="could not read <path>"'
 
 fixture notag
 out=$(run); rc=$?
@@ -212,7 +214,7 @@ fixture; private="$TMP/home/My Private Project"; mkdir -p "$private"; proj_entry
 out=$(CWD="$private" run --quick --json)
 check "--quick --json: no project name fragments after a space" not grep -qF 'Private Project' <<<"$out"
 check "--quick --json: no full-only rows" js "$out" '!r.some(x=>["statusline","hooks","update","glyphs"].includes(x.check))'
-check "--quick --json: path tokens become <path>" grep -qF '<path>' <<<"$out"
+check "--quick --json: project diagnostic keeps the row but hides its path" row "$out" 'x.check==="project"&&!x.ok&&x.text.includes(" for <path>, clone at ")&&x.fix?.cwd==="<path>"'
 check "--quick --json: no path left" sh -c '! printf "%s" "$1" | grep -qE "[\" ][/~]"' _ "$out"
 check "--quick --json: counts stay" grep -qE '[0-9]+/[0-9]+' <<<"$out"
 check "--json keeps the cwd" row "$(CWD="$private" run --json)" "x.check=='project'&&x.fix.cwd=='$private'&&x.text.includes('$private')"
