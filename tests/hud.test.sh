@@ -268,11 +268,13 @@ cat > "$FC/curl" <<'EOF'
 d=$(dirname "$0"); echo "$*" >> "$d/argv"; cat > "$d/stdin"
 sleep "${FAKE_SLEEP:-0}"
 [ -n "${FAKE_FAIL:-}" ] && exit 22
-echo "{\"data\":{\"usage_daily\":${FAKE_DAILY:-7.5},\"usage_monthly\":77.1}}"
+echo "{\"data\":{\"usage\":${FAKE_USAGE:-90.5},\"usage_daily\":7.5,\"usage_monthly\":77.1}}"
 EOF
 chmod +x "$FC/curl"
 or_kv() { printf '%s' "$apiful" | PATH="$FC:$PATH" FROZEN_TIME=${AT:-$T0} TZ=${ZONE:-UTC} PERL5LIB="$PL" ANTHROPIC_BASE_URL=https://openrouter.ai/api ANTHROPIC_AUTH_TOKEN=sk-or-test CLAUDE_CONFIG_DIR="$1" HUD_DUMP=1 perl -e 'alarm 5; exec @ARGV' perl -MFrozen "$HUD/hud.pl"; }
-orc() { printf 'at\t%s\ndaily\t5\nmonthly\t40\n' "$1" > "$2/claudzilla-or-key.tsv"; }
+# orc <at> <dir> [base day] [key id]: usage 50 over a base of 45, so today is 5; the key id defaults to sk-or-test's
+ORKID=$(perl -MDigest::SHA=sha256 -e 'print unpack "N", sha256 "sk-or-test"')
+orc() { printf 'at\t%s\nusage\t50\nmonthly\t40\nbase\t45\nbday\t%s\nkid\t%s\n' "$1" "${3:-20261128}" "${4:-$ORKID}" > "$2/claudzilla-or-key.tsv"; }
 # or_wait <dir> <line>: up to 3 s for the background fetch to write <line>
 or_wait() { for _ in $(seq 60); do grep -qx "$2" "$1/claudzilla-or-key.tsv" 2>/dev/null && return 0; sleep 0.05; done; return 1; }
 
@@ -288,13 +290,15 @@ d=$(seedS); orc $((T0-300)) "$d"; rm -f "$FC/argv"
 kv=$(or_kv "$d")
 check_eq "or: stale cache still shows while refetching" 5.00 "$(usd spend_today "$kv")"
 check "or: refetch writes the cache" or_wait "$d" "$(printf 'at\t%s' $T0)"
-check_eq "or: refetched daily" 7.500000 "$(key daily "$(cat "$d/claudzilla-or-key.tsv")")"
+check_eq "or: refetched usage" 90.500000 "$(key usage "$(cat "$d/claudzilla-or-key.tsv")")"
+check_eq "or: refetch keeps the base of the day" 45 "$(key base "$(cat "$d/claudzilla-or-key.tsv")")"
+check_eq "or: today grows from the base" 45.50 "$(usd spend_today "$(AT=$((T0+1)) or_kv "$d")")"
 check_eq "or: refetched monthly" 77.100000 "$(key monthly "$(cat "$d/claudzilla-or-key.tsv")")"
 check "or: key never in curl argv" bash -c "! grep -q sk-or-test '$FC/argv'"
 check "or: key sent on stdin" grep -q 'Authorization: Bearer sk-or-test' "$FC/stdin"
 check_eq "or: cache is private" 600 "$(perl -e 'printf "%o", (stat shift)[2] & 0777' "$d/claudzilla-or-key.tsv")"
-d=$(seedS); FAKE_DAILY=0.00005 or_kv "$d" >/dev/null; or_wait "$d" "$(printf 'at\t%s' $T0)"
-check_eq "or: tiny daily keeps the billed month" 77.10 "$(usd spend_month "$(AT=$((T0+1)) or_kv "$d")")"
+d=$(seedS); FAKE_USAGE=0.00005 or_kv "$d" >/dev/null; or_wait "$d" "$(printf 'at\t%s' $T0)"
+check_eq "or: tiny usage keeps the billed month" 77.10 "$(usd spend_month "$(AT=$((T0+1)) or_kv "$d")")"
 
 d=$(seedS); orc $((T0-700)) "$d"; rm -f "$FC/argv"
 kv=$(FAKE_FAIL=1 or_kv "$d")
@@ -302,6 +306,19 @@ check_eq "or: cache past 10 min falls back to the ledger" "$(usd spend_today "$(
 check "or: failed fetch notes the try" or_wait "$d" "$(printf 'tried\t%s' $T0)"
 rm -f "$FC/argv"; AT=$((T0+30)) or_kv "$d" >/dev/null; sleep 0.2
 check "or: failed fetch waits a minute to retry" [ ! -e "$FC/argv" ]
+
+# 06:00 in Bangkok is Nov 28 there but Nov 27 in UTC, where OpenRouter's usage_daily runs
+d=$(seedS); orc $((T0-25200-30)) "$d"
+check_eq "or: today counts from local midnight" 5.00 "$(usd spend_today "$(ZONE=Asia/Bangkok AT=$((T0-25200)) or_kv "$d")")"
+d=$(seedS); orc $((T0-30)) "$d" 20261127
+check_eq "or: base from an earlier day falls back to the ledger" "$(usd spend_today "$(api_kv "$(seedS)")")" "$(usd spend_today "$(or_kv "$d")")"
+d=$(seedS); orc $((T0-300)) "$d" 20261127; or_kv "$d" >/dev/null; or_wait "$d" "$(printf 'at\t%s' $T0)"
+check_eq "or: first fetch of the day sets the base" 0.00 "$(usd spend_today "$(AT=$((T0+1)) or_kv "$d")")"
+d=$(seedS); orc $((T0-300)) "$d" 20261128 1; or_kv "$d" >/dev/null; or_wait "$d" "$(printf 'at\t%s' $T0)"
+check_eq "or: another key resets the base" 0.00 "$(usd spend_today "$(AT=$((T0+1)) or_kv "$d")")"
+check "or: key id is not the key" bash -c "! grep -q sk-or-test '$d/claudzilla-or-key.tsv'"
+d=$(seedS); orc $((T0-300)) "$d"; FAKE_USAGE=3 or_kv "$d" >/dev/null; or_wait "$d" "$(printf 'at\t%s' $T0)"
+check_eq "or: usage below the base resets it" 0.00 "$(usd spend_today "$(AT=$((T0+1)) or_kv "$d")")"
 
 # Dec 1 05:00 in Tokyo is still Nov 30 in UTC, where OpenRouter's month runs
 d=$(seedS); orc $((1796068800-30)) "$d"
