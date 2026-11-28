@@ -713,17 +713,21 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // Prompts typed over a running turn: the engine draws each as a prompt row before the turn's own rows, which must not take its section.
-  const queued = new Set<string>()
+  // Prompts typed over a running turn, with the main requests sent before each: the engine draws each as a prompt row
+  // before the turn's own rows, which must not take its section.
+  const queued = new Map<string, number>()
+  // A queued prompt is in the turn once a main request goes out after its submit; until then its row waits below the chat.
+  let steps = 0
+  let running = false
   on('prompt.submit', async ($, e, next) => {
-    if (e.turnId) queued.add(e.text)
+    if (e.turnId) queued.set(e.text, steps)
     t.turn()
     void t.flush(traceIo($))
     return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {
-    if (e.agentId === undefined) queued.clear()
+    if (e.agentId === undefined) { queued.clear(); running = false }
     return next(e)
   })
 
@@ -731,7 +735,8 @@ export const register: Register = on => {
     // A /clear or resume goes on under a new session id, which needs its own cols file.
     wroteColumns = 0
     transcriptPath = ''
-    for (const rows of [runs, done, placed, agents, skills, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails, late, prompts, promptBefore, framedAfter, promptImages, joinRow, promptReply, scans, queued, queuedRows, rowBefore, callIds, seeking]) rows.clear()
+    for (const rows of [runs, done, placed, agents, skills, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails, late, prompts, promptBefore, framedAfter, promptImages, joinRow, promptReply, scans, queued, queuedRows, displaced, rowBefore, callIds, seeking]) rows.clear()
+    running = false
     redrawAll = () => {}
     corners.clear()
     section = { open: false, n: 0 }
@@ -757,6 +762,10 @@ export const register: Register = on => {
   const prompts = new Map<string, string>()
   // Queued prompt rows: a later one takes the join over from them, never from the turn's own prompt.
   const queuedRows = new Set<string>()
+  // The row each queued prompt row took the join over from: rows drawn while that prompt waits belong to it.
+  const displaced = new Map<string, string | undefined>()
+  // shortcut: a prompt pulled back into the composer counts as sent at the next request; needs a queue-removal event to drop it.
+  const waiting = (id: string) => queuedRows.has(id) && queued.get(prompts.get(id)!) === steps
   const promptBefore = new Map<string, string>()
   // Only composer prompts expand images and attachments; plugin prompts may quote them.
   const promptImages = new Map<string, number>()
@@ -978,6 +987,7 @@ export const register: Register = on => {
   })
 
   on('turn.step', async function* ($, e, next) {
+    if (e.agentId === undefined) { steps++; running = true }
     const id = e.agentId && spawned.get(e.agentId)
     if (id && typeof e.effort === 'string') agents.set(id, { ...agents.get(id), effort: e.effort })
     return yield* next(e)
@@ -1294,8 +1304,8 @@ export const register: Register = on => {
   }
   // Rows join a run in draw order; any other row ends it. A group may be placed by its own hook first.
   // A row joining the section turns the last row's corner into a fork, which redraws it.
-  const forkLast = (redraw: () => void) => {
-    if (lastRow && corners.has(lastRow) && frameOf(lastRow)?.n === section.n) redraw()
+  const forkLast = (redraw: () => void, last = lastRow) => {
+    if (last && corners.has(last) && frameOf(last)?.n === section.n) redraw()
   }
   const place = (redraw: () => void, e: any) => {
     const isHidden = (e.component === 'ToolUse' && (e.props.tool === INTENT_TOOL || HIDDEN_TOOLS.has(e.props.tool)))
@@ -1345,13 +1355,14 @@ export const register: Register = on => {
     // shortcut: a prompt queued with the same text as the turn's own prompt, before any row, takes its join; needs the engine's queue id to tell apart.
     if (origin?.kind === 'composer' && lastRow && prompts.get(lastRow) === e.props.text) {
       prompts.set(e.requestId, e.props.text)
-      if (queuedRows.has(lastRow)) queuedRows.add(e.requestId)
+      if (queuedRows.has(lastRow)) { queuedRows.add(e.requestId); displaced.set(e.requestId, displaced.get(lastRow)) }
       lastRow = e.requestId
       return
     }
-    const isQueued = origin?.kind === 'composer' && queued.has(e.props.text)
+    // A row drawn over a running turn is a queued prompt even before its submit lands in `queued`.
+    const isQueued = origin?.kind === 'composer' && (running || queued.has(e.props.text))
     // A queued prompt drawn once the turn's prompt has its join starts the rail again below it, so its card takes the join.
-    if (isQueued && !(lastRow && prompts.has(lastRow) && !queuedRows.has(lastRow))) { prompts.set(e.requestId, e.props.text); queuedRows.add(e.requestId); lastRow = e.requestId }
+    if (isQueued && !(lastRow && prompts.has(lastRow) && !queuedRows.has(lastRow))) { prompts.set(e.requestId, e.props.text); queuedRows.add(e.requestId); displaced.set(e.requestId, lastRow); lastRow = e.requestId }
     if (!isQueued && (e.component === 'AssistantMessage' || origin?.kind === 'composer' || (origin?.kind === 'plugin' && origin.asUser))) {
       section = { open: true, n: section.n + 1 }
       // Only the row drawn right after a prompt, in its section, joins its card to the rail.
@@ -1384,8 +1395,10 @@ export const register: Register = on => {
     const frame = e.viewport?.isFullscreen ? { ...section } : undefined
     // A tool row, or a finish row folio draws, takes its frame here.
     const take = () => {
-      if (lastRow && prompts.has(lastRow)) { promptBefore.set(e.requestId, lastRow); joinNote('take', lastRow, { row: e.requestId, frame: !!frame?.open }) }
-      forkLast(redraw)
+      let card = lastRow
+      while (card && waiting(card)) card = displaced.get(card)
+      if (card && prompts.has(card)) { promptBefore.set(e.requestId, card); joinNote('take', card, { row: e.requestId, frame: !!frame?.open, ...(card !== lastRow && { past: lastRow }) }) }
+      forkLast(redraw, card)
       if (frame) frames.set(e.requestId, frame)
       lastRow = e.requestId
       tails.set(section.n, e.requestId)
