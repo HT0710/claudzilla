@@ -143,6 +143,7 @@ LIMIT=10000
 RF="$REPO/claude/experimental"
 fresh; rm -rf "$TMP/rcfg"; mkdir -p "$TMP/rcfg"
 check_eq "repo: steward listed and on by default" y "$(has "$(CLAUDE_CONFIG_DIR="$TMP/rcfg" node "$REPO/claude/hooks/experimental.mjs" --list)" '{"id":"steward","description":"Picks, per task, whether to delegate to a subagent and at which model and effort.","on":true}')"
+check_eq "repo: baton listed and off by default" y "$(has "$(CLAUDE_CONFIG_DIR="$TMP/rcfg" node "$REPO/claude/hooks/experimental.mjs" --list)" '{"id":"baton","description":"Offers a fresh session with a handoff note at a finished step once context passes compactNudge.","on":false}')"
 all_under_limit() {
   local d="$TMP/allcfg" ids
   rm -rf "$d"; mkdir -p "$d"
