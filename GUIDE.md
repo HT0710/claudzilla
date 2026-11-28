@@ -726,6 +726,7 @@ Type a word or command at the prompt and press **Enter**. Items marked "if insta
 | `/claudzilla compact` | draft a `/compact` line into the prompt box |
 | `/claudzilla handoff [ask]` or `/claudzilla-handoff [ask]` | start fresh with a note from this session; text after it is the new session's first ask |
 | `/claudzilla cost [session-id]` | show what this session or one session cost |
+| `/claudzilla doctor [fix]` | check that every part runs your clone's version; `fix` lets Claude apply the fixes once you say yes |
 | `/claudzilla experimental [<id> on\|off]` | list experimental features or switch one |
 | `/rule-review` | count how often each claudzilla rule slipped |
 | `/margin` | open or close the margin (if installed) |
