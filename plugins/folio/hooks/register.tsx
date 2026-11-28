@@ -758,8 +758,12 @@ export const register: Register = on => {
   // Queued prompt rows: a later one takes the join over from them, never from the turn's own prompt.
   const queuedRows = new Set<string>()
   const promptBefore = new Map<string, string>()
-  // Per prompt id: its image and mention row count, and the row that first joined it.
+  // Only composer prompts expand images and attachments; plugin prompts may quote them.
   const promptImages = new Map<string, number>()
+  const promptHeight = (id: string, columns: number) => {
+    const images = promptImages.get(id)
+    return images === undefined ? 0 : images + rowLines(scans.get(transcriptPath)?.rows.get(id.slice(0, ID_PREFIX)), columns)
+  }
   const joinRow = new Map<string, string>()
   // Prompt id to the reply text drawn right after it.
   const promptReply = new Map<string, string>()
@@ -858,7 +862,7 @@ export const register: Register = on => {
   )
   // A folio tool row sits 2 columns in: blank with no section open, else a rail of `lines` lines beside it and on the
   // gap line above. `margin` 0 joins the row to the one above.
-  const framed = ({ Box, Text }: Elements['terminal'], frame: Frame | undefined, content: RenderNode, lines = 1, margin = 1, prefix: RenderNode = '│ ', id?: string) => {
+  const framed = ({ Box, Text }: Elements['terminal'], frame: Frame | undefined, columns: number, content: RenderNode, lines = 1, margin = 1, prefix: RenderNode = '│ ', id?: string) => {
     if (!frame) return <Box flexDirection="column" marginTop={margin}>{content}</Box>
     if (!frame.open) return <Box flexDirection="column" marginTop={margin} paddingLeft={2}>{content}</Box>
     const prompt = id && promptBefore.get(id)
@@ -866,7 +870,7 @@ export const register: Register = on => {
     // The first row after an image or mention prompt reaches up over the engine's rows, each drawn at column 0-1.
     if (prompt && !joinRow.has(prompt)) joinRow.set(prompt, id)
     const joins = prompt && margin && joinRow.get(prompt) === id
-    const imgs = joins ? promptImages.get(prompt) ?? 0 : 0
+    const imgs = joins ? promptHeight(prompt, columns) : 0
     if (prompt) joinNote(joins ? 'join' : 'miss', prompt, joins ? { row: id, imgs } : { row: id, joinRow: joinRow.get(prompt), margin })
     return (
       <Box flexDirection="column" marginTop={imgs ? -imgs : undefined}>
@@ -885,7 +889,7 @@ export const register: Register = on => {
   // Messages first drawn empty, with the section's last row then and the rows placed since: their text may come later.
   const late = new Map<string, { n: number; rows: string[]; before?: string }>()
   // A forked skill draws as an agent row, under its own glyph and name.
-  const agentRow = (elements: Elements['terminal'], id: string, state: State, agent: AgentRow | undefined, desc: string, isBackground: boolean, ms?: number, skill?: string) => {
+  const agentRow = (elements: Elements['terminal'], id: string, columns: number, state: State, agent: AgentRow | undefined, desc: string, isBackground: boolean, ms?: number, skill?: string) => {
     const { Text } = elements
     const color = stateColour(state)
     const isLive = state === 'running' || state === 'working' || state === 'remote'
@@ -906,7 +910,7 @@ export const register: Register = on => {
         {ms !== undefined && <Text>{' '}<Text color={FAINT}>in</Text> {durationText(ms)}</Text>}
       </Text>
     )
-    return framed(elements, frame, row, 1, 1, `${isLast ? '╰' : '├'}${isBackground ? '┄' : '─'}`, id)
+    return framed(elements, frame, columns, row, 1, 1, `${isLast ? '╰' : '├'}${isBackground ? '┄' : '─'}`, id)
   }
   // A skill's name in the skill colour, its plugin in brackets.
   const skillLabel = ({ Text }: Elements['terminal'], skill: string) => {
@@ -920,17 +924,17 @@ export const register: Register = on => {
     )
   }
   // A skill loaded into this thread: its ✦ sits on the rail itself.
-  const skillNode = (elements: Elements['terminal'], id: string, isLive: boolean, skill: string) => {
+  const skillNode = (elements: Elements['terminal'], id: string, columns: number, isLive: boolean, skill: string) => {
     const { Text } = elements
     const color = isLive ? 'claude' : 'success'
     const frame = frameOf(id)
     // Blinked off, the rail shows through, so it never breaks.
     const mark = isLive && !isLit ? <Text color="promptBorder">{frame?.open ? '│' : ' '}</Text> : <Text color={color}>✦</Text>
     const row = <Text><Text color={color}>{(isLive ? 'loading' : 'loaded').padEnd(7)}</Text>{'  '}{skillLabel(elements, skill)}</Text>
-    return frame?.open ? framed(elements, frame, <Text wrap="truncate-end">{row}</Text>, 1, 1, mark, id) : framed(elements, frame, <Text wrap="truncate-end">{mark} {row}</Text>, 1, 1, undefined, id)
+    return frame?.open ? framed(elements, frame, columns, <Text wrap="truncate-end">{row}</Text>, 1, 1, mark, id) : framed(elements, frame, columns, <Text wrap="truncate-end">{mark} {row}</Text>, 1, 1, undefined, id)
   }
-  const textRow = (elements: Elements['terminal'], id: string, dot: RenderNode, row: [string, string, RenderNode], tag?: string, tone?: string) =>
-    framed(elements, frameOf(id), textLine(elements, dot, row, tag, tone), 1, 1, undefined, id)
+  const textRow = (elements: Elements['terminal'], id: string, columns: number, dot: RenderNode, row: [string, string, RenderNode], tag?: string, tone?: string) =>
+    framed(elements, frameOf(id), columns, textLine(elements, dot, row, tag, tone), 1, 1, undefined, id)
   // The call's main argument: its path, pattern, command or address.
   const mainArg = (input: unknown, root: string, columns?: number) => {
     const args = (input ?? {}) as Record<string, unknown>
@@ -953,7 +957,7 @@ export const register: Register = on => {
     const shown = [...rows.slice(0, 3), ...(more ? [`… +${more} lines`] : [])]
     // The tail keeps its room: `● `, ` (`, `)` and `  failed`.
     const arg = clip(mainArg(call.input, root, columns), columns - 2 - 2 - call.tool.length - 3 - 8)
-    return framed(elements, frameOf(id), (
+    return framed(elements, frameOf(id), columns, (
       <Box flexDirection="column">
         {textLine(elements, <Text color="error">●</Text>, [call.tool, arg, <Text color="error">failed</Text>])}
         <Box paddingLeft={2}>
@@ -1248,7 +1252,7 @@ export const register: Register = on => {
     const last = rows.findLastIndex(r => r.out !== 'more')
     const frame = frameOf(requestId)
 
-    return framed(elements, frame, (
+    return framed(elements, frame, columns, (
       <Box flexDirection="column">
         <Client key={`fold:${requestId}`} module="./fold.tsx" width="100%" height={1} props={{ pieces: header, tail: counts, lit: LIT }} />
         {rows.map(({ pieces, key, out }, i) => {
@@ -1436,35 +1440,24 @@ export const register: Register = on => {
     }, () => {})
     const path = transcriptPath
     const key = id.slice(0, ID_PREFIX)
-    const images = (p.text.match(/\[Image #\d+\]/g) ?? []).length
-    let attached = 0
+    if (!sent) promptImages.set(id, (p.text.match(/\[Image #\d+\]/g) ?? []).length)
+    const height = promptHeight(id, columns)
     if (path) {
       let scan = scans.get(path)
       if (!scan) scans.set(path, scan = newScan())
       const ms = scan.times.get(key)
       if (ms !== undefined) time = stamp(ms)
-      attached = rowLines(scan.rows.get(key), columns)
       // The newest prompt reads on until its reply starts, because its attachment rows can land after its own row.
       if (ms === undefined || scan.last === key) {
         const s = scan
         const read: ReadText = (f, offset, length) => $.fs.read(f, { offset, length }) as Promise<string>
         void sentAt(read, path, s, id).then(v => {
-          const now = rowLines(s.rows.get(key), columns)
-          // Set before the redraw, so the joined row sees the new count even if it draws before the card.
-          if (!sent) promptImages.set(id, images + now)
-          if ((ms === undefined && v !== undefined) || now !== attached) $.ui.invalidate('ui.render')
+          if ((ms === undefined && v !== undefined) || promptHeight(id, columns) !== height) $.ui.invalidate('ui.render')
         }, () => {})
       }
     }
-    // The engine draws one `⎿` row per image, and one per drawn attachment such as an `@path` file or a skill listing update;
-    // the first framed row after the card paints the rail over them. A plugin's prompt expands none, so it draws no rows.
-    const previous = promptImages.get(id)
-    const count = sent ? 0 : images + attached
-    promptImages.set(id, count)
-    // On resize the rail may already have drawn at the previous height.
-    if (previous !== undefined && previous !== count) $.ui.invalidate('ui.render')
     const tag = sent && time ? `${sent} · ${time}` : sent ?? time
-    const corner = framedAfter.has(id) || (e.viewport?.isFullscreen && promptImages.get(id) && promptReply.has(id)) ? '╭' : '╌'
+    const corner = framedAfter.has(id) || (e.viewport?.isFullscreen && height && promptReply.has(id)) ? '╭' : '╌'
     joinNote('card', id, { row: id, corner })
     return (
       <Box flexDirection="column" width="100%" marginTop={2} marginBottom={tag ? -1 : 0}>
@@ -1566,7 +1559,7 @@ export const register: Register = on => {
     }
     // The reply right after an image prompt reaches up over the engine's image rows, as the first framed row does.
     const prompt = e.component === 'AssistantMessage' && e.surface === 'terminal' && e.viewport?.isFullscreen ? [...promptReply].find(([, r]) => r === e.requestId)?.[0] : undefined
-    const imgs = prompt ? promptImages.get(prompt) ?? 0 : 0
+    const imgs = prompt ? promptHeight(prompt, e.viewport?.columns ?? 80) : 0
     if (!imgs) return out
     joinNote('reply', prompt!, { row: e.requestId, imgs })
     const { Box, Text } = $.ui.resolve(e)
@@ -1606,6 +1599,7 @@ export const register: Register = on => {
     if (!hideEditDiff || e.surface !== 'terminal' || isExpanded) return native
     // A result drawn first shows the engine diff until this row records the edit.
     if (!isRunning && !isInterrupted && adopt(e.requestId, output, String((input as { command?: unknown } | undefined)?.command ?? ''))) $.ui.invalidate('ui.render')
+    const columns = e.viewport?.columns ?? 80
     const call: ToolGroupCall = { tool_use_id: e.requestId, tool, input, isRunning, isErrored, isInterrupted, output }
     if (runs.has(e.requestId) && remember(e.requestId, call)) $.ui.invalidate('ui.render')
     const seg = runs.has(e.requestId) ? segmentOf(e.requestId) : undefined
@@ -1613,7 +1607,7 @@ export const register: Register = on => {
       const elements = $.ui.resolve(e)
       // The run's owner draws it, as the intent row before it draws nothing.
       if (seg && seg.owner !== e.requestId) return <elements.Box />
-      return failedRow(elements, e.requestId, call, e.viewport?.columns ?? 80, await $.session.root().catch(() => ''))
+      return failedRow(elements, e.requestId, call, columns, await $.session.root().catch(() => ''))
     }
     // A cut row keeps its native row.
     if (runs.has(e.requestId) && !seg) return native
@@ -1638,7 +1632,7 @@ export const register: Register = on => {
         blinking.add(e.requestId)
         blink ??= $.clock.every(BLINK_MS, () => toggleBlink(() => $.ui.invalidate('ui.render')))
       }
-      return foldCalls(elements, e.requestId, e.viewport?.columns ?? 80, await $.session.root().catch(() => ''), seg.calls, isLive) ?? native
+      return foldCalls(elements, e.requestId, columns, await $.session.root().catch(() => ''), seg.calls, isLive) ?? native
     }
     const bashEdit = bashEdits.get(e.requestId)?.length ? bashEdits.get(e.requestId) : undefined
     // The root, not cwd(): a shell `cd` moves cwd(), and every row would shift with it.
@@ -1655,18 +1649,18 @@ export const register: Register = on => {
         const add = bashEdit.reduce((sum, c) => sum + c.add, 0)
         const del = bashEdit.reduce((sum, c) => sum + c.del, 0)
         const failed: Piece[] = isErrored ? [{ text: '  ' }, { text: 'failed', color: 'error' }] : []
-        const room = (e.viewport.columns ?? 80) - 8 - failed.reduce((sum, p) => sum + p.text.length, 0) - countPieces(add, del).reduce((sum, p) => sum + p.text.length, 0)
+        const room = columns - 8 - failed.reduce((sum, p) => sum + p.text.length, 0) - countPieces(add, del).reduce((sum, p) => sum + p.text.length, 0)
         const title: Piece[] = [{ text: 'Ran', bold: true }, { text: ' (', color: 'promptBorder' }, { text: clip(command, room) }, { text: ')', color: 'promptBorder' }, ...failed]
         // Not errored to foldCalls, which leaves a failed group call's writes out; the title says `failed`.
         const call = { tool_use_id: e.requestId, tool, input, isRunning, isErrored: false, isInterrupted, output }
-        const folded = foldCalls($.ui.resolve(e), e.requestId, e.viewport.columns ?? 80, await $.session.root().catch(() => ''), [call], false, title, true)
+        const folded = foldCalls($.ui.resolve(e), e.requestId, columns, await $.session.root().catch(() => ''), [call], false, title, true)
         if (folded) return folded
       }
       if (isScript) return native
       const elements = $.ui.resolve(e)
       const { Box, Text } = elements
       const dot = <Text color="success">●</Text>
-      return framed(elements, frameOf(e.requestId), (
+      return framed(elements, frameOf(e.requestId), columns, (
         <Box flexDirection="column">
           {bashEdit.map(c => textLine(elements, dot, [c.isNew ? 'Created' : EDIT.Edit!, name(c.file), <Text>
             {(c.add > 0 || c.isNew) && <Text color="success">+{c.add}</Text>}
@@ -1686,7 +1680,7 @@ export const register: Register = on => {
         $.ui.invalidate('ui.render')
       }
       const elements = $.ui.resolve(e)
-      return textRow(elements, e.requestId, <elements.Text color="success">●</elements.Text>, ['Ran', command.split('\n')[0]!, ''])
+      return textRow(elements, e.requestId, columns, <elements.Text color="success">●</elements.Text>, ['Ran', command.split('\n')[0]!, ''])
     }
     const isLive = isRunning && !isInterrupted && !isErrored && tool in RUNNING
     const other = isLive ? RUNNING[tool]!(input ?? {}, name) : !isRunning && !isInterrupted ? toolRow(tool, input, output, isErrored) : undefined
@@ -1697,14 +1691,14 @@ export const register: Register = on => {
     if (other) {
       const elements = $.ui.resolve(e)
       const { Text } = elements
-      if (tool === 'Agent') return agentRow(elements, e.requestId, other[2] as State, agents.get(e.requestId), other[1], other[2] === 'working' || other[2] === 'remote')
+      if (tool === 'Agent') return agentRow(elements, e.requestId, columns, other[2] as State, agents.get(e.requestId), other[1], other[2] === 'working' || other[2] === 'remote')
       if (tool === 'Skill') {
         const skill = String((input as { skill?: unknown } | undefined)?.skill ?? '')
         const fork = output as { status?: string; background?: boolean } | undefined
-        if (isLive || fork?.status !== 'forked') return skillNode(elements, e.requestId, isLive, skill)
-        return agentRow(elements, e.requestId, fork.background ? 'working' : 'done', undefined, '', !!fork.background, undefined, skill)
+        if (isLive || fork?.status !== 'forked') return skillNode(elements, e.requestId, columns, isLive, skill)
+        return agentRow(elements, e.requestId, columns, fork.background ? 'working' : 'done', undefined, '', !!fork.background, undefined, skill)
       }
-      return textRow(elements, e.requestId, isLive ? <Text color="inactive">{isLit ? '●' : ' '}</Text> : <Text color="success">●</Text>, other)
+      return textRow(elements, e.requestId, columns, isLive ? <Text color="inactive">{isLit ? '●' : ' '}</Text> : <Text color="success">●</Text>, other)
     }
     if (!seg) return native
     // A running lone Read, Grep or Glob call: one plain row; once done it folds above.
@@ -1715,11 +1709,11 @@ export const register: Register = on => {
       blink ??= $.clock.every(BLINK_MS, () => toggleBlink(() => $.ui.invalidate('ui.render')))
       const elements = $.ui.resolve(e)
       const { Text } = elements
-      return textRow(elements, e.requestId, <Text color="inactive">{isLit ? '●' : ' '}</Text>, [liveLabel, arg, ''])
+      return textRow(elements, e.requestId, columns, <Text color="inactive">{isLit ? '●' : ' '}</Text>, [liveLabel, arg, ''])
     }
     // A lone call's native row still sits on the rail, 2 columns in.
     // SendMessage's native row is empty: framed, it would leave a bare rail stub.
-    if (!summary && e.viewport?.isFullscreen && seg.ids.length === 1 && tool !== 'SendMessage') return framed($.ui.resolve(e), frameOf(e.requestId), native, 1, 1, undefined, e.requestId)
+    if (!summary && e.viewport?.isFullscreen && seg.ids.length === 1 && tool !== 'SendMessage') return framed($.ui.resolve(e), frameOf(e.requestId), columns, native, 1, 1, undefined, e.requestId)
     if (!summary) return native
     const elements = $.ui.resolve(e)
     const { Box } = elements
@@ -1728,7 +1722,7 @@ export const register: Register = on => {
     const row = (key: string, pieces: Piece[]) => <Client key={key} module="./fold.tsx" width="100%" height={1} props={{ pieces, lit: LIT }} />
     const self = done.get(e.requestId)!
     // Off the fullscreen layout, the only place an edit keeps its own row: a printed row cannot open.
-    return framed(elements, frameOf(e.requestId), (
+    return framed(elements, frameOf(e.requestId), columns, (
       <Box flexDirection="column">
         {row(`fold:${e.requestId}`, [...head('●', 'success', self.summary.isNew ? 'Created' : EDIT[tool]!), { text: ' (', color: 'promptBorder' }, ...namePieces(name(self.file)), { text: ')', color: 'promptBorder' }, ...countPieces(self.summary.add, self.summary.del, self.summary.isNew)])}
       </Box>
@@ -1755,19 +1749,20 @@ export const register: Register = on => {
     const { task } = e.props
     const fin = finishOf(e)
     if (!fin) return native
+    const columns = e.viewport?.columns ?? 80
     const { agent, arg, ended, skill } = fin
     const elements = $.ui.resolve(e)
     // Solid: the work has joined back; only its launch row keeps the background dash.
-    if (agent || skill !== undefined) return agentRow(elements, e.requestId, ended, agent, arg, false, task.durationMs, skill)
+    if (agent || skill !== undefined) return agentRow(elements, e.requestId, columns, ended, agent, arg, false, task.durationMs, skill)
     const tag = task.durationMs === undefined ? ended : `${ended} · ${durationText(task.durationMs)}`
     // Off the fullscreen layout a printed row cannot open, so it keeps the command.
-    if (!e.viewport?.isFullscreen) return textRow(elements, e.requestId, <elements.Text color={stateColour(ended)}>◼</elements.Text>, ['Bash', arg, <elements.Text color={stateColour(ended)}>{tag}</elements.Text>])
+    if (!e.viewport?.isFullscreen) return textRow(elements, e.requestId, columns, <elements.Text color={stateColour(ended)}>◼</elements.Text>, ['Bash', arg, <elements.Text color={stateColour(ended)}>{tag}</elements.Text>])
     // Folds like a 1-command run; a press opens it to the command.
     const title: Piece[] = [{ text: 'Ran', bold: true }, { text: ' (', color: 'promptBorder' }, { text: '1', color: 'claude' }, { text: ' command' }, { text: ')', color: 'promptBorder' },
       { text: '  ' }, { text: tag, color: stateColour(ended) }]
     // No id: the launch row already draws the files the command wrote.
     const call: ToolGroupCall = { tool: 'Bash', input: { command: arg }, isRunning: false, isErrored: false, isInterrupted: false }
-    return foldCalls(elements, e.requestId, e.viewport?.columns ?? 80, '', [call], false, title, false, ended) ?? native
+    return foldCalls(elements, e.requestId, columns, '', [call], false, title, false, ended) ?? native
   })
 
   // A reply still streaming skips the hook below, so md-display.pl draws its lines from this width.
