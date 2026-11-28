@@ -32,35 +32,57 @@ test('headings bold; list items hang under their text; nested lists keep their i
   expect(texts('- aaa bbb ccc\n  ddd\n  - eee\n1. fff', 9)).toEqual(['- aaa bbb', '  ccc ddd', '  - eee', '1. fff'])
 })
 
-test('a fence draws one code row per line with its language; a table becomes one row per data row', () => {
+test('a fence draws one code row per line with its language; a table draws as a grid', () => {
   expect(mdRows('```ts\nconst a = 1\n\nb()\n```', 80)).toEqual([
     { code: 'const a = 1', language: 'ts' },
     { code: '', language: 'ts' },
     { code: 'b()', language: 'ts' },
   ])
-  expect(texts('| a | b | c |\n|---|---|---|\n| x | y | z |', 80)).toEqual(['x — y · z'])
+  expect(texts('| a | b | c |\n|---|---|---|\n| x | y | z |', 80)).toEqual(['a │ b  c', '──┼─────', 'x │ y  z'])
   expect(mdRows('', 8)).toEqual([])
 })
 
-test('a table first cell with its own marks keeps them instead of bold', () => {
-  expect(mdRows('| a | b |\n|---|---|\n| **foo** | 1 |\n| `x.ts` | 2 |\n| [x](./a.md) | 3 |\n| plain | 4 |\n|  | 5 |', 80)).toEqual([
-    { indent: 0, spans: [{ bold: true, text: 'foo' }, { text: ' — 1' }] },
-    { indent: 0, spans: [{ code: true, text: 'x.ts' }, { text: ' — 2' }] },
-    { indent: 0, spans: [{ text: 'x — 3' }] },
-    { indent: 0, spans: [{ bold: true, text: 'plain' }, { text: ' — 4' }] },
-    { indent: 0, spans: [{ text: '— 5' }] },
-  ])
+test('a table cell keeps its own marks in the grid', () => {
+  const md = '| a | b |\n|---|---|\n| **foo** | 1 |\n| `x.ts` | 2 |\n| [x](./a.md) | 3 |\n| plain | 4 |\n|  | 5 |'
+  expect(texts(md, 80)).toEqual(['a     │ b', '──────┼──', 'foo   │ 1', 'x.ts  │ 2', 'x     │ 3', 'plain │ 4', '      │ 5'])
+  expect(mdRows(md, 80)[2].spans.filter(s => s.bold).map(s => s.text)).toEqual(['foo'])
+  expect(mdRows(md, 80)[3].spans.filter(s => s.code).map(s => s.text)).toEqual(['x.ts'])
 })
 
 test('a table cell keeps an escaped pipe; a table after a paragraph or without outer pipes is still a table', () => {
-  expect(texts('| a | b |\n|---|---|\n| `x \\| y` | z \\| w |', 80)).toEqual(['x | y — z | w'])
-  expect(texts('Intro line\n| a | b |\n|---|---|\n| 1 | 2 |', 80)).toEqual(['Intro line', '1 — 2'])
-  expect(texts('a | b\n:--|--:\n1 | 2', 80)).toEqual(['1 — 2'])
+  expect(texts('| a | b |\n|---|---|\n| `x \\| y` | z \\| w |', 80)).toEqual(['a     │ b    ', '──────┼──────', 'x | y │ z | w'])
+  expect(texts('Intro line\n| a | b |\n|---|---|\n| 1 | 2 |', 80)).toEqual(['Intro line', 'a │ b', '──┼──', '1 │ 2'])
+  expect(texts('a | b\n:--|--:\n1 | 2', 80)).toEqual(['a │ b', '──┼──', '1 │ 2'])
   expect(texts('a | b\nc', 80)).toEqual(['a | b c'])
 })
 
+test('a table that fits draws as a grid: bold header, rule under it, rows padded to the grid width', () => {
+  const md = '| # | file | status |\n|---|---|---|\n| 1 | a.ts | ok |\n| 2 | b.ts | failed |'
+  expect(texts(md, 80)).toEqual(['# │ file  status', '──┼─────────────', '1 │ a.ts  ok    ', '2 │ b.ts  failed'])
+  expect(mdRows(md, 80)[0].spans.filter(s => s.bold).map(s => s.text)).toEqual(['#', 'file', 'status'])
+})
+
+test('a blank cell draws as padding; a row longer than the header drops its extra cells; a shorter row draws blank cells', () => {
+  expect(texts('| # | file |\n|---|---|\n| 1 |  |', 80)).toEqual(['# │ file', '──┼─────', '1 │     '])
+  expect(texts('| a | b |\n|---|---|\n| 1 | 2 | 3 |\n| 4 |', 80)).toEqual(['a │ b', '──┼──', '1 │ 2', '4 │  '])
+})
+
+test('a one-column table draws no vertical line', () => {
+  expect(texts('| name |\n|---|\n| ab |', 80)).toEqual(['name', '────', 'ab  '])
+})
+
+test('a table with no data rows draws its header and rule', () => {
+  expect(texts('| a | b |\n|---|---|', 80)).toEqual(['a │ b', '──┼──'])
+})
+
 test('a body row of only dashes stays a data row', () => {
-  expect(texts('| k | v |\n|---|---|\n| a | 1 |\n| - | - |\n| b | 2 |', 80)).toEqual(['a — 1', '- — -', 'b — 2'])
+  expect(texts('| k | v |\n|---|---|\n| a | 1 |\n| - | - |\n| b | 2 |', 80)).toEqual(['k │ v', '──┼──', 'a │ 1', '- │ -', 'b │ 2'])
+})
+
+test('a grid keeps its source lines: header, rule, then each body row', () => {
+  const { rows, lines } = mdLayout('# T\n\n| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |', 80)
+  expect(rows.length).toBe(6)
+  expect(lines).toEqual([0, 0, 2, 3, 4, 5])
 })
 
 test('inline triple backticks are a code span, not a fence; quotes lose > on every line; comments and empty blocks draw nothing', () => {

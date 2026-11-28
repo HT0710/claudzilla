@@ -96,6 +96,38 @@ const cells = (line: string) =>
 const DELIM = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/
 const tableAt = (lines: string[], i: number) => lines[i]!.includes('|') && i + 1 < lines.length && lines[i + 1]!.includes('|') && DELIM.test(lines[i + 1]!)
 
+const drawn = (spans: MdSpan[]) => spans.reduce((n, s) => n + s.text.length, 0)
+
+// A table that fits `width` draws as a grid: bold header, a rule under it, the first column split off by a bar.
+const tableRows = (lines: string[], at: number[], width: number): [MdRow, number][] => {
+  const head = cells(lines[0]!)
+  const body = lines.slice(2).map(cells)
+  const draw = (row: string[], base: Style) => head.map((_, i) => wrap(row[i] ?? '', base, Infinity)[0] ?? [])
+  const grid = [draw(head, { bold: true }), ...body.map(r => draw(r, {}))]
+  const widths = head.map((_, c) => grid.reduce((m, r) => Math.max(m, drawn(r[c]!)), 0))
+  const full = head.length > 1 ? widths.reduce((n, w) => n + w, 0) + 2 * (head.length - 1) + 1 : widths[0]!
+  if (full > width)
+    // A table that does not fit reads as one row per data row: the first cell bold, the rest after it.
+    return body.flatMap((row, k) => {
+      const [first, ...rest] = row
+      // Marks don't nest: a cell with its own keeps them, unbolded.
+      const text = `${first && first.search(MARK) < 0 ? `**${first}**` : first} — ${rest.join(' · ')}`
+      return wrap(text, {}, Math.max(1, width)).map((spans): [MdRow, number] => [{ indent: 0, spans }, at[k + 2]!])
+    })
+  const line = (spans: MdSpan[], n: number): [MdRow, number] => [{ indent: 0, spans }, n]
+  const row = (cols: MdSpan[][], n: number) =>
+    line(
+      cols.flatMap((spans, c) => [
+        ...(c ? [{ text: c === 1 ? ' │ ' : '  ' }] : []),
+        ...spans,
+        ...(widths[c]! > drawn(spans) ? [{ text: ' '.repeat(widths[c]! - drawn(spans)) }] : []),
+      ]),
+      n,
+    )
+  const rule = head.length > 1 ? '─'.repeat(widths[0]! + 1) + '┼' + '─'.repeat(full - widths[0]! - 2) : '─'.repeat(full)
+  return [row(grid[0]!, at[0]!), line([{ text: rule }], at[1]!), ...grid.slice(1).map((r, k) => row(r, at[k + 2]!))]
+}
+
 // One block's rows, each with the source line it starts at: a fence's lines as code; else headings, list items and paragraphs, each wrapped.
 const blockRows = (lines: string[], at: number[], width: number): [MdRow, number][] => {
   const fence = FENCE.exec(lines[0]!)
@@ -104,19 +136,10 @@ const blockRows = (lines: string[], at: number[], width: number): [MdRow, number
     if (body.length && closes(fence[1]!, body.at(-1)!)) body.pop()
     return body.map((code, i) => [{ code, ...(fence[2] ? { language: fence[2] } : {}) }, at[i + 1]!])
   }
+  if (tableAt(lines, 0)) return tableRows(lines, at, width)
   // A table may start mid-block, right under a paragraph.
-  const start = tableAt(lines, 0) ? -1 : lines.findIndex((_, i) => i > 0 && tableAt(lines, i))
+  const start = lines.findIndex((_, i) => i > 0 && tableAt(lines, i))
   if (start > 0) return [...blockRows(lines.slice(0, start), at.slice(0, start), width), ...blockRows(lines.slice(start), at.slice(start), width)]
-  // A table reads as one row per data row: the first cell bold, the rest after it.
-  const table = tableAt(lines, 0)
-  if (table) {
-    at = at.slice(2)
-    lines = lines.slice(2).map(line => {
-      const [first, ...rest] = cells(line)
-      // Marks don't nest: a cell with its own keeps them, unbolded.
-      return `${first && first.search(MARK) < 0 ? `**${first}**` : first} — ${rest.join(' · ')}`
-    })
-  }
   const items: { lead: number; marker: string; text: string; style: Style; line: number }[] = []
   lines.forEach((raw, k) => {
     const line = raw.replace(/^\s*>\s?/, '')
@@ -125,7 +148,7 @@ const blockRows = (lines: string[], at: number[], width: number): [MdRow, number
     const last = items.at(-1)
     if (heading) items.push({ lead: 0, marker: '', text: heading[1]!, style: { bold: true }, line: at[k]! })
     else if (item) items.push({ lead: item[1]!.length, marker: `${item[2]} `, text: item[3]!, style: {}, line: at[k]! })
-    else if (last && !last.style.bold && !table) last.text += ` ${line.trim()}`
+    else if (last && !last.style.bold) last.text += ` ${line.trim()}`
     else items.push({ lead: 0, marker: '', text: line.trim(), style: {}, line: at[k]! })
   })
   return items.flatMap(it =>
