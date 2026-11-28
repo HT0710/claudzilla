@@ -87,68 +87,92 @@ const wrap = (text: string, base: Style, room: number): MdSpan[][] => {
 
 const cells = (line: string) => line.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim())
 
-// One block's rows: a fence's lines as code; else headings, list items and paragraphs, each wrapped.
-const blockRows = (lines: string[], width: number): MdRow[] => {
+// One block's rows, each with the source line it starts at: a fence's lines as code; else headings, list items and paragraphs, each wrapped.
+const blockRows = (lines: string[], at: number[], width: number): [MdRow, number][] => {
   const fence = FENCE.exec(lines[0]!)
   if (fence) {
     const body = lines.slice(1)
     if (body.length && closes(fence[1]!, body.at(-1)!)) body.pop()
-    return body.map(code => ({ code, ...(fence[2] ? { language: fence[2] } : {}) }))
+    return body.map((code, i) => [{ code, ...(fence[2] ? { language: fence[2] } : {}) }, at[i + 1]!])
   }
   // A table reads as one row per data row: the first cell bold, the rest after it.
   const table = lines.length > 1 && lines[0]!.startsWith('|') && /^\|[\s:|-]+\|$/.test(lines[1]!.trim())
-  if (table)
+  if (table) {
+    at = at.slice(2)
     lines = lines.slice(2).map(line => {
       const [first, ...rest] = cells(line)
       // Marks don't nest: a cell with its own keeps them, unbolded.
       return `${first && first.search(MARK) < 0 ? `**${first}**` : first} — ${rest.join(' · ')}`
     })
-  const items: { lead: number; marker: string; text: string; style: Style }[] = []
-  for (const raw of lines) {
+  }
+  const items: { lead: number; marker: string; text: string; style: Style; line: number }[] = []
+  lines.forEach((raw, k) => {
     const line = raw.replace(/^\s*>\s?/, '')
     const heading = /^#{1,6}\s+(.*)$/.exec(line)
     const item = ITEM.exec(line)
     const last = items.at(-1)
-    if (heading) items.push({ lead: 0, marker: '', text: heading[1]!, style: { bold: true } })
-    else if (item) items.push({ lead: item[1]!.length, marker: `${item[2]} `, text: item[3]!, style: {} })
+    if (heading) items.push({ lead: 0, marker: '', text: heading[1]!, style: { bold: true }, line: at[k]! })
+    else if (item) items.push({ lead: item[1]!.length, marker: `${item[2]} `, text: item[3]!, style: {}, line: at[k]! })
     else if (last && !last.style.bold && !table) last.text += ` ${line.trim()}`
-    else items.push({ lead: 0, marker: '', text: line.trim(), style: {} })
-  }
+    else items.push({ lead: 0, marker: '', text: line.trim(), style: {}, line: at[k]! })
+  })
   return items.flatMap(it =>
-    wrap(it.text, it.style, Math.max(1, width - it.lead - it.marker.length)).map((spans, i) =>
+    wrap(it.text, it.style, Math.max(1, width - it.lead - it.marker.length)).map((spans, i): [MdRow, number] => [
       i ? { indent: it.lead + it.marker.length, spans } : { indent: it.lead, spans: it.marker ? [{ text: it.marker }, ...spans] : spans },
-    ),
+      it.line,
+    ]),
   )
 }
 
 // Rows of `md` at `width`: blocks split at blank lines, never inside a fence, a blank row between those that draw.
 // An HTML comment reads as blank, as GitHub hides it. Only one that opens a line: mid-line it stays text.
-export function mdRows(md: string, width: number): MdRow[] {
-  const blocks: string[][] = []
+// `lines[i]` is row i's source line index; a blank row between blocks takes the row above's.
+export function mdLayout(md: string, width: number): { rows: MdRow[]; lines: number[] } {
+  const blocks: { lines: string[]; at: number[] }[] = []
   let cur: string[] = []
+  let at: number[] = []
   let fence = ''
   let comment = false
+  const end = () => {
+    if (cur.length) blocks.push({ lines: cur, at })
+    cur = []
+    at = []
+  }
   // Tab and newline are the only control characters the engine draws.
-  for (const line of md.replace(/\r/g, '').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, ' ').split('\n')) {
+  md.replace(/\r/g, '').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, ' ').split('\n').forEach((line, n) => {
     const open = FENCE.exec(line)
     if (fence) {
-      cur.push(line)
-      if (closes(fence, line)) blocks.push(cur), (cur = []), (fence = '')
+      cur.push(line), at.push(n)
+      if (closes(fence, line)) end(), (fence = '')
     } else if (comment) comment = !line.includes('-->')
     // A fence is its own block, even with no blank line around it.
     else if (open) {
-      if (cur.length) blocks.push(cur), (cur = [])
-      cur.push(line)
+      end()
+      cur.push(line), at.push(n)
       fence = open[1]!
     } else if (/^\s*<!--/.test(line) && !/-->/.test(line)) {
       comment = true
-      if (cur.length) blocks.push(cur), (cur = [])
-    } else if (line.trim() && !/^\s*<!--.*-->\s*$/.test(line)) cur.push(line)
-    else if (cur.length) blocks.push(cur), (cur = [])
+      end()
+    } else if (line.trim() && !/^\s*<!--.*-->\s*$/.test(line)) cur.push(line), at.push(n)
+    else end()
+  })
+  end()
+  const rows: MdRow[] = []
+  const lines: number[] = []
+  for (const block of blocks) {
+    const got = blockRows(block.lines, block.at, width)
+    if (!got.length) continue
+    if (rows.length) rows.push({ indent: 0, spans: [] }), lines.push(lines.at(-1)!)
+    for (const [row, line] of got) rows.push(row), lines.push(line)
   }
-  if (cur.length) blocks.push(cur)
-  return blocks
-    .map(block => blockRows(block, width))
-    .filter(rows => rows.length)
-    .flatMap((rows, i) => [...(i ? [{ indent: 0, spans: [] }] : []), ...rows])
+  return { rows, lines }
+}
+
+export const mdRows = (md: string, width: number): MdRow[] => mdLayout(md, width).rows
+
+// The first row of the last item or block starting at or above source line `line`.
+export function mdTopFor(lines: readonly number[], line: number): number {
+  let top = 0
+  for (let i = 0; i < lines.length && lines[i]! <= line; i++) if (lines[i] !== lines[top]) top = i
+  return top
 }

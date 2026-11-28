@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { mdRows } from '../hooks/markdown'
+import { mdLayout, mdRows, mdTopFor } from '../hooks/markdown'
 
 const texts = (md: string, width: number) => mdRows(md, width).map(r => ('code' in r ? `code:${r.code}` : ' '.repeat(r.indent) + r.spans.map(s => s.text).join('')))
 
@@ -87,4 +87,14 @@ test('a link past 2048 characters, written or percent-encoded, draws plain: the 
   expect(mdRows(`[a](${fit}a)`, 80)).toEqual([{ indent: 0, spans: [{ text: 'a' }] }])
   expect(mdRows(`[a](${at}${'字'.repeat(1000)})`, 80)).toEqual([{ indent: 0, spans: [{ text: 'a' }] }])
   expect(mdRows(`[a](${at}\ud800)`, 80)).toEqual([{ indent: 0, spans: [{ text: 'a' }] }])
+})
+
+test('each row keeps its source line; the top row for a source line is its item or block', () => {
+  const { rows, lines } = mdLayout('# T\n\npara one\npara two\n\n- a\n- b\n\n```\nx\n```', 80)
+  expect(rows.length).toBe(lines.length)
+  expect(lines).toEqual([0, 0, 2, 2, 5, 6, 6, 9])
+  expect(mdTopFor(lines, 3)).toBe(2)
+  expect(mdTopFor(lines, 6)).toBe(5)
+  expect(mdTopFor(lines, 10)).toBe(7)
+  expect(mdTopFor(lines, 0)).toBe(0)
 })
