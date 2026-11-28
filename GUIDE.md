@@ -790,12 +790,12 @@ Headline features of recent versions. Restart Claude after an update to use them
 
 #### v1.10.0
 
-- **Edits open in Explorer:** an edit no longer fills the chat with its diff. Click the edit's row, then a file, and the margin's Explorer opens at the edit. Changed files show git's letters, and an open file shows its change inline (`/claudzilla margin`).
+- **Edits open in Explorer:** click a file in an edit's row, and the margin's Explorer opens at the edit, instead of a diff box in the chat. Explorer also shows git's letters and each change inline (`/claudzilla margin`).
 - **Markdown in Explorer:** a `.md` file opens drawn as Markdown, and its tables draw as a grid when they fit. A switch shows the source (`/claudzilla margin`).
 - **Prompt cards:** each prompt you type shows as a card at the right edge, with its send time, so you find where each turn began (`/claudzilla replies`).
 - **Failed calls:** a failed tool call draws one row with up to three lines of its error, instead of the full red block (`/claudzilla replies`).
 - **Waiting sessions:** herald toasts when another open session finishes its turn or waits on you, with its name and branch. Each kind of toast takes its own time, and `0` turns it off (`/claudzilla plugins`).
-- **API spend:** with an API key, the status line shows what you spent in this session, today and this month, plus a 24-hour chart, instead of the `5h` and `wk` meters. On OpenRouter, today and month come from its bill (`/claudzilla hud`).
+- **API spend:** with an API key, the `5h` and `wk` meters give way to your spend this session, today and this month, with a 24-hour chart. On OpenRouter, today and month come from its bill (`/claudzilla hud`).
 - **Doctor:** `/claudzilla doctor` checks that every part runs your clone's version and prints the fix for each problem. `/claudzilla doctor fix` lets Claude apply the fixes once you say yes (`/claudzilla doctor`).
 - **Two new experiments, both off by default:** Chancery designs features with the `blueprint` skill and keeps each job's papers in one folder. Baton offers to continue a long job in a fresh session after `/claudzilla handoff` (`/claudzilla labs`).
 
@@ -1061,17 +1061,21 @@ Instead, a hook fills in a name when Claude forgets.
 
 #### v1.10, Ink on Every Paw
 
-The rumour came true: your own words now sit to the right. Prompts looked like every other line, so scrolling back made it hard to find where a turn began. folio now sets each prompt as a card, with its send time under it.
+The rumour came true: your own words now sit to the right. Prompts looked like every other line, so scrolling back made it hard to find where a turn began.
 
-Edits filled long turns with their diffs, shown out of context. folio stopped drawing them. A click on the edited file opens the margin's Explorer at the edit, and the new lines flash there.
+folio now sets each prompt as a card, with its send time under it.
+
+An edit's diff opened in a box in the chat, out of context. folio dropped the box. A click on the edited file opens the margin's Explorer at the edit, and the new lines flash there.
 
 Explorer learned git's marks too. A changed file shows its change inline, and removed lines are drawn faint, so they never read as live code.
 
-`.md` scrolls showed only their raw source. Explorer borrowed the Git tab's renderer instead of building its own, and a switch still shows the source. Tables came next: a grid when they fit, and a list that keeps each column name when they do not.
+`.md` scrolls showed only their raw source. Explorer borrowed the Git tab's renderer instead of building its own, and a switch still shows the source.
+
+Tables came next: a grid when they fit, and a list that keeps each column name when they do not.
 
 herald learned to carry a cry between sessions. When one session finishes or waits on the tamer, every other open session hears it, with its name and branch.
 
-A line pinned under the prompt was turned down, because it did not scale to many sessions. Each kind of toast got its own time instead, and `0` silences it.
+A line pinned under the prompt was turned down, because it did not scale to many sessions. Later, each kind of toast got its own time, and `0` silences it.
 
 API-key logins saw empty `5h` and `wk` meters. The status line now shows what was spent here, today and this month, with a 24-hour chart.
 
@@ -1085,6 +1089,8 @@ Commit bodies got their gentle growl. An audit of 100 commits found 40 with a bo
 
 The v1.9 gate missed 8 stale pictures, because nothing tied a picture to the code it draws. Now a map ties 19 pictures to their sources, and a script lists what changed since each one was taken.
 
-Two wild ones were caught, and both sleep until woken. Chancery designs each job with `blueprint` and files its papers in one folder. Baton, once only tracks near long sessions, now offers to hand a long job to a fresh session.
+Two wild ones were caught, and both sleep until woken. Chancery designs each job with `blueprint` and files its papers in one folder.
 
-The handoff note grew for it: a git block for each worktree touched, the files written, the whole last reply, and a chain of the sessions before it.
+Baton, once only tracks near long sessions, now offers to hand a long job to a fresh session.
+
+The handoff note grew for it: a git block for each worktree touched, the files written, the last reply in full when it is short, and a chain of the sessions before it.
