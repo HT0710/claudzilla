@@ -106,15 +106,19 @@ const tableRows = (lines: string[], at: number[], width: number): [MdRow, number
   const grid = [draw(head, { bold: true }), ...body.map(r => draw(r, {}))]
   const widths = head.map((_, c) => grid.reduce((m, r) => Math.max(m, drawn(r[c]!)), 0))
   const full = head.length > 1 ? widths.reduce((n, w) => n + w, 0) + 2 * (head.length - 1) + 1 : widths[0]!
-  if (full > width)
-    // A table that does not fit reads as one row per data row: the first cell bold, the rest after it.
-    return body.flatMap((row, k) => {
-      const [first, ...rest] = row
-      // Marks don't nest: a cell with its own keeps them, unbolded.
-      const text = `${first && first.search(MARK) < 0 ? `**${first}**` : first} — ${rest.join(' · ')}`
-      return wrap(text, {}, Math.max(1, width)).map((spans): [MdRow, number] => [{ indent: 0, spans }, at[k + 2]!])
-    })
   const line = (spans: MdSpan[], n: number): [MdRow, number] => [{ indent: 0, spans }, n]
+  if (full > width) {
+    // Marks don't nest: a cell with its own keeps them, unbolded.
+    const bold = (c: string) => (c && c.search(MARK) < 0 ? `**${c}**` : c)
+    // A table that does not fit reads as one entry per data row: the first cell bold, the rest as `name: value`.
+    const texts: [string, number][] = body.length
+      ? body.map((r, k) => {
+          const rest = head.flatMap((name, i) => (i && r[i] ? [name ? `${name}: ${r[i]}` : r[i]!] : []))
+          return [bold(r[0] ?? '') + (rest.length ? ` — ${rest.join(' · ')}` : ''), at[k + 2]!]
+        })
+      : [[head.filter(Boolean).map(bold).join(' · '), at[0]!]]
+    return texts.flatMap(([text, n]) => wrap(text, {}, Math.max(1, width)).map(spans => line(spans, n)))
+  }
   const row = (cols: MdSpan[][], n: number) =>
     line(
       cols.flatMap((spans, c) => [

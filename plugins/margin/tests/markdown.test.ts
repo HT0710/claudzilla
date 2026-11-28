@@ -131,3 +131,41 @@ test('each row keeps its source line; the top row for a source line is its item 
   expect(mdTopFor(lines, 10)).toBe(7)
   expect(mdTopFor(lines, 0)).toBe(0)
 })
+
+test('a grid one column too wide draws as the list, which keeps column names', () => {
+  const md = '| # | file | status |\n|---|---|---|\n| 1 | a.ts | ok |\n| 2 | b.ts | failed |'
+  expect(texts(md, 16)[0]).toEqual('# │ file  status')
+  expect(texts(md, 15)).toEqual(['1 — file: a.ts', '· status: ok', '2 — file: b.ts', '· status:', 'failed'])
+})
+
+test('a pane one column wide breaks a word wider than the pane across rows', () => {
+  expect(texts('| x | y |\n|---|---|\n| 1 | 2 |', 1)).toEqual(['1', '—', 'y', ':', '2'])
+})
+
+test('a pane of width 0 draws the list without hanging', () => {
+  expect(texts('| x | y |\n|---|---|\n| 1 | 2 |', 0)).toEqual(['1', '—', 'y', ':', '2'])
+})
+
+test('a blank header name drops its label; a blank value drops its cell', () => {
+  expect(texts('| name |  |\n|---|---|\n| x | 1 |', 7)).toEqual(['x — 1'])
+  expect(texts('| name | n |\n|---|---|\n| x |  |', 7)).toEqual(['x'])
+})
+
+test("a list row's first cell is bold unless it has its own marks", () => {
+  expect(mdRows('| a | b |\n|---|---|\n| **foo** | 1 |\n| plain | 2 |\n| `x` | 3 |', 8)).toEqual([
+    { indent: 0, spans: [{ bold: true, text: 'foo' }, { text: ' — b:' }] },
+    { indent: 0, spans: [{ text: '1' }] },
+    { indent: 0, spans: [{ bold: true, text: 'plain' }, { text: ' —' }] },
+    { indent: 0, spans: [{ text: 'b: 2' }] },
+    { indent: 0, spans: [{ code: true, text: 'x' }, { text: ' — b: 3' }] },
+  ])
+})
+
+test('a header-only table too wide for the grid draws its column names', () => {
+  expect(texts('| a | b |\n|---|---|', 4)).toEqual(['a ·', 'b'])
+})
+
+test('a list keeps its source lines: every wrapped piece of an entry, and the header-only entry', () => {
+  expect(mdLayout('# T\n\n| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |', 4).lines).toEqual([0, 0, 4, 4, 5, 5])
+  expect(mdLayout('# T\n\n| a | b |\n|---|---|', 4).lines).toEqual([0, 0, 2, 2])
+})
