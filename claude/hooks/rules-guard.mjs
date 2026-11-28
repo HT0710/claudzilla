@@ -253,6 +253,16 @@ function contextTokens(path) {
   return 0;
 }
 
+// Baton offers count only in the reply's own text blocks, not in a tool input that quotes them.
+function batonMarked(l) {
+  if (!l.includes("/claudzilla handoff") && !l.includes("→ ~40k")) return false;
+  let row;
+  try { row = JSON.parse(l); } catch { return false; }
+  const blocks = Array.isArray(row.message?.content) ? row.message.content : [];
+  return blocks.some((b) => b?.type === "text" && typeof b.text === "string"
+    && (/(^|\n)\*\*Next:\*\* run `\/claudzilla handoff/.test(b.text) || /\|\s*[*`]*same job, fresh session after \/claudzilla handoff[*`]*\s*\|/.test(b.text) || /context ~\d+k → ~40k/.test(b.text)));
+}
+
 // True when the last reply carried a Compact line. The current prompt may already be written, so prompts before any reply are skipped.
 function lastReplyNudged(path) {
   const lines = tailLines(path);
@@ -268,23 +278,29 @@ function lastReplyNudged(path) {
     reply = true;
     // Only a line that starts with it: not a quote, an edit's input or a fenced example.
     if (l.includes('"text":"**Compact — ') || l.includes("\\n**Compact — ")) return true;
+    if (batonMarked(l)) return true;
   }
   return false;
 }
 
 // Past the threshold, the main model judges whether to remind about compacting; /claudzilla compact drafts the line. Label strengthens at 2x and 4x.
-function compactMsg(tokens, t, path) {
+function compactMsg(tokens, t, path, baton) {
   // Never two replies in a row: the line would repeat while the user decides.
   if (!t || tokens < t || lastReplyNudged(path)) return;
   const k = `~${Math.round(tokens / 1e3)}k`;
   const [label, when] = tokens >= 4 * t
     ? ["recommend", "any reply that is not mid-task, Q&A included"]
     : [tokens >= 2 * t ? "suggest" : "optional", "a reply that finishes a plan task (execute phase), a subtask (todo step, agreed item) or a big piece of work; never mid-task, not on a Q&A or small-tweak reply"];
+  const batonText = baton ? `
+Baton: in a Decision about the next multi-step job, add one more option, a row labelled \`same job, fresh session after /claudzilla handoff\` with the cell \`context ${k} → ~40k\` and a \`loses:\` line naming what the fresh session will not have. In a session that started from a handoff note, the \`loses:\` line also says the note was built from an earlier note. Recommend the row only when a plan, a ledger or commits hold what the next step needs; leave it out when the next step needs an earlier decision word for word.
+With no Decision in the reply, a finished step with a clear next step resting on a plan, a ledger or commits gets the handoff Next instead.
+The handoff Next, when the row is picked or recommended and in the inline case, is **Next:** run \`/claudzilla handoff <ask>\` in one code span. The ask is at most 500 characters, opens with a one-line order, has no backticks, and holds only facts written nowhere else; never branch, HEAD, worktree, paths, or the reply's own text.
+Give either the Baton offer (the row with its handoff Next, or the inline handoff Next) or the Compact line, never both.` : "";
   return `Context ${k} tokens, re-sent every turn. Remind about compacting only on ${when}, and only if the next step (from your **Next:**, or nothing pending) won't need the older turns word for word. Add one line, right before **Next:**, or at the end when there is no **Next:**; even on a short reply. Put it on its own line, not in a bullet, quote or code span. It starts with **Compact — ${label}:** and ends with Run and the command in backticks, such as Run \`/clear\`. Between them, write one short sentence in your own words: the \`${k}\` tokens re-sent every turn, what finished, and why the command fits. Use facts from this session, not guesses. Pick the command:
 - \`/claudzilla compact\`: the next step needs decisions settled earlier.
 - \`/claudzilla handoff\`: the same work continues and the next step needs only the last few turns, a plan file or committed work. It writes a note with no model call; compact re-reads all \`${k}\`.
 - \`/clear\`: a big piece of work finished and the next step is unrelated. It is free.
-Condition not met → don't mention compacting.`;
+Condition not met → don't mention compacting.${batonText}`;
 }
 
 function onPrompt(d) {
@@ -295,7 +311,7 @@ function onPrompt(d) {
   const { cfg, warnings } = loadConfig(d.cwd ?? process.cwd());
   const lines = warnings.map((w) => `claudzilla config: ${w}`);
   if (prev.flags.length) lines.push(`Previous reply broke: ${prev.flags.join("; ")}. Apply from this reply on.`);
-  const compact = !MACHINE_PROMPT.test(p) && compactMsg(contextTokens(d.transcript_path), cfg.compactNudge, d.transcript_path);
+  const compact = !MACHINE_PROMPT.test(p) && compactMsg(contextTokens(d.transcript_path), cfg.compactNudge, d.transcript_path, isOn("baton"));
   if (compact) lines.push(compact);
   // Every prompt: a one-time line would not survive /compact, and resizes need no tracking.
   const cols = termCols();

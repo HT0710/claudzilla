@@ -151,6 +151,41 @@ check "compact: missing transcript silent" silent cn "$TMP/nope.jsonl"
 : > "$TX"; usage "$TX" 60000 100000; mkdir -p .claude; printf '{"rulesGuard":{"compactNudge":0}}' > .claude/claudzilla.local.json
 check "compact: 0 turns it off" silent cn "$TX"
 rm -rf .claude
+: > "$TX"; usage "$TX" 60000 100000; out=$(cn "$TX")
+check_eq "baton: off by default, no row text" 0 "$(grep -c 'same job, fresh session after /claudzilla handoff' <<<"$out")"
+printf '{"experimental":{"baton":true}}' > "$CLAUDE_CONFIG_DIR/claudzilla.json"
+out=$(cn "$TX")
+check "baton: row label" has "$out" 'same job, fresh session after /claudzilla handoff'
+check "baton: row cell" has "$out" 'context ~160k → ~40k'
+check "baton: loses line" has "$out" 'loses:'
+check "baton: chained note clause" has "$out" 'built from an earlier note'
+check "baton: recommend rule" has "$out" 'only when a plan, a ledger or commits hold what the next step needs'
+check "baton: inline case" has "$out" 'With no Decision in the reply'
+check "baton: Next form" has "$out" '**Next:** run `/claudzilla handoff <ask>`'
+check "baton: ask length" has "$out" 'at most 500 characters'
+check "baton: ask order" has "$out" 'one-line order'
+check "baton: ask no backticks" has "$out" 'no backticks'
+check "baton: ask never paths" has "$out" 'never branch, HEAD, worktree, paths'
+check "baton: never both" has "$out" 'never both'
+check "baton: Compact line kept" has "$out" '**Compact — optional:**'
+: > "$TX"; printf '{"type":"assistant","message":{"content":[{"type":"text","text":"done\\n**Next:** run `/claudzilla handoff go`"}],"usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":160000}}}\n' >> "$TX"; usage "$TX" 10000 170000
+check "baton: marker, handoff Next" silent cn "$TX"
+: > "$TX"; printf '{"type":"assistant","message":{"content":[{"type":"text","text":"| same job, fresh session after /claudzilla handoff | x |"}],"usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":160000}}}\n' >> "$TX"; usage "$TX" 10000 170000
+check "baton: marker, row cell" silent cn "$TX"
+: > "$TX"; printf '{"type":"assistant","message":{"content":[{"type":"text","text":"|  **same job, fresh session after /claudzilla handoff**  | x |"}],"usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":160000}}}\n' >> "$TX"; usage "$TX" 10000 170000
+check "baton: marker, padded bold row cell" silent cn "$TX"
+: > "$TX"; printf '{"type":"assistant","message":{"content":[{"type":"text","text":"| `same job, fresh session after /claudzilla handoff` | x |"}],"usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":160000}}}\n' >> "$TX"; usage "$TX" 10000 170000
+check "baton: marker, backticked row cell" silent cn "$TX"
+: > "$TX"; printf '{"type":"assistant","message":{"content":[{"type":"text","text":"| fresh session | context ~160k → ~40k | x |"}],"usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":160000}}}\n' >> "$TX"; usage "$TX" 10000 170000
+check "baton: marker, tradeoff cell only" silent cn "$TX"
+: > "$TX"; printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"new_string":"| same job, fresh session after /claudzilla handoff |"}}],"usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":160000}}}\n' >> "$TX"; usage "$TX" 10000 170000
+check "baton: marker ignores a tool input holding the row cell" has "$(cn "$TX")" '**Compact — optional:**'
+: > "$TX"; printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"new_string":"a\\n**Next:** run `/claudzilla handoff x`"}}],"usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":160000}}}\n' >> "$TX"; usage "$TX" 10000 170000
+check "baton: marker ignores an escaped-newline Next in a tool input" has "$(cn "$TX")" '**Compact — optional:**'
+: > "$TX"; usage "$TX" 60000 100000; mkdir -p .claude; printf '{"rulesGuard":{"compactNudge":0}}' > .claude/claudzilla.local.json
+check "baton: 0 turns it off" silent cn "$TX"
+rm -rf .claude
+rm -f "$CLAUDE_CONFIG_DIR/claudzilla.json"
 
 # --- PostToolUse ---
 new_session; hook UserPromptSubmit prompt=hi >/dev/null
