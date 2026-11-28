@@ -93,7 +93,8 @@ test('a line longer than chunk is skipped and the next row still resolves', asyn
   expect(await sentAt(fake(() => f), 'p', newScan(), 'b', 90)).toBe(T)
 })
 
-const att = (type: string, extra = '') => `{"type":"attachment","uuid":"x-${type}","attachment":{"type":"${type}"${extra}}}\n`
+const att = (type: string, extra = '', parent = '') =>
+  `{${parent ? `"parentUuid":"${parent}",` : ''}"type":"attachment","uuid":"x-${type}","attachment":{"type":"${type}"${extra}}}\n`
 // `calls`: the card re-reads on each render while its run is open, one chunk per call once its own row is found.
 const rows = async (f: string, id: string, chunk?: number, calls = 1) => {
   const scan = newScan()
@@ -102,12 +103,12 @@ const rows = async (f: string, id: string, chunk?: number, calls = 1) => {
 }
 
 const ROW = 'alpha beta gamma delta '.repeat(10) + 'end'
-const said = (hook: string, text: string, extra = '') => att('hook_system_message', `,"content":"${text} ${ROW}","hookName":"${hook}"${extra}`)
+const said = (hook: string, text: string, extra = '', parent = '') => att('hook_system_message', `,"content":"${text} ${ROW}","hookName":"${hook}"${extra}`, parent)
 
 test('a wrapped hook message under a prompt counts every line it takes', async () => {
   // Probe at 66 columns (2.1.332): `UserPromptSubmit says: ROW…` took 5 lines.
   const scan = newScan()
-  await sentAt(fake(() => row('a') + said('UserPromptSubmit', 'ROW6 prompt hook message', ',"hookEvent":"UserPromptSubmit","toolUseID":"u1"')), 'p', scan, 'a')
+  await sentAt(fake(() => row('a') + said('UserPromptSubmit', 'ROW6 prompt hook message', ',"hookEvent":"UserPromptSubmit","toolUseID":"u1"', 'a')), 'p', scan, 'a')
   expect(rowLines(scan.rows.get('a'), 66)).toBe(5)
 })
 
@@ -122,29 +123,43 @@ test('a tool hook message counts for its call once the call\'s result is read', 
   expect(rowLines(scan.calls.get('t2'), 66)).toBe(0)
 })
 
+const under = (prompt: string) => att('file', '', prompt) + att('hook_additional_context', '', 'x-file') + att('directory', '', 'x-hook_additional_context')
+
 test('sentAt counts the drawn attachment rows under a prompt', async () => {
-  expect(await rows(row('a') + att('file') + att('hook_additional_context') + att('directory'), 'a')).toBe(2)
+  expect(await rows(row('a') + under('a'), 'a')).toBe(2)
 })
 
-test('rows past a chunk edge count on the next read (chunk 100)', async () => {
-  const f = row('a') + att('file') + att('hook_additional_context') + att('directory')
-  expect(await rows(f, 'a', 100, 5)).toBe(2)
+test('rows past a chunk edge count on the next read (chunk 150)', async () => {
+  expect(await rows(row('a') + under('a'), 'a', 150, 5)).toBe(2)
+})
+
+// Claude Code 2.1.332 writes request log rows between a prompt and its attachments.
+const LOG = '{"type":"api-request-shape","sessionId":"s"}\n{"type":"api-request-blob","sessionId":"s","blob":[{"type":"tool_use"}]}\n'
+
+test('request log rows between a prompt and its attachments keep the count', async () => {
+  expect(await rows(row('a') + LOG + under('a'), 'a')).toBe(2)
+})
+
+test('request log rows leave the prompt open for attachments written later', async () => {
+  const scan = newScan()
+  await sentAt(fake(() => row('a') + LOG), 'p', scan, 'a')
+  expect(scan.last).toBe('a')
 })
 
 test('an attachment after a tool result or the reply counts for no prompt', async () => {
-  const tool = row('a') + row('t', ',"message":{"content":[{"type":"tool_result"}]}') + att('file')
+  const tool = row('a') + row('t', ',"message":{"content":[{"type":"tool_result"}]}', 'a') + att('file', '', 't')
   expect(await rows(tool, 'a')).toBe(0)
-  expect(await rows(row('a') + '{"type":"assistant","uuid":"r"}\n' + att('file'), 'a')).toBe(0)
+  expect(await rows(row('a') + '{"parentUuid":"a","type":"assistant","uuid":"r"}\n' + att('file', '', 'r'), 'a')).toBe(0)
 })
 
 test('a queued prompt collects the rows after its queued_command attachment', async () => {
-  const f = '{"type":"attachment","uuid":"q","timestamp":"2026-11-24T10:00:00Z","attachment":{"type":"queued_command"}}\n' + att('file')
+  const f = '{"parentUuid":null,"type":"attachment","uuid":"q","timestamp":"2026-11-24T10:00:00Z","attachment":{"type":"queued_command"}}\n' + att('file', '', 'q')
   expect(await rows(f, 'q')).toBe(1)
 })
 
-test('an attachment with its type key not first keeps the run going', async () => {
-  const f = row('a') + '{"type":"attachment","uuid":"y","attachment":{"x":1,"type":"file"}}\n' + att('file')
-  expect(await rows(f, 'a')).toBe(1)
+test('an attachment with its type key not first counts and keeps the run going', async () => {
+  const f = row('a') + '{"parentUuid":"a","type":"attachment","uuid":"y","attachment":{"x":1,"type":"file"}}\n' + att('file', '', 'y')
+  expect(await rows(f, 'a')).toBe(2)
 })
 
 test('sentAt ignores a child row whose parentUuid is the id', async () => {
@@ -209,6 +224,6 @@ test('sentAt finds a renamed id by its uuid prefix', async () => {
 })
 
 test('sentAt finds a queued prompt by its queued_command attachment uuid', async () => {
-  const f = row('a') + '{"type":"attachment","uuid":"q1","timestamp":"2026-11-24T10:00:00Z","attachment":{"type":"queued_command","prompt":"oke"}}\n'
+  const f = row('a') + '{"parentUuid":"a","type":"attachment","uuid":"q1","timestamp":"2026-11-24T10:00:00Z","attachment":{"type":"queued_command","prompt":"oke"}}\n'
   expect(await sentAt(fake(() => f), 'p', newScan(), 'q1')).toBe(T)
 })

@@ -47,8 +47,9 @@ export const stamp = (ms: number, now = Date.now()) => {
 export type ReadText = (path: string, offset: number, length: number) => Promise<string>
 // `rows`: per prompt id prefix, the text of each attachment row the engine draws under its card; `last` is the prompt still collecting them.
 // `calls`: the same per tool call id, for a tool hook's rows; `results`: calls whose result was read, so their rows are all in.
-export type Scan = { offset: number; times: Map<string, number>; rows: Map<string, string[]>; calls: Map<string, string[]>; results: Set<string>; last: string; run: Promise<unknown>; skipping: boolean }
-export const newScan = (): Scan => ({ offset: 0, times: new Map(), rows: new Map(), calls: new Map(), results: new Set(), last: '', run: Promise.resolve(), skipping: false })
+// `owner`: per prompt or attachment uuid, the prompt id prefix whose card the rows chained from it draw under.
+export type Scan = { offset: number; times: Map<string, number>; rows: Map<string, string[]>; calls: Map<string, string[]>; results: Set<string>; owner: Map<string, string>; last: string; run: Promise<unknown>; skipping: boolean }
+export const newScan = (): Scan => ({ offset: 0, times: new Map(), rows: new Map(), calls: new Map(), results: new Set(), owner: new Map(), last: '', run: Promise.resolve(), skipping: false })
 
 // Attachment types the engine's renderer draws as one `⎿` row; any other type renders null (Claude Code 2.1.332).
 const DRAWN = new Set(['file', 'directory', 'at_mention_reference', 'compact_file_reference', 'nested_memory', 'dynamic_skill', 'hook_system_message', 'skill_listing', 'hook_blocking_error'])
@@ -92,19 +93,22 @@ const scanMore = async (read: ReadText, path: string, scan: Scan, found: () => b
     for (const line of lines) {
       scan.offset += bytes(line) + 1
       const kind = ATTACHMENT.exec(line)?.[1]
-      if (kind && kind !== 'queued_command') {
-        if (DRAWN.has(kind)) {
-          try {
-            const a = JSON.parse(line).attachment
-            if (!draws(a)) continue
-            if (typeof a.toolUseID === 'string' && TOOL_HOOKS.has(a.hookEvent)) add(scan.calls, a.toolUseID, rowText(a))
-            else if (scan.last) add(scan.rows, scan.last, rowText(a))
-          } catch {}
-        }
+      // An attachment whose kind the regex missed is found by its row type.
+      if (kind ? kind !== 'queued_command' : line.includes('"type":"attachment"') && !line.includes('"queued_command"')) {
+        try {
+          const row = JSON.parse(line)
+          // Attachments chain from their prompt by parentUuid, so rows written between them don't break the run.
+          const owner = scan.owner.get(row.parentUuid)
+          if (owner && typeof row.uuid === 'string') scan.owner.set(row.uuid, owner)
+          const a = row.attachment
+          if (!DRAWN.has(a?.type) || !draws(a)) continue
+          if (typeof a.toolUseID === 'string' && TOOL_HOOKS.has(a.hookEvent)) add(scan.calls, a.toolUseID, rowText(a))
+          else if (owner) add(scan.rows, owner, rowText(a))
+        } catch {}
         continue
       }
-      // An attachment whose kind the regex missed loses only itself, not the rest of the run.
-      if (!kind && line.includes('"type":"attachment"') && !line.includes('"queued_command"')) continue
+      // Log rows such as api-request-blob carry no parentUuid and draw nothing; an escaped one in their text can't match.
+      if (!line.includes('"parentUuid":')) continue
       // Any other row, such as the reply, ends the run of attachments under the card.
       scan.last = ''
       if (!line.includes('"type":"user"') && !line.includes('"queued_command"')) continue
@@ -116,14 +120,14 @@ const scanMore = async (read: ReadText, path: string, scan: Scan, found: () => b
         const results = Array.isArray(row.message?.content) ? row.message.content.filter((c: { type?: string }) => c?.type === 'tool_result') : []
         for (const c of results) if (typeof c.tool_use_id === 'string') scan.results.add(c.tool_use_id)
         const tool = results.length > 0
-        if (sent && typeof row.uuid === 'string' && !tool) scan.last = row.uuid.slice(0, ID_PREFIX)
+        if (sent && typeof row.uuid === 'string' && !tool) scan.owner.set(row.uuid, scan.last = row.uuid.slice(0, ID_PREFIX))
       } catch {}
     }
     if (!lines.length) {
       if (dropped) continue
       if (!full) break
-      // shortcut: a prompt row longer than chunk gets no time, and a drawn attachment that long gets no rail row;
-      // read on to its end if users paste or mention that much
+      // shortcut: a prompt row longer than chunk gets no time, and an attachment that long breaks its prompt's chain,
+      // so neither it nor the drawn attachments after it get a rail row; read on to its end if users paste or mention that much
       scan.offset += chunk
       scan.skipping = true
     }
