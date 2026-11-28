@@ -45,9 +45,10 @@ export const stamp = (ms: number, now = Date.now()) => {
 }
 
 export type ReadText = (path: string, offset: number, length: number) => Promise<string>
-// `rows`: per prompt id prefix, the attachment rows the engine draws under its card; `last` is the prompt still collecting them.
-export type Scan = { offset: number; times: Map<string, number>; rows: Map<string, number>; last: string; run: Promise<unknown>; skipping: boolean }
-export const newScan = (): Scan => ({ offset: 0, times: new Map(), rows: new Map(), last: '', run: Promise.resolve(), skipping: false })
+// `rows`: per prompt id prefix, the text of each attachment row the engine draws under its card; `last` is the prompt still collecting them.
+// `calls`: the same per tool call id, for a tool hook's rows; `results`: calls whose result was read, so their rows are all in.
+export type Scan = { offset: number; times: Map<string, number>; rows: Map<string, string[]>; calls: Map<string, string[]>; results: Set<string>; last: string; run: Promise<unknown>; skipping: boolean }
+export const newScan = (): Scan => ({ offset: 0, times: new Map(), rows: new Map(), calls: new Map(), results: new Set(), last: '', run: Promise.resolve(), skipping: false })
 
 // Attachment types the engine's renderer draws as one `⎿` row; any other type renders null (Claude Code 2.1.332).
 const DRAWN = new Set(['file', 'directory', 'at_mention_reference', 'compact_file_reference', 'nested_memory', 'dynamic_skill', 'hook_system_message', 'skill_listing', 'hook_blocking_error'])
@@ -56,12 +57,21 @@ const draws = (a: { type?: string; isInitial?: boolean; hookEvent?: string }) =>
     : a.type === 'hook_blocking_error' ? a.hookEvent !== 'Stop' && a.hookEvent !== 'SubagentStop'
       : DRAWN.has(a.type ?? '')
 const ATTACHMENT = /"attachment":\{"type":"(\w+)"/
+// A tool hook's row follows its call, not the prompt.
+const TOOL_HOOKS = new Set(['PreToolUse', 'PostToolUse', 'PostToolUseFailure'])
+// Only a hook message is long enough to wrap; '' stands for a one-line row.
+const rowText = (a: { type?: string; hookName?: string; content?: unknown }) =>
+  a.type === 'hook_system_message' ? `${a.hookName} says: ${String(a.content ?? '')}` : ''
+// The engine wraps a `  ⎿  ` row's text in what that 5-column prefix leaves (66 columns, 2.1.332).
+export const rowLines = (texts: string[] | undefined, columns: number) =>
+  (texts ?? []).reduce((sum, t) => sum + (t ? wrap(t, Math.max(columns - 5, 1)).length : 1), 0)
+const add = (map: Map<string, string[]>, key: string, text: string) => map.set(key, [...(map.get(key) ?? []), text])
 
 const bytes = (s: string) => new TextEncoder().encode(s).length
 
 // Reads at least once, so a known prompt still collects attachment rows written after it.
-const scanMore = async (read: ReadText, path: string, scan: Scan, id: string, chunk: number) => {
-  for (let first = true; first || !scan.times.has(id); first = false) {
+const scanMore = async (read: ReadText, path: string, scan: Scan, found: () => boolean, chunk: number) => {
+  for (let first = true; first || !found(); first = false) {
     let text = await read(path, scan.offset, chunk)
     if (!text) break
     const full = bytes(text) >= chunk
@@ -83,8 +93,13 @@ const scanMore = async (read: ReadText, path: string, scan: Scan, id: string, ch
       scan.offset += bytes(line) + 1
       const kind = ATTACHMENT.exec(line)?.[1]
       if (kind && kind !== 'queued_command') {
-        if (scan.last && DRAWN.has(kind)) {
-          try { if (draws(JSON.parse(line).attachment)) scan.rows.set(scan.last, (scan.rows.get(scan.last) ?? 0) + 1) } catch {}
+        if (DRAWN.has(kind)) {
+          try {
+            const a = JSON.parse(line).attachment
+            if (!draws(a)) continue
+            if (typeof a.toolUseID === 'string' && TOOL_HOOKS.has(a.hookEvent)) add(scan.calls, a.toolUseID, rowText(a))
+            else if (scan.last) add(scan.rows, scan.last, rowText(a))
+          } catch {}
         }
         continue
       }
@@ -98,7 +113,9 @@ const scanMore = async (read: ReadText, path: string, scan: Scan, id: string, ch
         const ms = Date.parse(row.timestamp)
         const sent = row.type === 'user' || (row.type === 'attachment' && row.attachment?.type === 'queued_command')
         if (sent && typeof row.uuid === 'string' && Number.isFinite(ms)) scan.times.set(row.uuid.slice(0, ID_PREFIX), ms)
-        const tool = Array.isArray(row.message?.content) && row.message.content.some((c: { type?: string }) => c?.type === 'tool_result')
+        const results = Array.isArray(row.message?.content) ? row.message.content.filter((c: { type?: string }) => c?.type === 'tool_result') : []
+        for (const c of results) if (typeof c.tool_use_id === 'string') scan.results.add(c.tool_use_id)
+        const tool = results.length > 0
         if (sent && typeof row.uuid === 'string' && !tool) scan.last = row.uuid.slice(0, ID_PREFIX)
       } catch {}
     }
@@ -118,6 +135,13 @@ export const ID_PREFIX = 24
 
 export function sentAt(read: ReadText, path: string, scan: Scan, id: string, chunk = 4 * 1024 * 1024): Promise<number | undefined> {
   if (!path) return Promise.resolve(undefined)
-  scan.run = scan.run.then(() => scanMore(read, path, scan, id, chunk)).catch(() => {})
+  scan.run = scan.run.then(() => scanMore(read, path, scan, () => scan.times.has(id), chunk)).catch(() => {})
   return scan.run.then(() => scan.times.get(id.slice(0, ID_PREFIX)))
+}
+
+// Reads until every call's result is in, so `calls` holds all their hook rows.
+export function callsSeen(read: ReadText, path: string, scan: Scan, ids: string[], chunk = 4 * 1024 * 1024): Promise<unknown> {
+  if (!path) return Promise.resolve()
+  scan.run = scan.run.then(() => scanMore(read, path, scan, () => ids.every(id => scan.results.has(id)), chunk)).catch(() => {})
+  return scan.run
 }

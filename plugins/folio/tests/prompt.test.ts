@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { cells, newScan, sentAt, stamp, tidy, widest, wrap } from '../hooks/prompt'
+import { callsSeen, cells, newScan, rowLines, sentAt, stamp, tidy, widest, wrap } from '../hooks/prompt'
 
 test('cells counts CJK and emoji as 2', () => {
   expect(cells('界a')).toBe(3)
@@ -98,8 +98,29 @@ const att = (type: string, extra = '') => `{"type":"attachment","uuid":"x-${type
 const rows = async (f: string, id: string, chunk?: number, calls = 1) => {
   const scan = newScan()
   for (let i = 0; i < calls; i++) await sentAt(fake(() => f), 'p', scan, id, chunk)
-  return scan.rows.get(id) ?? 0
+  return scan.rows.get(id)?.length ?? 0
 }
+
+const ROW = 'alpha beta gamma delta '.repeat(10) + 'end'
+const said = (hook: string, text: string, extra = '') => att('hook_system_message', `,"content":"${text} ${ROW}","hookName":"${hook}"${extra}`)
+
+test('a wrapped hook message under a prompt counts every line it takes', async () => {
+  // Probe at 66 columns (2.1.332): `UserPromptSubmit says: ROW…` took 5 lines.
+  const scan = newScan()
+  await sentAt(fake(() => row('a') + said('UserPromptSubmit', 'ROW6 prompt hook message', ',"hookEvent":"UserPromptSubmit","toolUseID":"u1"')), 'p', scan, 'a')
+  expect(rowLines(scan.rows.get('a'), 66)).toBe(5)
+})
+
+test('a tool hook message counts for its call once the call\'s result is read', async () => {
+  const f = said('PostToolUse:Bash', 'ROW1 post hook message', ',"hookEvent":"PostToolUse","toolUseID":"t1"')
+    + att('hook_additional_context', ',"hookEvent":"PostToolUse","toolUseID":"t1"')
+    + row('r', ',"message":{"content":[{"type":"tool_result","tool_use_id":"t1"}]}')
+  const scan = newScan()
+  await callsSeen(fake(() => f), 'p', scan, ['t1'])
+  expect(scan.results.has('t1')).toBe(true)
+  expect(rowLines(scan.calls.get('t1'), 66)).toBe(5)
+  expect(rowLines(scan.calls.get('t2'), 66)).toBe(0)
+})
 
 test('sentAt counts the drawn attachment rows under a prompt', async () => {
   expect(await rows(row('a') + att('file') + att('hook_additional_context') + att('directory'), 'a')).toBe(2)
