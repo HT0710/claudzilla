@@ -2,7 +2,7 @@ import type { Elements, EngineInterface, Register, RenderNode, Timer, ToolGroupC
 
 import { href, linked, mentions } from './mentions'
 import { DEFAULTS, readPalette } from './palette'
-import { cells as textCells, ID_PREFIX, newScan, sentAt, stamp, tidy, widest, wrap } from './prompt'
+import { callsSeen, cells as textCells, ID_PREFIX, newScan, rowLines, sentAt, stamp, tidy, widest, wrap } from './prompt'
 import type { ReadText, Scan } from './prompt'
 import { tracer } from './trace'
 import { traceIo } from './trace-io'
@@ -731,11 +731,12 @@ export const register: Register = on => {
     // A /clear or resume goes on under a new session id, which needs its own cols file.
     wroteColumns = 0
     transcriptPath = ''
-    for (const rows of [runs, done, placed, agents, skills, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails, late, prompts, promptBefore, framedAfter, promptImages, joinRow, promptReply, scans, queued, queuedRows]) rows.clear()
+    for (const rows of [runs, done, placed, agents, skills, spawned, bashEdits, scripts, lostWrites, openGroups, members, editOf, frames, tails, late, prompts, promptBefore, framedAfter, promptImages, joinRow, promptReply, scans, queued, queuedRows, rowBefore, callIds, seeking]) rows.clear()
     redrawAll = () => {}
     corners.clear()
     section = { open: false, n: 0 }
     lastRow = undefined
+    prevRow = undefined
     current = undefined
     await t.flush(traceIo($))
     return next(e)
@@ -775,6 +776,12 @@ export const register: Register = on => {
   const scans = new Map<string, Scan>()
   // Last known transcript path: the card draws with it at once, since a wait on the lookup blanks the row for a frame.
   let transcriptPath = ''
+  // The row placed before each row, and each tool row's calls: the engine draws a call's hook message rows between the two.
+  const rowBefore = new Map<string, string>()
+  const callIds = new Map<string, string[]>()
+  // Rows whose calls' transcript read is under way.
+  const seeking = new Set<string>()
+  let prevRow: string | undefined
   let redrawAll = () => {}
   const frameOf = (id: string) => frames.get(id) ?? runs.get(id)?.frame
   // Each member's latest props, by tool_use_id, and the row that draws it: the fold's calls come from here.
@@ -1297,6 +1304,12 @@ export const register: Register = on => {
     }
     placed.add(e.requestId)
     redrawAll = redraw
+    // A message whose text came after rows drawn below it sits above them: it is no row's neighbour.
+    if (!(e.component === 'AssistantMessage' && late.get(e.requestId)?.rows.length)) {
+      if (prevRow) rowBefore.set(e.requestId, prevRow)
+      prevRow = e.requestId
+    }
+    if (e.component === 'ToolUse') callIds.set(e.requestId, [e.requestId])
     const ids = memberIds(e)
     // The engine re-keys a group once it ends: the new row takes the old one's place in its section.
     // A group that also holds a call a live row placed takes that row's place too; growGroup adds its new calls.
@@ -1427,13 +1440,13 @@ export const register: Register = on => {
       if (!scan) scans.set(path, scan = newScan())
       const ms = scan.times.get(key)
       if (ms !== undefined) time = stamp(ms)
-      attached = scan.rows.get(key) ?? 0
+      attached = rowLines(scan.rows.get(key), columns)
       // The newest prompt reads on until its reply starts, because its attachment rows can land after its own row.
       if (ms === undefined || scan.last === key) {
         const s = scan
         const read: ReadText = (f, offset, length) => $.fs.read(f, { offset, length }) as Promise<string>
         void sentAt(read, path, s, id).then(v => {
-          const now = s.rows.get(key) ?? 0
+          const now = rowLines(s.rows.get(key), columns)
           // Set before the redraw, so the joined row sees the new count even if it draws before the card.
           if (!sent) promptImages.set(id, images + now)
           if ((ms === undefined && v !== undefined) || now !== attached) $.ui.invalidate('ui.render')
@@ -1461,6 +1474,44 @@ export const register: Register = on => {
       </Box>
     )
   })
+  // Lines of the engine's `⎿` hook message rows, which it draws after a whole block of tool rows: the first other row
+  // after the block paints the rail over them, for every call in the block, when the rail runs beside it.
+  const hookRowsAbove = (e: any, read: ReadText, redraw: () => void) => {
+    if (e.component === 'ToolUse' || e.component === 'ToolGroup' || e.surface !== 'terminal' || !e.viewport?.isFullscreen) return 0
+    const prev = rowBefore.get(e.requestId)
+    if (!prev || !callIds.has(prev)) return 0
+    // A re-keyed group follows its old row in the block: a Set counts their shared calls once.
+    const block = new Set<string>()
+    for (let row: string | undefined = prev, i = 0; row && callIds.has(row) && i < 100; row = rowBefore.get(row), i++)
+      for (const id of callIds.get(row)!) block.add(id)
+    const ids = [...block]
+    const skip = !ids.length ? 'empty' : !frameOf(prev)?.open ? 'closed' : !transcriptPath ? 'path' : ''
+    if (skip) { hookNote({ row: e.requestId, prev, skip }); return 0 }
+    let scan = scans.get(transcriptPath)
+    if (!scan) scans.set(transcriptPath, scan = newScan())
+    const s = scan
+    const lines = () => ids.reduce((n, id) => n + rowLines(s.calls.get(id), e.viewport?.columns ?? 80), 0)
+    if (!ids.every(id => s.results.has(id)) && !seeking.has(prev)) {
+      if (seeking.size > 500) seeking.clear()
+      seeking.add(prev)
+      const was = lines()
+      // Only a changed count redraws: a call still running would read and redraw for ever.
+      void callsSeen(read, transcriptPath, s, ids).then(() => {
+        seeking.delete(prev)
+        if (lines() !== was) redraw()
+      })
+    }
+    hookNote({ row: e.requestId, prev, calls: ids.length, read: ids.every(id => s.results.has(id)), lines: lines() })
+    return lines()
+  }
+  // Which row paints the rail over the hook rows above it, so a bare one can be traced back.
+  const hookNote = (data: Record<string, unknown>) => {
+    const key = `hook:${JSON.stringify(data)}`
+    if (joinTraced.has(key)) return
+    if (joinTraced.size > 500) joinTraced.clear()
+    joinTraced.add(key)
+    t.event('folio.hookrows', data)
+  }
   on('ui.render', { component: ['UserMessage', 'AssistantMessage', 'ToolGroup', 'ToolUse'] }, async ($, e, next) => {
     // Before any row is placed: after a reload a finish row can draw in the same pass as its launch row.
     if (e.component === 'ToolUse' && e.props.tool === 'Agent') {
@@ -1482,6 +1533,8 @@ export const register: Register = on => {
       skills.set(e.requestId, String(e.props.input?.skill ?? ''))
     }
     place(() => $.ui.invalidate('ui.render'), e)
+    // A group grows as calls join it, so its calls are read on every draw.
+    if (e.component === 'ToolGroup' && placed.has(e.requestId)) callIds.set(e.requestId, e.props.calls.map((c: ToolGroupCall) => c.tool_use_id).filter(Boolean))
     const agent = e.component === 'ToolUse' && e.props.tool === 'Agent' ? agents.get(e.requestId) : undefined
     const agentId = e.props.output?.agentId
     if (agent && !agent.name && agentId && !asked.has(agentId)) {
@@ -1497,7 +1550,13 @@ export const register: Register = on => {
         }
       })
     }
-    const out = await next(e)
+    const hooked = await next(e)
+    const above = hookRowsAbove(e, (f, offset, length) => $.fs.read(f, { offset, length }) as Promise<string>, () => $.ui.invalidate('ui.render'))
+    let out = hooked
+    if (above) {
+      const { Box, Text } = $.ui.resolve(e)
+      out = <Box flexDirection="column" marginTop={-above}>{Array.from({ length: above }, () => <Text color="promptBorder">│</Text>)}{hooked}</Box>
+    }
     // The reply right after an image prompt reaches up over the engine's image rows, as the first framed row does.
     const prompt = e.component === 'AssistantMessage' && e.surface === 'terminal' && e.viewport?.isFullscreen ? [...promptReply].find(([, r]) => r === e.requestId)?.[0] : undefined
     const imgs = prompt ? promptImages.get(prompt) ?? 0 : 0

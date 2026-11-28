@@ -3879,6 +3879,126 @@ test('an attachment row written after the prompt row still counts', async ($, on
   expect(await gaps(row)).toEqual({ marginTop: -1, gaps: 2 })
 })
 
+// The engine draws a tool hook's message as its own `⎿` row after the call: the next row paints the rail over it.
+const hookSaid = (call: string, text: string) => [
+  att('hook_system_message', { content: text, hookName: 'PostToolUse:Bash', hookEvent: 'PostToolUse', toolUseID: call }),
+  { type: 'user', uuid: `res-${call}`, timestamp: '1970-01-01T00:00:00.000Z', message: { content: [{ type: 'tool_result', tool_use_id: call }] } },
+]
+const reply = ($: any, id = 'm1') => $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'AssistantMessage', requestId: id,
+  props: { text: 'done', isFirstOfReply: true }, viewport: VIEW })
+// `PostToolUse:Bash says: ` and 100 more characters: 2 lines at 80 columns.
+const TWO = 'x '.repeat(50).trim()
+
+test('the reply after a call with a hook message paints the rail over its wrapped lines', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$: any, e: any) => ({ type: 'Text' as const, children: [e.props.text] }))
+  transcript(on, '/t/s.jsonl', [sentRow, ...hookSaid('r1', TWO)])
+  await prompt($, 'hi')
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  const ui = await reply($)
+  await ui.redraw()
+  expect(await gaps(ui)).toEqual({ marginTop: -2, gaps: 2 })
+})
+
+test('a tool row paints no rail over hook rows: the engine draws them after the whole block of tool rows', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  transcript(on, '/t/s.jsonl', [sentRow, ...hookSaid('r1', 'short')])
+  await prompt($, 'hi')
+  await mountRow($, 'Bash', 'x', { input: { command: 'ls' } }, '', 'r1')
+  const row = await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r2')
+  await row.redraw()
+  expect((await row.find({ type: 'Box' }))?.props.marginTop).not.toBe(-1)
+})
+
+test('a group that grew counts the hook rows of every call it holds now', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$: any, e: any) => ({ type: 'Text' as const, children: [e.props.text] }))
+  transcript(on, '/t/s.jsonl', [sentRow, ...hookSaid('c2', 'short'), ...hookSaid('c3', 'short')])
+  await prompt($, 'hi')
+  const grp = await mountGroup($, 'g1', reads('c2', 'c3').slice(0, 1))
+  await grp.redraw({ calls: reads('c2', 'c3'), isActive: false, isExpanded: false })
+  const ui = await reply($)
+  await ui.redraw()
+  expect(await gaps(ui)).toEqual({ marginTop: -2, gaps: 2 })
+})
+
+test('a reply first drawn empty while it streams still paints over the hook rows above it', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$: any, e: any) => ({ type: 'Text' as const, children: [e.props.text] }))
+  transcript(on, '/t/s.jsonl', [sentRow, ...hookSaid('r1', 'short')])
+  await prompt($, 'hi')
+  await mountRow($, 'Bash', 'x', { input: { command: 'ls' } }, '', 'r1')
+  const ui = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'AssistantMessage', requestId: 'm1', props: { text: '', isFirstOfReply: true }, viewport: VIEW })
+  await ui.redraw({ text: 'done', isFirstOfReply: true })
+  await ui.redraw({ text: 'done', isFirstOfReply: true })
+  expect((await ui.find({ type: 'Box' }))?.props.marginTop).toBe(-1)
+})
+
+test('the reply after a block of tool rows paints over the hook rows of every call in it, a re-keyed group once', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$: any, e: any) => ({ type: 'Text' as const, children: [e.props.text] }))
+  transcript(on, '/t/s.jsonl', [sentRow, ...hookSaid('r1', 'short'), ...hookSaid('c2', 'short')])
+  await prompt($, 'hi')
+  await mountRow($, 'Bash', 'x', { input: { command: 'ls' } }, '', 'r1')
+  await mountGroup($, 'g-live', reads('c2', 'c3'), { isActive: true })
+  await mountGroup($, 'g-end', reads('c2', 'c3'))
+  const ui = await reply($)
+  await ui.redraw()
+  expect(await gaps(ui)).toEqual({ marginTop: -2, gaps: 2 })
+})
+
+test('a message whose text comes late paints over no hook rows and leaves the next row its neighbour', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$: any, e: any) => ({ type: 'Text' as const, children: [e.props.text] }))
+  transcript(on, '/t/s.jsonl', [sentRow, ...hookSaid('r1', 'short')])
+  await prompt($, 'hi')
+  const msg = await $.ui.mount({ plugin: 'folio', surface: 'terminal', component: 'AssistantMessage', requestId: 'm1', props: { text: '', isFirstOfReply: true }, viewport: VIEW })
+  await mountRow($, 'Bash', 'x', { input: { command: 'ls' } }, '', 'r1')
+  await msg.redraw({ text: 'late', isFirstOfReply: true })
+  await msg.redraw({ text: 'late', isFirstOfReply: true })
+  expect((await msg.find({ type: 'Box' }))?.props.marginTop).toBeUndefined()
+  const ui = await reply($, 'm2')
+  await ui.redraw()
+  expect((await ui.find({ type: 'Box' }))?.props.marginTop).toBe(-1)
+})
+
+test('a call with no result yet reads the transcript once, not on every draw', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$: any, e: any) => ({ type: 'Text' as const, children: [e.props.text] }))
+  const file = [sentRow, hookSaid('r1', 'short')[0]!].map(r => JSON.stringify(r)).join('\n') + '\n'
+  let reads = 0
+  on('session.info', () => ({ value: { transcriptPath: '/t/s.jsonl' } }))
+  on('fs.read', (_: any, e: any) => { reads++; return { value: file.slice(e.offset ?? 0, (e.offset ?? 0) + (e.length ?? file.length)) } })
+  await prompt($, 'hi')
+  await mountRow($, 'Bash', 'x', { input: { command: 'ls' }, isRunning: true }, '', 'r1')
+  const ui = await reply($)
+  await ui.redraw()
+  const after = reads
+  await ui.redraw()
+  await ui.redraw()
+  expect(reads - after).toBeLessThanOrEqual(4)
+  expect((await ui.find({ type: 'Box' }))?.props.marginTop).toBe(-1)
+})
+
+test('a call with no hook message leaves the next row alone', async ($, on) => {
+  native(on)
+  nativePrompt(on)
+  on('ui.render', { component: 'AssistantMessage' }, (_$: any, e: any) => ({ type: 'Text' as const, children: [e.props.text] }))
+  transcript(on, '/t/s.jsonl', [sentRow, hookSaid('r1', TWO)[1]!])
+  await prompt($, 'hi')
+  await mountRow($, 'Read', 'x', {}, '/p/a.txt', 'r1')
+  const ui = await reply($)
+  await ui.redraw()
+  expect((await ui.find({ type: 'Box' }))?.props.marginTop).toBeUndefined()
+})
+
 test('a handoff quoting @a.md and [Image #1] paints over no engine rows: a plugin prompt expands neither', async ($, on) => {
   native(on)
   nativePrompt(on)
